@@ -57,7 +57,7 @@ type backendSnapshot struct {
 	IPv6Seq      int64                              `json:"ipv6Seq"`
 }
 
-func typed[T resource](res map[string]resource) map[string]T {
+func typed[T Resource](res map[string]Resource) map[string]T {
 	out := map[string]T{}
 
 	for id, r := range res {
@@ -139,7 +139,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return nil
 	}
 
-	res := map[string]resource{}
+	res := map[string]Resource{}
 
 	if err := mergeAll(res, &snap); err != nil {
 		return err
@@ -187,7 +187,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	return nil
 }
 
-func mergeKind[T resource](kind string, dst map[string]resource, src map[string]T) error {
+func mergeKind[T Resource](kind string, dst map[string]Resource, src map[string]T) error {
 	for id, r := range src {
 		if isNil(r) || r.base().Internal == nil {
 			return fmt.Errorf("%w: %s %q", ErrSnapshotNull, kind, id)
@@ -199,13 +199,13 @@ func mergeKind[T resource](kind string, dst map[string]resource, src map[string]
 	return nil
 }
 
-func isNil[T resource](r T) bool {
+func isNil[T Resource](r T) bool {
 	var zero T
 
 	return any(r) == any(zero)
 }
 
-func mergeAll(dst map[string]resource, s *backendSnapshot) error {
+func mergeAll(dst map[string]Resource, s *backendSnapshot) error {
 	checks := []error{
 		mergeKind("vcn", dst, s.Vcns), mergeKind("subnet", dst, s.Subnets),
 		mergeKind("internet gateway", dst, s.IGWs), mergeKind("NAT gateway", dst, s.NATs),

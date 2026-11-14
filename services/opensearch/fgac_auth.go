@@ -29,10 +29,10 @@ type fgacCtxKey struct{}
 
 // fgacRequestAuth is the authorization state a request carries into the bulk handler.
 type fgacRequestAuth struct {
-	perms effectivePerms
+	perms EffectivePerms
 }
 
-func withFGACAuth(r *http.Request, perms effectivePerms) *http.Request {
+func withFGACAuth(r *http.Request, perms EffectivePerms) *http.Request {
 	return r.WithContext(context.WithValue(r.Context(), fgacCtxKey{}, &fgacRequestAuth{perms: perms}))
 }
 
@@ -62,7 +62,7 @@ func isSigV4(r *http.Request) bool {
 }
 
 // iamPrincipal maps a SigV4 caller onto a principal whose backend roles are its IAM ARNs.
-func iamPrincipal(r *http.Request) securityPrincipal {
+func iamPrincipal(r *http.Request) SecurityPrincipal {
 	meta := awsmeta.Get(r.Context())
 	principalARN := ""
 
@@ -82,7 +82,7 @@ func iamPrincipal(r *http.Request) securityPrincipal {
 		}
 	}
 
-	return securityPrincipal{Name: principalARN, BackendRoles: roles, IAM: true}
+	return SecurityPrincipal{Name: principalARN, BackendRoles: roles, IAM: true}
 }
 
 func arnResource(a string) string {
@@ -106,7 +106,7 @@ func arnAccount(a string) string {
 }
 
 // authenticateFGAC resolves the caller of a request to a security principal.
-func (h *Handler) authenticateFGAC(r *http.Request, dom *Domain) (securityPrincipal, bool) {
+func (h *Handler) authenticateFGAC(r *http.Request, dom *Domain) (SecurityPrincipal, bool) {
 	aso := dom.AdvancedSecurityOptions
 
 	switch {
@@ -115,15 +115,15 @@ func (h *Handler) authenticateFGAC(r *http.Request, dom *Domain) (securityPrinci
 	case strings.HasPrefix(r.Header.Get("Authorization"), "Basic "):
 		user, pass, ok := r.BasicAuth()
 		if !ok || !aso.InternalUserDatabaseEnabled {
-			return securityPrincipal{}, false
+			return SecurityPrincipal{}, false
 		}
 
 		return h.Backend.AuthenticateInternalUser(dom.Name, user, pass)
 	case r.Header.Get("Authorization") == "" && h.Backend.AnonymousAuthActive(aso):
-		return securityPrincipal{Name: anonymousUserName, BackendRoles: []string{anonymousBackendRole}}, true
+		return SecurityPrincipal{Name: anonymousUserName, BackendRoles: []string{anonymousBackendRole}}, true
 	}
 
-	return securityPrincipal{}, false
+	return SecurityPrincipal{}, false
 }
 
 func writeUnauthorized(w http.ResponseWriter) {
@@ -145,11 +145,11 @@ func securityExceptionBody(reason string) map[string]any {
 	}
 }
 
-func noPermissionsReason(action string, p securityPrincipal) string {
+func noPermissionsReason(action string, p SecurityPrincipal) string {
 	return "no permissions for [" + action + "] and " + p.String()
 }
 
-func writeSecurityException(w http.ResponseWriter, action string, p securityPrincipal) {
+func writeSecurityException(w http.ResponseWriter, action string, p SecurityPrincipal) {
 	writeRawJSON(w, http.StatusForbidden, securityExceptionBody(noPermissionsReason(action, p)))
 }
 
@@ -187,7 +187,7 @@ func (h *Handler) enforceFGAC(w http.ResponseWriter, r *http.Request, target dat
 	h.serveAuthorized(w, withFGACAuth(r, perms), op, perms)
 }
 
-func (h *Handler) serveAuthorized(w http.ResponseWriter, r *http.Request, op dataOp, perms effectivePerms) {
+func (h *Handler) serveAuthorized(w http.ResponseWriter, r *http.Request, op dataOp, perms EffectivePerms) {
 	var (
 		res accessRestriction
 		err error

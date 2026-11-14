@@ -119,9 +119,9 @@ func unwrapImport(v *Vault, w WrappedImportKey) ([]byte, *APIError) {
 }
 
 // ImportKey creates a key from wrapped external key material.
-func (b *InMemoryBackend) ImportKey(vaultID, token string, in ImportKeyIn) (keyWire, string, error) {
+func (b *InMemoryBackend) ImportKey(vaultID, token string, in ImportKeyIn) (KeyWire, string, error) {
 	if aerr := validateCreateKey(&in.CreateKeyIn); aerr != nil {
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	b.mu.Lock("ImportKey")
@@ -131,7 +131,7 @@ func (b *InMemoryBackend) ImportKey(vaultID, token string, in ImportKeyIn) (keyW
 	if id, ok := b.retrySeen(scope, token); ok {
 		k, live := b.keys[id]
 		if !live || k.State == stateDeleted {
-			return keyWire{}, "", errInvalidatedToken()
+			return KeyWire{}, "", errInvalidatedToken()
 		}
 
 		return keyView(k), k.Etag, nil
@@ -139,21 +139,21 @@ func (b *InMemoryBackend) ImportKey(vaultID, token string, in ImportKeyIn) (keyW
 
 	v, aerr := b.activeVault(vaultID)
 	if aerr != nil {
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	mat, aerr := unwrapImport(v, in.WrappedImportKey)
 	if aerr != nil {
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	if aerr = checkMaterial(in.KeyShape, mat); aerr != nil {
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	k, aerr := b.storeKey(v, in.CreateKeyIn, mat, originExternal)
 	if aerr != nil {
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	b.retryNote(scope, token, k.ID)

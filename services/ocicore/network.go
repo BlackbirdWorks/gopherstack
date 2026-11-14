@@ -48,7 +48,7 @@ type Ipv6Pair struct {
 	Ipv6Address    string `json:"ipv6Address"`
 }
 
-func (b *InMemoryBackend) ready(r resource) {
+func (b *InMemoryBackend) ready(r Resource) {
 	bs := r.base()
 	bs.LifecycleState, bs.Internal.TransitionAt = statAvailable, nil
 }
@@ -472,7 +472,7 @@ type AttachVnicIn struct {
 }
 
 // AttachVnic attaches a new secondary VNIC to an instance.
-func (b *InMemoryBackend) AttachVnic(in AttachVnicIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) AttachVnic(in AttachVnicIn) (Resource, string, *APIError) {
 	if in.InstanceID == "" || in.CreateVnicDetails == nil {
 		return nil, "", errMissing("instanceId and createVnicDetails are required")
 	}
@@ -564,7 +564,7 @@ type UpdateVnicIn struct {
 }
 
 // UpdateVnic changes a VNIC.
-func (b *InMemoryBackend) UpdateVnic(id, ifMatch string, in UpdateVnicIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) UpdateVnic(id, ifMatch string, in UpdateVnicIn) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(v *Vnic) *APIError {
 		s, _ := get[*Subnet](b, v.SubnetID)
 		prim := b.primaryIP(v.ID)
@@ -613,7 +613,7 @@ type CreatePrivateIPIn struct {
 }
 
 // CreatePrivateIP adds a secondary private IP to a VNIC, or reserves one in a subnet.
-func (b *InMemoryBackend) CreatePrivateIP(in CreatePrivateIPIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) CreatePrivateIP(in CreatePrivateIPIn) (Resource, string, *APIError) {
 	if aerr := validName(in.DisplayName); aerr != nil {
 		return nil, "", aerr
 	}
@@ -712,7 +712,7 @@ type UpdatePrivateIPIn struct {
 }
 
 // UpdatePrivateIP changes a private IP, or moves it to another VNIC of the same subnet.
-func (b *InMemoryBackend) UpdatePrivateIP(id, ifMatch string, in UpdatePrivateIPIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) UpdatePrivateIP(id, ifMatch string, in UpdatePrivateIPIn) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(p *PrivateIP) *APIError {
 		s, _ := get[*Subnet](b, p.SubnetID)
 
@@ -836,25 +836,25 @@ func (b *InMemoryBackend) checkPrivateIPQuery(o PrivateIPListOpts) *APIError {
 }
 
 // ListPrivateIPs lists private IPs by VNIC, or by subnet and address.
-func (b *InMemoryBackend) ListPrivateIPs(o PrivateIPListOpts) (page.Page[resource], *APIError) {
+func (b *InMemoryBackend) ListPrivateIPs(o PrivateIPListOpts) (page.Page[Resource], *APIError) {
 	b.mu.RLock("ListPrivateIPs")
 	defer b.mu.RUnlock()
 
 	if aerr := b.checkPrivateIPQuery(o); aerr != nil {
-		return page.Page[resource]{}, aerr
+		return page.Page[Resource]{}, aerr
 	}
 
 	all := liveOf(b, o.matches)
 	sortRes(all, ListOpts{Order: orderAsc})
 
 	pg := page.New(all, o.Page, o.Limit, defaultListLimit)
-	out := make([]resource, 0, len(pg.Data))
+	out := make([]Resource, 0, len(pg.Data))
 
 	for _, p := range pg.Data {
 		out = append(out, p.view())
 	}
 
-	return page.Page[resource]{Data: out, Next: pg.Next}, nil
+	return page.Page[Resource]{Data: out, Next: pg.Next}, nil
 }
 
 // ListNsgVnics lists the VNICs that are members of a network security group.

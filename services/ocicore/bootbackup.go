@@ -11,7 +11,7 @@ type CreateBootVolumeBackupIn struct {
 }
 
 // CreateBootVolumeBackup snapshots a boot volume; the first backup of a boot volume is always FULL.
-func (b *InMemoryBackend) CreateBootVolumeBackup(in CreateBootVolumeBackupIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) CreateBootVolumeBackup(in CreateBootVolumeBackupIn) (Resource, string, *APIError) {
 	if aerr := backupRequest(in.DisplayName, "bootVolumeId", in.BootVolumeID, in.Type); aerr != nil {
 		return nil, "", aerr
 	}
@@ -62,7 +62,7 @@ type UpdateBootVolumeBackupIn struct {
 func (b *InMemoryBackend) UpdateBootVolumeBackup(
 	id, ifMatch string,
 	in UpdateBootVolumeBackupIn,
-) (resource, string, *APIError) {
+) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(bk *BootVolumeBackup) *APIError {
 		if in.KmsKeyID != nil {
 			if aerr := b.checkKmsKey(*in.KmsKeyID); aerr != nil {

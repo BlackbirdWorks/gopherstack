@@ -53,7 +53,7 @@ func (b *Backend) pausableLocked(in *PauseContactInput) (*contactRec, error) {
 }
 
 // PauseContact pauses an ongoing task contact.
-func (b *Backend) PauseContact(in *PauseContactInput) (*empty, error) {
+func (b *Backend) PauseContact(in *PauseContactInput) (*EmptyOutput, error) {
 	b.mu.Lock("PauseContact")
 	defer b.mu.Unlock()
 
@@ -71,11 +71,11 @@ func (b *Backend) PauseContact(in *PauseContactInput) (*empty, error) {
 	c.Contact.TotalPauseCount++
 	b.touch(c)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 // ResumeContact resumes a paused task contact.
-func (b *Backend) ResumeContact(in *PauseContactInput) (*empty, error) {
+func (b *Backend) ResumeContact(in *PauseContactInput) (*EmptyOutput, error) {
 	b.mu.Lock("ResumeContact")
 	defer b.mu.Unlock()
 
@@ -90,7 +90,7 @@ func (b *Backend) ResumeContact(in *PauseContactInput) (*empty, error) {
 
 	b.resumeLocked(c)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 func (b *Backend) resumeLocked(c *contactRec) {
@@ -189,7 +189,7 @@ func trackParticipant(typ, track string) string {
 }
 
 // StartContactRecording starts the requested recordings of a voice contact; each can be started once.
-func (b *Backend) StartContactRecording(in *RecordingInput) (*empty, error) {
+func (b *Backend) StartContactRecording(in *RecordingInput) (*EmptyOutput, error) {
 	types, err := recordingTypes(in)
 	if err != nil {
 		return nil, err
@@ -235,10 +235,10 @@ func (b *Backend) StartContactRecording(in *RecordingInput) (*empty, error) {
 
 	b.touch(c)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
-func (b *Backend) transitionRecording(op string, in *RecordingInput, from []string, to string) (*empty, error) {
+func (b *Backend) transitionRecording(op string, in *RecordingInput, from []string, to string) (*EmptyOutput, error) {
 	typ := in.ContactRecordingType
 	if typ == "" {
 		typ = recAgent
@@ -274,21 +274,21 @@ func (b *Backend) transitionRecording(op string, in *RecordingInput, from []stri
 
 	b.touch(c)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 // StopContactRecording ends a recording for good.
-func (b *Backend) StopContactRecording(in *RecordingInput) (*empty, error) {
+func (b *Backend) StopContactRecording(in *RecordingInput) (*EmptyOutput, error) {
 	return b.transitionRecording("StopContactRecording", in, []string{recActive, recSuspended}, recStopped)
 }
 
 // SuspendContactRecording pauses an active recording.
-func (b *Backend) SuspendContactRecording(in *RecordingInput) (*empty, error) {
+func (b *Backend) SuspendContactRecording(in *RecordingInput) (*EmptyOutput, error) {
 	return b.transitionRecording("SuspendContactRecording", in, []string{recActive}, recSuspended)
 }
 
 // ResumeContactRecording resumes a suspended recording.
-func (b *Backend) ResumeContactRecording(in *RecordingInput) (*empty, error) {
+func (b *Backend) ResumeContactRecording(in *RecordingInput) (*EmptyOutput, error) {
 	return b.transitionRecording("ResumeContactRecording", in, []string{recSuspended}, recActive)
 }
 
@@ -301,13 +301,14 @@ type MonitorContactInput struct {
 	AllowedMonitorCapabilities []string
 }
 
-type monitorContactOut struct {
+// MonitorContactOut is the MonitorContact response.
+type MonitorContactOut struct {
 	ContactArn string `json:"ContactArn"`
 	ContactID  string `json:"ContactId"`
 }
 
 // MonitorContact starts a silent-monitoring contact for a user on a connected voice or chat contact.
-func (b *Backend) MonitorContact(ctx context.Context, in *MonitorContactInput) (*monitorContactOut, error) {
+func (b *Backend) MonitorContact(ctx context.Context, in *MonitorContactInput) (*MonitorContactOut, error) {
 	if len(in.AllowedMonitorCapabilities) > maxMonitorCaps {
 		return nil, invalidRequestErr("AllowedMonitorCapabilities holds at most 2 items")
 	}
@@ -345,7 +346,7 @@ func (b *Backend) MonitorContact(ctx context.Context, in *MonitorContactInput) (
 	m.MonitorCaps = slices.Clone(in.AllowedMonitorCapabilities)
 	b.contacts.put(m)
 
-	return &monitorContactOut{ContactArn: m.Contact.Arn, ContactID: m.Contact.ID}, nil
+	return &MonitorContactOut{ContactArn: m.Contact.Arn, ContactID: m.Contact.ID}, nil
 }
 
 // StartContactStreamingInput is the StartContactStreaming request.
@@ -356,12 +357,13 @@ type StartContactStreamingInput struct {
 	ClientToken                string
 }
 
-type startStreamingOut struct {
+// StartStreamingOut is the StartContactStreaming response.
+type StartStreamingOut struct {
 	StreamingID string `json:"StreamingId"`
 }
 
 // StartContactStreaming starts message streaming of a chat contact to an SNS topic.
-func (b *Backend) StartContactStreaming(in *StartContactStreamingInput) (*startStreamingOut, error) {
+func (b *Backend) StartContactStreaming(in *StartContactStreamingInput) (*StartStreamingOut, error) {
 	cfg := in.ChatStreamingConfiguration
 	if cfg == nil || !snsTopicARN.MatchString(cfg.StreamingEndpointArn) {
 		return nil, invalidParamErr("ChatStreamingConfiguration.StreamingEndpointArn must be an SNS topic ARN")
@@ -391,7 +393,7 @@ func (b *Backend) StartContactStreaming(in *StartContactStreamingInput) (*startS
 	c.Streams[id] = cfg.StreamingEndpointArn
 	b.touch(c)
 
-	return &startStreamingOut{StreamingID: id}, nil
+	return &StartStreamingOut{StreamingID: id}, nil
 }
 
 // StopContactStreamingInput is the StopContactStreaming request.
@@ -402,7 +404,7 @@ type StopContactStreamingInput struct {
 }
 
 // StopContactStreaming ends one message streaming configuration of a chat contact.
-func (b *Backend) StopContactStreaming(in *StopContactStreamingInput) (*empty, error) {
+func (b *Backend) StopContactStreaming(in *StopContactStreamingInput) (*EmptyOutput, error) {
 	b.mu.Lock("StopContactStreaming")
 	defer b.mu.Unlock()
 
@@ -418,7 +420,7 @@ func (b *Backend) StopContactStreaming(in *StopContactStreamingInput) (*empty, e
 	delete(c.Streams, in.StreamingID)
 	b.touch(c)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 // StartContactMediaProcessingInput is the StartContactMediaProcessing request.
@@ -433,7 +435,7 @@ type StartContactMediaProcessingInput struct {
 func (b *Backend) StartContactMediaProcessing(
 	ctx context.Context,
 	in *StartContactMediaProcessingInput,
-) (*empty, error) {
+) (*EmptyOutput, error) {
 	if !lambdaARNRegexp.MatchString(in.ProcessorArn) {
 		return nil, invalidParamErr("ProcessorArn %q is not a Lambda function ARN", in.ProcessorArn)
 	}
@@ -468,7 +470,7 @@ func (b *Backend) StartContactMediaProcessing(
 	c.MediaProcessor = &mediaProcessor{ProcessorArn: in.ProcessorArn, FailureMode: in.FailureMode}
 	b.touch(c)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 // StopContactMediaProcessingInput is the StopContactMediaProcessing request.
@@ -478,7 +480,7 @@ type StopContactMediaProcessingInput struct {
 }
 
 // StopContactMediaProcessing disables message processing on a chat contact.
-func (b *Backend) StopContactMediaProcessing(in *StopContactMediaProcessingInput) (*empty, error) {
+func (b *Backend) StopContactMediaProcessing(in *StopContactMediaProcessingInput) (*EmptyOutput, error) {
 	b.mu.Lock("StopContactMediaProcessing")
 	defer b.mu.Unlock()
 
@@ -494,7 +496,7 @@ func (b *Backend) StopContactMediaProcessing(in *StopContactMediaProcessingInput
 	c.MediaProcessor = nil
 	b.touch(c)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 func (b *Backend) finishContactLocked(c *contactRec, t awstime.EpochTime) {
@@ -533,8 +535,8 @@ type DismissUserContactInput struct {
 }
 
 // DismissUserContact clears an ended contact from an agent's CCP; GetCurrentUserData stops listing it as ENDED.
-func (b *Backend) DismissUserContact(in *DismissUserContactInput) (*empty, error) {
-	return writeInstance(b, "DismissUserContact", in.InstanceID, func(inst string) (*empty, error) {
+func (b *Backend) DismissUserContact(in *DismissUserContactInput) (*EmptyOutput, error) {
+	return writeInstance(b, "DismissUserContact", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		u, err := b.users.get(inst, in.UserID)
 		if err != nil {
 			return nil, err
@@ -559,6 +561,6 @@ func (b *Backend) DismissUserContact(in *DismissUserContactInput) (*empty, error
 		c.DismissedBy = append(c.DismissedBy, u.User.ID)
 		b.touch(c)
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }

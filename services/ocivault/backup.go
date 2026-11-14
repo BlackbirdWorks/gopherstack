@@ -204,15 +204,15 @@ func (b *InMemoryBackend) abortBackup(kind, id string, restore string) {
 }
 
 // BackupVault writes an encrypted copy of the vault metadata to the backup location.
-func (b *InMemoryBackend) BackupVault(id, ifMatch, hostPort string, in BackupIn) (vaultWire, string, error) {
+func (b *InMemoryBackend) BackupVault(id, ifMatch, hostPort string, in BackupIn) (VaultWire, string, error) {
 	loc, aerr := in.location()
 	if aerr != nil {
-		return vaultWire{}, "", aerr
+		return VaultWire{}, "", aerr
 	}
 
 	store, aerr := b.store()
 	if aerr != nil {
-		return vaultWire{}, "", aerr
+		return VaultWire{}, "", aerr
 	}
 
 	b.mu.Lock("BackupVault")
@@ -229,7 +229,7 @@ func (b *InMemoryBackend) BackupVault(id, ifMatch, hostPort string, in BackupIn)
 	if aerr != nil {
 		b.mu.Unlock()
 
-		return vaultWire{}, "", aerr
+		return VaultWire{}, "", aerr
 	}
 
 	cp := *v
@@ -239,7 +239,7 @@ func (b *InMemoryBackend) BackupVault(id, ifMatch, hostPort string, in BackupIn)
 	if aerr != nil {
 		b.mu.Unlock()
 
-		return vaultWire{}, "", aerr
+		return VaultWire{}, "", aerr
 	}
 
 	b.begin(&v.State, &v.transition, stateBackupInProgress, stateActive)
@@ -249,22 +249,22 @@ func (b *InMemoryBackend) BackupVault(id, ifMatch, hostPort string, in BackupIn)
 	if aerr = writeBlob(store, loc, blob); aerr != nil {
 		b.abortBackup(kindVault, id, stateActive)
 
-		return vaultWire{}, "", aerr
+		return VaultWire{}, "", aerr
 	}
 
 	return view, etag, nil
 }
 
 // BackupKey writes an encrypted copy of the key, all its versions and its vault metadata.
-func (b *InMemoryBackend) BackupKey(vaultID, keyID, ifMatch string, in BackupIn) (keyWire, string, error) {
+func (b *InMemoryBackend) BackupKey(vaultID, keyID, ifMatch string, in BackupIn) (KeyWire, string, error) {
 	loc, aerr := in.location()
 	if aerr != nil {
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	store, aerr := b.store()
 	if aerr != nil {
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	b.mu.Lock("BackupKey")
@@ -281,7 +281,7 @@ func (b *InMemoryBackend) BackupKey(vaultID, keyID, ifMatch string, in BackupIn)
 	if aerr != nil {
 		b.mu.Unlock()
 
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	kc, vc := *k, *v
@@ -295,7 +295,7 @@ func (b *InMemoryBackend) BackupKey(vaultID, keyID, ifMatch string, in BackupIn)
 	if aerr != nil {
 		b.mu.Unlock()
 
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	b.begin(&k.State, &k.transition, stateBackupInProgress, prev)
@@ -305,21 +305,21 @@ func (b *InMemoryBackend) BackupKey(vaultID, keyID, ifMatch string, in BackupIn)
 	if aerr = writeBlob(store, loc, blob); aerr != nil {
 		b.abortBackup(kindKey, keyID, prev)
 
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	return view, etag, nil
 }
 
 // RestoreVault recreates a vault from a backup file; it keeps its OCID and must land in its original compartment.
-func (b *InMemoryBackend) RestoreVault(compartment, hostPort string, blob []byte) (vaultWire, string, error) {
+func (b *InMemoryBackend) RestoreVault(compartment, hostPort string, blob []byte) (VaultWire, string, error) {
 	if compartment == "" {
-		return vaultWire{}, "", errMissing("compartmentId is required")
+		return VaultWire{}, "", errMissing("compartmentId is required")
 	}
 
 	var bk vaultBackup
 	if aerr := b.openBackup(kindVault, blob, &bk); aerr != nil {
-		return vaultWire{}, "", aerr
+		return VaultWire{}, "", aerr
 	}
 
 	b.mu.Lock("RestoreVault")
@@ -327,11 +327,11 @@ func (b *InMemoryBackend) RestoreVault(compartment, hostPort string, blob []byte
 
 	v := bk.Vault
 	if v.CompartmentID != compartment {
-		return vaultWire{}, "", errParam("A vault can only be restored to the compartment it was backed up from")
+		return VaultWire{}, "", errParam("A vault can only be restored to the compartment it was backed up from")
 	}
 
 	if cur, ok := b.vaults[v.ID]; ok && cur.State != stateDeleted {
-		return vaultWire{}, "", errExists("Vault " + v.ID + " already exists")
+		return VaultWire{}, "", errExists("Vault " + v.ID + " already exists")
 	}
 
 	v.RestoredFrom, v.TimeOfDeletion = v.ID, nil
@@ -343,10 +343,10 @@ func (b *InMemoryBackend) RestoreVault(compartment, hostPort string, blob []byte
 }
 
 // RestoreKey recreates a key and its versions in its original vault from a backup file.
-func (b *InMemoryBackend) RestoreKey(vaultScope string, blob []byte) (keyWire, string, error) {
+func (b *InMemoryBackend) RestoreKey(vaultScope string, blob []byte) (KeyWire, string, error) {
 	var bk keyBackup
 	if aerr := b.openBackup(kindKey, blob, &bk); aerr != nil {
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	b.mu.Lock("RestoreKey")
@@ -355,15 +355,15 @@ func (b *InMemoryBackend) RestoreKey(vaultScope string, blob []byte) (keyWire, s
 	k := bk.Key
 
 	if vaultScope != "" && vaultScope != k.VaultID {
-		return keyWire{}, "", errParam("The backup belongs to a different vault than the addressed endpoint")
+		return KeyWire{}, "", errParam("The backup belongs to a different vault than the addressed endpoint")
 	}
 
 	if _, aerr := b.activeVault(k.VaultID); aerr != nil {
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	if cur, ok := b.keys[k.ID]; ok && cur.State != stateDeleted {
-		return keyWire{}, "", errExists("Key " + k.ID + " already exists")
+		return KeyWire{}, "", errExists("Key " + k.ID + " already exists")
 	}
 
 	final := cmpOr(k.State, stateEnabled)

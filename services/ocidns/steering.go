@@ -170,40 +170,40 @@ func checkPolicyTTL(ttl *int) (int, *APIError) {
 }
 
 // CreateSteeringPolicy creates a steering policy.
-func (b *InMemoryBackend) CreateSteeringPolicy(in CreatePolicyIn) (SteeringPolicyWire, tag, error) {
+func (b *InMemoryBackend) CreateSteeringPolicy(in CreatePolicyIn) (SteeringPolicyWire, Tag, error) {
 	b.mu.Lock("CreateSteeringPolicy")
 	defer b.mu.Unlock()
 
 	if id, ok := b.retry.Lookup("CreateSteeringPolicy", in.RetryToken, b.nowUTC()); ok {
 		p, live := b.policies[id]
 		if !live {
-			return SteeringPolicyWire{}, tag{}, errInvalidatedToken()
+			return SteeringPolicyWire{}, Tag{}, errInvalidatedToken()
 		}
 
 		return b.policyWire(p), tagOf(p.ID, p.meta), nil
 	}
 
 	if err := firstAPIErr(b.checkCompartment(in.CompartmentID), b.checkTags(in.Tags)); err != nil {
-		return SteeringPolicyWire{}, tag{}, err
+		return SteeringPolicyWire{}, Tag{}, err
 	}
 
 	in.Template = strings.ToUpper(in.Template)
 
 	if in.DisplayName == "" || in.Template == "" {
-		return SteeringPolicyWire{}, tag{}, errMissing("displayName and template are required")
+		return SteeringPolicyWire{}, Tag{}, errMissing("displayName and template are required")
 	}
 
 	if !steeringTemplates[in.Template] {
-		return SteeringPolicyWire{}, tag{}, errParam("template is not a supported value")
+		return SteeringPolicyWire{}, Tag{}, errParam("template is not a supported value")
 	}
 
 	ttl, err := checkPolicyTTL(in.TTL)
 	if err != nil {
-		return SteeringPolicyWire{}, tag{}, err
+		return SteeringPolicyWire{}, Tag{}, err
 	}
 
 	if err = cmp.Or(checkAnswers(in.Answers), checkRules(in.Rules)); err != nil {
-		return SteeringPolicyWire{}, tag{}, err
+		return SteeringPolicyWire{}, Tag{}, err
 	}
 
 	now := b.nowUTC()
@@ -220,13 +220,13 @@ func (b *InMemoryBackend) CreateSteeringPolicy(in CreatePolicyIn) (SteeringPolic
 }
 
 // GetSteeringPolicy returns a steering policy.
-func (b *InMemoryBackend) GetSteeringPolicy(id string) (SteeringPolicyWire, tag, error) {
+func (b *InMemoryBackend) GetSteeringPolicy(id string) (SteeringPolicyWire, Tag, error) {
 	b.mu.RLock("GetSteeringPolicy")
 	defer b.mu.RUnlock()
 
 	p, err := b.policyByID(id)
 	if err != nil {
-		return SteeringPolicyWire{}, tag{}, err
+		return SteeringPolicyWire{}, Tag{}, err
 	}
 
 	return b.policyWire(p), tagOf(p.ID, p.meta), nil
@@ -272,12 +272,12 @@ var policySorters = sorter[*SteeringPolicy]{ //nolint:gochecknoglobals // immuta
 func (b *InMemoryBackend) ListSteeringPolicies(
 	f PolicyFilter,
 	o ListOpts,
-) (listResult[SteeringPolicySummaryWire], error) {
+) (ListResult[SteeringPolicySummaryWire], error) {
 	b.mu.RLock("ListSteeringPolicies")
 	defer b.mu.RUnlock()
 
 	if err := b.checkCompartment(f.Compart); err != nil {
-		return listResult[SteeringPolicySummaryWire]{}, err
+		return ListResult[SteeringPolicySummaryWire]{}, err
 	}
 
 	var all []*SteeringPolicy
@@ -290,7 +290,7 @@ func (b *InMemoryBackend) ListSteeringPolicies(
 
 	pg, err := sortPage(all, o, keyTimeCreated, true, policySorters)
 	if err != nil {
-		return listResult[SteeringPolicySummaryWire]{}, err
+		return ListResult[SteeringPolicySummaryWire]{}, err
 	}
 
 	return finish(pg, len(all), b.policySummary), nil
@@ -308,34 +308,34 @@ type UpdatePolicyIn struct {
 }
 
 // UpdateSteeringPolicy changes a steering policy; attachments pick up the new answers' record types.
-func (b *InMemoryBackend) UpdateSteeringPolicy(id string, c cond, in UpdatePolicyIn) (SteeringPolicyWire, tag, error) {
+func (b *InMemoryBackend) UpdateSteeringPolicy(id string, c cond, in UpdatePolicyIn) (SteeringPolicyWire, Tag, error) {
 	b.mu.Lock("UpdateSteeringPolicy")
 	defer b.mu.Unlock()
 
 	p, err := b.policyByID(id)
 	if err != nil {
-		return SteeringPolicyWire{}, tag{}, err
+		return SteeringPolicyWire{}, Tag{}, err
 	}
 
 	if err = firstAPIErr(c.check(p.ID, p.meta), b.checkTags(in.Tags)); err != nil {
-		return SteeringPolicyWire{}, tag{}, err
+		return SteeringPolicyWire{}, Tag{}, err
 	}
 
 	tpl := strings.ToUpper(in.Template)
 	if tpl != "" && !steeringTemplates[tpl] {
-		return SteeringPolicyWire{}, tag{}, errParam("template is not a supported value")
+		return SteeringPolicyWire{}, Tag{}, errParam("template is not a supported value")
 	}
 
 	ttl := p.TTL
 
 	if in.TTL != nil {
 		if ttl, err = checkPolicyTTL(in.TTL); err != nil {
-			return SteeringPolicyWire{}, tag{}, err
+			return SteeringPolicyWire{}, Tag{}, err
 		}
 	}
 
 	if err = cmp.Or(checkAnswers(in.Answers), checkRules(in.Rules)); err != nil {
-		return SteeringPolicyWire{}, tag{}, err
+		return SteeringPolicyWire{}, Tag{}, err
 	}
 
 	p.TTL = ttl
@@ -482,14 +482,14 @@ func (b *InMemoryBackend) validateAttachment(in CreateAttachmentIn) (*SteeringPo
 }
 
 // CreateAttachment attaches a steering policy to a domain of a GLOBAL zone.
-func (b *InMemoryBackend) CreateAttachment(in CreateAttachmentIn) (AttachmentWire, tag, error) {
+func (b *InMemoryBackend) CreateAttachment(in CreateAttachmentIn) (AttachmentWire, Tag, error) {
 	b.mu.Lock("CreateAttachment")
 	defer b.mu.Unlock()
 
 	if id, ok := b.retry.Lookup("CreateSteeringPolicyAttachment", in.RetryToken, b.nowUTC()); ok {
 		a, live := b.attachments[id]
 		if !live {
-			return AttachmentWire{}, tag{}, errInvalidatedToken()
+			return AttachmentWire{}, Tag{}, errInvalidatedToken()
 		}
 
 		return b.attachmentWire(a), tagOf(a.ID, a.meta), nil
@@ -497,7 +497,7 @@ func (b *InMemoryBackend) CreateAttachment(in CreateAttachmentIn) (AttachmentWir
 
 	p, domain, err := b.validateAttachment(in)
 	if err != nil {
-		return AttachmentWire{}, tag{}, err
+		return AttachmentWire{}, Tag{}, err
 	}
 
 	z := b.zones[in.ZoneID]
@@ -524,13 +524,13 @@ func (b *InMemoryBackend) attachmentByID(id string) (*Attachment, *APIError) {
 }
 
 // GetAttachment returns a steering policy attachment.
-func (b *InMemoryBackend) GetAttachment(id string) (AttachmentWire, tag, error) {
+func (b *InMemoryBackend) GetAttachment(id string) (AttachmentWire, Tag, error) {
 	b.mu.RLock("GetAttachment")
 	defer b.mu.RUnlock()
 
 	a, err := b.attachmentByID(id)
 	if err != nil {
-		return AttachmentWire{}, tag{}, err
+		return AttachmentWire{}, Tag{}, err
 	}
 
 	return b.attachmentWire(a), tagOf(a.ID, a.meta), nil
@@ -574,12 +574,12 @@ var attachmentSorters = sorter[*Attachment]{ //nolint:gochecknoglobals // immuta
 }
 
 // ListAttachments lists the steering policy attachments of a compartment.
-func (b *InMemoryBackend) ListAttachments(f AttachmentFilter, o ListOpts) (listResult[AttachmentWire], error) {
+func (b *InMemoryBackend) ListAttachments(f AttachmentFilter, o ListOpts) (ListResult[AttachmentWire], error) {
 	b.mu.RLock("ListAttachments")
 	defer b.mu.RUnlock()
 
 	if err := b.checkCompartment(f.Compart); err != nil {
-		return listResult[AttachmentWire]{}, err
+		return ListResult[AttachmentWire]{}, err
 	}
 
 	var all []*Attachment
@@ -592,7 +592,7 @@ func (b *InMemoryBackend) ListAttachments(f AttachmentFilter, o ListOpts) (listR
 
 	pg, err := sortPage(all, o, keyTimeCreated, true, attachmentSorters)
 	if err != nil {
-		return listResult[AttachmentWire]{}, err
+		return ListResult[AttachmentWire]{}, err
 	}
 
 	return finish(pg, len(all), b.attachmentWire), nil
@@ -604,17 +604,17 @@ type UpdateAttachmentIn struct {
 }
 
 // UpdateAttachment changes the display name of an attachment.
-func (b *InMemoryBackend) UpdateAttachment(id string, c cond, in UpdateAttachmentIn) (AttachmentWire, tag, error) {
+func (b *InMemoryBackend) UpdateAttachment(id string, c cond, in UpdateAttachmentIn) (AttachmentWire, Tag, error) {
 	b.mu.Lock("UpdateAttachment")
 	defer b.mu.Unlock()
 
 	a, err := b.attachmentByID(id)
 	if err != nil {
-		return AttachmentWire{}, tag{}, err
+		return AttachmentWire{}, Tag{}, err
 	}
 
 	if err = c.check(a.ID, a.meta); err != nil {
-		return AttachmentWire{}, tag{}, err
+		return AttachmentWire{}, Tag{}, err
 	}
 
 	if in.DisplayName != nil {

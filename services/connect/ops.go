@@ -58,7 +58,7 @@ func describeOp[T any](label, key string, fn func(inst, id string) (*T, error)) 
 	}
 }
 
-func deleteOp(label string, fn func(inst, id string) (*empty, error)) restroute.OpFunc {
+func deleteOp(label string, fn func(inst, id string) (*EmptyOutput, error)) restroute.OpFunc {
 	return func(_ context.Context, req *restroute.Request) (any, int, error) {
 		_, err := fn(instOf(req), req.Params[label])
 
@@ -211,7 +211,7 @@ func (h *Handler) instanceOps(ops map[string]restroute.OpFunc) {
 			return b.ListInstanceAttributes(instOf(r), t, m)
 		},
 	)
-	ops["UpdateInstanceAttribute"] = typed(func(in *attrIn) (*empty, error) {
+	ops["UpdateInstanceAttribute"] = typed(func(in *attrIn) (*EmptyOutput, error) {
 		return nil, b.UpdateInstanceAttribute(in.InstanceID, in.AttributeType, in.Value)
 	})
 	h.storageOps(ops)
@@ -243,7 +243,7 @@ func (h *Handler) storageOps(ops map[string]restroute.OpFunc) {
 			return b.ListInstanceStorageConfigs(instOf(r), r.Query.Get("resourceType"), t, m)
 		},
 	)
-	ops["UpdateInstanceStorageConfig"] = typedCtx(func(ctx context.Context, in *storageIn) (*empty, error) {
+	ops["UpdateInstanceStorageConfig"] = typedCtx(func(ctx context.Context, in *storageIn) (*EmptyOutput, error) {
 		return nil, b.UpdateInstanceStorageConfig(
 			ctx,
 			in.InstanceID,
@@ -265,9 +265,11 @@ func (h *Handler) accessOps(ops map[string]restroute.OpFunc) {
 	b := h.Backend
 
 	ops["AssociateApprovedOrigin"] = typed(
-		func(in *originIn) (*empty, error) { return nil, b.AssociateApprovedOrigin(in.InstanceID, in.Origin) },
+		func(in *originIn) (*EmptyOutput, error) {
+			return nil, b.AssociateApprovedOrigin(in.InstanceID, in.Origin)
+		},
 	)
-	ops["DisassociateApprovedOrigin"] = typed(func(in *originIn) (*empty, error) {
+	ops["DisassociateApprovedOrigin"] = typed(func(in *originIn) (*EmptyOutput, error) {
 		return nil, b.DisassociateApprovedOrigin(in.InstanceID, in.OriginQuery)
 	})
 	ops["ListApprovedOrigins"] = listOp(
@@ -276,10 +278,10 @@ func (h *Handler) accessOps(ops map[string]restroute.OpFunc) {
 			return b.ListApprovedOrigins(instOf(r), t, m)
 		},
 	)
-	ops["AssociateLambdaFunction"] = typedCtx(func(ctx context.Context, in *lambdaIn) (*empty, error) {
+	ops["AssociateLambdaFunction"] = typedCtx(func(ctx context.Context, in *lambdaIn) (*EmptyOutput, error) {
 		return nil, b.AssociateLambdaFunction(ctx, in.InstanceID, in.FunctionArn)
 	})
-	ops["DisassociateLambdaFunction"] = typed(func(in *lambdaIn) (*empty, error) {
+	ops["DisassociateLambdaFunction"] = typed(func(in *lambdaIn) (*EmptyOutput, error) {
 		return nil, b.DisassociateLambdaFunction(in.InstanceID, in.FunctionArnQuery)
 	})
 	ops["ListLambdaFunctions"] = listOp(
@@ -288,10 +290,10 @@ func (h *Handler) accessOps(ops map[string]restroute.OpFunc) {
 			return b.ListLambdaFunctions(instOf(r), t, m)
 		},
 	)
-	ops["AssociateLexBot"] = typed(func(in *lexIn) (*empty, error) {
+	ops["AssociateLexBot"] = typed(func(in *lexIn) (*EmptyOutput, error) {
 		return nil, b.AssociateBot(in.InstanceID, LexBotConfig{LexBot: in.LexBot})
 	})
-	ops["DisassociateLexBot"] = typed(func(in *lexQueryIn) (*empty, error) {
+	ops["DisassociateLexBot"] = typed(func(in *lexQueryIn) (*EmptyOutput, error) {
 		return nil, b.DisassociateBot(
 			in.InstanceID,
 			LexBotConfig{LexBot: &LexBot{Name: in.BotName, LexRegion: in.LexRegion}},
@@ -307,10 +309,10 @@ func (h *Handler) accessOps(ops map[string]restroute.OpFunc) {
 
 		return bots, next, err
 	})
-	ops["AssociateBot"] = typed(func(in *lexIn) (*empty, error) {
+	ops["AssociateBot"] = typed(func(in *lexIn) (*EmptyOutput, error) {
 		return nil, b.AssociateBot(in.InstanceID, LexBotConfig{LexBot: in.LexBot, LexV2Bot: in.LexV2Bot})
 	})
-	ops["DisassociateBot"] = typed(func(in *lexIn) (*empty, error) {
+	ops["DisassociateBot"] = typed(func(in *lexIn) (*EmptyOutput, error) {
 		return nil, b.DisassociateBot(in.InstanceID, LexBotConfig{LexBot: in.LexBot, LexV2Bot: in.LexV2Bot})
 	})
 	ops["ListBots"] = listOp("LexBots", func(r *restroute.Request, t string, m int32) ([]LexBotConfig, string, error) {
@@ -321,7 +323,7 @@ func (h *Handler) accessOps(ops map[string]restroute.OpFunc) {
 
 		return &storageOut{AssociationID: id}, err
 	})
-	ops["DisassociateSecurityKey"] = typed(func(in *keyIn) (*empty, error) {
+	ops["DisassociateSecurityKey"] = typed(func(in *keyIn) (*EmptyOutput, error) {
 		return nil, b.DisassociateSecurityKey(in.InstanceID, in.AssociationID)
 	})
 	ops["ListSecurityKeys"] = listOp(
@@ -355,7 +357,7 @@ func (h *Handler) accessOps(ops map[string]restroute.OpFunc) {
 			return b.ListUseCases(instOf(r), r.Params["IntegrationAssociationId"], t, m)
 		},
 	)
-	ops["DeleteUseCase"] = typed(func(in *useCaseRef) (*empty, error) {
+	ops["DeleteUseCase"] = typed(func(in *useCaseRef) (*EmptyOutput, error) {
 		return b.DeleteUseCase(in.InstanceID, in.AssociationID, in.UseCaseID)
 	})
 }
@@ -373,7 +375,7 @@ func (h *Handler) peopleOps(ops map[string]restroute.OpFunc) {
 	)
 	ops["DeleteUser"] = deleteOp("UserId", b.DeleteUser)
 
-	for name, fn := range map[string]func(context.Context, *UpdateUserInput) (*empty, error){
+	for name, fn := range map[string]func(context.Context, *UpdateUserInput) (*EmptyOutput, error){
 		"UpdateUserIdentityInfo": b.UpdateUserIdentityInfo, "UpdateUserPhoneConfig": b.UpdateUserPhoneConfig,
 		"UpdateUserRoutingProfile": b.UpdateUserRoutingProfile, "UpdateUserSecurityProfiles": b.UpdateUserSecurityProfiles,
 		"UpdateUserHierarchy": b.UpdateUserHierarchy, "PutUserStatus": b.PutUserStatus,
@@ -469,7 +471,7 @@ func (h *Handler) routingOps(ops map[string]restroute.OpFunc) {
 		},
 	)
 
-	for name, fn := range map[string]func(context.Context, *UpdateRoutingProfileInput) (*empty, error){
+	for name, fn := range map[string]func(context.Context, *UpdateRoutingProfileInput) (*EmptyOutput, error){
 		"UpdateRoutingProfileName":                   b.UpdateRoutingProfileName,
 		"UpdateRoutingProfileConcurrency":            b.UpdateRoutingProfileConcurrency,
 		"UpdateRoutingProfileDefaultOutboundQueue":   b.UpdateRoutingProfileDefaultOutboundQueue,
@@ -491,7 +493,7 @@ func (h *Handler) routingOps(ops map[string]restroute.OpFunc) {
 	)
 	ops["DeleteQueue"] = deleteOp("QueueId", b.DeleteQueue)
 
-	for name, fn := range map[string]func(context.Context, *UpdateQueueInput) (*empty, error){
+	for name, fn := range map[string]func(context.Context, *UpdateQueueInput) (*EmptyOutput, error){
 		"UpdateQueueName": b.UpdateQueueName, "UpdateQueueStatus": b.UpdateQueueStatus,
 		"UpdateQueueMaxContacts": b.UpdateQueueMaxContacts, "UpdateQueueHoursOfOperation": b.UpdateQueueHoursOfOperation,
 		"UpdateQueueOutboundCallerConfig": b.UpdateQueueOutboundCallerConfig,
@@ -660,10 +662,12 @@ func (h *Handler) tagOps(ops map[string]restroute.OpFunc) {
 	b := h.Backend
 
 	ops["TagResource"] = typed(
-		func(in *resourceTagsIn) (*empty, error) { return nil, b.TagResource(in.ResourceArn, in.Tags) },
+		func(in *resourceTagsIn) (*EmptyOutput, error) { return nil, b.TagResource(in.ResourceArn, in.Tags) },
 	)
 	ops["UntagResource"] = typed(
-		func(in *resourceTagsIn) (*empty, error) { return nil, b.UntagResource(in.ResourceArn, in.TagKeys) },
+		func(in *resourceTagsIn) (*EmptyOutput, error) {
+			return nil, b.UntagResource(in.ResourceArn, in.TagKeys)
+		},
 	)
 	ops["ListTagsForResource"] = func(_ context.Context, req *restroute.Request) (any, int, error) {
 		t, err := b.ListTagsForResource(req.Params["resourceArn"])

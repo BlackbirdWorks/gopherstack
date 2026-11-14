@@ -4,8 +4,8 @@ import "slices"
 
 const maxVcns = 50
 
-func (b *InMemoryBackend) liveRefs(match func(resource) bool) []resource {
-	var out []resource
+func (b *InMemoryBackend) liveRefs(match func(Resource) bool) []Resource {
+	var out []Resource
 
 	for _, r := range b.res {
 		if live(r) && match(r) {
@@ -17,7 +17,7 @@ func (b *InMemoryBackend) liveRefs(match func(resource) bool) []resource {
 }
 
 // liveOf returns the live resources of type T accepted by match.
-func liveOf[T resource](b *InMemoryBackend, match func(T) bool) []T {
+func liveOf[T Resource](b *InMemoryBackend, match func(T) bool) []T {
 	var out []T
 
 	for _, r := range b.res {
@@ -29,7 +29,7 @@ func liveOf[T resource](b *InMemoryBackend, match func(T) bool) []T {
 	return out
 }
 
-func inVcn[T resource](vcnID string) func(T) bool {
+func inVcn[T Resource](vcnID string) func(T) bool {
 	return func(t T) bool { return t.vcnRef() == vcnID }
 }
 
@@ -47,7 +47,7 @@ func usedBy(what, id, user string) *APIError {
 	return errConflict("The " + what + " " + id + " cannot be deleted because it is in use by " + user)
 }
 
-func firstID[T resource](items []T) string {
+func firstID[T Resource](items []T) string {
 	if len(items) == 0 {
 		return ""
 	}
@@ -66,7 +66,7 @@ func defaultOf(what string) *APIError {
 }
 
 func (b *InMemoryBackend) deleteVcnCheck(id string) *APIError {
-	refs := b.liveRefs(func(x resource) bool { return x.vcnRef() == id && !b.isDefault(id, x.base().ID) })
+	refs := b.liveRefs(func(x Resource) bool { return x.vcnRef() == id && !b.isDefault(id, x.base().ID) })
 	if len(refs) == 0 {
 		return nil
 	}
@@ -90,8 +90,8 @@ func (b *InMemoryBackend) deleteNsgCheck(id string) *APIError {
 }
 
 // deleteCheck enforces the documented delete-in-use conflicts; callers hold the write lock.
-func (b *InMemoryBackend) deleteCheck(r resource) *APIError {
-	for _, check := range []func(resource) *APIError{b.deleteNetworkCheck, b.deleteDrgKindCheck, b.deleteStorageCheck} {
+func (b *InMemoryBackend) deleteCheck(r Resource) *APIError {
+	for _, check := range []func(Resource) *APIError{b.deleteNetworkCheck, b.deleteDrgKindCheck, b.deleteStorageCheck} {
 		if aerr := check(r); aerr != nil {
 			return aerr
 		}
@@ -100,7 +100,7 @@ func (b *InMemoryBackend) deleteCheck(r resource) *APIError {
 	return nil
 }
 
-func (b *InMemoryBackend) deleteDrgKindCheck(r resource) *APIError {
+func (b *InMemoryBackend) deleteDrgKindCheck(r Resource) *APIError {
 	switch v := r.(type) {
 	case *Drg:
 		return b.deleteDrgCheck(v.ID)
@@ -113,7 +113,7 @@ func (b *InMemoryBackend) deleteDrgKindCheck(r resource) *APIError {
 	return nil
 }
 
-func (b *InMemoryBackend) deleteNetworkCheck(r resource) *APIError {
+func (b *InMemoryBackend) deleteNetworkCheck(r Resource) *APIError {
 	id := r.base().ID
 
 	switch v := r.(type) {
@@ -124,7 +124,7 @@ func (b *InMemoryBackend) deleteNetworkCheck(r resource) *APIError {
 			return defaultOf("route table")
 		}
 
-		return usedBy("route table", id, firstUser(b, func(x resource) bool { return routeTableRef(x) == id }))
+		return usedBy("route table", id, firstUser(b, func(x Resource) bool { return routeTableRef(x) == id }))
 	case *SecurityList:
 		if b.isDefault(v.VcnID, id) {
 			return defaultOf("security list")
@@ -154,7 +154,7 @@ func (b *InMemoryBackend) deleteNetworkCheck(r resource) *APIError {
 	return nil
 }
 
-func (b *InMemoryBackend) deleteStorageCheck(r resource) *APIError {
+func (b *InMemoryBackend) deleteStorageCheck(r Resource) *APIError {
 	id := r.base().ID
 
 	switch v := r.(type) {
@@ -215,11 +215,11 @@ func (b *InMemoryBackend) deleteSubnetCheck(id string) *APIError {
 	return nil
 }
 
-func firstUser(b *InMemoryBackend, match func(resource) bool) string {
+func firstUser(b *InMemoryBackend, match func(Resource) bool) string {
 	return firstID(b.liveRefs(match))
 }
 
-func routeTableRef(r resource) string {
+func routeTableRef(r Resource) string {
 	switch v := r.(type) {
 	case *Subnet:
 		return v.RouteTableID
@@ -237,7 +237,7 @@ func routeTableRef(r resource) string {
 }
 
 // terminate starts deletion and applies the side effects on related resources.
-func (b *InMemoryBackend) terminate(r resource) {
+func (b *InMemoryBackend) terminate(r Resource) {
 	switch v := r.(type) {
 	case *Vcn:
 		for _, id := range []string{v.DefaultRouteTableID, v.DefaultSecurityList, v.DefaultDhcpOptionsID} {

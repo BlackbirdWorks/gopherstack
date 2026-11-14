@@ -242,7 +242,7 @@ func agentConfig(in map[string]any) map[string]any {
 }
 
 // LaunchInstance creates an instance with its boot volume and primary VNIC.
-func (b *InMemoryBackend) LaunchInstance(in LaunchInstanceIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) LaunchInstance(in LaunchInstanceIn) (Resource, string, *APIError) {
 	sh, cfg, aerr := b.launchChecks(in)
 	if aerr != nil {
 		return nil, "", aerr
@@ -347,7 +347,7 @@ func nonNilAny(m map[string]any) map[string]any {
 }
 
 // InstanceAction applies a power action.
-func (b *InMemoryBackend) InstanceAction(id, action, ifMatch string) (resource, string, *APIError) {
+func (b *InMemoryBackend) InstanceAction(id, action, ifMatch string) (Resource, string, *APIError) {
 	b.mu.Lock("InstanceAction")
 	defer b.mu.Unlock()
 
@@ -402,7 +402,7 @@ type UpdateInstanceIn struct {
 }
 
 // UpdateInstance changes an instance; a different shape or shape configuration needs a stopped instance.
-func (b *InMemoryBackend) UpdateInstance(id, ifMatch string, in UpdateInstanceIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) UpdateInstance(id, ifMatch string, in UpdateInstanceIn) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(inst *Instance) *APIError {
 		md, ext := inst.Metadata, inst.ExtendedMetadata
 
@@ -548,7 +548,7 @@ type CreateImageIn struct {
 }
 
 // CreateImage captures a custom image from an instance's boot volume.
-func (b *InMemoryBackend) CreateImage(in CreateImageIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) CreateImage(in CreateImageIn) (Resource, string, *APIError) {
 	if aerr := b.checkCompartment(in.CompartmentID); aerr != nil {
 		return nil, "", aerr
 	}
@@ -596,7 +596,7 @@ func (b *InMemoryBackend) CreateImage(in CreateImageIn) (resource, string, *APIE
 }
 
 // UpdateImage changes a custom image.
-func (b *InMemoryBackend) UpdateImage(id, ifMatch string, in UpdateIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) UpdateImage(id, ifMatch string, in UpdateIn) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in, func(*Image) *APIError { return nil })
 }
 

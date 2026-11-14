@@ -82,7 +82,8 @@ type sdkLanguageParam struct {
 	DisplayName string `json:"displayName,omitempty"`
 }
 
-type sdkLanguageWire struct {
+// SdkLanguageWire is the SDK language wire shape.
+type SdkLanguageWire struct {
 	Name        string             `json:"name"`
 	Version     string             `json:"version"`
 	DisplayName string             `json:"displayName"`
@@ -90,7 +91,7 @@ type sdkLanguageWire struct {
 }
 
 //nolint:gochecknoglobals // immutable catalog, recalled from the OCI console (unverified)
-var sdkLanguages = []sdkLanguageWire{
+var sdkLanguages = []SdkLanguageWire{
 	{Name: "JAVA", Version: sdkLangVersion, DisplayName: "Java"},
 	{Name: "PYTHON", Version: sdkLangVersion, DisplayName: "Python"},
 	{Name: "TYPESCRIPT", Version: sdkLangVersion, DisplayName: "TypeScript"},
@@ -101,12 +102,12 @@ var sdkLanguages = []sdkLanguageWire{
 // ListSdkLanguageTypes lists the target languages SDK resources can name.
 func (b *InMemoryBackend) ListSdkLanguageTypes(
 	compartment, name string, o ListOpts,
-) (page.Page[sdkLanguageWire], error) {
+) (page.Page[SdkLanguageWire], error) {
 	if compartment == "" {
-		return page.Page[sdkLanguageWire]{}, errMissing("compartmentId is required")
+		return page.Page[SdkLanguageWire]{}, errMissing("compartmentId is required")
 	}
 
-	var all []sdkLanguageWire
+	var all []SdkLanguageWire
 
 	for _, l := range sdkLanguages {
 		if name == "" || strs.Equal(l.DisplayName, name) || strs.Equal(l.Name, name) {

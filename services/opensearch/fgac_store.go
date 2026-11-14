@@ -63,43 +63,43 @@ func masterPasswordMatches(stored, password string) bool {
 	return legacyPasswordMatches(stored, password)
 }
 
-// secError is a security plugin REST API error.
-type secError struct {
+// SecError is a security plugin REST API error.
+type SecError struct {
 	Extra   map[string]any
 	Code    string
 	Message string
 	Status  int
 }
 
-func (e *secError) Error() string { return e.Message }
+func (e *SecError) Error() string { return e.Message }
 
-func secNotFound(name string) *secError {
-	return &secError{Status: http.StatusNotFound, Code: secCodeNotFound, Message: "Resource '" + name + "' not found."}
+func secNotFound(name string) *SecError {
+	return &SecError{Status: http.StatusNotFound, Code: secCodeNotFound, Message: "Resource '" + name + "' not found."}
 }
 
-func secDomainMissing() *secError {
-	return &secError{Status: http.StatusNotFound, Code: secCodeNotFound, Message: "domain not found"}
+func secDomainMissing() *SecError {
+	return &SecError{Status: http.StatusNotFound, Code: secCodeNotFound, Message: "domain not found"}
 }
 
-func secForbidden(msg string) *secError {
-	return &secError{Status: http.StatusForbidden, Code: "FORBIDDEN", Message: msg}
+func secForbidden(msg string) *SecError {
+	return &SecError{Status: http.StatusForbidden, Code: "FORBIDDEN", Message: msg}
 }
 
-func secBadRequest(msg string) *secError {
-	return &secError{Status: http.StatusBadRequest, Code: jsonKeyError, Message: msg}
+func secBadRequest(msg string) *SecError {
+	return &SecError{Status: http.StatusBadRequest, Code: jsonKeyError, Message: msg}
 }
 
-func secInvalidKeys(keys []string) *secError {
+func secInvalidKeys(keys []string) *SecError {
 	sort.Strings(keys)
 
-	return &secError{
+	return &SecError{
 		Status: http.StatusBadRequest, Code: jsonKeyError, Message: "Invalid configuration",
 		Extra: map[string]any{"invalid_keys": map[string]any{"keys": strings.Join(keys, ",")}},
 	}
 }
 
-func secMissingKeys(keys ...string) *secError {
-	return &secError{
+func secMissingKeys(keys ...string) *SecError {
+	return &SecError{
 		Status: http.StatusBadRequest, Code: jsonKeyError, Message: "Invalid configuration",
 		Extra: map[string]any{"missing_mandatory_keys": map[string]any{"keys": strings.Join(keys, ",")}},
 	}
@@ -464,19 +464,19 @@ func masterPasswordComplexity(pw string) error {
 }
 
 // AuthenticateInternalUser verifies basic credentials against the domain's internal user database.
-func (b *InMemoryBackend) AuthenticateInternalUser(domain, user, pass string) (securityPrincipal, bool) {
+func (b *InMemoryBackend) AuthenticateInternalUser(domain, user, pass string) (SecurityPrincipal, bool) {
 	b.mu.RLock("AuthenticateInternalUser")
 	cfg, ok := b.securityConfigs.Get(domain)
 
 	var (
 		hash string
-		p    securityPrincipal
+		p    SecurityPrincipal
 	)
 
 	if ok {
 		if u, found := cfg.Users[user]; found {
 			hash = u.Hash
-			p = securityPrincipal{
+			p = SecurityPrincipal{
 				Name: user, BackendRoles: slices.Clone(u.BackendRoles), Attributes: maps.Clone(u.Attributes),
 			}
 		}
@@ -485,18 +485,18 @@ func (b *InMemoryBackend) AuthenticateInternalUser(domain, user, pass string) (s
 	b.mu.RUnlock()
 
 	if hash == "" {
-		return securityPrincipal{}, false
+		return SecurityPrincipal{}, false
 	}
 
 	if !masterPasswordMatches(hash, pass) {
-		return securityPrincipal{}, false
+		return SecurityPrincipal{}, false
 	}
 
 	return p, true
 }
 
 // EffectivePerms resolves the permissions of an authenticated principal.
-func (b *InMemoryBackend) EffectivePerms(domain string, p securityPrincipal) effectivePerms {
+func (b *InMemoryBackend) EffectivePerms(domain string, p SecurityPrincipal) EffectivePerms {
 	b.mu.RLock("EffectivePerms")
 	defer b.mu.RUnlock()
 
@@ -653,7 +653,7 @@ func securityNames(cfg *SecurityConfig, kind securityKind) []string {
 	return names
 }
 
-func (b *InMemoryBackend) securityConfigRLocked(domain string) (*SecurityConfig, *secError) {
+func (b *InMemoryBackend) securityConfigRLocked(domain string) (*SecurityConfig, *SecError) {
 	if !b.domains.Has(domain) {
 		return nil, secDomainMissing()
 	}
@@ -667,7 +667,7 @@ func (b *InMemoryBackend) securityConfigRLocked(domain string) (*SecurityConfig,
 }
 
 // SecurityList returns all visible resources of a kind keyed by name.
-func (b *InMemoryBackend) SecurityList(domain string, kind securityKind) (map[string]any, *secError) {
+func (b *InMemoryBackend) SecurityList(domain string, kind securityKind) (map[string]any, *SecError) {
 	b.mu.RLock("SecurityList")
 	defer b.mu.RUnlock()
 
@@ -688,7 +688,7 @@ func (b *InMemoryBackend) SecurityList(domain string, kind securityKind) (map[st
 }
 
 // SecurityGet returns one resource.
-func (b *InMemoryBackend) SecurityGet(domain string, kind securityKind, name string) (any, *secError) {
+func (b *InMemoryBackend) SecurityGet(domain string, kind securityKind, name string) (any, *SecError) {
 	b.mu.RLock("SecurityGet")
 	defer b.mu.RUnlock()
 
@@ -706,7 +706,7 @@ func (b *InMemoryBackend) SecurityGet(domain string, kind securityKind, name str
 }
 
 // SecurityDelete removes a custom resource.
-func (b *InMemoryBackend) SecurityDelete(domain string, kind securityKind, name string) *secError {
+func (b *InMemoryBackend) SecurityDelete(domain string, kind securityKind, name string) *SecError {
 	b.mu.Lock("SecurityDelete")
 	defer b.mu.Unlock()
 
@@ -760,7 +760,7 @@ func deleteResource(cfg *SecurityConfig, kind securityKind, name string) bool {
 }
 
 // guardReadOnly rejects writes to static, reserved or built-in resources.
-func guardReadOnly(cfg *SecurityConfig, kind securityKind, name string) *secError {
+func guardReadOnly(cfg *SecurityConfig, kind securityKind, name string) *SecError {
 	var reserved, static bool
 
 	switch kind {
@@ -797,7 +797,7 @@ func guardReadOnly(cfg *SecurityConfig, kind securityKind, name string) *secErro
 }
 
 // SecurityPut creates or replaces a resource from a JSON request body.
-func (b *InMemoryBackend) SecurityPut(domain string, kind securityKind, name string, body []byte) (bool, *secError) {
+func (b *InMemoryBackend) SecurityPut(domain string, kind securityKind, name string, body []byte) (bool, *SecError) {
 	b.mu.Lock("SecurityPut")
 	defer b.mu.Unlock()
 
@@ -814,7 +814,7 @@ func (b *InMemoryBackend) SecurityPut(domain string, kind securityKind, name str
 	return putResource(cfg, kind, name, body)
 }
 
-func keyCheck(body []byte, allowed ...string) *secError {
+func keyCheck(body []byte, allowed ...string) *SecError {
 	var raw map[string]jsontext.Value
 	if err := json.Unmarshal(body, &raw, jsonx.V1()); err != nil {
 		return secBadRequest("Could not parse content of request.")
@@ -835,7 +835,7 @@ func keyCheck(body []byte, allowed ...string) *secError {
 	return nil
 }
 
-func decodeStrict(body []byte, v any) *secError {
+func decodeStrict(body []byte, v any) *SecError {
 	if err := json.Unmarshal(body, v, jsonx.V1()); err != nil {
 		return secBadRequest("Could not parse content of request.")
 	}
@@ -843,7 +843,7 @@ func decodeStrict(body []byte, v any) *secError {
 	return nil
 }
 
-func putResource(cfg *SecurityConfig, kind securityKind, name string, body []byte) (bool, *secError) {
+func putResource(cfg *SecurityConfig, kind securityKind, name string, body []byte) (bool, *SecError) {
 	switch kind {
 	case kindInternalUsers:
 		return putUser(cfg, name, body)
@@ -869,7 +869,7 @@ type userRequest struct {
 	LegacyRoles  []string          `json:"opendistro_security_roles"`
 }
 
-func putUser(cfg *SecurityConfig, name string, body []byte) (bool, *secError) {
+func putUser(cfg *SecurityConfig, name string, body []byte) (bool, *SecError) {
 	if err := keyCheck(body, "password", "hash", jsonKeyBackendRoles, "attributes", "description",
 		"opendistro_security_roles"); err != nil {
 		return false, err
@@ -917,7 +917,7 @@ type roleRequest struct {
 	TenantPermissions  []RoleTenantPermission `json:"tenant_permissions"`
 }
 
-func validateRoleIndexPermission(ip RoleIndexPermission) *secError {
+func validateRoleIndexPermission(ip RoleIndexPermission) *SecError {
 	if len(ip.IndexPatterns) == 0 {
 		return secMissingKeys("index_patterns")
 	}
@@ -950,7 +950,7 @@ func validateRoleIndexPermission(ip RoleIndexPermission) *secError {
 	return nil
 }
 
-func putRole(cfg *SecurityConfig, name string, body []byte) (bool, *secError) {
+func putRole(cfg *SecurityConfig, name string, body []byte) (bool, *SecError) {
 	if err := keyCheck(body, "description", "cluster_permissions", "index_permissions",
 		"tenant_permissions"); err != nil {
 		return false, err
@@ -982,7 +982,7 @@ func putRole(cfg *SecurityConfig, name string, body []byte) (bool, *secError) {
 	return !existed, nil
 }
 
-func putMapping(cfg *SecurityConfig, name string, body []byte) (bool, *secError) {
+func putMapping(cfg *SecurityConfig, name string, body []byte) (bool, *SecError) {
 	if err := keyCheck(body, "description", jsonKeyBackendRoles, "hosts", "users", "and_backend_roles"); err != nil {
 		return false, err
 	}
@@ -1005,7 +1005,7 @@ func putMapping(cfg *SecurityConfig, name string, body []byte) (bool, *secError)
 	return !existed, nil
 }
 
-func putActionGroup(cfg *SecurityConfig, name string, body []byte) (bool, *secError) {
+func putActionGroup(cfg *SecurityConfig, name string, body []byte) (bool, *SecError) {
 	if err := keyCheck(body, "description", "allowed_actions", "type"); err != nil {
 		return false, err
 	}
@@ -1035,7 +1035,7 @@ func putActionGroup(cfg *SecurityConfig, name string, body []byte) (bool, *secEr
 	return !existed, nil
 }
 
-func putTenant(cfg *SecurityConfig, name string, body []byte) (bool, *secError) {
+func putTenant(cfg *SecurityConfig, name string, body []byte) (bool, *SecError) {
 	if err := keyCheck(body, "description"); err != nil {
 		return false, err
 	}
@@ -1052,7 +1052,7 @@ func putTenant(cfg *SecurityConfig, name string, body []byte) (bool, *secError) 
 }
 
 // ChangeOwnPassword implements PUT /_plugins/_security/api/account.
-func (b *InMemoryBackend) ChangeOwnPassword(domain, user, current, next string) *secError {
+func (b *InMemoryBackend) ChangeOwnPassword(domain, user, current, next string) *SecError {
 	b.mu.Lock("ChangeOwnPassword")
 	defer b.mu.Unlock()
 
@@ -1080,7 +1080,7 @@ func (b *InMemoryBackend) ChangeOwnPassword(domain, user, current, next string) 
 }
 
 // SecurityTenantAccess lists tenant name -> writable for the principal's mapped roles.
-func (b *InMemoryBackend) SecurityTenantAccess(domain string, perms effectivePerms) map[string]bool {
+func (b *InMemoryBackend) SecurityTenantAccess(domain string, perms EffectivePerms) map[string]bool {
 	b.mu.RLock("SecurityTenantAccess")
 	defer b.mu.RUnlock()
 

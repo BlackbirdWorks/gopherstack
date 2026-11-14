@@ -60,21 +60,21 @@ func (b *InMemoryBackend) newView(compartment, name string, protected bool, tags
 }
 
 // CreateView creates a private view.
-func (b *InMemoryBackend) CreateView(in CreateViewIn) (ViewWire, tag, error) {
+func (b *InMemoryBackend) CreateView(in CreateViewIn) (ViewWire, Tag, error) {
 	b.mu.Lock("CreateView")
 	defer b.mu.Unlock()
 
 	if id, ok := b.retry.Lookup("CreateView", in.RetryToken, b.nowUTC()); ok {
 		v, live := b.views[id]
 		if !live {
-			return ViewWire{}, tag{}, errInvalidatedToken()
+			return ViewWire{}, Tag{}, errInvalidatedToken()
 		}
 
 		return b.viewWire(v), tagOf(v.ID, v.meta), nil
 	}
 
 	if err := firstAPIErr(b.checkCompartment(in.CompartmentID), b.checkTags(in.Tags)); err != nil {
-		return ViewWire{}, tag{}, err
+		return ViewWire{}, Tag{}, err
 	}
 
 	name := in.DisplayName
@@ -89,13 +89,13 @@ func (b *InMemoryBackend) CreateView(in CreateViewIn) (ViewWire, tag, error) {
 }
 
 // GetView returns a view.
-func (b *InMemoryBackend) GetView(id string) (ViewWire, tag, error) {
+func (b *InMemoryBackend) GetView(id string) (ViewWire, Tag, error) {
 	b.mu.RLock("GetView")
 	defer b.mu.RUnlock()
 
 	v, err := b.viewByID(id)
 	if err != nil {
-		return ViewWire{}, tag{}, err
+		return ViewWire{}, Tag{}, err
 	}
 
 	return b.viewWire(v), tagOf(v.ID, v.meta), nil
@@ -116,16 +116,16 @@ var viewSorters = sorter[*View]{ //nolint:gochecknoglobals // immutable comparat
 }
 
 // ListViews lists the views of a compartment.
-func (b *InMemoryBackend) ListViews(f ViewFilter, o ListOpts) (listResult[ViewWire], error) {
+func (b *InMemoryBackend) ListViews(f ViewFilter, o ListOpts) (ListResult[ViewWire], error) {
 	b.mu.RLock("ListViews")
 	defer b.mu.RUnlock()
 
 	if err := b.checkCompartment(f.Compart); err != nil {
-		return listResult[ViewWire]{}, err
+		return ListResult[ViewWire]{}, err
 	}
 
 	if f.Scope != "" && !strings.EqualFold(f.Scope, scopePrivate) {
-		return listResult[ViewWire]{Items: []ViewWire{}}, nil
+		return ListResult[ViewWire]{Items: []ViewWire{}}, nil
 	}
 
 	var all []*View
@@ -139,7 +139,7 @@ func (b *InMemoryBackend) ListViews(f ViewFilter, o ListOpts) (listResult[ViewWi
 
 	pg, err := sortPage(all, o, keyTimeCreated, true, viewSorters)
 	if err != nil {
-		return listResult[ViewWire]{}, err
+		return ListResult[ViewWire]{}, err
 	}
 
 	return finish(pg, len(all), b.viewWire), nil
@@ -152,21 +152,21 @@ type UpdateViewIn struct {
 }
 
 // UpdateView changes the mutable attributes of a view.
-func (b *InMemoryBackend) UpdateView(id string, c cond, in UpdateViewIn) (ViewWire, tag, error) {
+func (b *InMemoryBackend) UpdateView(id string, c cond, in UpdateViewIn) (ViewWire, Tag, error) {
 	b.mu.Lock("UpdateView")
 	defer b.mu.Unlock()
 
 	v, err := b.viewByID(id)
 	if err != nil {
-		return ViewWire{}, tag{}, err
+		return ViewWire{}, Tag{}, err
 	}
 
 	if err = firstAPIErr(c.check(v.ID, v.meta), b.checkTags(in.Tags)); err != nil {
-		return ViewWire{}, tag{}, err
+		return ViewWire{}, Tag{}, err
 	}
 
 	if v.Protected {
-		return ViewWire{}, tag{}, errParam("a protected view cannot be modified")
+		return ViewWire{}, Tag{}, errParam("a protected view cannot be modified")
 	}
 
 	if in.DisplayName != nil {

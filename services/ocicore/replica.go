@@ -112,14 +112,14 @@ func (b *InMemoryBackend) endReplicas(vol *Volume) {
 	}
 }
 
-func replicaFilter(q *req) func(resource) bool {
+func replicaFilter(q *req) func(Resource) bool {
 	return and(
-		queryEq(q, "availabilityDomain", func(r resource) string {
+		queryEq(q, "availabilityDomain", func(r Resource) string {
 			x, _ := r.(*BlockVolumeReplica)
 
 			return x.AvailabilityDomain
 		}),
-		queryEq(q, "volumeGroupReplicaId", func(resource) string { return "" }),
+		queryEq(q, "volumeGroupReplicaId", func(Resource) string { return "" }),
 	)
 }
 

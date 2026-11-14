@@ -250,7 +250,7 @@ var recordSorters = sorter[recordWire]{ //nolint:gochecknoglobals // immutable c
 }
 
 // RecordList is a page of records with the matching total.
-type RecordList = listResult[recordWire]
+type RecordList = ListResult[recordWire]
 
 func (b *InMemoryBackend) listRecordsLocked(
 	z *Zone,

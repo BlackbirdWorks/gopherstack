@@ -24,7 +24,7 @@ func buildOps() map[string]opFunc {
 func (q *req) dbID() string { return q.param("autonomousDatabaseId") }
 
 // withWork writes a 202 with the database and its work request.
-func (q *req) withWork(view adbWire, wr, etag string, err error) error {
+func (q *req) withWork(view AdbWire, wr, etag string, err error) error {
 	if err != nil {
 		return err
 	}

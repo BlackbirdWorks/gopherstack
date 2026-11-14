@@ -50,7 +50,8 @@ type DeleteReplicaIn struct {
 	ReplicaRegion string `json:"replicaRegion"`
 }
 
-type replicaSummaryWire struct {
+// ReplicaSummaryWire is the replica summary wire shape.
+type ReplicaSummaryWire struct {
 	CryptoEndpoint     string `json:"cryptoEndpoint"`
 	ManagementEndpoint string `json:"managementEndpoint"`
 	Region             string `json:"region"`
@@ -62,7 +63,8 @@ type replicaDetailWire struct {
 	Status string `json:"status"`
 }
 
-type replicationStatusWire struct {
+// ReplicationStatusWire is the replication status wire shape.
+type ReplicationStatusWire struct {
 	ReplicaDetails []replicaDetailWire `json:"replicaDetails"`
 }
 
@@ -220,13 +222,13 @@ func (b *InMemoryBackend) DeleteVaultReplica(id, ifMatch, token string, in Delet
 }
 
 // ListVaultReplicas lists the replicas of a vault.
-func (b *InMemoryBackend) ListVaultReplicas(id, hostPort string, o ListOpts) (page.Page[replicaSummaryWire], error) {
+func (b *InMemoryBackend) ListVaultReplicas(id, hostPort string, o ListOpts) (page.Page[ReplicaSummaryWire], error) {
 	b.mu.RLock("ListVaultReplicas")
 	defer b.mu.RUnlock()
 
 	v, aerr := b.vaultByID(id)
 	if aerr != nil {
-		return page.Page[replicaSummaryWire]{}, aerr
+		return page.Page[ReplicaSummaryWire]{}, aerr
 	}
 
 	var all []*VaultReplica
@@ -240,27 +242,27 @@ func (b *InMemoryBackend) ListVaultReplicas(id, hostPort string, o ListOpts) (pa
 	pg := paginate(all, o, func(r *VaultReplica) string { return r.Region },
 		func(r *VaultReplica) (time.Time, int64) { return r.TimeCreated, 0 })
 
-	out := make([]replicaSummaryWire, 0, len(pg.Data))
+	out := make([]ReplicaSummaryWire, 0, len(pg.Data))
 
 	for _, r := range pg.Data {
-		out = append(out, replicaSummaryWire{
+		out = append(out, ReplicaSummaryWire{
 			CryptoEndpoint:     replicaEndpoint(v, r.Region, "crypto", hostPort),
 			ManagementEndpoint: replicaEndpoint(v, r.Region, "management", hostPort),
 			Region:             r.Region, Status: r.Status,
 		})
 	}
 
-	return page.Page[replicaSummaryWire]{Data: out, Next: pg.Next}, nil
+	return page.Page[ReplicaSummaryWire]{Data: out, Next: pg.Next}, nil
 }
 
 // GetReplicationStatus reports whether a replicated operation has been applied in every replica region.
-func (b *InMemoryBackend) GetReplicationStatus(replicationID string) (replicationStatusWire, error) {
+func (b *InMemoryBackend) GetReplicationStatus(replicationID string) (ReplicationStatusWire, error) {
 	b.mu.RLock("GetReplicationStatus")
 	defer b.mu.RUnlock()
 
 	op, ok := b.repl[replicationID]
 	if !ok {
-		return replicationStatusWire{}, errNotFound(replicationID)
+		return ReplicationStatusWire{}, errNotFound(replicationID)
 	}
 
 	status := statusReplicating
@@ -268,7 +270,7 @@ func (b *InMemoryBackend) GetReplicationStatus(replicationID string) (replicatio
 		status = statusReplicated
 	}
 
-	out := replicationStatusWire{ReplicaDetails: make([]replicaDetailWire, 0, len(op.Regions))}
+	out := ReplicationStatusWire{ReplicaDetails: make([]replicaDetailWire, 0, len(op.Regions))}
 	for _, r := range op.Regions {
 		out.ReplicaDetails = append(out.ReplicaDetails, replicaDetailWire{Region: r, Status: status})
 	}

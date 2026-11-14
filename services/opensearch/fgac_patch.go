@@ -205,7 +205,7 @@ func docToBody(doc map[string]any) []byte {
 }
 
 // SecurityPatch applies a JSON patch to one resource, or to the whole collection when name is empty.
-func (b *InMemoryBackend) SecurityPatch(domain string, kind securityKind, name string, ops []patchOp) *secError {
+func (b *InMemoryBackend) SecurityPatch(domain string, kind securityKind, name string, ops []patchOp) *SecError {
 	b.mu.Lock("SecurityPatch")
 	defer b.mu.Unlock()
 
@@ -222,7 +222,7 @@ func (b *InMemoryBackend) SecurityPatch(domain string, kind securityKind, name s
 	return patchCollection(cfg, kind, ops)
 }
 
-func patchOne(cfg *SecurityConfig, kind securityKind, name string, ops []patchOp) *secError {
+func patchOne(cfg *SecurityConfig, kind securityKind, name string, ops []patchOp) *SecError {
 	if err := guardReadOnly(cfg, kind, name); err != nil {
 		return err
 	}
@@ -247,7 +247,7 @@ func patchOne(cfg *SecurityConfig, kind securityKind, name string, ops []patchOp
 	return perr
 }
 
-func patchCollection(cfg *SecurityConfig, kind securityKind, ops []patchOp) *secError {
+func patchCollection(cfg *SecurityConfig, kind securityKind, ops []patchOp) *SecError {
 	collection := map[string]any{}
 
 	for _, n := range securityNames(cfg, kind) {
@@ -283,7 +283,7 @@ func patchCollection(cfg *SecurityConfig, kind securityKind, ops []patchOp) *sec
 	return upsertChanged(cfg, kind, collection, next)
 }
 
-func removeMissing(cfg *SecurityConfig, kind securityKind, before, after map[string]any) *secError {
+func removeMissing(cfg *SecurityConfig, kind securityKind, before, after map[string]any) *SecError {
 	for n := range before {
 		if _, still := after[n]; still {
 			continue
@@ -299,7 +299,7 @@ func removeMissing(cfg *SecurityConfig, kind securityKind, before, after map[str
 	return nil
 }
 
-func upsertChanged(cfg *SecurityConfig, kind securityKind, before, after map[string]any) *secError {
+func upsertChanged(cfg *SecurityConfig, kind securityKind, before, after map[string]any) *SecError {
 	for n, v := range after {
 		doc, isMap := v.(map[string]any)
 		if !isMap {

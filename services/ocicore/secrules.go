@@ -197,7 +197,7 @@ type CreateSecurityListIn struct {
 }
 
 // CreateSecurityList creates a security list.
-func (b *InMemoryBackend) CreateSecurityList(in CreateSecurityListIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) CreateSecurityList(in CreateSecurityListIn) (Resource, string, *APIError) {
 	v, aerr := b.gatewayVcn(in.CompartmentID, in.VcnID, in.DisplayName, "")
 	if aerr != nil {
 		return nil, "", aerr
@@ -232,7 +232,7 @@ type UpdateSecurityListIn struct {
 func (b *InMemoryBackend) UpdateSecurityList(
 	id, ifMatch string,
 	in UpdateSecurityListIn,
-) (resource, string, *APIError) {
+) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(sl *SecurityList) *APIError {
 		ing, egr := sl.IngressRules, sl.EgressRules
 
@@ -264,7 +264,7 @@ type CreateNsgIn struct {
 }
 
 // CreateNetworkSecurityGroup creates an NSG.
-func (b *InMemoryBackend) CreateNetworkSecurityGroup(in CreateNsgIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) CreateNetworkSecurityGroup(in CreateNsgIn) (Resource, string, *APIError) {
 	v, aerr := b.gatewayVcn(in.CompartmentID, in.VcnID, in.DisplayName, "")
 	if aerr == nil {
 		aerr = gatewayLimit[*NetworkSecurityGroup](b, v.ID, "network security groups", maxNSGs)
@@ -281,7 +281,7 @@ func (b *InMemoryBackend) CreateNetworkSecurityGroup(in CreateNsgIn) (resource, 
 }
 
 // UpdateNetworkSecurityGroup changes an NSG's name and tags.
-func (b *InMemoryBackend) UpdateNetworkSecurityGroup(id, ifMatch string, in UpdateIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) UpdateNetworkSecurityGroup(id, ifMatch string, in UpdateIn) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in, func(*NetworkSecurityGroup) *APIError { return nil })
 }
 

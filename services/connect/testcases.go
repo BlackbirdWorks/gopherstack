@@ -109,7 +109,8 @@ type testCaseRef struct {
 	instPath
 }
 
-type testCaseCreated struct {
+// TestCaseCreated is the CreateTestCase response.
+type TestCaseCreated struct {
 	TestCaseID  string `json:"TestCaseId"`
 	TestCaseArn string `json:"TestCaseArn"`
 }
@@ -248,7 +249,7 @@ func (b *Backend) checkEntryPoint(inst string, ep *TestCaseEntryPoint, required 
 }
 
 // CreateTestCase stores a test case as a saved or published version.
-func (b *Backend) CreateTestCase(ctx context.Context, in *CreateTestCaseInput) (*testCaseCreated, error) {
+func (b *Backend) CreateTestCase(ctx context.Context, in *CreateTestCaseInput) (*TestCaseCreated, error) {
 	if err := firstError(
 		b.checkTestCaseFields(in.Name, in.Description, in.Status), checkTags(in.Tags),
 	); err != nil {
@@ -259,7 +260,7 @@ func (b *Backend) CreateTestCase(ctx context.Context, in *CreateTestCaseInput) (
 		return nil, invalidParamErr("Name is required")
 	}
 
-	return writeInstance(b, "CreateTestCase", in.InstanceID, func(inst string) (*testCaseCreated, error) {
+	return writeInstance(b, "CreateTestCase", in.InstanceID, func(inst string) (*TestCaseCreated, error) {
 		if nameExists(b.testCases, inst, func(r *testCaseRec) string { return r.Name }, in.Name, "") {
 			return nil, duplicateErr(labelTestCase, in.Name)
 		}
@@ -290,7 +291,7 @@ func (b *Backend) CreateTestCase(ctx context.Context, in *CreateTestCaseInput) (
 
 		b.testCases.put(rec)
 
-		return &testCaseCreated{TestCaseID: id, TestCaseArn: rec.Arn}, nil
+		return &TestCaseCreated{TestCaseID: id, TestCaseArn: rec.Arn}, nil
 	})
 }
 
@@ -342,7 +343,7 @@ func applyTestCaseUpdate(v *testCaseVersion, in *UpdateTestCaseInput) {
 }
 
 // UpdateTestCase changes the saved or published version of a test case.
-func (b *Backend) UpdateTestCase(ctx context.Context, in *UpdateTestCaseInput) (*empty, error) {
+func (b *Backend) UpdateTestCase(ctx context.Context, in *UpdateTestCaseInput) (*EmptyOutput, error) {
 	name, desc := "", ""
 	if in.Name != nil {
 		name = *in.Name
@@ -359,7 +360,7 @@ func (b *Backend) UpdateTestCase(ctx context.Context, in *UpdateTestCaseInput) (
 		return nil, err
 	}
 
-	return writeInstance(b, "UpdateTestCase", in.InstanceID, func(inst string) (*empty, error) {
+	return writeInstance(b, "UpdateTestCase", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		r, err := b.testCases.get(inst, in.TestCaseID)
 		if err != nil {
 			return nil, err
@@ -391,13 +392,13 @@ func (b *Backend) UpdateTestCase(ctx context.Context, in *UpdateTestCaseInput) (
 			r.Name = name
 		}
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 
 // DeleteTestCase removes a test case with both of its versions.
-func (b *Backend) DeleteTestCase(inst, id string) (*empty, error) {
-	return writeInstance(b, "DeleteTestCase", inst, func(inst string) (*empty, error) {
+func (b *Backend) DeleteTestCase(inst, id string) (*EmptyOutput, error) {
+	return writeInstance(b, "DeleteTestCase", inst, func(inst string) (*EmptyOutput, error) {
 		return nil, b.testCases.del(inst, id)
 	})
 }

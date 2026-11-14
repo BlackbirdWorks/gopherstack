@@ -209,13 +209,13 @@ func (c cond) check(id string, m meta) *APIError {
 	return nil
 }
 
-// tag is the etag and modification time returned with a resource.
-type tag struct {
+// Tag is the etag and modification time returned with a resource.
+type Tag struct {
 	Modified time.Time
 	ETag     string
 }
 
-func tagOf(id string, m meta) tag { return tag{ETag: m.etag(id), Modified: m.Modified} }
+func tagOf(id string, m meta) Tag { return Tag{ETag: m.etag(id), Modified: m.Modified} }
 
 // ListOpts carries the shared list query parameters.
 type ListOpts struct {
@@ -281,20 +281,20 @@ func byString[T any](get func(T) string, seq func(T) int64) func(a, c T) int {
 	return func(a, c T) int { return cmp.Or(cmp.Compare(get(a), get(c)), cmp.Compare(seq(a), seq(c))) }
 }
 
-// listResult is a page of items and the number of items that matched before paging.
-type listResult[T any] struct {
+// ListResult is a page of items and the number of items that matched before paging.
+type ListResult[T any] struct {
 	Next  string
 	Items []T
 	Total int
 }
 
-func finish[T, W any](pg page.Page[T], total int, conv func(T) W) listResult[W] {
+func finish[T, W any](pg page.Page[T], total int, conv func(T) W) ListResult[W] {
 	out := make([]W, 0, len(pg.Data))
 	for _, it := range pg.Data {
 		out = append(out, conv(it))
 	}
 
-	return listResult[W]{Items: out, Next: pg.Next, Total: total}
+	return ListResult[W]{Items: out, Next: pg.Next, Total: total}
 }
 
 func nonNil[T any](s []T) []T {

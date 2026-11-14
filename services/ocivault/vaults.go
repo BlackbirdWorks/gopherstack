@@ -55,17 +55,17 @@ func validateDisplayName(name string) *APIError {
 }
 
 // CreateVault creates a vault that is CREATING until the transition delay elapses.
-func (b *InMemoryBackend) CreateVault(in CreateVaultIn, hostPort string) (vaultWire, string, error) {
+func (b *InMemoryBackend) CreateVault(in CreateVaultIn, hostPort string) (VaultWire, string, error) {
 	if in.CompartmentID == "" {
-		return vaultWire{}, "", errMissing("compartmentId is required")
+		return VaultWire{}, "", errMissing("compartmentId is required")
 	}
 
 	if aerr := validateDisplayName(in.DisplayName); aerr != nil {
-		return vaultWire{}, "", aerr
+		return VaultWire{}, "", aerr
 	}
 
 	if in.VaultType != "DEFAULT" && in.VaultType != vaultTypePrivate {
-		return vaultWire{}, "", errParam("vaultType must be DEFAULT or VIRTUAL_PRIVATE")
+		return VaultWire{}, "", errParam("vaultType must be DEFAULT or VIRTUAL_PRIVATE")
 	}
 
 	b.mu.Lock("CreateVault")
@@ -74,14 +74,14 @@ func (b *InMemoryBackend) CreateVault(in CreateVaultIn, hostPort string) (vaultW
 	if id, ok := b.retry.Lookup("CreateVault", in.RetryToken, b.nowUTC()); ok {
 		v, live := b.vaults[id]
 		if !live || v.State == stateDeleted {
-			return vaultWire{}, "", errInvalidatedToken()
+			return VaultWire{}, "", errInvalidatedToken()
 		}
 
 		return vaultView(v, hostPort), v.Etag, nil
 	}
 
 	if aerr := b.checkTags(in.FreeformTags, in.DefinedTags); aerr != nil {
-		return vaultWire{}, "", aerr
+		return VaultWire{}, "", aerr
 	}
 
 	prefix := b.newPrefix()
@@ -99,13 +99,13 @@ func (b *InMemoryBackend) CreateVault(in CreateVaultIn, hostPort string) (vaultW
 }
 
 // GetVault returns one vault.
-func (b *InMemoryBackend) GetVault(id, hostPort string) (vaultWire, string, error) {
+func (b *InMemoryBackend) GetVault(id, hostPort string) (VaultWire, string, error) {
 	b.mu.RLock("GetVault")
 	defer b.mu.RUnlock()
 
 	v, aerr := b.vaultByID(id)
 	if aerr != nil {
-		return vaultWire{}, "", aerr
+		return VaultWire{}, "", aerr
 	}
 
 	return vaultView(v, hostPort), v.Etag, nil
@@ -140,26 +140,26 @@ func (b *InMemoryBackend) ListVaults(compartment, hostPort string, o ListOpts) (
 }
 
 // UpdateVault changes display name and tags.
-func (b *InMemoryBackend) UpdateVault(id, ifMatch, hostPort string, in UpdateVaultIn) (vaultWire, string, error) {
+func (b *InMemoryBackend) UpdateVault(id, ifMatch, hostPort string, in UpdateVaultIn) (VaultWire, string, error) {
 	b.mu.Lock("UpdateVault")
 	defer b.mu.Unlock()
 
 	v, aerr := b.activeVault(id)
 	if aerr != nil {
-		return vaultWire{}, "", aerr
+		return VaultWire{}, "", aerr
 	}
 
 	if aerr = checkEtag(v.Etag, ifMatch); aerr != nil {
-		return vaultWire{}, "", aerr
+		return VaultWire{}, "", aerr
 	}
 
 	if aerr = b.checkTags(in.FreeformTags, in.DefinedTags); aerr != nil {
-		return vaultWire{}, "", aerr
+		return VaultWire{}, "", aerr
 	}
 
 	if in.DisplayName != nil {
 		if aerr = validateDisplayName(*in.DisplayName); aerr != nil {
-			return vaultWire{}, "", aerr
+			return VaultWire{}, "", aerr
 		}
 
 		v.DisplayName = *in.DisplayName
@@ -182,7 +182,7 @@ func (b *InMemoryBackend) UpdateVault(id, ifMatch, hostPort string, in UpdateVau
 func (b *InMemoryBackend) ScheduleVaultDeletion(
 	id, ifMatch, hostPort, token string,
 	at *time.Time,
-) (vaultWire, string, error) {
+) (VaultWire, string, error) {
 	b.mu.Lock("ScheduleVaultDeletion")
 	defer b.mu.Unlock()
 
@@ -193,20 +193,20 @@ func (b *InMemoryBackend) ScheduleVaultDeletion(
 
 	v, aerr := b.activeVault(id)
 	if aerr != nil {
-		return vaultWire{}, "", aerr
+		return VaultWire{}, "", aerr
 	}
 
 	if aerr = checkEtag(v.Etag, ifMatch); aerr != nil {
-		return vaultWire{}, "", aerr
+		return VaultWire{}, "", aerr
 	}
 
 	if v.hasReplicas() {
-		return vaultWire{}, "", errState("Vault " + id + " has replicas; delete them before scheduling deletion")
+		return VaultWire{}, "", errState("Vault " + id + " has replicas; delete them before scheduling deletion")
 	}
 
 	t, aerr := b.deletionTime(at, kmsMinDeletion)
 	if aerr != nil {
-		return vaultWire{}, "", aerr
+		return VaultWire{}, "", aerr
 	}
 
 	v.TimeOfDeletion, v.Etag = &t, newEtag()
@@ -217,7 +217,7 @@ func (b *InMemoryBackend) ScheduleVaultDeletion(
 }
 
 // CancelVaultDeletion returns a PENDING_DELETION vault to ACTIVE.
-func (b *InMemoryBackend) CancelVaultDeletion(id, ifMatch, hostPort, token string) (vaultWire, string, error) {
+func (b *InMemoryBackend) CancelVaultDeletion(id, ifMatch, hostPort, token string) (VaultWire, string, error) {
 	b.mu.Lock("CancelVaultDeletion")
 	defer b.mu.Unlock()
 
@@ -228,15 +228,15 @@ func (b *InMemoryBackend) CancelVaultDeletion(id, ifMatch, hostPort, token strin
 
 	v, aerr := b.vaultByID(id)
 	if aerr != nil {
-		return vaultWire{}, "", aerr
+		return VaultWire{}, "", aerr
 	}
 
 	if v.State != statePendingDeletion {
-		return vaultWire{}, "", errState("Vault " + id + " is not pending deletion")
+		return VaultWire{}, "", errState("Vault " + id + " is not pending deletion")
 	}
 
 	if aerr = checkEtag(v.Etag, ifMatch); aerr != nil {
-		return vaultWire{}, "", aerr
+		return VaultWire{}, "", aerr
 	}
 
 	v.TimeOfDeletion, v.Etag = nil, newEtag()

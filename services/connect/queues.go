@@ -247,7 +247,7 @@ func (b *Backend) updateQueue(
 	ctx context.Context,
 	in *UpdateQueueInput,
 	apply func(r *queueRec) error,
-) (*empty, error) {
+) (*EmptyOutput, error) {
 	b.mu.Lock("UpdateQueue")
 	defer b.mu.Unlock()
 
@@ -267,11 +267,11 @@ func (b *Backend) updateQueue(
 
 	q.Queue.Stamp = b.stamp(ctx)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 // UpdateQueueName renames a queue.
-func (b *Backend) UpdateQueueName(ctx context.Context, in *UpdateQueueInput) (*empty, error) {
+func (b *Backend) UpdateQueueName(ctx context.Context, in *UpdateQueueInput) (*EmptyOutput, error) {
 	if in.Name == nil && in.Description == nil {
 		return nil, invalidParamErr("Name or Description is required")
 	}
@@ -289,7 +289,7 @@ func (b *Backend) UpdateQueueName(ctx context.Context, in *UpdateQueueInput) (*e
 }
 
 // UpdateQueueStatus enables or disables a queue.
-func (b *Backend) UpdateQueueStatus(ctx context.Context, in *UpdateQueueInput) (*empty, error) {
+func (b *Backend) UpdateQueueStatus(ctx context.Context, in *UpdateQueueInput) (*EmptyOutput, error) {
 	if in.Status == nil {
 		return nil, invalidParamErr("Status is required")
 	}
@@ -306,7 +306,7 @@ func (b *Backend) UpdateQueueStatus(ctx context.Context, in *UpdateQueueInput) (
 }
 
 // UpdateQueueMaxContacts sets the queue capacity; nil removes the cap.
-func (b *Backend) UpdateQueueMaxContacts(ctx context.Context, in *UpdateQueueInput) (*empty, error) {
+func (b *Backend) UpdateQueueMaxContacts(ctx context.Context, in *UpdateQueueInput) (*EmptyOutput, error) {
 	if in.MaxContacts != nil && *in.MaxContacts < minMaxContact {
 		return nil, invalidParamErr("MaxContacts must be at least %d", minMaxContact)
 	}
@@ -319,7 +319,7 @@ func (b *Backend) UpdateQueueMaxContacts(ctx context.Context, in *UpdateQueueInp
 }
 
 // UpdateQueueHoursOfOperation points a queue at another schedule.
-func (b *Backend) UpdateQueueHoursOfOperation(ctx context.Context, in *UpdateQueueInput) (*empty, error) {
+func (b *Backend) UpdateQueueHoursOfOperation(ctx context.Context, in *UpdateQueueInput) (*EmptyOutput, error) {
 	if in.HoursOfOperationID == nil {
 		return nil, invalidParamErr("HoursOfOperationId is required")
 	}
@@ -336,7 +336,7 @@ func (b *Backend) UpdateQueueHoursOfOperation(ctx context.Context, in *UpdateQue
 }
 
 // UpdateQueueOutboundCallerConfig sets the caller ID of outbound calls from a queue.
-func (b *Backend) UpdateQueueOutboundCallerConfig(ctx context.Context, in *UpdateQueueInput) (*empty, error) {
+func (b *Backend) UpdateQueueOutboundCallerConfig(ctx context.Context, in *UpdateQueueInput) (*EmptyOutput, error) {
 	if in.OutboundCallerConfig == nil {
 		return nil, invalidParamErr("OutboundCallerConfig is required")
 	}
@@ -353,7 +353,7 @@ func (b *Backend) UpdateQueueOutboundCallerConfig(ctx context.Context, in *Updat
 }
 
 // UpdateQueueOutboundEmailConfig sets the from address of outbound email from a queue.
-func (b *Backend) UpdateQueueOutboundEmailConfig(ctx context.Context, in *UpdateQueueInput) (*empty, error) {
+func (b *Backend) UpdateQueueOutboundEmailConfig(ctx context.Context, in *UpdateQueueInput) (*EmptyOutput, error) {
 	if in.OutboundEmailConfig == nil {
 		return nil, invalidParamErr("OutboundEmailConfig is required")
 	}
@@ -370,7 +370,7 @@ func (b *Backend) UpdateQueueOutboundEmailConfig(ctx context.Context, in *Update
 }
 
 // DeleteQueue removes a queue that no routing profile or quick connect references.
-func (b *Backend) DeleteQueue(inst, id string) (*empty, error) {
+func (b *Backend) DeleteQueue(inst, id string) (*EmptyOutput, error) {
 	b.mu.Lock("DeleteQueue")
 	defer b.mu.Unlock()
 
@@ -443,7 +443,7 @@ func (b *Backend) queueRefs(inst, queueID string, ids []string, add bool) error 
 }
 
 // AssociateQueueQuickConnects adds quick connects to a queue.
-func (b *Backend) AssociateQueueQuickConnects(in *QuickConnectIDsInput) (*empty, error) {
+func (b *Backend) AssociateQueueQuickConnects(in *QuickConnectIDsInput) (*EmptyOutput, error) {
 	b.mu.Lock("AssociateQueueQuickConnects")
 	defer b.mu.Unlock()
 
@@ -451,7 +451,7 @@ func (b *Backend) AssociateQueueQuickConnects(in *QuickConnectIDsInput) (*empty,
 }
 
 // DisassociateQueueQuickConnects removes quick connects from a queue.
-func (b *Backend) DisassociateQueueQuickConnects(in *QuickConnectIDsInput) (*empty, error) {
+func (b *Backend) DisassociateQueueQuickConnects(in *QuickConnectIDsInput) (*EmptyOutput, error) {
 	b.mu.Lock("DisassociateQueueQuickConnects")
 	defer b.mu.Unlock()
 

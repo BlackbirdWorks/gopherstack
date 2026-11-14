@@ -99,7 +99,8 @@ type MetricResultV2 struct {
 	Collections    []MetricDataV2    `json:"Collections"`
 }
 
-type metricDataV2Out struct {
+// MetricDataV2Out is the GetMetricDataV2 response.
+type MetricDataV2Out struct {
 	NextToken     string           `json:"NextToken,omitempty"`
 	MetricResults []MetricResultV2 `json:"MetricResults"`
 }
@@ -619,7 +620,7 @@ func intervalWindows(start, end time.Time, period string, loc *time.Location) []
 }
 
 // GetMetricDataV2 derives historical contact metrics from stored contacts.
-func (b *Backend) GetMetricDataV2(in *GetMetricDataV2Input) (*metricDataV2Out, error) {
+func (b *Backend) GetMetricDataV2(in *GetMetricDataV2Input) (*MetricDataV2Out, error) {
 	b.mu.RLock("GetMetricDataV2")
 	defer b.mu.RUnlock()
 
@@ -665,7 +666,7 @@ func (b *Backend) GetMetricDataV2(in *GetMetricDataV2Input) (*metricDataV2Out, e
 		return nil, err
 	}
 
-	return &metricDataV2Out{MetricResults: orEmpty(items), NextToken: next}, nil
+	return &MetricDataV2Out{MetricResults: orEmpty(items), NextToken: next}, nil
 }
 
 func (b *Backend) v2Groups(inst string, contacts []*contactRec, dims []string) [][]string {

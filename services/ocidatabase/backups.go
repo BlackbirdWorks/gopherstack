@@ -12,7 +12,8 @@ const (
 	hoursPerDay     = 24
 )
 
-type backupWire struct {
+// BackupWire is the backup wire shape.
+type BackupWire struct {
 	TimeStarted          time.Time  `json:"timeStarted"`
 	TimeEnded            *time.Time `json:"timeEnded,omitempty"`
 	TimeAvailableTill    *time.Time `json:"timeAvailableTill,omitempty"`
@@ -29,8 +30,8 @@ type backupWire struct {
 	IsRestorable         bool       `json:"isRestorable"`
 }
 
-func (b *InMemoryBackend) backupView(bk *Backup) backupWire {
-	return backupWire{
+func (b *InMemoryBackend) backupView(bk *Backup) BackupWire {
+	return BackupWire{
 		ID: bk.ID, CompartmentID: bk.CompartmentID, AutonomousDatabaseID: bk.DBID, DisplayName: bk.DisplayName,
 		Type: bk.Type, LifecycleState: bk.State, LifecycleDetails: bk.Details, DBVersion: bk.DBVersion,
 		TimeStarted: bk.Started, TimeEnded: bk.Ended, TimeAvailableTill: bk.AvailableTill,
@@ -53,14 +54,14 @@ func (b *InMemoryBackend) addAutomaticBackup(db *ADB) {
 }
 
 // CreateBackup starts a manual backup. Only the lifecycle is emulated: the backup holds no data.
-func (b *InMemoryBackend) CreateBackup(in backupIn) (backupWire, string, string, error) {
+func (b *InMemoryBackend) CreateBackup(in backupIn) (BackupWire, string, string, error) {
 	if in.DBID == nil || *in.DBID == "" {
-		return backupWire{}, "", "", errMissing("autonomousDatabaseId is required")
+		return BackupWire{}, "", "", errMissing("autonomousDatabaseId is required")
 	}
 
 	long := deref(in.LongTerm, false)
 	if long && (in.RetentionDays == nil || *in.RetentionDays < longTermMinDays) {
-		return backupWire{}, "", "", errParam("retentionPeriodInDays of at least 90 is required for a long-term backup")
+		return BackupWire{}, "", "", errParam("retentionPeriodInDays of at least 90 is required for a long-term backup")
 	}
 
 	b.mu.Lock("CreateBackup")
@@ -68,11 +69,11 @@ func (b *InMemoryBackend) CreateBackup(in backupIn) (backupWire, string, string,
 
 	db, aerr := b.guard(*in.DBID, "", stateAvailable)
 	if aerr != nil {
-		return backupWire{}, "", "", aerr
+		return BackupWire{}, "", "", aerr
 	}
 
 	if db.IsFreeTier {
-		return backupWire{}, "", "", errParam("Always Free databases do not support manual or long-term backups")
+		return BackupWire{}, "", "", errParam("Always Free databases do not support manual or long-term backups")
 	}
 
 	bk := b.newBackup(db, in, long)
@@ -120,13 +121,13 @@ func (b *InMemoryBackend) newBackup(db *ADB, in backupIn, long bool) *Backup {
 }
 
 // GetBackup returns one backup.
-func (b *InMemoryBackend) GetBackup(id string) (backupWire, error) {
+func (b *InMemoryBackend) GetBackup(id string) (BackupWire, error) {
 	b.mu.RLock("GetBackup")
 	defer b.mu.RUnlock()
 
 	bk, ok := b.backups[id]
 	if !ok {
-		return backupWire{}, errNotFound(id)
+		return BackupWire{}, errNotFound(id)
 	}
 
 	return b.backupView(bk), nil
@@ -142,9 +143,9 @@ type BackupFilter struct {
 }
 
 // ListBackups lists backups by database or compartment.
-func (b *InMemoryBackend) ListBackups(f BackupFilter, o ListOpts) (page.Page[backupWire], error) {
+func (b *InMemoryBackend) ListBackups(f BackupFilter, o ListOpts) (page.Page[BackupWire], error) {
 	if f.DBID == "" && f.Compartment == "" {
-		return page.Page[backupWire]{}, errMissing("autonomousDatabaseId or compartmentId is required")
+		return page.Page[BackupWire]{}, errMissing("autonomousDatabaseId or compartmentId is required")
 	}
 
 	b.mu.RLock("ListBackups")
@@ -152,7 +153,7 @@ func (b *InMemoryBackend) ListBackups(f BackupFilter, o ListOpts) (page.Page[bac
 
 	if f.Compartment != "" {
 		if aerr := b.checkCompartment(f.Compartment); aerr != nil {
-			return page.Page[backupWire]{}, aerr
+			return page.Page[BackupWire]{}, aerr
 		}
 	}
 
@@ -169,12 +170,12 @@ func (b *InMemoryBackend) ListBackups(f BackupFilter, o ListOpts) (page.Page[bac
 		func(x *Backup) (time.Time, int64) { return x.Started, x.Seq },
 	)
 
-	out := make([]backupWire, 0, len(pg.Data))
+	out := make([]BackupWire, 0, len(pg.Data))
 	for _, bk := range pg.Data {
 		out = append(out, b.backupView(bk))
 	}
 
-	return page.Page[backupWire]{Data: out, Next: pg.Next}, nil
+	return page.Page[BackupWire]{Data: out, Next: pg.Next}, nil
 }
 
 func (f BackupFilter) matches(bk *Backup) bool {

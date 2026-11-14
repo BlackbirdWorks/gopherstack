@@ -33,13 +33,15 @@ type WorkRequestWire struct {
 	Percent      float32          `json:"percentComplete"`
 }
 
-type wrErrorWire struct {
+// WrErrorWire is the work request error wire shape.
+type WrErrorWire struct {
 	Timestamp time.Time `json:"timestamp"`
 	Code      string    `json:"code"`
 	Message   string    `json:"message"`
 }
 
-type wrLogWire struct {
+// WrLogWire is the work request log wire shape.
+type WrLogWire struct {
 	Timestamp time.Time `json:"timestamp"`
 	Message   string    `json:"message"`
 }
@@ -144,34 +146,34 @@ func (b *InMemoryBackend) ListWorkRequests(f WorkRequestFilter, o ListOpts) (pag
 }
 
 // WorkRequestErrors lists the errors of a failed work request.
-func (b *InMemoryBackend) WorkRequestErrors(id string, o ListOpts) (page.Page[wrErrorWire], error) {
+func (b *InMemoryBackend) WorkRequestErrors(id string, o ListOpts) (page.Page[WrErrorWire], error) {
 	b.mu.RLock("WorkRequestErrors")
 	defer b.mu.RUnlock()
 
 	wr, ok := b.workReqs[id]
 	if !ok {
-		return page.Page[wrErrorWire]{}, errNotFound(id)
+		return page.Page[WrErrorWire]{}, errNotFound(id)
 	}
 
-	all := []wrErrorWire{}
+	all := []WrErrorWire{}
 	if wr.Status == wrFailed && wr.FinishedAt != nil {
-		all = append(all, wrErrorWire{Timestamp: *wr.FinishedAt, Code: wr.ErrCode, Message: wr.ErrMsg})
+		all = append(all, WrErrorWire{Timestamp: *wr.FinishedAt, Code: wr.ErrCode, Message: wr.ErrMsg})
 	}
 
 	return page.New(all, o.Page, o.Limit, defaultListLimit), nil
 }
 
 // WorkRequestLogs lists the progress log of a work request, oldest first.
-func (b *InMemoryBackend) WorkRequestLogs(id string, o ListOpts) (page.Page[wrLogWire], error) {
+func (b *InMemoryBackend) WorkRequestLogs(id string, o ListOpts) (page.Page[WrLogWire], error) {
 	b.mu.RLock("WorkRequestLogs")
 	defer b.mu.RUnlock()
 
 	wr, ok := b.workReqs[id]
 	if !ok {
-		return page.Page[wrLogWire]{}, errNotFound(id)
+		return page.Page[WrLogWire]{}, errNotFound(id)
 	}
 
-	all := []wrLogWire{
+	all := []WrLogWire{
 		{Timestamp: wr.Accepted, Message: wr.Type + " accepted"},
 		{Timestamp: wr.Accepted, Message: wr.Type + " in progress"},
 	}
@@ -182,7 +184,7 @@ func (b *InMemoryBackend) WorkRequestLogs(id string, o ListOpts) (page.Page[wrLo
 			msg = wr.Type + " failed: " + wr.ErrMsg
 		}
 
-		all = append(all, wrLogWire{Timestamp: *wr.FinishedAt, Message: msg})
+		all = append(all, WrLogWire{Timestamp: *wr.FinishedAt, Message: msg})
 	}
 
 	return page.New(all, o.Page, o.Limit, defaultListLimit), nil

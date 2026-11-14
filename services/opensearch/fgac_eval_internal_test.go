@@ -93,75 +93,75 @@ func TestEffectivePerms_IndexAndCluster(t *testing.T) {
 		index       string
 		action      string
 		cluster     string
-		principal   securityPrincipal
+		principal   SecurityPrincipal
 		wantIndex   bool
 		wantCluster bool
 	}{
 		{
-			name: "user read matching pattern", principal: securityPrincipal{Name: "bob"},
+			name: "user read matching pattern", principal: SecurityPrincipal{Name: "bob"},
 			index: "logs-1", action: "indices:data/read/search", wantIndex: true,
 		},
 		{
-			name: "user read other index", principal: securityPrincipal{Name: "bob"},
+			name: "user read other index", principal: SecurityPrincipal{Name: "bob"},
 			index: "metrics-1", action: "indices:data/read/search",
 		},
 		{
-			name: "read group excludes write", principal: securityPrincipal{Name: "bob"},
+			name: "read group excludes write", principal: SecurityPrincipal{Name: "bob"},
 			index: "logs-1", action: "indices:data/write/index",
 		},
 		{
 			name:      "backend role mapping",
-			principal: securityPrincipal{Name: "x", BackendRoles: []string{"arn:aws:iam::1:role/reader"}},
+			principal: SecurityPrincipal{Name: "x", BackendRoles: []string{"arn:aws:iam::1:role/reader"}},
 			index:     "logs-9", action: "indices:data/read/get", wantIndex: true,
 		},
 		{
-			name: "cluster composite ro group", principal: securityPrincipal{Name: "bob"},
+			name: "cluster composite ro group", principal: SecurityPrincipal{Name: "bob"},
 			cluster: "indices:data/read/mget", wantCluster: true,
 		},
 		{
-			name: "cluster composite ro excludes bulk", principal: securityPrincipal{Name: "bob"},
+			name: "cluster composite ro excludes bulk", principal: SecurityPrincipal{Name: "bob"},
 			cluster: "indices:data/write/bulk",
 		},
 		{
-			name: "all access index", principal: securityPrincipal{Name: "admin"},
+			name: "all access index", principal: SecurityPrincipal{Name: "admin"},
 			index: "anything", action: "indices:admin/delete", wantIndex: true,
 		},
 		{
-			name: "all access cluster", principal: securityPrincipal{Name: "admin"},
+			name: "all access cluster", principal: SecurityPrincipal{Name: "admin"},
 			cluster: "cluster:admin/whatever", wantCluster: true,
 		},
 		{
-			name: "user_name substitution", principal: securityPrincipal{Name: "erin"},
+			name: "user_name substitution", principal: SecurityPrincipal{Name: "erin"},
 			index: "user-erin-1", action: "indices:data/write/index", wantIndex: true,
 		},
 		{
-			name: "user_name substitution other user", principal: securityPrincipal{Name: "erin"},
+			name: "user_name substitution other user", principal: SecurityPrincipal{Name: "erin"},
 			index: "user-frank-1", action: "indices:data/write/index",
 		},
 		{
-			name: "custom action group", principal: securityPrincipal{Name: "carol"},
+			name: "custom action group", principal: SecurityPrincipal{Name: "carol"},
 			index: "data", action: "indices:data/read/get", wantIndex: true,
 		},
 		{
-			name: "custom action group no search", principal: securityPrincipal{Name: "carol"},
+			name: "custom action group no search", principal: SecurityPrincipal{Name: "carol"},
 			index: "data", action: "indices:data/read/search",
 		},
 		{
-			name: "cyclic groups do not hang", principal: securityPrincipal{Name: "dave"},
+			name: "cyclic groups do not hang", principal: SecurityPrincipal{Name: "dave"},
 			index: "x", action: "indices:data/read/search",
 		},
 		{
 			name:      "and_backend_roles needs all",
-			principal: securityPrincipal{Name: "g", BackendRoles: []string{"team-a"}},
+			principal: SecurityPrincipal{Name: "g", BackendRoles: []string{"team-a"}},
 			index:     "any", action: "indices:data/read/search",
 		},
 		{
 			name:      "and_backend_roles satisfied",
-			principal: securityPrincipal{Name: "g", BackendRoles: []string{"team-a", "oncall"}},
+			principal: SecurityPrincipal{Name: "g", BackendRoles: []string{"team-a", "oncall"}},
 			index:     "any", action: "indices:data/read/search", wantIndex: true,
 		},
 		{
-			name: "unmapped user", principal: securityPrincipal{Name: "nobody"},
+			name: "unmapped user", principal: SecurityPrincipal{Name: "nobody"},
 			index: "logs-1", action: "indices:data/read/search",
 		},
 	}
@@ -186,7 +186,7 @@ func TestEffectivePerms_IndexAndCluster(t *testing.T) {
 func TestEffectivePerms_NilConfigGrantsNothing(t *testing.T) {
 	t.Parallel()
 
-	perms := buildEffectivePerms(nil, securityPrincipal{Name: "admin"})
+	perms := buildEffectivePerms(nil, SecurityPrincipal{Name: "admin"})
 	assert.False(t, perms.AllowCluster("cluster:monitor/main"))
 	assert.False(t, perms.AllowIndex("i", "indices:data/read/search"))
 }
@@ -325,7 +325,7 @@ func TestAccessRestriction(t *testing.T) {
 			cfg.Roles["r"] = &SecurityRole{IndexPermissions: tt.grants}
 			cfg.RolesMapping["r"] = &RoleMapping{Users: []string{"u"}}
 
-			perms := buildEffectivePerms(cfg, securityPrincipal{Name: "u"})
+			perms := buildEffectivePerms(cfg, SecurityPrincipal{Name: "u"})
 			res, err := perms.restrictionFor("i", "indices:data/read/search")
 			require.NoError(t, err)
 
@@ -395,7 +395,7 @@ func TestRestrictionFor_InvalidDLS(t *testing.T) {
 	}}}
 	cfg.RolesMapping["r"] = &RoleMapping{Users: []string{"u"}}
 
-	_, err := buildEffectivePerms(cfg, securityPrincipal{Name: "u"}).restrictionFor("i", "indices:data/read/search")
+	_, err := buildEffectivePerms(cfg, SecurityPrincipal{Name: "u"}).restrictionFor("i", "indices:data/read/search")
 	require.ErrorIs(t, err, errBadDLSQuery)
 }
 

@@ -215,7 +215,11 @@ func (b *Backend) ListUsers(inst, token string, maxResults int32) ([]UserSummary
 	return paged(all, token, maxResults)
 }
 
-func (b *Backend) updateUser(ctx context.Context, in *UpdateUserInput, apply func(u *userRec) error) (*empty, error) {
+func (b *Backend) updateUser(
+	ctx context.Context,
+	in *UpdateUserInput,
+	apply func(u *userRec) error,
+) (*EmptyOutput, error) {
 	b.mu.Lock("UpdateUser")
 	defer b.mu.Unlock()
 
@@ -235,11 +239,11 @@ func (b *Backend) updateUser(ctx context.Context, in *UpdateUserInput, apply fun
 
 	u.User.Stamp = b.stamp(ctx)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 // UpdateUserIdentityInfo replaces a user's identity info.
-func (b *Backend) UpdateUserIdentityInfo(ctx context.Context, in *UpdateUserInput) (*empty, error) {
+func (b *Backend) UpdateUserIdentityInfo(ctx context.Context, in *UpdateUserInput) (*EmptyOutput, error) {
 	if in.IdentityInfo == nil {
 		return nil, invalidParamErr("IdentityInfo is required")
 	}
@@ -252,7 +256,7 @@ func (b *Backend) UpdateUserIdentityInfo(ctx context.Context, in *UpdateUserInpu
 }
 
 // UpdateUserPhoneConfig replaces a user's phone config.
-func (b *Backend) UpdateUserPhoneConfig(ctx context.Context, in *UpdateUserInput) (*empty, error) {
+func (b *Backend) UpdateUserPhoneConfig(ctx context.Context, in *UpdateUserInput) (*EmptyOutput, error) {
 	if err := checkPhoneConfig(in.PhoneConfig); err != nil {
 		return nil, err
 	}
@@ -265,7 +269,7 @@ func (b *Backend) UpdateUserPhoneConfig(ctx context.Context, in *UpdateUserInput
 }
 
 // UpdateUserRoutingProfile moves a user to another routing profile.
-func (b *Backend) UpdateUserRoutingProfile(ctx context.Context, in *UpdateUserInput) (*empty, error) {
+func (b *Backend) UpdateUserRoutingProfile(ctx context.Context, in *UpdateUserInput) (*EmptyOutput, error) {
 	return b.updateUser(ctx, in, func(u *userRec) error {
 		if !b.routingProfiles.has(u.InstanceID, in.RoutingProfileID) {
 			return notFoundErr("RoutingProfile", in.RoutingProfileID)
@@ -278,7 +282,7 @@ func (b *Backend) UpdateUserRoutingProfile(ctx context.Context, in *UpdateUserIn
 }
 
 // UpdateUserSecurityProfiles replaces a user's security profiles.
-func (b *Backend) UpdateUserSecurityProfiles(ctx context.Context, in *UpdateUserInput) (*empty, error) {
+func (b *Backend) UpdateUserSecurityProfiles(ctx context.Context, in *UpdateUserInput) (*EmptyOutput, error) {
 	return b.updateUser(ctx, in, func(u *userRec) error {
 		if err := b.checkSecurityProfiles(u.InstanceID, in.SecurityProfileIDs); err != nil {
 			return err
@@ -291,7 +295,7 @@ func (b *Backend) UpdateUserSecurityProfiles(ctx context.Context, in *UpdateUser
 }
 
 // UpdateUserHierarchy sets or clears a user's hierarchy group.
-func (b *Backend) UpdateUserHierarchy(ctx context.Context, in *UpdateUserInput) (*empty, error) {
+func (b *Backend) UpdateUserHierarchy(ctx context.Context, in *UpdateUserInput) (*EmptyOutput, error) {
 	return b.updateUser(ctx, in, func(u *userRec) error {
 		if err := b.checkHierarchyRef(u.InstanceID, in.HierarchyGroupID); err != nil {
 			return err
@@ -304,7 +308,7 @@ func (b *Backend) UpdateUserHierarchy(ctx context.Context, in *UpdateUserInput) 
 }
 
 // PutUserStatus sets the agent status of a user.
-func (b *Backend) PutUserStatus(ctx context.Context, in *UpdateUserInput) (*empty, error) {
+func (b *Backend) PutUserStatus(ctx context.Context, in *UpdateUserInput) (*EmptyOutput, error) {
 	return b.updateUser(ctx, in, func(u *userRec) error {
 		s, err := b.agentStatuses.get(u.InstanceID, in.AgentStatusID)
 		if err != nil {
@@ -323,7 +327,7 @@ func (b *Backend) PutUserStatus(ctx context.Context, in *UpdateUserInput) (*empt
 }
 
 // DeleteUser removes a user that is not handling a contact.
-func (b *Backend) DeleteUser(inst, id string) (*empty, error) {
+func (b *Backend) DeleteUser(inst, id string) (*EmptyOutput, error) {
 	b.mu.Lock("DeleteUser")
 	defer b.mu.Unlock()
 
@@ -342,5 +346,5 @@ func (b *Backend) DeleteUser(inst, id string) (*empty, error) {
 		return nil, err
 	}
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }

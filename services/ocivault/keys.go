@@ -122,14 +122,14 @@ func (b *InMemoryBackend) storeKey(v *Vault, in CreateKeyIn, material []byte, or
 }
 
 // CreateKey creates a key with its first version; it is ENABLING until the transition delay elapses.
-func (b *InMemoryBackend) CreateKey(vaultID string, in CreateKeyIn) (keyWire, string, error) {
+func (b *InMemoryBackend) CreateKey(vaultID string, in CreateKeyIn) (KeyWire, string, error) {
 	if aerr := validateCreateKey(&in); aerr != nil {
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	material, err := generateMaterial(in.KeyShape)
 	if err != nil {
-		return keyWire{}, "", err
+		return KeyWire{}, "", err
 	}
 
 	b.mu.Lock("CreateKey")
@@ -137,25 +137,25 @@ func (b *InMemoryBackend) CreateKey(vaultID string, in CreateKeyIn) (keyWire, st
 
 	v, aerr := b.activeVault(vaultID)
 	if aerr != nil {
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	if id, ok := b.retry.Lookup("CreateKey/"+vaultID, in.RetryToken, b.nowUTC()); ok {
 		k, live := b.keys[id]
 		if !live || k.State == stateDeleted {
-			return keyWire{}, "", errInvalidatedToken()
+			return KeyWire{}, "", errInvalidatedToken()
 		}
 
 		return keyView(k), k.Etag, nil
 	}
 
 	if aerr = b.checkTags(in.FreeformTags, in.DefinedTags); aerr != nil {
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	k, aerr := b.storeKey(v, in, material, originInternal)
 	if aerr != nil {
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	b.retry.Remember("CreateKey/"+vaultID, in.RetryToken, k.ID, k.TimeCreated)
@@ -192,13 +192,13 @@ func (b *InMemoryBackend) writableKey(vaultID, keyID, ifMatch string) (*Key, *Va
 }
 
 // GetKey returns one key.
-func (b *InMemoryBackend) GetKey(vaultID, keyID string) (keyWire, string, error) {
+func (b *InMemoryBackend) GetKey(vaultID, keyID string) (KeyWire, string, error) {
 	b.mu.RLock("GetKey")
 	defer b.mu.RUnlock()
 
 	k, _, aerr := b.keyFor(vaultID, keyID)
 	if aerr != nil {
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	return keyView(k), k.Etag, nil
@@ -248,29 +248,29 @@ func (b *InMemoryBackend) ListKeys(
 }
 
 // UpdateKey changes display name, tags and the auto-rotation schedule.
-func (b *InMemoryBackend) UpdateKey(vaultID, keyID, ifMatch string, in UpdateKeyIn) (keyWire, string, error) {
+func (b *InMemoryBackend) UpdateKey(vaultID, keyID, ifMatch string, in UpdateKeyIn) (KeyWire, string, error) {
 	b.mu.Lock("UpdateKey")
 	defer b.mu.Unlock()
 
 	k, _, aerr := b.writableKey(vaultID, keyID, ifMatch)
 	if aerr != nil {
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	if aerr = b.checkTags(in.FreeformTags, in.DefinedTags); aerr != nil {
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	if in.DisplayName != nil {
 		if aerr = validateDisplayName(*in.DisplayName); aerr != nil {
-			return keyWire{}, "", aerr
+			return KeyWire{}, "", aerr
 		}
 
 		k.DisplayName = *in.DisplayName
 	}
 
 	if aerr = b.applyRotationUpdate(k, in); aerr != nil {
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	if in.FreeformTags != nil {
@@ -316,7 +316,7 @@ func (b *InMemoryBackend) applyRotationUpdate(k *Key, in UpdateKeyIn) *APIError 
 
 func (b *InMemoryBackend) setKeyState(
 	vaultID, keyID, ifMatch, token, from, to, shown string,
-) (keyWire, string, error) {
+) (KeyWire, string, error) {
 	b.mu.Lock("SetKeyState")
 	defer b.mu.Unlock()
 
@@ -327,11 +327,11 @@ func (b *InMemoryBackend) setKeyState(
 
 	k, _, aerr := b.writableKey(vaultID, keyID, ifMatch)
 	if aerr != nil {
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	if k.State != from {
-		return keyWire{}, "", errState("Key " + keyID + " is in state " + k.State + ", expected " + from)
+		return KeyWire{}, "", errState("Key " + keyID + " is in state " + k.State + ", expected " + from)
 	}
 
 	b.touchKey(k)
@@ -342,19 +342,19 @@ func (b *InMemoryBackend) setKeyState(
 }
 
 // EnableKey moves a DISABLED key to ENABLED.
-func (b *InMemoryBackend) EnableKey(vaultID, keyID, ifMatch, token string) (keyWire, string, error) {
+func (b *InMemoryBackend) EnableKey(vaultID, keyID, ifMatch, token string) (KeyWire, string, error) {
 	return b.setKeyState(vaultID, keyID, ifMatch, token, stateDisabled, stateEnabled, stateEnabling)
 }
 
 // DisableKey moves an ENABLED key to DISABLED.
-func (b *InMemoryBackend) DisableKey(vaultID, keyID, ifMatch, token string) (keyWire, string, error) {
+func (b *InMemoryBackend) DisableKey(vaultID, keyID, ifMatch, token string) (KeyWire, string, error) {
 	return b.setKeyState(vaultID, keyID, ifMatch, token, stateEnabled, stateDisabled, stateDisabling)
 }
 
 // ScheduleKeyDeletion moves an ENABLED or DISABLED key to PENDING_DELETION.
 func (b *InMemoryBackend) ScheduleKeyDeletion(
 	vaultID, keyID, ifMatch, token string, at *time.Time,
-) (keyWire, string, error) {
+) (KeyWire, string, error) {
 	b.mu.Lock("ScheduleKeyDeletion")
 	defer b.mu.Unlock()
 
@@ -365,16 +365,16 @@ func (b *InMemoryBackend) ScheduleKeyDeletion(
 
 	k, _, aerr := b.writableKey(vaultID, keyID, ifMatch)
 	if aerr != nil {
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	if k.State != stateEnabled && k.State != stateDisabled {
-		return keyWire{}, "", errState("Key " + keyID + " is in state " + k.State + "; deletion cannot be scheduled")
+		return KeyWire{}, "", errState("Key " + keyID + " is in state " + k.State + "; deletion cannot be scheduled")
 	}
 
 	t, aerr := b.deletionTime(at, kmsMinDeletion)
 	if aerr != nil {
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	k.PrevState, k.TimeOfDeletion, k.Etag = k.State, &t, newEtag()
@@ -386,7 +386,7 @@ func (b *InMemoryBackend) ScheduleKeyDeletion(
 }
 
 // CancelKeyDeletion restores the state a key had before deletion was scheduled.
-func (b *InMemoryBackend) CancelKeyDeletion(vaultID, keyID, ifMatch, token string) (keyWire, string, error) {
+func (b *InMemoryBackend) CancelKeyDeletion(vaultID, keyID, ifMatch, token string) (KeyWire, string, error) {
 	b.mu.Lock("CancelKeyDeletion")
 	defer b.mu.Unlock()
 
@@ -397,11 +397,11 @@ func (b *InMemoryBackend) CancelKeyDeletion(vaultID, keyID, ifMatch, token strin
 
 	k, _, aerr := b.writableKey(vaultID, keyID, ifMatch)
 	if aerr != nil {
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	if k.State != statePendingDeletion {
-		return keyWire{}, "", errState("Key " + keyID + " is not pending deletion")
+		return KeyWire{}, "", errState("Key " + keyID + " is not pending deletion")
 	}
 
 	prev := cmpOr(k.PrevState, stateEnabled)

@@ -231,8 +231,8 @@ func (b *Backend) emailInUse(inst string, r *emailAddressRec) string {
 }
 
 // DeleteEmailAddress removes an email address that no alias or queue references.
-func (b *Backend) DeleteEmailAddress(inst, id string) (*empty, error) {
-	return writeInstance(b, "DeleteEmailAddress", inst, func(inst string) (*empty, error) {
+func (b *Backend) DeleteEmailAddress(inst, id string) (*EmptyOutput, error) {
+	return writeInstance(b, "DeleteEmailAddress", inst, func(inst string) (*EmptyOutput, error) {
 		r, err := b.emails.get(inst, id)
 		if err != nil {
 			return nil, err
@@ -247,12 +247,12 @@ func (b *Backend) DeleteEmailAddress(inst, id string) (*empty, error) {
 }
 
 // AssociateEmailAddressAlias makes an address forward to the primary address.
-func (b *Backend) AssociateEmailAddressAlias(in *EmailAliasInput) (*empty, error) {
+func (b *Backend) AssociateEmailAddressAlias(in *EmailAliasInput) (*EmptyOutput, error) {
 	if in.AliasConfiguration == nil || in.AliasConfiguration.EmailAddressID == "" {
 		return nil, invalidParamErr("AliasConfiguration.EmailAddressId is required")
 	}
 
-	return writeInstance(b, "AssociateEmailAddressAlias", in.InstanceID, func(inst string) (*empty, error) {
+	return writeInstance(b, "AssociateEmailAddressAlias", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		primary, err := b.emails.get(inst, in.EmailID)
 		if err != nil {
 			return nil, err
@@ -276,17 +276,17 @@ func (b *Backend) AssociateEmailAddressAlias(in *EmailAliasInput) (*empty, error
 		alias.AliasOf, alias.Modified = primary.ID, now
 		primary.Aliases, primary.Modified = append(primary.Aliases, alias.ID), now
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 
 // DisassociateEmailAddressAlias removes an alias relationship.
-func (b *Backend) DisassociateEmailAddressAlias(in *EmailAliasInput) (*empty, error) {
+func (b *Backend) DisassociateEmailAddressAlias(in *EmailAliasInput) (*EmptyOutput, error) {
 	if in.AliasConfiguration == nil || in.AliasConfiguration.EmailAddressID == "" {
 		return nil, invalidParamErr("AliasConfiguration.EmailAddressId is required")
 	}
 
-	return writeInstance(b, "DisassociateEmailAddressAlias", in.InstanceID, func(inst string) (*empty, error) {
+	return writeInstance(b, "DisassociateEmailAddressAlias", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		primary, err := b.emails.get(inst, in.EmailID)
 		if err != nil {
 			return nil, err
@@ -305,7 +305,7 @@ func (b *Backend) DisassociateEmailAddressAlias(in *EmailAliasInput) (*empty, er
 			alias.AliasOf, alias.Modified = "", now
 		}
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 
@@ -345,12 +345,12 @@ func (b *Backend) queueForEmail(inst, queueID string) (*queueRec, error) {
 }
 
 // AssociateQueueEmailAddresses adds "from" addresses to a queue; already associated ones are kept.
-func (b *Backend) AssociateQueueEmailAddresses(in *QueueEmailAddressesInput) (*empty, error) {
+func (b *Backend) AssociateQueueEmailAddresses(in *QueueEmailAddressesInput) (*EmptyOutput, error) {
 	if len(in.EmailAddressesConfig) == 0 {
 		return nil, invalidParamErr("EmailAddressesConfig is required")
 	}
 
-	return writeInstance(b, "AssociateQueueEmailAddresses", in.InstanceID, func(inst string) (*empty, error) {
+	return writeInstance(b, "AssociateQueueEmailAddresses", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		q, err := b.queueForEmail(inst, in.QueueID)
 		if err != nil {
 			return nil, err
@@ -374,17 +374,17 @@ func (b *Backend) AssociateQueueEmailAddresses(in *QueueEmailAddressesInput) (*e
 
 		q.EmailAddresses = next
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 
 // DisassociateQueueEmailAddresses removes "from" addresses from a queue.
-func (b *Backend) DisassociateQueueEmailAddresses(in *QueueEmailAddressesInput) (*empty, error) {
+func (b *Backend) DisassociateQueueEmailAddresses(in *QueueEmailAddressesInput) (*EmptyOutput, error) {
 	if len(in.EmailAddressesID) == 0 {
 		return nil, invalidParamErr("EmailAddressesId is required")
 	}
 
-	return writeInstance(b, "DisassociateQueueEmailAddresses", in.InstanceID, func(inst string) (*empty, error) {
+	return writeInstance(b, "DisassociateQueueEmailAddresses", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		q, err := b.queueForEmail(inst, in.QueueID)
 		if err != nil {
 			return nil, err
@@ -400,7 +400,7 @@ func (b *Backend) DisassociateQueueEmailAddresses(in *QueueEmailAddressesInput) 
 			return slices.Contains(in.EmailAddressesID, id)
 		})
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 

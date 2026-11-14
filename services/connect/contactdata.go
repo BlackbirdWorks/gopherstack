@@ -60,7 +60,8 @@ type CreateContactInput struct {
 	References              jsontext.Value
 }
 
-type createContactOut struct {
+// CreateContactOut is the CreateContact response.
+type CreateContactOut struct {
 	ContactArn string `json:"ContactArn"`
 	ContactID  string `json:"ContactId"`
 }
@@ -158,7 +159,7 @@ func expirySegments(raw jsontext.Value, minutes *int32) (jsontext.Value, error) 
 }
 
 // CreateContact creates a voice, email or task contact.
-func (b *Backend) CreateContact(ctx context.Context, in *CreateContactInput) (*createContactOut, error) {
+func (b *Backend) CreateContact(ctx context.Context, in *CreateContactInput) (*CreateContactOut, error) {
 	if err := validateCreateContact(in); err != nil {
 		return nil, err
 	}
@@ -207,7 +208,7 @@ func (b *Backend) CreateContact(ctx context.Context, in *CreateContactInput) (*c
 
 	b.contacts.put(c)
 
-	return &createContactOut{ContactArn: c.Contact.Arn, ContactID: c.Contact.ID}, nil
+	return &CreateContactOut{ContactArn: c.Contact.Arn, ContactID: c.Contact.ID}, nil
 }
 
 // ContactDataRequest is one contact of a BatchPutContact request.
@@ -241,7 +242,8 @@ type SuccessfulRequest struct {
 	RequestIdentifier string `json:"RequestIdentifier,omitempty"`
 }
 
-type batchPutContactOut struct {
+// BatchPutContactOut is the BatchPutContact response.
+type BatchPutContactOut struct {
 	FailedRequestList     []FailedRequest     `json:"FailedRequestList"`
 	SuccessfulRequestList []SuccessfulRequest `json:"SuccessfulRequestList"`
 }
@@ -299,7 +301,7 @@ func (b *Backend) checkBatchItem(inst string, req *ContactDataRequest) (string, 
 }
 
 // BatchPutContact creates up to 25 outbound voice contacts, reporting each item's outcome.
-func (b *Backend) BatchPutContact(ctx context.Context, in *BatchPutContactInput) (*batchPutContactOut, error) {
+func (b *Backend) BatchPutContact(ctx context.Context, in *BatchPutContactInput) (*BatchPutContactOut, error) {
 	if n := len(in.ContactDataRequestList); n < 1 || n > maxBatchContacts {
 		return nil, invalidRequestErr("ContactDataRequestList must hold 1 to %d items", maxBatchContacts)
 	}
@@ -313,7 +315,7 @@ func (b *Backend) BatchPutContact(ctx context.Context, in *BatchPutContactInput)
 	}
 
 	inst := r.Instance.ID
-	out := &batchPutContactOut{FailedRequestList: []FailedRequest{}, SuccessfulRequestList: []SuccessfulRequest{}}
+	out := &BatchPutContactOut{FailedRequestList: []FailedRequest{}, SuccessfulRequestList: []SuccessfulRequest{}}
 	seen := map[string]bool{}
 
 	for i := range in.ContactDataRequestList {
@@ -363,7 +365,7 @@ type AssociateContactWithUserInput struct {
 }
 
 // AssociateContactWithUser offers a queued contact to an agent.
-func (b *Backend) AssociateContactWithUser(in *AssociateContactWithUserInput) (*empty, error) {
+func (b *Backend) AssociateContactWithUser(in *AssociateContactWithUserInput) (*EmptyOutput, error) {
 	if in.UserID == "" {
 		return nil, invalidParamErr("UserId is required")
 	}
@@ -389,7 +391,7 @@ func (b *Backend) AssociateContactWithUser(in *AssociateContactWithUserInput) (*
 	c.Contact.AgentInfo = &ContactAgentInfo{ID: uid, ConnectedToAgentTimestamp: &t}
 	b.touch(c)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 // activeContactLocked resolves a contact that has not ended, with ResourceNotFoundException for a missing one.
@@ -440,13 +442,14 @@ type participantCredentials struct {
 	ParticipantToken string `json:"ParticipantToken"`
 }
 
-type createParticipantOut struct {
+// CreateParticipantOut is the CreateParticipant response.
+type CreateParticipantOut struct {
 	ParticipantCredentials participantCredentials `json:"ParticipantCredentials"`
 	ParticipantID          string                 `json:"ParticipantId"`
 }
 
 // CreateParticipant adds a custom bot participant to an ongoing chat contact.
-func (b *Backend) CreateParticipant(in *CreateParticipantInput) (*createParticipantOut, error) {
+func (b *Backend) CreateParticipant(in *CreateParticipantInput) (*CreateParticipantOut, error) {
 	d := in.ParticipantDetails
 	if d == nil || strings.TrimSpace(d.DisplayName) == "" {
 		return nil, invalidRequestErr("ParticipantDetails.DisplayName is required")
@@ -472,7 +475,7 @@ func (b *Backend) CreateParticipant(in *CreateParticipantInput) (*createParticip
 	c.Participants = append(c.Participants, p)
 	b.touch(c)
 
-	return &createParticipantOut{
+	return &CreateParticipantOut{
 		ParticipantID: p.ID,
 		ParticipantCredentials: participantCredentials{
 			ParticipantToken: p.Token,
@@ -490,7 +493,8 @@ type CreatePersistentContactAssociationInput struct {
 	ClientToken      string
 }
 
-type persistentAssociationOut struct {
+// PersistentAssociationOut is the persistent contact association response.
+type PersistentAssociationOut struct {
 	ContinuedFromContactID string `json:"ContinuedFromContactId"`
 }
 
@@ -529,7 +533,7 @@ func (b *Backend) rehydrationSource(inst string, in *CreatePersistentContactAsso
 // CreatePersistentContactAssociation links a chat contact to the past chat it continues.
 func (b *Backend) CreatePersistentContactAssociation(
 	in *CreatePersistentContactAssociationInput,
-) (*persistentAssociationOut, error) {
+) (*PersistentAssociationOut, error) {
 	b.mu.Lock("CreatePersistentContactAssociation")
 	defer b.mu.Unlock()
 
@@ -554,5 +558,5 @@ func (b *Backend) CreatePersistentContactAssociation(
 	cur.Contact.PreviousContactID = src.Contact.ID
 	b.touch(cur)
 
-	return &persistentAssociationOut{ContinuedFromContactID: src.Contact.ID}, nil
+	return &PersistentAssociationOut{ContinuedFromContactID: src.Contact.ID}, nil
 }

@@ -191,7 +191,9 @@ func (h *Handler) versionOps(ops map[string]restroute.OpFunc, kind, label, arnKe
 
 		return &map[string]any{arnKey: out.Arn, "Version": out.Version}, nil
 	})
-	ops["Delete"+label+"Version"] = typed(func(in *VersionInput) (*empty, error) { return b.deleteVersion(kind, in) })
+	ops["Delete"+label+"Version"] = typed(
+		func(in *VersionInput) (*EmptyOutput, error) { return b.deleteVersion(kind, in) },
+	)
 	ops["List"+label+"Versions"] = typed(func(in *VersionInput) (*map[string]any, error) {
 		items, next, err := b.listVersions(kind, in)
 
@@ -218,10 +220,10 @@ func (h *Handler) aliasOps(ops map[string]restroute.OpFunc, kind, label, arnKey 
 
 		return &map[string]any{label + "Alias": info}, nil
 	})
-	ops["Update"+label+"Alias"] = typedCtx(func(ctx context.Context, in *AliasInput) (*empty, error) {
+	ops["Update"+label+"Alias"] = typedCtx(func(ctx context.Context, in *AliasInput) (*EmptyOutput, error) {
 		return b.updateAlias(ctx, kind, in)
 	})
-	ops["Delete"+label+"Alias"] = typed(func(in *AliasInput) (*empty, error) { return b.deleteAlias(kind, in) })
+	ops["Delete"+label+"Alias"] = typed(func(in *AliasInput) (*EmptyOutput, error) { return b.deleteAlias(kind, in) })
 	ops["List"+label+"Aliases"] = typed(func(in *AliasInput) (*map[string]any, error) {
 		items, next, err := b.listAliases(kind, in)
 

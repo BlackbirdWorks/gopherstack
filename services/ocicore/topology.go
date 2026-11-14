@@ -61,7 +61,7 @@ type topoBuilder struct {
 	rels     []topoRel
 }
 
-func (t *topoBuilder) entity(r resource) {
+func (t *topoBuilder) entity(r Resource) {
 	id := r.base().ID
 	if t.seen[id] {
 		return
@@ -97,12 +97,12 @@ func (t *topoBuilder) rel(r topoRel) {
 	t.rels = append(t.rels, r)
 }
 
-func (t *topoBuilder) contains(parent, child resource) {
+func (t *topoBuilder) contains(parent, child Resource) {
 	t.entity(child)
 	t.rel(topoRel{Type: relContains, ID1: parent.base().ID, ID2: child.base().ID})
 }
 
-func (t *topoBuilder) associate(from, to resource, via ...string) {
+func (t *topoBuilder) associate(from, to Resource, via ...string) {
 	t.entity(to)
 
 	r := topoRel{Type: relAssociatedWith, ID1: from.base().ID, ID2: to.base().ID}
@@ -114,7 +114,7 @@ func (t *topoBuilder) associate(from, to resource, via ...string) {
 }
 
 // routeTarget resolves the entity a route rule sends traffic to.
-func (t *topoBuilder) routeTarget(id string) resource {
+func (t *topoBuilder) routeTarget(id string) Resource {
 	if r, ok := t.b.res[id]; ok && live(r) {
 		if p, isIP := r.(*PrivateIP); isIP {
 			if v, found := t.b.res[p.VnicID]; found {
@@ -206,7 +206,7 @@ func (t *topoBuilder) vcnParts(v *Vcn) {
 }
 
 func (t *topoBuilder) vcnChildren(v *Vcn) {
-	var kids []resource
+	var kids []Resource
 
 	for _, r := range t.b.res {
 		if r.vcnRef() != v.ID || !live(r) {
@@ -231,8 +231,8 @@ func (t *topoBuilder) vcnChildren(v *Vcn) {
 	}
 }
 
-func sortByCreation(rs []resource) {
-	slices.SortFunc(rs, func(a, c resource) int { return cmp.Compare(a.base().Internal.Seq, c.base().Internal.Seq) })
+func sortByCreation(rs []Resource) {
+	slices.SortFunc(rs, func(a, c Resource) int { return cmp.Compare(a.base().Internal.Seq, c.base().Internal.Seq) })
 }
 
 func (b *InMemoryBackend) topoOf(kind string, build func(*topoBuilder)) TopologyOut {

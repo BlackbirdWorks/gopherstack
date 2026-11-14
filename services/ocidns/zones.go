@@ -26,7 +26,8 @@ type nameserverWire struct {
 	Hostname string `json:"hostname"`
 }
 
-type transferWire struct {
+// TransferWire is the zone transfer server wire shape.
+type TransferWire struct {
 	Address               string `json:"address"`
 	Port                  int    `json:"port"`
 	IsTransferSource      bool   `json:"isTransferSource"`
@@ -52,7 +53,7 @@ type ZoneWire struct {
 	ExternalMasters     []extWire                 `json:"externalMasters"`
 	ExternalDownstreams []extWire                 `json:"externalDownstreams"`
 	Nameservers         []nameserverWire          `json:"nameservers"`
-	ZoneTransferServers []transferWire            `json:"zoneTransferServers,omitempty"`
+	ZoneTransferServers []TransferWire            `json:"zoneTransferServers,omitempty"`
 	Serial              int64                     `json:"serial"`
 	IsProtected         bool                      `json:"isProtected"`
 }
@@ -132,8 +133,8 @@ func (b *InMemoryBackend) zoneSummary(z *Zone) ZoneSummaryWire {
 }
 
 // transferServers are the emulator's stand-ins for the OCI nameservers that transfer zones with external servers.
-func transferServers() []transferWire {
-	return []transferWire{
+func transferServers() []TransferWire {
+	return []TransferWire{
 		{Address: "192.0.2.53", Port: dnsPort, IsTransferSource: true},
 		{Address: "192.0.2.54", Port: dnsPort, IsTransferDestination: true},
 	}
@@ -376,21 +377,21 @@ func (b *InMemoryBackend) newZone(in CreateZoneIn) *Zone {
 }
 
 // CreateZone creates a zone with its managed SOA and NS records.
-func (b *InMemoryBackend) CreateZone(in CreateZoneIn) (ZoneWire, tag, error) {
+func (b *InMemoryBackend) CreateZone(in CreateZoneIn) (ZoneWire, Tag, error) {
 	b.mu.Lock("CreateZone")
 	defer b.mu.Unlock()
 
 	if id, ok := b.retry.Lookup("CreateZone", in.RetryToken, b.nowUTC()); ok {
 		z, live := b.zones[id]
 		if !live {
-			return ZoneWire{}, tag{}, errInvalidatedToken()
+			return ZoneWire{}, Tag{}, errInvalidatedToken()
 		}
 
 		return b.zoneWire(z), tagOf(z.ID, z.meta), nil
 	}
 
 	if err := b.validateZoneIn(&in); err != nil {
-		return ZoneWire{}, tag{}, err
+		return ZoneWire{}, Tag{}, err
 	}
 
 	z := b.newZone(in)
@@ -400,13 +401,13 @@ func (b *InMemoryBackend) CreateZone(in CreateZoneIn) (ZoneWire, tag, error) {
 }
 
 // GetZone returns a zone.
-func (b *InMemoryBackend) GetZone(r ZoneRef) (ZoneWire, tag, error) {
+func (b *InMemoryBackend) GetZone(r ZoneRef) (ZoneWire, Tag, error) {
 	b.mu.RLock("GetZone")
 	defer b.mu.RUnlock()
 
 	z, err := b.findZone(r)
 	if err != nil {
-		return ZoneWire{}, tag{}, err
+		return ZoneWire{}, Tag{}, err
 	}
 
 	return b.zoneWire(z), tagOf(z.ID, z.meta), nil
@@ -467,12 +468,12 @@ var zoneSorters = sorter[*Zone]{ //nolint:gochecknoglobals // immutable comparat
 }
 
 // ListZones lists the zones of a compartment.
-func (b *InMemoryBackend) ListZones(f ZoneFilter, o ListOpts) (listResult[ZoneSummaryWire], error) {
+func (b *InMemoryBackend) ListZones(f ZoneFilter, o ListOpts) (ListResult[ZoneSummaryWire], error) {
 	b.mu.RLock("ListZones")
 	defer b.mu.RUnlock()
 
 	if err := b.checkCompartment(f.Compart); err != nil {
-		return listResult[ZoneSummaryWire]{}, err
+		return ListResult[ZoneSummaryWire]{}, err
 	}
 
 	var all []*Zone
@@ -485,7 +486,7 @@ func (b *InMemoryBackend) ListZones(f ZoneFilter, o ListOpts) (listResult[ZoneSu
 
 	pg, err := sortPage(all, o, keyTimeCreated, true, zoneSorters)
 	if err != nil {
-		return listResult[ZoneSummaryWire]{}, err
+		return ListResult[ZoneSummaryWire]{}, err
 	}
 
 	return finish(pg, len(all), b.zoneSummary), nil
@@ -580,21 +581,21 @@ func (b *InMemoryBackend) applyExternals(z *Zone, in UpdateZoneIn, next *zoneAtt
 }
 
 // UpdateZone changes the mutable attributes of a zone.
-func (b *InMemoryBackend) UpdateZone(r ZoneRef, c cond, in UpdateZoneIn) (ZoneWire, tag, error) {
+func (b *InMemoryBackend) UpdateZone(r ZoneRef, c cond, in UpdateZoneIn) (ZoneWire, Tag, error) {
 	b.mu.Lock("UpdateZone")
 	defer b.mu.Unlock()
 
 	z, err := b.findZone(r)
 	if err != nil {
-		return ZoneWire{}, tag{}, err
+		return ZoneWire{}, Tag{}, err
 	}
 
 	if err = firstAPIErr(c.check(z.ID, z.meta), b.checkTags(in.Tags)); err != nil {
-		return ZoneWire{}, tag{}, err
+		return ZoneWire{}, Tag{}, err
 	}
 
 	if err = b.applyZoneUpdate(z, in); err != nil {
-		return ZoneWire{}, tag{}, err
+		return ZoneWire{}, Tag{}, err
 	}
 
 	z.Tags.merge(in.Tags)
@@ -669,22 +670,22 @@ func (b *InMemoryBackend) ChangeZoneCompartment(r ZoneRef, c cond, in ChangeComp
 }
 
 // ListZoneTransferServers lists the OCI nameservers that transfer zones with external servers.
-func (b *InMemoryBackend) ListZoneTransferServers(compartment string, o ListOpts) (listResult[transferWire], error) {
+func (b *InMemoryBackend) ListZoneTransferServers(compartment string, o ListOpts) (ListResult[TransferWire], error) {
 	b.mu.RLock("ListZoneTransferServers")
 	defer b.mu.RUnlock()
 
 	if err := b.checkCompartment(compartment); err != nil {
-		return listResult[transferWire]{}, err
+		return ListResult[TransferWire]{}, err
 	}
 
 	all := transferServers()
 
-	pg, err := sortPage(all, o, "address", false, sorter[transferWire]{
-		"address": func(a, c transferWire) int { return strings.Compare(a.Address, c.Address) },
+	pg, err := sortPage(all, o, "address", false, sorter[TransferWire]{
+		"address": func(a, c TransferWire) int { return strings.Compare(a.Address, c.Address) },
 	})
 	if err != nil {
-		return listResult[transferWire]{}, err
+		return ListResult[TransferWire]{}, err
 	}
 
-	return finish(pg, len(all), func(t transferWire) transferWire { return t }), nil
+	return finish(pg, len(all), func(t TransferWire) TransferWire { return t }), nil
 }

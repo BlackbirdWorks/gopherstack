@@ -80,7 +80,8 @@ type UpdateExtractionDefinitionInput struct {
 	instPath
 }
 
-type extractionIDsOut struct {
+// ExtractionIDsOut is the CreateExtractionDefinition response.
+type ExtractionIDsOut struct {
 	ExtractionDefinitionArn string `json:"ExtractionDefinitionArn"`
 	ExtractionDefinitionID  string `json:"ExtractionDefinitionId"`
 }
@@ -117,14 +118,14 @@ func (r *extractionRec) view() ExtractionDefinition {
 // CreateExtractionDefinition creates a contact data extraction definition.
 func (b *Backend) CreateExtractionDefinition(
 	ctx context.Context, in *CreateExtractionDefinitionInput,
-) (*extractionIDsOut, error) {
+) (*ExtractionIDsOut, error) {
 	if err := firstError(
 		checkName("Name", in.Name, maxNameLen), checkExtractionConfig(in.ExtractionConfiguration), checkTags(in.Tags),
 	); err != nil {
 		return nil, err
 	}
 
-	return writeInstance(b, "CreateExtractionDefinition", in.InstanceID, func(inst string) (*extractionIDsOut, error) {
+	return writeInstance(b, "CreateExtractionDefinition", in.InstanceID, func(inst string) (*ExtractionIDsOut, error) {
 		if nameExists(b.extractions, inst, func(r *extractionRec) string { return r.Definition.Name }, in.Name, "") {
 			return nil, duplicateErr(labelExtraction, in.Name)
 		}
@@ -139,7 +140,7 @@ func (b *Backend) CreateExtractionDefinition(
 		b.touchExtraction(ctx, rec)
 		b.extractions.put(rec)
 
-		return &extractionIDsOut{
+		return &ExtractionIDsOut{
 			ExtractionDefinitionArn: rec.Definition.ExtractionDefinitionArn, ExtractionDefinitionID: id,
 		}, nil
 	})
@@ -195,14 +196,14 @@ func (b *Backend) ListExtractionDefinitions(
 // UpdateExtractionDefinition replaces the name, configuration and display of a definition.
 func (b *Backend) UpdateExtractionDefinition(
 	ctx context.Context, in *UpdateExtractionDefinitionInput,
-) (*empty, error) {
+) (*EmptyOutput, error) {
 	if err := firstError(
 		checkName("Name", in.Name, maxNameLen), checkExtractionConfig(in.ExtractionConfiguration),
 	); err != nil {
 		return nil, err
 	}
 
-	return writeInstance(b, "UpdateExtractionDefinition", in.InstanceID, func(inst string) (*empty, error) {
+	return writeInstance(b, "UpdateExtractionDefinition", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		r, err := b.extractions.get(inst, in.ExtractionDefinitionID)
 		if err != nil {
 			return nil, err
@@ -222,13 +223,13 @@ func (b *Backend) UpdateExtractionDefinition(
 
 		b.touchExtraction(ctx, r)
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 
 // DeleteExtractionDefinition removes an extraction definition.
-func (b *Backend) DeleteExtractionDefinition(inst, id string) (*empty, error) {
-	return writeInstance(b, "DeleteExtractionDefinition", inst, func(inst string) (*empty, error) {
+func (b *Backend) DeleteExtractionDefinition(inst, id string) (*EmptyOutput, error) {
+	return writeInstance(b, "DeleteExtractionDefinition", inst, func(inst string) (*EmptyOutput, error) {
 		return nil, b.extractions.del(inst, id)
 	})
 }

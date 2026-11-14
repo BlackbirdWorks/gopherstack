@@ -6,7 +6,7 @@ import (
 	"strconv"
 )
 
-func send(q *req, v resource, etag string, aerr *APIError) error {
+func send(q *req, v Resource, etag string, aerr *APIError) error {
 	if aerr != nil {
 		return aerr
 	}
@@ -48,7 +48,7 @@ func (q *req) listOpts() (ListOpts, error) {
 	}, nil
 }
 
-func createOp[In any](fn func(*InMemoryBackend, In) (resource, string, *APIError)) opFunc {
+func createOp[In any](fn func(*InMemoryBackend, In) (Resource, string, *APIError)) opFunc {
 	return func(h *Handler, q *req) error {
 		var in In
 		if err := q.decode(&in); err != nil {
@@ -61,7 +61,7 @@ func createOp[In any](fn func(*InMemoryBackend, In) (resource, string, *APIError
 
 		scope, token := q.r.Method+" "+q.r.URL.Path, q.r.Header.Get(headerRetry)
 
-		v, etag, aerr := h.Backend.createOnce(scope, token, func() (resource, string, *APIError) {
+		v, etag, aerr := h.Backend.createOnce(scope, token, func() (Resource, string, *APIError) {
 			return fn(h.Backend, in)
 		})
 
@@ -70,7 +70,7 @@ func createOp[In any](fn func(*InMemoryBackend, In) (resource, string, *APIError
 }
 
 func updateOp[In any](
-	param string, fn func(*InMemoryBackend, string, string, In) (resource, string, *APIError),
+	param string, fn func(*InMemoryBackend, string, string, In) (Resource, string, *APIError),
 ) opFunc {
 	return func(h *Handler, q *req) error {
 		var in In
@@ -88,7 +88,7 @@ func updateOp[In any](
 	}
 }
 
-func getOp[T resource](param string) opFunc {
+func getOp[T Resource](param string) opFunc {
 	return func(h *Handler, q *req) error {
 		v, etag, aerr := getView[T](h.Backend, q.param(param))
 
@@ -96,7 +96,7 @@ func getOp[T resource](param string) opFunc {
 	}
 }
 
-func listOp[T resource](extra func(*req) func(resource) bool) opFunc {
+func listOp[T Resource](extra func(*req) func(Resource) bool) opFunc {
 	return func(h *Handler, q *req) error {
 		o, err := q.listOpts()
 		if err != nil {
@@ -118,13 +118,13 @@ func listOp[T resource](extra func(*req) func(resource) bool) opFunc {
 	}
 }
 
-func deleteOp[T resource](param string) opFunc {
+func deleteOp[T Resource](param string) opFunc {
 	return func(h *Handler, q *req) error {
 		return noBody(q, deleteRes[T](h.Backend, q.param(param), q.ifMatch()))
 	}
 }
 
-func changeOp[T resource](param string) opFunc {
+func changeOp[T Resource](param string) opFunc {
 	return func(h *Handler, q *req) error {
 		var in struct {
 			CompartmentID string `json:"compartmentId"`
@@ -147,11 +147,11 @@ type crud struct {
 	id   string
 }
 
-func newCrud[T resource, C, U any](
+func newCrud[T Resource, C, U any](
 	noun, plural, path, param string,
-	create func(*InMemoryBackend, C) (resource, string, *APIError),
-	update func(*InMemoryBackend, string, string, U) (resource, string, *APIError),
-	extra func(*req) func(resource) bool,
+	create func(*InMemoryBackend, C) (Resource, string, *APIError),
+	update func(*InMemoryBackend, string, string, U) (Resource, string, *APIError),
+	extra func(*req) func(Resource) bool,
 ) crud {
 	return crud{
 		noun: noun, list: "List" + plural, path: path, id: param,
@@ -163,10 +163,10 @@ func newCrud[T resource, C, U any](
 	}
 }
 
-func publicIPFilter(q *req) func(resource) bool {
+func publicIPFilter(q *req) func(Resource) bool {
 	life := q.query("lifetime")
 
-	return func(r resource) bool {
+	return func(r Resource) bool {
 		p, ok := r.(*PublicIP)
 
 		ad := q.query("availabilityDomain")

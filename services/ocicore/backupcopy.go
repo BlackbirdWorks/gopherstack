@@ -51,14 +51,14 @@ func newOCIDIn(kind, regionKey string) string {
 	return "ocid1." + kind + ".oc1." + regionKey + "." + awsid.NewN("", ocidTailLen)
 }
 
-func (b *InMemoryBackend) copyWorkRequest(op, entity string, bk resource) string {
+func (b *InMemoryBackend) copyWorkRequest(op, entity string, bk Resource) string {
 	return b.newWorkRequest(op, bk.base().CompartmentID, []WorkResource{{
 		ActionType: wrActionCreated, EntityType: entity, Identifier: bk.base().ID,
 	}})
 }
 
 // CopyVolumeBackup copies an AVAILABLE volume backup to another region; the copy is CREATING until the clock settles.
-func (b *InMemoryBackend) CopyVolumeBackup(id string, in CopyBackupIn) (resource, string, string, *APIError) {
+func (b *InMemoryBackend) CopyVolumeBackup(id string, in CopyBackupIn) (Resource, string, string, *APIError) {
 	b.mu.Lock("CopyVolumeBackup")
 	defer b.mu.Unlock()
 
@@ -96,7 +96,7 @@ func (b *InMemoryBackend) copyVolumeBackup(src *VolumeBackup, in CopyBackupIn, k
 }
 
 // CopyBootVolumeBackup copies an AVAILABLE boot volume backup to another region.
-func (b *InMemoryBackend) CopyBootVolumeBackup(id string, in CopyBackupIn) (resource, string, string, *APIError) {
+func (b *InMemoryBackend) CopyBootVolumeBackup(id string, in CopyBackupIn) (Resource, string, string, *APIError) {
 	b.mu.Lock("CopyBootVolumeBackup")
 	defer b.mu.Unlock()
 
@@ -134,7 +134,7 @@ func (b *InMemoryBackend) copyBootBackup(src *BootVolumeBackup, in CopyBackupIn,
 }
 
 // CopyVolumeGroupBackup copies a group backup and every member backup to another region.
-func (b *InMemoryBackend) CopyVolumeGroupBackup(id string, in CopyBackupIn) (resource, string, string, *APIError) {
+func (b *InMemoryBackend) CopyVolumeGroupBackup(id string, in CopyBackupIn) (Resource, string, string, *APIError) {
 	b.mu.Lock("CopyVolumeGroupBackup")
 	defer b.mu.Unlock()
 
@@ -206,7 +206,7 @@ func copyEntries() []entry {
 }
 
 func copyOp(
-	fn func(*InMemoryBackend, string, CopyBackupIn) (resource, string, string, *APIError), param string,
+	fn func(*InMemoryBackend, string, CopyBackupIn) (Resource, string, string, *APIError), param string,
 ) opFunc {
 	return func(h *Handler, q *req) error {
 		var in CopyBackupIn

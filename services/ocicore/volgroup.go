@@ -26,7 +26,7 @@ type CreateVolumeGroupIn struct {
 
 // groupMember is a volume or boot volume that belongs to a volume group.
 type groupMember interface {
-	resource
+	Resource
 	member() (ad string, group *string, sizeMBs int64)
 }
 
@@ -255,7 +255,7 @@ func (b *InMemoryBackend) cloneBootVolume(g *VolumeGroup, src *BootVolume) *Boot
 }
 
 // CreateVolumeGroup creates a volume group from volumes, a volume group backup or another volume group.
-func (b *InMemoryBackend) CreateVolumeGroup(in CreateVolumeGroupIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) CreateVolumeGroup(in CreateVolumeGroupIn) (Resource, string, *APIError) {
 	if aerr := b.volumeGroupChecks(in); aerr != nil {
 		return nil, "", aerr
 	}
@@ -344,7 +344,7 @@ type UpdateVolumeGroupIn struct {
 }
 
 // UpdateVolumeGroup renames a group or replaces its set of volumes.
-func (b *InMemoryBackend) UpdateVolumeGroup(id, ifMatch string, in UpdateVolumeGroupIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) UpdateVolumeGroup(id, ifMatch string, in UpdateVolumeGroupIn) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(g *VolumeGroup) *APIError {
 		if len(in.VolumeGroupReplicas) > 0 {
 			return errParam("volumeGroupReplicas is not supported")
@@ -405,7 +405,7 @@ type CreateVolumeGroupBackupIn struct {
 }
 
 // CreateVolumeGroupBackup backs up every member of a volume group; the member backups share its lifecycle.
-func (b *InMemoryBackend) CreateVolumeGroupBackup(in CreateVolumeGroupBackupIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) CreateVolumeGroupBackup(in CreateVolumeGroupBackupIn) (Resource, string, *APIError) {
 	if aerr := validName(in.DisplayName); aerr != nil {
 		return nil, "", aerr
 	}
@@ -534,7 +534,7 @@ type UpdateVolumeGroupBackupIn struct {
 // UpdateVolumeGroupBackup changes a group backup's name, tags and retention settings; members follow retention.
 func (b *InMemoryBackend) UpdateVolumeGroupBackup(
 	id, ifMatch string, in UpdateVolumeGroupBackupIn,
-) (resource, string, *APIError) {
+) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(gb *VolumeGroupBackup) *APIError {
 		if aerr := gb.apply(in.RetentionIn, gb.TimeCreated); aerr != nil {
 			return aerr
@@ -554,8 +554,8 @@ func (b *InMemoryBackend) UpdateVolumeGroupBackup(
 }
 
 // groupBackupMembers returns the live member backups of a group backup.
-func (b *InMemoryBackend) groupBackupMembers(gb *VolumeGroupBackup) []resource {
-	var out []resource
+func (b *InMemoryBackend) groupBackupMembers(gb *VolumeGroupBackup) []Resource {
+	var out []Resource
 
 	for _, id := range gb.VolumeBackupIDs {
 		if m, ok := b.res[id]; ok && live(m) {

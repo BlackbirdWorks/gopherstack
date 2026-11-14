@@ -42,7 +42,7 @@ func (b *InMemoryBackend) importDistribution(id, drgID string) *APIError {
 }
 
 // CreateDrgRouteTable creates a DRG route table.
-func (b *InMemoryBackend) CreateDrgRouteTable(in CreateDrgRouteTableIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) CreateDrgRouteTable(in CreateDrgRouteTableIn) (Resource, string, *APIError) {
 	if in.DrgID == "" {
 		return nil, "", errMissing("drgId is required")
 	}
@@ -82,7 +82,7 @@ type UpdateDrgRouteTableIn struct {
 func (b *InMemoryBackend) UpdateDrgRouteTable(
 	id, ifMatch string,
 	in UpdateDrgRouteTableIn,
-) (resource, string, *APIError) {
+) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(t *DrgRouteTable) *APIError {
 		if in.ImportDrgRouteDistributionID != nil && *in.ImportDrgRouteDistributionID != "" {
 			if aerr := b.importDistribution(*in.ImportDrgRouteDistributionID, t.DrgID); aerr != nil {
@@ -101,7 +101,7 @@ func (b *InMemoryBackend) UpdateDrgRouteTable(
 }
 
 // RemoveImportDrgRouteDistribution clears the import distribution of a DRG route table.
-func (b *InMemoryBackend) RemoveImportDrgRouteDistribution(id, ifMatch string) (resource, string, *APIError) {
+func (b *InMemoryBackend) RemoveImportDrgRouteDistribution(id, ifMatch string) (Resource, string, *APIError) {
 	b.mu.Lock("RemoveImportDrgRouteDistribution")
 	defer b.mu.Unlock()
 
@@ -121,7 +121,7 @@ func (b *InMemoryBackend) RemoveImportDrgRouteDistribution(id, ifMatch string) (
 }
 
 // RemoveExportDrgRouteDistribution stops an attachment from advertising routes.
-func (b *InMemoryBackend) RemoveExportDrgRouteDistribution(id, ifMatch string) (resource, string, *APIError) {
+func (b *InMemoryBackend) RemoveExportDrgRouteDistribution(id, ifMatch string) (Resource, string, *APIError) {
 	b.mu.Lock("RemoveExportDrgRouteDistribution")
 	defer b.mu.Unlock()
 
@@ -149,7 +149,7 @@ type CreateDrgRouteDistributionIn struct {
 }
 
 // CreateDrgRouteDistribution creates an import route distribution; the export one is created with the DRG.
-func (b *InMemoryBackend) CreateDrgRouteDistribution(in CreateDrgRouteDistributionIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) CreateDrgRouteDistribution(in CreateDrgRouteDistributionIn) (Resource, string, *APIError) {
 	if in.DrgID == "" {
 		return nil, "", errMissing("drgId is required")
 	}
@@ -177,7 +177,7 @@ func (b *InMemoryBackend) CreateDrgRouteDistribution(in CreateDrgRouteDistributi
 }
 
 // UpdateDrgRouteDistribution changes a route distribution's name and tags.
-func (b *InMemoryBackend) UpdateDrgRouteDistribution(id, ifMatch string, in UpdateIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) UpdateDrgRouteDistribution(id, ifMatch string, in UpdateIn) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in, func(*DrgRouteDistribution) *APIError { return nil })
 }
 

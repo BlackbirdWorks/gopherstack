@@ -274,16 +274,16 @@ func (b *Backend) DeleteVocabulary(inst, id string) (*VocabularyOut, error) {
 }
 
 // AssociateDefaultVocabulary sets the default vocabulary of a language; an empty VocabularyId resets it.
-func (b *Backend) AssociateDefaultVocabulary(in *AssociateDefaultVocabularyInput) (*empty, error) {
+func (b *Backend) AssociateDefaultVocabulary(in *AssociateDefaultVocabularyInput) (*EmptyOutput, error) {
 	if err := oneOf("LanguageCode", in.LanguageCode, vocabLanguages...); err != nil {
 		return nil, err
 	}
 
-	return writeInstance(b, "AssociateDefaultVocabulary", in.InstanceID, func(inst string) (*empty, error) {
+	return writeInstance(b, "AssociateDefaultVocabulary", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		if in.VocabularyID == "" {
 			b.defaultVocabs.table.Delete(inst + "/" + in.LanguageCode)
 
-			return &empty{}, nil
+			return &EmptyOutput{}, nil
 		}
 
 		r, err := b.vocabularies.get(inst, in.VocabularyID)
@@ -303,7 +303,7 @@ func (b *Backend) AssociateDefaultVocabulary(in *AssociateDefaultVocabularyInput
 			&defaultVocabRec{InstanceID: inst, LanguageCode: in.LanguageCode, VocabularyID: in.VocabularyID},
 		)
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 

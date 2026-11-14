@@ -32,14 +32,15 @@ type GetContactMetricsInput struct {
 	Metrics    []ContactMetricInfo `json:"Metrics"`
 }
 
-type contactMetricsOut struct {
+// ContactMetricsOut is the contact metrics response.
+type ContactMetricsOut struct {
 	Arn           string                `json:"Arn"`
 	ID            string                `json:"Id"`
 	MetricResults []ContactMetricResult `json:"MetricResults"`
 }
 
 // GetContactMetrics computes the queue position and expected wait of a waiting contact.
-func (b *Backend) GetContactMetrics(in *GetContactMetricsInput) (*contactMetricsOut, error) {
+func (b *Backend) GetContactMetrics(in *GetContactMetricsInput) (*ContactMetricsOut, error) {
 	if in.ContactID == "" || in.InstanceID == "" || len(in.Metrics) == 0 {
 		return nil, invalidParamErr("ContactId, InstanceId and Metrics are required")
 	}
@@ -50,7 +51,7 @@ func (b *Backend) GetContactMetrics(in *GetContactMetricsInput) (*contactMetrics
 		}
 	}
 
-	return readInstance(b, "GetContactMetrics", in.InstanceID, func(inst string) (*contactMetricsOut, error) {
+	return readInstance(b, "GetContactMetrics", in.InstanceID, func(inst string) (*ContactMetricsOut, error) {
 		c, err := b.contacts.get(inst, in.ContactID)
 		if err != nil {
 			return nil, err
@@ -61,7 +62,7 @@ func (b *Backend) GetContactMetrics(in *GetContactMetricsInput) (*contactMetrics
 		}
 
 		position := b.queuePosition(inst, c)
-		out := &contactMetricsOut{Arn: c.Contact.Arn, ID: c.Contact.ID}
+		out := &ContactMetricsOut{Arn: c.Contact.Arn, ID: c.Contact.ID}
 
 		for _, m := range in.Metrics {
 			v := position

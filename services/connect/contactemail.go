@@ -186,7 +186,7 @@ func validateStartEmail(in *StartEmailContactInput) error {
 }
 
 // StartEmailContact creates an inbound email contact addressed to one of the instance's email addresses.
-func (b *Backend) StartEmailContact(ctx context.Context, in *StartEmailContactInput) (*contactIDOut, error) {
+func (b *Backend) StartEmailContact(ctx context.Context, in *StartEmailContactInput) (*ContactIDOut, error) {
 	if err := validateStartEmail(in); err != nil {
 		return nil, err
 	}
@@ -249,7 +249,7 @@ func (b *Backend) StartEmailContact(ctx context.Context, in *StartEmailContactIn
 	})
 	b.contacts.put(c)
 
-	return &contactIDOut{ContactID: c.Contact.ID}, nil
+	return &ContactIDOut{ContactID: c.Contact.ID}, nil
 }
 
 // StartOutboundEmailContactInput is the StartOutboundEmailContact request.
@@ -294,7 +294,7 @@ func (b *Backend) deliverLocked(ctx context.Context, rec *emailMessageRec) {
 func (b *Backend) StartOutboundEmailContact(
 	ctx context.Context,
 	in *StartOutboundEmailContactInput,
-) (*contactIDOut, error) {
+) (*ContactIDOut, error) {
 	if err := firstError(
 		checkInfo("DestinationEmailAddress", in.DestinationEmailAddress),
 		checkRawEmail(in.EmailMessage, true),
@@ -354,7 +354,7 @@ func (b *Backend) StartOutboundEmailContact(
 	c.Contact.SystemEndpoint = &EndpointInfo{Address: from.EmailAddress, Type: endpointEmail}
 	b.touch(c)
 
-	return &contactIDOut{ContactID: c.Contact.ID}, nil
+	return &ContactIDOut{ContactID: c.Contact.ID}, nil
 }
 
 func (b *Backend) outboundFromLocked(c *contactRec, given *EmailAddressInfo) (EmailAddressInfo, error) {
@@ -392,7 +392,7 @@ type SendOutboundEmailInput struct {
 }
 
 // SendOutboundEmail sends a campaign email from one of the instance's email addresses.
-func (b *Backend) SendOutboundEmail(ctx context.Context, in *SendOutboundEmailInput) (*empty, error) {
+func (b *Backend) SendOutboundEmail(ctx context.Context, in *SendOutboundEmailInput) (*EmptyOutput, error) {
 	if err := oneOf("TrafficType", in.TrafficType, "GENERAL", trafficCampaign); err != nil {
 		return nil, err
 	}
@@ -445,7 +445,7 @@ func (b *Backend) SendOutboundEmail(ctx context.Context, in *SendOutboundEmailIn
 	b.deliverLocked(ctx, &msg)
 	rec.Sent = append(rec.Sent, msg)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 func (b *Backend) emailByAddressLocked(inst, address string) *emailAddressRec {

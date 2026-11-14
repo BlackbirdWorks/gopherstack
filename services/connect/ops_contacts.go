@@ -16,7 +16,7 @@ func (h *Handler) contactControlOps(ops map[string]restroute.OpFunc) {
 	ops["AssociateContactWithUser"] = typed(b.AssociateContactWithUser)
 	ops["CreateParticipant"] = replay(h, "CreateParticipant",
 		func(in *CreateParticipantInput) string { return in.ClientToken },
-		func(_ context.Context, in *CreateParticipantInput) (*createParticipantOut, error) {
+		func(_ context.Context, in *CreateParticipantInput) (*CreateParticipantOut, error) {
 			return b.CreateParticipant(in)
 		})
 	ops["CreatePersistentContactAssociation"] = typed(b.CreatePersistentContactAssociation)
@@ -39,7 +39,7 @@ func (h *Handler) contactControlOps(ops map[string]restroute.OpFunc) {
 		func(in *MonitorContactInput) string { return in.ClientToken }, b.MonitorContact)
 	ops["StartContactStreaming"] = replay(h, "StartContactStreaming",
 		func(in *StartContactStreamingInput) string { return in.ClientToken },
-		func(_ context.Context, in *StartContactStreamingInput) (*startStreamingOut, error) {
+		func(_ context.Context, in *StartContactStreamingInput) (*StartStreamingOut, error) {
 			return b.StartContactStreaming(in)
 		})
 	ops["StopContactStreaming"] = typed(b.StopContactStreaming)

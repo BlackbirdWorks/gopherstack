@@ -118,13 +118,13 @@ func isTaggingOp(op string) bool {
 }
 
 // GetTaggingWorkRequest returns one tagging work request.
-func (b *InMemoryBackend) GetTaggingWorkRequest(id string) (workRequestWire, error) {
+func (b *InMemoryBackend) GetTaggingWorkRequest(id string) (WorkRequestWire, error) {
 	b.mu.RLock("GetTaggingWorkRequest")
 	defer b.mu.RUnlock()
 
 	wr, ok := b.workReqs[id]
 	if !ok || !isTaggingOp(wr.Operation) {
-		return workRequestWire{}, errNotFound(id)
+		return WorkRequestWire{}, errNotFound(id)
 	}
 
 	return b.wrView(wr), nil
@@ -134,9 +134,9 @@ func (b *InMemoryBackend) GetTaggingWorkRequest(id string) (workRequestWire, err
 func (b *InMemoryBackend) ListTaggingWorkRequests(
 	compartment, resourceID string,
 	o ListOpts,
-) (page.Page[workRequestWire], error) {
+) (page.Page[WorkRequestWire], error) {
 	if compartment == "" {
-		return page.Page[workRequestWire]{}, errMissing("compartmentId is required")
+		return page.Page[WorkRequestWire]{}, errMissing("compartmentId is required")
 	}
 
 	b.mu.RLock("ListTaggingWorkRequests")
@@ -154,32 +154,33 @@ func (b *InMemoryBackend) ListTaggingWorkRequests(
 	pg := paginate(all, o, func(w *WorkRequest) string { return w.ID },
 		func(w *WorkRequest) (time.Time, int64) { return w.Accepted, w.Seq })
 
-	out := make([]workRequestWire, 0, len(pg.Data))
+	out := make([]WorkRequestWire, 0, len(pg.Data))
 	for _, wr := range pg.Data {
 		out = append(out, b.wrView(wr))
 	}
 
-	return page.Page[workRequestWire]{Data: out, Next: pg.Next}, nil
+	return page.Page[WorkRequestWire]{Data: out, Next: pg.Next}, nil
 }
 
-type taggingWRLogWire struct {
+// TaggingWRLogWire is the tagging work request log wire shape.
+type TaggingWRLogWire struct {
 	Timestamp time.Time `json:"timestamp"`
 	Message   string    `json:"message"`
 }
 
 // TaggingWorkRequestLogs lists the log lines of a tagging work request.
-func (b *InMemoryBackend) TaggingWorkRequestLogs(id string, o ListOpts) (page.Page[taggingWRLogWire], error) {
+func (b *InMemoryBackend) TaggingWorkRequestLogs(id string, o ListOpts) (page.Page[TaggingWRLogWire], error) {
 	b.mu.RLock("TaggingWorkRequestLogs")
 	defer b.mu.RUnlock()
 
 	wr, ok := b.workReqs[id]
 	if !ok || !isTaggingOp(wr.Operation) {
-		return page.Page[taggingWRLogWire]{}, errNotFound(id)
+		return page.Page[TaggingWRLogWire]{}, errNotFound(id)
 	}
 
-	logs := []taggingWRLogWire{{Timestamp: wr.Accepted, Message: wr.Operation + " work request accepted"}}
+	logs := []TaggingWRLogWire{{Timestamp: wr.Accepted, Message: wr.Operation + " work request accepted"}}
 	if !wr.FinishAt.After(b.nowUTC()) {
-		logs = append(logs, taggingWRLogWire{Timestamp: wr.FinishAt, Message: wr.Operation + " work request succeeded"})
+		logs = append(logs, TaggingWRLogWire{Timestamp: wr.FinishAt, Message: wr.Operation + " work request succeeded"})
 	}
 
 	return page.New(logs, o.Page, o.Limit, defaultListLimit), nil

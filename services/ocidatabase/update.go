@@ -12,28 +12,28 @@ type change struct {
 }
 
 // UpdateDatabase applies an UpdateAutonomousDatabase request.
-func (b *InMemoryBackend) UpdateDatabase(id, ifMatch string, in updateIn) (adbWire, string, string, error) {
+func (b *InMemoryBackend) UpdateDatabase(id, ifMatch string, in updateIn) (AdbWire, string, string, error) {
 	b.mu.Lock("UpdateDatabase")
 	defer b.mu.Unlock()
 
 	db, aerr := b.activeDB(id)
 	if aerr != nil {
-		return adbWire{}, "", "", aerr
+		return AdbWire{}, "", "", aerr
 	}
 
 	if aerr = checkEtag(db.Etag, ifMatch); aerr != nil {
-		return adbWire{}, "", "", aerr
+		return AdbWire{}, "", "", aerr
 	}
 
 	if aerr = b.updatable(db, in); aerr != nil {
-		return adbWire{}, "", "", aerr
+		return AdbWire{}, "", "", aerr
 	}
 
 	next := *db
 
 	ch, aerr := b.applyUpdate(&next, in)
 	if aerr != nil {
-		return adbWire{}, "", "", aerr
+		return AdbWire{}, "", "", aerr
 	}
 
 	if db.State == stateStopped {
@@ -66,7 +66,7 @@ func (b *InMemoryBackend) stoppedUpdate(db *ADB, in updateIn) *APIError {
 	return nil
 }
 
-func (b *InMemoryBackend) updateStopped(db, next *ADB, ch change) (adbWire, string, string, error) {
+func (b *InMemoryBackend) updateStopped(db, next *ADB, ch change) (AdbWire, string, string, error) {
 	*db = *next
 	b.eng.passwords[db.ID] = ch.password
 	db.Etag = newEtag()
@@ -74,7 +74,7 @@ func (b *InMemoryBackend) updateStopped(db, next *ADB, ch change) (adbWire, stri
 	return b.view(db), b.instant(db, "UPDATE_AUTONOMOUS_DATABASE").ID, db.Etag, nil
 }
 
-func (b *InMemoryBackend) finishUpdate(db *ADB, ch change) (adbWire, string, string, error) {
+func (b *InMemoryBackend) finishUpdate(db *ADB, ch change) (AdbWire, string, string, error) {
 	typ := "UPDATE_AUTONOMOUS_DATABASE"
 
 	if ch.password != "" && b.engineOn(db) && b.eng.live[db.ID] == nil {

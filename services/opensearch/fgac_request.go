@@ -124,7 +124,7 @@ func analyzeDataRequest(method, p string) dataOp {
 }
 
 // denied returns the first action the permissions do not grant, or "".
-func (o dataOp) denied(perms effectivePerms) string {
+func (o dataOp) denied(perms EffectivePerms) string {
 	for _, a := range o.Cluster {
 		if !perms.AllowCluster(a) {
 			return a

@@ -201,7 +201,7 @@ func (b *Backend) touch(c *contactRec) {
 func (b *Backend) StartOutboundVoiceContact(
 	ctx context.Context,
 	in *StartOutboundVoiceContactInput,
-) (*contactIDOut, error) {
+) (*ContactIDOut, error) {
 	if !e164Pattern.MatchString(in.DestinationPhoneNumber) {
 		return nil, invalidParamErr("DestinationPhoneNumber must be an E.164 number")
 	}
@@ -268,7 +268,7 @@ func (b *Backend) StartOutboundVoiceContact(
 
 	b.contacts.put(c)
 
-	return &contactIDOut{ContactID: c.Contact.ID}, nil
+	return &ContactIDOut{ContactID: c.Contact.ID}, nil
 }
 
 func (b *Backend) outboundSource(inst string, in *StartOutboundVoiceContactInput) (string, error) {
@@ -402,7 +402,7 @@ func (b *Backend) persistentSource(inst string, p *PersistentChat) (*contactRec,
 }
 
 // StartTaskContact creates a task contact, optionally scheduled up to six days ahead.
-func (b *Backend) StartTaskContact(ctx context.Context, in *StartTaskContactInput) (*contactIDOut, error) {
+func (b *Backend) StartTaskContact(ctx context.Context, in *StartTaskContactInput) (*ContactIDOut, error) {
 	if strings.TrimSpace(in.Name) == "" {
 		return nil, invalidParamErr("Name is required")
 	}
@@ -463,7 +463,7 @@ func (b *Backend) StartTaskContact(ctx context.Context, in *StartTaskContactInpu
 
 	b.contacts.put(c)
 
-	return &contactIDOut{ContactID: c.Contact.ID}, nil
+	return &ContactIDOut{ContactID: c.Contact.ID}, nil
 }
 
 // DescribeContact returns a contact.
@@ -530,7 +530,7 @@ func (b *Backend) contactEvaluationsLocked(c *contactRec) map[string]ContactEval
 }
 
 // StopContact ends a contact that is still active.
-func (b *Backend) StopContact(in *ContactRefInput) (*empty, error) {
+func (b *Backend) StopContact(in *ContactRefInput) (*EmptyOutput, error) {
 	b.mu.Lock("StopContact")
 	defer b.mu.Unlock()
 
@@ -554,11 +554,11 @@ func (b *Backend) StopContact(in *ContactRefInput) (*empty, error) {
 	b.finishContactLocked(c, t)
 	b.touch(c)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 // UpdateContactAttributes merges attributes into a contact.
-func (b *Backend) UpdateContactAttributes(in *ContactRefInput) (*empty, error) {
+func (b *Backend) UpdateContactAttributes(in *ContactRefInput) (*EmptyOutput, error) {
 	if err := checkAttributes(in.Attributes); err != nil {
 		return nil, err
 	}
@@ -585,7 +585,7 @@ func (b *Backend) UpdateContactAttributes(in *ContactRefInput) (*empty, error) {
 	c.Contact.Attributes = merged
 	b.touch(c)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 // GetContactAttributes returns a contact's attributes.
@@ -607,7 +607,7 @@ func (b *Backend) GetContactAttributes(inst, id string) (*attributesOut, error) 
 }
 
 // UpdateContact changes the supplied properties of a contact, including its queue and agent.
-func (b *Backend) UpdateContact(in *ContactRefInput) (*empty, error) {
+func (b *Backend) UpdateContact(in *ContactRefInput) (*EmptyOutput, error) {
 	if in.Name != nil || in.Description != nil {
 		name, desc := "", ""
 		if in.Name != nil {
@@ -641,7 +641,7 @@ func (b *Backend) UpdateContact(in *ContactRefInput) (*empty, error) {
 
 	b.touch(c)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 func (b *Backend) applyContactUpdate(c *contactRec, in *ContactRefInput) error {
@@ -691,7 +691,7 @@ func (b *Backend) applyContactUpdate(c *contactRec, in *ContactRefInput) error {
 }
 
 // TagContact adds tags to a contact.
-func (b *Backend) TagContact(in *ContactRefInput) (*empty, error) {
+func (b *Backend) TagContact(in *ContactRefInput) (*EmptyOutput, error) {
 	if err := checkTags(in.Tags); err != nil {
 		return nil, err
 	}
@@ -717,11 +717,11 @@ func (b *Backend) TagContact(in *ContactRefInput) (*empty, error) {
 
 	c.Contact.Tags = merged
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 // UntagContact removes tags from a contact.
-func (b *Backend) UntagContact(in *ContactPathInput) (*empty, error) {
+func (b *Backend) UntagContact(in *ContactPathInput) (*EmptyOutput, error) {
 	b.mu.Lock("UntagContact")
 	defer b.mu.Unlock()
 
@@ -734,7 +734,7 @@ func (b *Backend) UntagContact(in *ContactPathInput) (*empty, error) {
 		delete(c.Contact.Tags, k)
 	}
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 func (c *contactRec) active() bool { return c.Contact.DisconnectTimestamp == nil }

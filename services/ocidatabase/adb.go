@@ -308,22 +308,22 @@ func checkWantedIP(prefix netip.Prefix, want string, used map[netip.Addr]bool) (
 }
 
 // existingByToken returns the result of an earlier create with the same retry token.
-func (b *InMemoryBackend) existingByToken(token string) (adbWire, string, string, bool) {
+func (b *InMemoryBackend) existingByToken(token string) (AdbWire, string, string, bool) {
 	wr := b.workReqs[b.tokens[token]]
 	if wr == nil {
-		return adbWire{}, "", "", false
+		return AdbWire{}, "", "", false
 	}
 
 	db := b.dbs[wr.ResourceID]
 	if db == nil {
-		return adbWire{}, "", "", false
+		return AdbWire{}, "", "", false
 	}
 
 	return b.view(db), wr.ID, db.Etag, true
 }
 
 // CreateDatabase provisions an Autonomous Database and returns it with its work request.
-func (b *InMemoryBackend) CreateDatabase(in createIn, token string) (adbWire, string, string, error) {
+func (b *InMemoryBackend) CreateDatabase(in createIn, token string) (AdbWire, string, string, error) {
 	b.mu.Lock("CreateDatabase")
 	defer b.mu.Unlock()
 
@@ -335,7 +335,7 @@ func (b *InMemoryBackend) CreateDatabase(in createIn, token string) (adbWire, st
 
 	p, aerr := b.prepareCreate(in)
 	if aerr != nil {
-		return adbWire{}, "", "", aerr
+		return AdbWire{}, "", "", aerr
 	}
 
 	db := p.db
@@ -343,7 +343,7 @@ func (b *InMemoryBackend) CreateDatabase(in createIn, token string) (adbWire, st
 
 	if b.engineOn(db) {
 		if _, err := b.securityLocked(db.ID); err != nil {
-			return adbWire{}, "", "", err
+			return AdbWire{}, "", "", err
 		}
 
 		b.eng.passwords[db.ID] = p.password
@@ -363,13 +363,13 @@ func (b *InMemoryBackend) CreateDatabase(in createIn, token string) (adbWire, st
 }
 
 // GetDatabase returns one Autonomous Database with its etag.
-func (b *InMemoryBackend) GetDatabase(id string) (adbWire, string, error) {
+func (b *InMemoryBackend) GetDatabase(id string) (AdbWire, string, error) {
 	b.mu.RLock("GetDatabase")
 	defer b.mu.RUnlock()
 
 	db, aerr := b.activeDB(id)
 	if aerr != nil {
-		return adbWire{}, "", aerr
+		return AdbWire{}, "", aerr
 	}
 
 	return b.view(db), db.Etag, nil
@@ -387,12 +387,12 @@ type DatabaseFilter struct {
 }
 
 // ListDatabases lists the Autonomous Databases of a compartment.
-func (b *InMemoryBackend) ListDatabases(f DatabaseFilter, o ListOpts) (page.Page[adbWire], error) {
+func (b *InMemoryBackend) ListDatabases(f DatabaseFilter, o ListOpts) (page.Page[AdbWire], error) {
 	b.mu.RLock("ListDatabases")
 	defer b.mu.RUnlock()
 
 	if aerr := b.checkCompartment(f.Compartment); aerr != nil {
-		return page.Page[adbWire]{}, aerr
+		return page.Page[AdbWire]{}, aerr
 	}
 
 	var all []*ADB
@@ -408,12 +408,12 @@ func (b *InMemoryBackend) ListDatabases(f DatabaseFilter, o ListOpts) (page.Page
 		func(d *ADB) (time.Time, int64) { return d.Created, d.Seq },
 	)
 
-	out := make([]adbWire, 0, len(pg.Data))
+	out := make([]AdbWire, 0, len(pg.Data))
 	for _, db := range pg.Data {
 		out = append(out, b.view(db))
 	}
 
-	return page.Page[adbWire]{Data: out, Next: pg.Next}, nil
+	return page.Page[AdbWire]{Data: out, Next: pg.Next}, nil
 }
 
 func (f DatabaseFilter) matches(db *ADB) bool {

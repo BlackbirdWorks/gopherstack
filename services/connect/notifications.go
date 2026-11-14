@@ -113,7 +113,8 @@ type UpdateUserNotificationStatusInput struct {
 	notificationRef
 }
 
-type notificationCreated struct {
+// NotificationCreated is the CreateNotification response.
+type NotificationCreated struct {
 	NotificationID  string `json:"NotificationId"`
 	NotificationArn string `json:"NotificationArn"`
 }
@@ -135,7 +136,8 @@ type CreatePushNotificationRegistrationInput struct {
 	instPath
 }
 
-type pushRegistrationCreated struct {
+// PushRegistrationCreated is the push registration response.
+type PushRegistrationCreated struct {
 	RegistrationID string `json:"RegistrationId"`
 }
 
@@ -214,7 +216,7 @@ func (b *Backend) checkRecipients(inst string, recipients []string) error {
 }
 
 // CreateNotification creates a notification for users of the instance.
-func (b *Backend) CreateNotification(ctx context.Context, in *CreateNotificationInput) (*notificationCreated, error) {
+func (b *Backend) CreateNotification(ctx context.Context, in *CreateNotificationInput) (*NotificationCreated, error) {
 	if err := firstError(
 		checkNotificationContent(in.Content, maxNotifCreateContent), checkTags(in.Tags),
 		checkOptional(in.Priority, "Priority", "HIGH", notifPriorityLow),
@@ -222,7 +224,7 @@ func (b *Backend) CreateNotification(ctx context.Context, in *CreateNotification
 		return nil, err
 	}
 
-	return writeInstance(b, "CreateNotification", in.InstanceID, func(inst string) (*notificationCreated, error) {
+	return writeInstance(b, "CreateNotification", in.InstanceID, func(inst string) (*NotificationCreated, error) {
 		if err := b.checkRecipients(inst, in.Recipients); err != nil {
 			return nil, err
 		}
@@ -264,7 +266,7 @@ func (b *Backend) CreateNotification(ctx context.Context, in *CreateNotification
 		}
 		b.notifications.put(rec)
 
-		return &notificationCreated{NotificationID: id, NotificationArn: rec.Arn}, nil
+		return &NotificationCreated{NotificationID: id, NotificationArn: rec.Arn}, nil
 	})
 }
 
@@ -299,12 +301,15 @@ func (b *Backend) DescribeNotification(inst, id string) (*Notification, error) {
 }
 
 // UpdateNotificationContent replaces the content of a notification.
-func (b *Backend) UpdateNotificationContent(ctx context.Context, in *UpdateNotificationContentInput) (*empty, error) {
+func (b *Backend) UpdateNotificationContent(
+	ctx context.Context,
+	in *UpdateNotificationContentInput,
+) (*EmptyOutput, error) {
 	if err := checkNotificationContent(in.Content, maxNotifUpdateContent); err != nil {
 		return nil, err
 	}
 
-	return writeInstance(b, "UpdateNotificationContent", in.InstanceID, func(inst string) (*empty, error) {
+	return writeInstance(b, "UpdateNotificationContent", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		r, err := b.notifications.get(inst, in.NotificationID)
 		if err != nil {
 			return nil, err
@@ -314,13 +319,13 @@ func (b *Backend) UpdateNotificationContent(ctx context.Context, in *UpdateNotif
 		t := awstime.NewEpochTime(b.now())
 		r.Content, r.LastModified, r.LastModifiedRegion = cloneTags(in.Content), &t, region
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 
 // DeleteNotification removes a notification.
-func (b *Backend) DeleteNotification(inst, id string) (*empty, error) {
-	return writeInstance(b, "DeleteNotification", inst, func(inst string) (*empty, error) {
+func (b *Backend) DeleteNotification(inst, id string) (*EmptyOutput, error) {
+	return writeInstance(b, "DeleteNotification", inst, func(inst string) (*EmptyOutput, error) {
 		return nil, b.notifications.del(inst, id)
 	})
 }
@@ -443,12 +448,12 @@ func userNotification(r *notificationRec, userID string) UserNotificationSummary
 }
 
 // UpdateUserNotificationStatus marks a notification READ, UNREAD or HIDDEN for one recipient.
-func (b *Backend) UpdateUserNotificationStatus(in *UpdateUserNotificationStatusInput) (*empty, error) {
+func (b *Backend) UpdateUserNotificationStatus(in *UpdateUserNotificationStatusInput) (*EmptyOutput, error) {
 	if err := oneOf("Status", in.Status, "READ", notifStatusUnread, "HIDDEN"); err != nil {
 		return nil, err
 	}
 
-	return writeInstance(b, "UpdateUserNotificationStatus", in.InstanceID, func(inst string) (*empty, error) {
+	return writeInstance(b, "UpdateUserNotificationStatus", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		u, err := b.users.get(inst, in.UserID)
 		if err != nil {
 			return nil, err
@@ -469,7 +474,7 @@ func (b *Backend) UpdateUserNotificationStatus(in *UpdateUserNotificationStatusI
 
 		r.UserStatus[u.User.ID] = in.Status
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 
@@ -478,7 +483,7 @@ var pushDeviceTypes = []string{"GCM", "APNS", "APNS_SANDBOX"} //nolint:gocheckno
 // CreatePushNotificationRegistration registers a device token for the chat contact.
 func (b *Backend) CreatePushNotificationRegistration(
 	_ context.Context, in *CreatePushNotificationRegistrationInput,
-) (*pushRegistrationCreated, error) {
+) (*PushRegistrationCreated, error) {
 	cc := in.ContactConfiguration
 	if cc == nil || cc.ContactID == "" || in.DeviceToken == "" || in.PinpointAppArn == "" {
 		return nil, invalidParamErr("ContactConfiguration, DeviceToken, DeviceType and PinpointAppArn are required")
@@ -493,7 +498,7 @@ func (b *Backend) CreatePushNotificationRegistration(
 	}
 
 	return writeInstance(b, "CreatePushNotificationRegistration", in.InstanceID,
-		func(inst string) (*pushRegistrationCreated, error) {
+		func(inst string) (*PushRegistrationCreated, error) {
 			c, err := b.contacts.get(inst, cc.ContactID)
 			if err != nil {
 				return nil, err
@@ -515,7 +520,7 @@ func (b *Backend) CreatePushNotificationRegistration(
 			}
 			b.pushRegistrations.put(rec)
 
-			return &pushRegistrationCreated{RegistrationID: rec.ID}, nil
+			return &PushRegistrationCreated{RegistrationID: rec.ID}, nil
 		})
 }
 
@@ -529,21 +534,28 @@ func checkPinpointARN(v string) error {
 }
 
 // DeletePushNotificationRegistration removes a registration of a contact.
-func (b *Backend) DeletePushNotificationRegistration(in *DeletePushNotificationRegistrationInput) (*empty, error) {
+func (b *Backend) DeletePushNotificationRegistration(
+	in *DeletePushNotificationRegistrationInput,
+) (*EmptyOutput, error) {
 	if in.ContactID == "" {
 		return nil, invalidParamErr("contactId is required")
 	}
 
-	return writeInstance(b, "DeletePushNotificationRegistration", in.InstanceID, func(inst string) (*empty, error) {
-		r, err := b.pushRegistrations.get(inst, in.RegistrationID)
-		if err != nil {
-			return nil, err
-		}
+	return writeInstance(
+		b,
+		"DeletePushNotificationRegistration",
+		in.InstanceID,
+		func(inst string) (*EmptyOutput, error) {
+			r, err := b.pushRegistrations.get(inst, in.RegistrationID)
+			if err != nil {
+				return nil, err
+			}
 
-		if r.ContactID != in.ContactID {
-			return nil, notFoundErr(labelPushRegistration, in.RegistrationID)
-		}
+			if r.ContactID != in.ContactID {
+				return nil, notFoundErr(labelPushRegistration, in.RegistrationID)
+			}
 
-		return nil, b.pushRegistrations.del(inst, in.RegistrationID)
-	})
+			return nil, b.pushRegistrations.del(inst, in.RegistrationID)
+		},
+	)
 }

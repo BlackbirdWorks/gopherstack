@@ -140,7 +140,7 @@ func (b *InMemoryBackend) validateRules(vcnID string, rules []RouteRule) ([]Rout
 }
 
 // CreateRouteTable creates a route table.
-func (b *InMemoryBackend) CreateRouteTable(in CreateRouteTableIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) CreateRouteTable(in CreateRouteTableIn) (Resource, string, *APIError) {
 	v, aerr := b.gatewayVcn(in.CompartmentID, in.VcnID, in.DisplayName, "")
 	if aerr == nil {
 		aerr = b.vcnWritable(v.ID)
@@ -174,7 +174,7 @@ type UpdateRouteTableIn struct {
 }
 
 // UpdateRouteTable changes a route table; routeRules replaces the whole list.
-func (b *InMemoryBackend) UpdateRouteTable(id, ifMatch string, in UpdateRouteTableIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) UpdateRouteTable(id, ifMatch string, in UpdateRouteTableIn) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(rt *RouteTable) *APIError {
 		if aerr := b.vcnWritable(rt.VcnID); aerr != nil {
 			return aerr
@@ -270,7 +270,7 @@ func validateDhcpOption(o DhcpOption) *APIError {
 }
 
 // CreateDhcpOptions creates a DHCP options set.
-func (b *InMemoryBackend) CreateDhcpOptions(in CreateDhcpOptionsIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) CreateDhcpOptions(in CreateDhcpOptionsIn) (Resource, string, *APIError) {
 	v, aerr := b.gatewayVcn(in.CompartmentID, in.VcnID, in.DisplayName, "")
 	if aerr != nil {
 		return nil, "", aerr
@@ -309,7 +309,7 @@ type UpdateDhcpOptionsIn struct {
 }
 
 // UpdateDhcpOptions changes a DHCP options set.
-func (b *InMemoryBackend) UpdateDhcpOptions(id, ifMatch string, in UpdateDhcpOptionsIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) UpdateDhcpOptions(id, ifMatch string, in UpdateDhcpOptionsIn) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(d *DhcpOptions) *APIError {
 		opts, dt := d.Options, d.DomainNameType
 

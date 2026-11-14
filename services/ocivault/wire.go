@@ -2,7 +2,8 @@ package ocivault
 
 import "time"
 
-type vaultWire struct {
+// VaultWire is the vault wire shape.
+type VaultWire struct {
 	TimeCreated        time.Time                 `json:"timeCreated"`
 	TimeOfDeletion     *time.Time                `json:"timeOfDeletion,omitempty"`
 	FreeformTags       map[string]string         `json:"freeformTags,omitempty"`
@@ -21,8 +22,8 @@ type vaultWire struct {
 	IsPrimary          bool                      `json:"isPrimary"`
 }
 
-func vaultView(v *Vault, hostPort string) vaultWire {
-	return vaultWire{
+func vaultView(v *Vault, hostPort string) VaultWire {
+	return VaultWire{
 		TimeCreated: v.TimeCreated, TimeOfDeletion: v.TimeOfDeletion, FreeformTags: v.FreeformTags,
 		DefinedTags: v.DefinedTags, CompartmentID: v.CompartmentID,
 		CryptoEndpoint:     "http://" + v.Prefix + "-crypto.localhost" + hostPort,
@@ -58,7 +59,8 @@ func vaultSummary(v *Vault, hostPort string) vaultSummaryWire {
 	}
 }
 
-type keyWire struct {
+// KeyWire is the key wire shape.
+type KeyWire struct {
 	TimeCreated            time.Time                 `json:"timeCreated"`
 	TimeOfDeletion         *time.Time                `json:"timeOfDeletion,omitempty"`
 	AutoKeyRotationDetails *RotationDetails          `json:"autoKeyRotationDetails,omitempty"`
@@ -88,8 +90,8 @@ func rotationCopy(r *RotationDetails) *RotationDetails {
 	return &c
 }
 
-func keyView(k *Key) keyWire {
-	return keyWire{
+func keyView(k *Key) KeyWire {
+	return KeyWire{
 		TimeCreated: k.TimeCreated, TimeOfDeletion: k.TimeOfDeletion, AutoKeyRotationDetails: rotationCopy(k.Rotation),
 		FreeformTags: k.FreeformTags, DefinedTags: k.DefinedTags, CompartmentID: k.CompartmentID,
 		CurrentKeyVersion: k.CurrentVersion, DisplayName: k.DisplayName, ID: k.ID, LifecycleState: k.State,

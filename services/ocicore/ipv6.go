@@ -34,7 +34,7 @@ type Ipv6 struct {
 
 func (v *Ipv6) vcnRef() string { return "" }
 
-func (v *Ipv6) view() resource {
+func (v *Ipv6) view() Resource {
 	c := *v
 	c.Internal = nil
 
@@ -266,7 +266,7 @@ func (b *InMemoryBackend) newIpv6(in CreateIpv6In) (*Ipv6, *APIError) {
 }
 
 // CreateIpv6 creates an IPv6 for a VNIC, or a reserved unassigned one for a subnet.
-func (b *InMemoryBackend) CreateIpv6(in CreateIpv6In) (resource, string, *APIError) {
+func (b *InMemoryBackend) CreateIpv6(in CreateIpv6In) (Resource, string, *APIError) {
 	ip, aerr := b.newIpv6(in)
 	if aerr != nil {
 		return nil, "", aerr
@@ -285,7 +285,7 @@ type UpdateIpv6In struct {
 }
 
 // UpdateIpv6 renames an IPv6, moves it to another VNIC of the same subnet, or changes its lifetime or route table.
-func (b *InMemoryBackend) UpdateIpv6(id, ifMatch string, in UpdateIpv6In) (resource, string, *APIError) {
+func (b *InMemoryBackend) UpdateIpv6(id, ifMatch string, in UpdateIpv6In) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(ip *Ipv6) *APIError {
 		s, aerr := getLive[*Subnet](b, ip.SubnetID)
 		if aerr != nil {
@@ -389,7 +389,7 @@ func (b *InMemoryBackend) moveIpv6(s *Subnet, ip *Ipv6, vnicID string) *APIError
 }
 
 // Ipv6VnicDetach unassigns a reserved IPv6 from its VNIC.
-func (b *InMemoryBackend) Ipv6VnicDetach(id, ifMatch string) (resource, string, *APIError) {
+func (b *InMemoryBackend) Ipv6VnicDetach(id, ifMatch string) (Resource, string, *APIError) {
 	b.mu.Lock("Ipv6VnicDetach")
 	defer b.mu.Unlock()
 
@@ -452,9 +452,9 @@ type Ipv6ListOpts struct {
 }
 
 // ListIpv6s lists IPv6 addresses by subnet, VNIC, or address plus subnet.
-func (b *InMemoryBackend) ListIpv6s(o Ipv6ListOpts) (page.Page[resource], *APIError) {
+func (b *InMemoryBackend) ListIpv6s(o Ipv6ListOpts) (page.Page[Resource], *APIError) {
 	if o.SubnetID == "" && o.VnicID == "" {
-		return page.Page[resource]{}, errMissing("subnetId or vnicId is required")
+		return page.Page[Resource]{}, errMissing("subnetId or vnicId is required")
 	}
 
 	b.mu.RLock("ListIpv6s")
@@ -468,13 +468,13 @@ func (b *InMemoryBackend) ListIpv6s(o Ipv6ListOpts) (page.Page[resource], *APIEr
 	sortRes(all, ListOpts{Order: orderAsc})
 
 	pg := page.New(all, o.Page, o.Limit, defaultListLimit)
-	out := make([]resource, 0, len(pg.Data))
+	out := make([]Resource, 0, len(pg.Data))
 
 	for _, ip := range pg.Data {
 		out = append(out, ip.view())
 	}
 
-	return page.Page[resource]{Data: out, Next: pg.Next}, nil
+	return page.Page[Resource]{Data: out, Next: pg.Next}, nil
 }
 
 func ipv6Entries() []entry {

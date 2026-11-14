@@ -336,21 +336,21 @@ func (o ImageListOpts) matches(m *Image, arch string) bool {
 }
 
 // ListImages lists platform images plus the custom images of a compartment.
-func (b *InMemoryBackend) ListImages(o ImageListOpts) (page.Page[resource], *APIError) {
+func (b *InMemoryBackend) ListImages(o ImageListOpts) (page.Page[Resource], *APIError) {
 	if aerr := validListOpts(ListOpts{SortBy: o.SortBy, Order: o.Order}); aerr != nil {
-		return page.Page[resource]{}, aerr
+		return page.Page[Resource]{}, aerr
 	}
 
 	b.mu.RLock("ListImages")
 	defer b.mu.RUnlock()
 
 	if aerr := b.checkCompartment(o.Compartment); aerr != nil {
-		return page.Page[resource]{}, aerr
+		return page.Page[Resource]{}, aerr
 	}
 
 	arch, aerr := shapeArch(o.Shape)
 	if aerr != nil {
-		return page.Page[resource]{}, aerr
+		return page.Page[Resource]{}, aerr
 	}
 
 	all := catalogImages()
@@ -365,17 +365,17 @@ func (b *InMemoryBackend) ListImages(o ImageListOpts) (page.Page[resource], *API
 	sortRes(all, ListOpts{SortBy: o.SortBy, Order: o.Order})
 
 	pg := page.New(all, o.Page, o.Limit, defaultListLimit)
-	out := make([]resource, 0, len(pg.Data))
+	out := make([]Resource, 0, len(pg.Data))
 
 	for _, m := range pg.Data {
 		out = append(out, m.view())
 	}
 
-	return page.Page[resource]{Data: out, Next: pg.Next}, nil
+	return page.Page[Resource]{Data: out, Next: pg.Next}, nil
 }
 
 // GetImage returns a platform or custom image.
-func (b *InMemoryBackend) GetImage(id string) (resource, string, *APIError) {
+func (b *InMemoryBackend) GetImage(id string) (Resource, string, *APIError) {
 	b.mu.RLock("GetImage")
 	defer b.mu.RUnlock()
 

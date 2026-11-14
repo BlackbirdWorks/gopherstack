@@ -105,7 +105,8 @@ type EvaluationFormContent struct {
 	EvaluationFormVersion int32 `json:"EvaluationFormVersion"`
 }
 
-type evaluationDescribeOut struct {
+// EvaluationDescribeOut is the evaluation description response.
+type EvaluationDescribeOut struct {
 	Evaluation     Evaluation            `json:"Evaluation"`
 	EvaluationForm EvaluationFormContent `json:"EvaluationForm"`
 }
@@ -163,7 +164,8 @@ type SubmitContactEvaluationInput struct {
 	evaluationRef
 }
 
-type evaluationIDsOut struct {
+// EvaluationIDsOut is a response carrying evaluation IDs.
+type EvaluationIDsOut struct {
 	EvaluationID  string `json:"EvaluationId"`
 	EvaluationArn string `json:"EvaluationArn"`
 }
@@ -400,7 +402,7 @@ func (b *Backend) evalFormVersion(inst string, r *evaluationRec) (*evalFormVersi
 func (b *Backend) StartContactEvaluation(
 	ctx context.Context,
 	in *StartContactEvaluationInput,
-) (*evaluationIDsOut, error) {
+) (*EvaluationIDsOut, error) {
 	if in.ContactID == "" || in.EvaluationFormID == "" {
 		return nil, invalidParamErr("ContactId and EvaluationFormId are required")
 	}
@@ -409,7 +411,7 @@ func (b *Backend) StartContactEvaluation(
 		return nil, err
 	}
 
-	return writeInstance(b, "StartContactEvaluation", in.InstanceID, func(inst string) (*evaluationIDsOut, error) {
+	return writeInstance(b, "StartContactEvaluation", in.InstanceID, func(inst string) (*EvaluationIDsOut, error) {
 		if !b.contacts.has(inst, in.ContactID) {
 			return nil, contactNotFoundErr(in.ContactID)
 		}
@@ -433,7 +435,7 @@ func (b *Backend) StartContactEvaluation(
 		}
 		b.evaluations.put(rec)
 
-		return &evaluationIDsOut{EvaluationID: id, EvaluationArn: rec.Arn}, nil
+		return &EvaluationIDsOut{EvaluationID: id, EvaluationArn: rec.Arn}, nil
 	})
 }
 
@@ -488,8 +490,8 @@ func (b *Backend) applyEvaluation(
 }
 
 // UpdateContactEvaluation saves answers and notes of a draft evaluation.
-func (b *Backend) UpdateContactEvaluation(in *UpdateContactEvaluationInput) (*evaluationIDsOut, error) {
-	return writeInstance(b, "UpdateContactEvaluation", in.InstanceID, func(inst string) (*evaluationIDsOut, error) {
+func (b *Backend) UpdateContactEvaluation(in *UpdateContactEvaluationInput) (*EvaluationIDsOut, error) {
+	return writeInstance(b, "UpdateContactEvaluation", in.InstanceID, func(inst string) (*EvaluationIDsOut, error) {
 		r, err := b.evaluations.get(inst, in.EvaluationID)
 		if err != nil {
 			return nil, err
@@ -499,13 +501,13 @@ func (b *Backend) UpdateContactEvaluation(in *UpdateContactEvaluationInput) (*ev
 			return nil, err
 		}
 
-		return &evaluationIDsOut{EvaluationID: r.ID, EvaluationArn: r.Arn}, nil
+		return &EvaluationIDsOut{EvaluationID: r.ID, EvaluationArn: r.Arn}, nil
 	})
 }
 
 // SubmitContactEvaluation saves the final answers, scores the evaluation and locks it.
-func (b *Backend) SubmitContactEvaluation(in *SubmitContactEvaluationInput) (*evaluationIDsOut, error) {
-	return writeInstance(b, "SubmitContactEvaluation", in.InstanceID, func(inst string) (*evaluationIDsOut, error) {
+func (b *Backend) SubmitContactEvaluation(in *SubmitContactEvaluationInput) (*EvaluationIDsOut, error) {
+	return writeInstance(b, "SubmitContactEvaluation", in.InstanceID, func(inst string) (*EvaluationIDsOut, error) {
 		r, err := b.evaluations.get(inst, in.EvaluationID)
 		if err != nil {
 			return nil, err
@@ -523,7 +525,7 @@ func (b *Backend) SubmitContactEvaluation(in *SubmitContactEvaluationInput) (*ev
 		r.Scores, r.Score = scoreEvaluation(&v.Content, r.Answers)
 		r.Status = evalSubmitted
 
-		return &evaluationIDsOut{EvaluationID: r.ID, EvaluationArn: r.Arn}, nil
+		return &EvaluationIDsOut{EvaluationID: r.ID, EvaluationArn: r.Arn}, nil
 	})
 }
 
@@ -567,12 +569,12 @@ func maps2[V any](m map[string]V) map[string]V {
 }
 
 // DescribeContactEvaluation returns an evaluation and the form version it follows.
-func (b *Backend) DescribeContactEvaluation(in *evaluationRef) (*evaluationDescribeOut, error) {
+func (b *Backend) DescribeContactEvaluation(in *evaluationRef) (*EvaluationDescribeOut, error) {
 	return readInstance(
 		b,
 		"DescribeContactEvaluation",
 		in.InstanceID,
-		func(inst string) (*evaluationDescribeOut, error) {
+		func(inst string) (*EvaluationDescribeOut, error) {
 			r, err := b.evaluations.get(inst, in.EvaluationID)
 			if err != nil {
 				return nil, err
@@ -585,7 +587,7 @@ func (b *Backend) DescribeContactEvaluation(in *evaluationRef) (*evaluationDescr
 
 			form, _ := b.evalForms.get(inst, r.FormID)
 
-			return &evaluationDescribeOut{
+			return &EvaluationDescribeOut{
 				Evaluation: b.evaluationView(inst, r),
 				EvaluationForm: EvaluationFormContent{
 					formContent:           v.Content,
@@ -634,8 +636,8 @@ func (b *Backend) ListContactEvaluations(inst, contactID string) ([]EvaluationSu
 }
 
 // DeleteContactEvaluation removes an evaluation.
-func (b *Backend) DeleteContactEvaluation(inst, id string) (*empty, error) {
-	return writeInstance(b, "DeleteContactEvaluation", inst, func(inst string) (*empty, error) {
+func (b *Backend) DeleteContactEvaluation(inst, id string) (*EmptyOutput, error) {
+	return writeInstance(b, "DeleteContactEvaluation", inst, func(inst string) (*EmptyOutput, error) {
 		return nil, b.evaluations.del(inst, id)
 	})
 }

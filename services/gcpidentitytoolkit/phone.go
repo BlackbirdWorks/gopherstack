@@ -19,7 +19,8 @@ const (
 	phoneCodeDigits = 1_000_000
 )
 
-type phoneSignInResponse struct {
+// PhoneSignInResponse is the signInWithPhoneNumber response.
+type PhoneSignInResponse struct {
 	LocalID                 string `json:"localId,omitempty"`
 	IDToken                 string `json:"idToken,omitempty"`
 	RefreshToken            string `json:"refreshToken,omitempty"`
@@ -30,7 +31,8 @@ type phoneSignInResponse struct {
 	IsNewUser               bool   `json:"isNewUser,omitempty"`
 }
 
-type sessionResponse struct {
+// SessionResponse is the sendVerificationCode response.
+type SessionResponse struct {
 	SessionInfo string `json:"sessionInfo"`
 }
 
@@ -64,7 +66,7 @@ func hasClientIdentifier(r *authRequest) bool {
 }
 
 // SendVerificationCode starts phone sign-in; no SMS is sent and the code is read from the emulator endpoint.
-func (b *InMemoryBackend) SendVerificationCode(c call, r *authRequest) (*sessionResponse, error) {
+func (b *InMemoryBackend) SendVerificationCode(c call, r *authRequest) (*SessionResponse, error) {
 	b.mu.Lock("SendVerificationCode")
 	defer b.mu.Unlock()
 
@@ -103,7 +105,7 @@ func (b *InMemoryBackend) SendVerificationCode(c call, r *authRequest) (*session
 		Created: now.UnixMilli(), Expires: now.Add(phoneTTL).UnixMilli(),
 	}
 
-	return &sessionResponse{SessionInfo: session}, nil
+	return &SessionResponse{SessionInfo: session}, nil
 }
 
 // phoneLocked resolves the verified phone number of a sign-in request from its session code or temporary proof.
@@ -165,7 +167,7 @@ func (b *InMemoryBackend) phoneRecLocked(sc *scope, key, kind, invalid, expired 
 }
 
 // SignInWithPhoneNumber verifies a code (or temporary proof), then signs in, creates or links the account.
-func (b *InMemoryBackend) SignInWithPhoneNumber(c call, r *authRequest) (*phoneSignInResponse, error) {
+func (b *InMemoryBackend) SignInWithPhoneNumber(c call, r *authRequest) (*PhoneSignInResponse, error) {
 	b.mu.Lock("SignInWithPhoneNumber")
 	defer b.mu.Unlock()
 
@@ -218,13 +220,13 @@ func (b *InMemoryBackend) SignInWithPhoneNumber(c call, r *authRequest) (*phoneS
 		return nil, err
 	}
 
-	return &phoneSignInResponse{
+	return &PhoneSignInResponse{
 		LocalID: u.UID, IDToken: tr.IDToken, RefreshToken: tr.RefreshToken, ExpiresIn: tr.ExpiresIn,
 		PhoneNumber: phone, IsNewUser: created,
 	}, nil
 }
 
-func (b *InMemoryBackend) temporaryProofLocked(sc *scope, phone string) *phoneSignInResponse {
+func (b *InMemoryBackend) temporaryProofLocked(sc *scope, phone string) *PhoneSignInResponse {
 	proof := randomToken(oobBytes)
 	now := b.now()
 
@@ -233,7 +235,7 @@ func (b *InMemoryBackend) temporaryProofLocked(sc *scope, phone string) *phoneSi
 		Created: now.UnixMilli(), Expires: now.Add(phoneTTL).UnixMilli(),
 	}
 
-	return &phoneSignInResponse{
+	return &PhoneSignInResponse{
 		PhoneNumber: phone, TemporaryProof: proof, TemporaryProofExpiresIn: strconv.Itoa(int(phoneTTL.Seconds())),
 	}
 }

@@ -62,12 +62,14 @@ type ListAnalyticsDataAssociationsInput struct {
 	MaxResults int32 `json:"-" query:"maxResults"`
 }
 
-type batchAssociateOut struct {
+// BatchAssociateOut is the BatchAssociateAnalyticsDataSet response.
+type BatchAssociateOut struct {
 	Created []AnalyticsDataAssociationResult `json:"Created"`
 	Errors  []ErrorResult                    `json:"Errors"`
 }
 
-type batchDisassociateOut struct {
+// BatchDisassociateOut is the BatchDisassociateAnalyticsDataSet response.
+type BatchDisassociateOut struct {
 	Deleted []string      `json:"Deleted"`
 	Errors  []ErrorResult `json:"Errors"`
 }
@@ -142,7 +144,7 @@ func (b *Backend) AssociateAnalyticsDataSet(
 }
 
 // BatchAssociateAnalyticsDataSet shares several analytics datasets; an invalid dataset ID fails alone.
-func (b *Backend) BatchAssociateAnalyticsDataSet(in *BatchAnalyticsDataSetInput) (*batchAssociateOut, error) {
+func (b *Backend) BatchAssociateAnalyticsDataSet(in *BatchAnalyticsDataSetInput) (*BatchAssociateOut, error) {
 	if len(in.DataSetIDs) == 0 {
 		return nil, invalidParamErr("DataSetIds must contain at least one dataset ID")
 	}
@@ -156,8 +158,8 @@ func (b *Backend) BatchAssociateAnalyticsDataSet(in *BatchAnalyticsDataSetInput)
 		b,
 		"BatchAssociateAnalyticsDataSet",
 		in.InstanceID,
-		func(inst string) (*batchAssociateOut, error) {
-			out := &batchAssociateOut{Created: []AnalyticsDataAssociationResult{}, Errors: []ErrorResult{}}
+		func(inst string) (*BatchAssociateOut, error) {
+			out := &BatchAssociateOut{Created: []AnalyticsDataAssociationResult{}, Errors: []ErrorResult{}}
 
 			for _, id := range in.DataSetIDs {
 				if cerr := checkDataSetID(id); cerr != nil {
@@ -178,7 +180,7 @@ func (b *Backend) BatchAssociateAnalyticsDataSet(in *BatchAnalyticsDataSetInput)
 }
 
 // DisassociateAnalyticsDataSet removes the sharing of one dataset.
-func (b *Backend) DisassociateAnalyticsDataSet(in *AssociateAnalyticsDataSetInput) (*empty, error) {
+func (b *Backend) DisassociateAnalyticsDataSet(in *AssociateAnalyticsDataSetInput) (*EmptyOutput, error) {
 	if err := checkDataSetID(in.DataSetID); err != nil {
 		return nil, err
 	}
@@ -188,13 +190,13 @@ func (b *Backend) DisassociateAnalyticsDataSet(in *AssociateAnalyticsDataSetInpu
 		return nil, err
 	}
 
-	return writeInstance(b, "DisassociateAnalyticsDataSet", in.InstanceID, func(inst string) (*empty, error) {
-		return &empty{}, b.analyticsAssocs.del(inst, analyticsKey(in.DataSetID, target))
+	return writeInstance(b, "DisassociateAnalyticsDataSet", in.InstanceID, func(inst string) (*EmptyOutput, error) {
+		return &EmptyOutput{}, b.analyticsAssocs.del(inst, analyticsKey(in.DataSetID, target))
 	})
 }
 
 // BatchDisassociateAnalyticsDataSet removes the sharing of several datasets; unknown ones fail alone.
-func (b *Backend) BatchDisassociateAnalyticsDataSet(in *BatchAnalyticsDataSetInput) (*batchDisassociateOut, error) {
+func (b *Backend) BatchDisassociateAnalyticsDataSet(in *BatchAnalyticsDataSetInput) (*BatchDisassociateOut, error) {
 	if len(in.DataSetIDs) == 0 {
 		return nil, invalidParamErr("DataSetIds must contain at least one dataset ID")
 	}
@@ -208,8 +210,8 @@ func (b *Backend) BatchDisassociateAnalyticsDataSet(in *BatchAnalyticsDataSetInp
 		b,
 		"BatchDisassociateAnalyticsDataSet",
 		in.InstanceID,
-		func(inst string) (*batchDisassociateOut, error) {
-			out := &batchDisassociateOut{Deleted: []string{}, Errors: []ErrorResult{}}
+		func(inst string) (*BatchDisassociateOut, error) {
+			out := &BatchDisassociateOut{Deleted: []string{}, Errors: []ErrorResult{}}
 
 			for _, id := range in.DataSetIDs {
 				if derr := b.analyticsAssocs.del(inst, analyticsKey(id, target)); derr != nil {

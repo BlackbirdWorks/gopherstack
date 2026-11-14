@@ -43,7 +43,7 @@ func kmsOut(id string) KmsKeyOut {
 }
 
 // volumeKey returns a pointer to the kmsKeyId of a volume or boot volume.
-func volumeKey(r resource) *string {
+func volumeKey(r Resource) *string {
 	switch v := r.(type) {
 	case *Volume:
 		return &v.KmsKeyID
@@ -55,7 +55,7 @@ func volumeKey(r resource) *string {
 }
 
 // GetVolumeKmsKey returns the Vault key of a volume.
-func GetVolumeKmsKey[T resource](b *InMemoryBackend, id string) (KmsKeyOut, *APIError) {
+func GetVolumeKmsKey[T Resource](b *InMemoryBackend, id string) (KmsKeyOut, *APIError) {
 	b.mu.RLock("GetVolumeKmsKey")
 	defer b.mu.RUnlock()
 
@@ -68,7 +68,7 @@ func GetVolumeKmsKey[T resource](b *InMemoryBackend, id string) (KmsKeyOut, *API
 }
 
 // UpdateVolumeKmsKey assigns a Vault key to a volume or boot volume.
-func UpdateVolumeKmsKey[T resource](b *InMemoryBackend, id, ifMatch, keyID string) (KmsKeyOut, *APIError) {
+func UpdateVolumeKmsKey[T Resource](b *InMemoryBackend, id, ifMatch, keyID string) (KmsKeyOut, *APIError) {
 	b.mu.Lock("UpdateVolumeKmsKey")
 	defer b.mu.Unlock()
 
@@ -96,7 +96,7 @@ func UpdateVolumeKmsKey[T resource](b *InMemoryBackend, id, ifMatch, keyID strin
 }
 
 // DeleteVolumeKmsKey returns a volume or boot volume to Oracle-managed keys.
-func DeleteVolumeKmsKey[T resource](b *InMemoryBackend, id, ifMatch string) *APIError {
+func DeleteVolumeKmsKey[T Resource](b *InMemoryBackend, id, ifMatch string) *APIError {
 	b.mu.Lock("DeleteVolumeKmsKey")
 	defer b.mu.Unlock()
 
@@ -128,7 +128,7 @@ func kmsEntries() []entry {
 	}
 }
 
-func kmsGetOp[T resource](param string) opFunc {
+func kmsGetOp[T Resource](param string) opFunc {
 	return func(h *Handler, q *req) error {
 		out, aerr := GetVolumeKmsKey[T](h.Backend, q.param(param))
 		if aerr != nil {
@@ -139,7 +139,7 @@ func kmsGetOp[T resource](param string) opFunc {
 	}
 }
 
-func kmsUpdateOp[T resource](param string) opFunc {
+func kmsUpdateOp[T Resource](param string) opFunc {
 	return func(h *Handler, q *req) error {
 		var in struct {
 			KmsKeyID string `json:"kmsKeyId"`
@@ -158,7 +158,7 @@ func kmsUpdateOp[T resource](param string) opFunc {
 	}
 }
 
-func kmsDeleteOp[T resource](param string) opFunc {
+func kmsDeleteOp[T Resource](param string) opFunc {
 	return func(h *Handler, q *req) error {
 		return noBody(q, DeleteVolumeKmsKey[T](h.Backend, q.param(param), q.ifMatch()))
 	}

@@ -29,8 +29,8 @@ type lienRec struct {
 	Restrictions []string  `json:"restrictions"`
 }
 
-// v1Lien is the cloudresourcemanager v1 Lien resource.
-type v1Lien struct {
+// V1Lien is the cloudresourcemanager v1 Lien resource.
+type V1Lien struct {
 	Name         string   `json:"name,omitempty"`
 	Parent       string   `json:"parent,omitempty"`
 	Origin       string   `json:"origin,omitempty"`
@@ -39,8 +39,8 @@ type v1Lien struct {
 	Restrictions []string `json:"restrictions,omitempty"`
 }
 
-func (l *lienRec) view() v1Lien {
-	return v1Lien{
+func (l *lienRec) view() V1Lien {
+	return V1Lien{
 		Name: l.Name, Parent: l.Parent, Restrictions: slices.Clone(l.Restrictions), Origin: l.Origin,
 		Reason: l.Reason, CreateTime: l.Created.UTC().Format(time.RFC3339Nano),
 	}
@@ -49,23 +49,23 @@ func (l *lienRec) view() v1Lien {
 func lienID(name string) string { return strings.TrimPrefix(name, kindLiens+"/") }
 
 // CreateLien attaches a lien to an active project.
-func (b *InMemoryBackend) CreateLien(in v1Lien) (v1Lien, error) {
+func (b *InMemoryBackend) CreateLien(in V1Lien) (V1Lien, error) {
 	if len(in.Restrictions) == 0 {
-		return v1Lien{}, errInvalid("restrictions must not be empty.")
+		return V1Lien{}, errInvalid("restrictions must not be empty.")
 	}
 
 	for _, r := range in.Restrictions {
 		if r != restrictDelete {
-			return v1Lien{}, errInvalid("Restriction %q is not supported; liens support %s.", r, restrictDelete)
+			return V1Lien{}, errInvalid("Restriction %q is not supported; liens support %s.", r, restrictDelete)
 		}
 	}
 
 	if len(in.Origin) > maxLienText || len(in.Reason) > maxLienText {
-		return v1Lien{}, errInvalid("origin and reason must be at most %d characters.", maxLienText)
+		return V1Lien{}, errInvalid("origin and reason must be at most %d characters.", maxLienText)
 	}
 
 	if !strings.HasPrefix(in.Parent, kindProjects+"/") {
-		return v1Lien{}, errInvalid("parent must be a project, for example projects/1234.")
+		return V1Lien{}, errInvalid("parent must be a project, for example projects/1234.")
 	}
 
 	b.mu.Lock("CreateLien")
@@ -75,12 +75,12 @@ func (b *InMemoryBackend) CreateLien(in v1Lien) (v1Lien, error) {
 
 	p, err := b.activeProjectLocked(in.Parent, "resourcemanager.projects.updateLiens")
 	if err != nil {
-		return v1Lien{}, err
+		return V1Lien{}, err
 	}
 
 	parent := kindProjects + "/" + p.Number
 	if len(b.projectLiensLocked(parent)) >= maxLiensPerProj {
-		return v1Lien{}, errPrecondition("Project %s already has the maximum of %d liens.", p.ID, maxLiensPerProj)
+		return V1Lien{}, errPrecondition("Project %s already has the maximum of %d liens.", p.ID, maxLiensPerProj)
 	}
 
 	rec := &lienRec{
@@ -108,7 +108,7 @@ func (b *InMemoryBackend) projectLiensLocked(parent string) []*lienRec {
 }
 
 // GetLien returns a lien by name.
-func (b *InMemoryBackend) GetLien(name string) (v1Lien, error) {
+func (b *InMemoryBackend) GetLien(name string) (V1Lien, error) {
 	b.mu.Lock("GetLien")
 	defer b.mu.Unlock()
 
@@ -116,15 +116,15 @@ func (b *InMemoryBackend) GetLien(name string) (v1Lien, error) {
 
 	l, ok := b.liens[lienID(name)]
 	if !ok {
-		return v1Lien{}, errDenied("resourcemanager.projects.get", name)
+		return V1Lien{}, errDenied("resourcemanager.projects.get", name)
 	}
 
 	return l.view(), nil
 }
 
 // ListLiens lists the liens of one project.
-func (b *InMemoryBackend) ListLiens(parent, token string, size int) (page.Page[v1Lien], error) {
-	var none page.Page[v1Lien]
+func (b *InMemoryBackend) ListLiens(parent, token string, size int) (page.Page[V1Lien], error) {
+	var none page.Page[V1Lien]
 
 	if !strings.HasPrefix(parent, kindProjects+"/") {
 		return none, errInvalid("parent must be a project, for example projects/1234.")
@@ -140,7 +140,7 @@ func (b *InMemoryBackend) ListLiens(parent, token string, size int) (page.Page[v
 		return none, err
 	}
 
-	var views []v1Lien
+	var views []V1Lien
 	for _, l := range b.projectLiensLocked(kindProjects + "/" + p.Number) {
 		views = append(views, l.view())
 	}
@@ -211,7 +211,7 @@ func (h v1Handler) liens(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h v1Handler) createLien(w http.ResponseWriter, r *http.Request) error {
-	var in v1Lien
+	var in V1Lien
 	if err := readBody(r, &in); err != nil {
 		return err
 	}

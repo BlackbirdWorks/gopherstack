@@ -9,7 +9,8 @@ type apexWire struct {
 	OrdsVersion string `json:"ordsVersion"`
 }
 
-type adbWire struct {
+// AdbWire is the Autonomous Database wire shape.
+type AdbWire struct {
 	TimeCreated              time.Time                 `json:"timeCreated"`
 	FreeformTags             map[string]string         `json:"freeformTags"`
 	DefinedTags              map[string]map[string]any `json:"definedTags"`
@@ -61,8 +62,8 @@ func orEmpty[K comparable, V any](m map[K]V) map[K]V {
 }
 
 // view renders db. Callers hold the lock.
-func (b *InMemoryBackend) view(db *ADB) adbWire {
-	w := adbWire{
+func (b *InMemoryBackend) view(db *ADB) AdbWire {
+	w := AdbWire{
 		ID: db.ID, CompartmentID: db.CompartmentID, LifecycleState: db.State, LifecycleDetails: db.Details,
 		DBName: db.DBName, DisplayName: db.DisplayName, DBWorkload: db.Workload, ComputeModel: db.ComputeModel,
 		ComputeCount: db.ComputeCount, LicenseModel: db.LicenseModel, DBVersion: db.DBVersion,

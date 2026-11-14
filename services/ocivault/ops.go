@@ -308,7 +308,7 @@ func (h *Handler) updateKey(q *req) error {
 	return reply(q, w, etag, err)
 }
 
-func (h *Handler) keyAction(q *req, fn func(vaultID, keyID, ifMatch, token string) (keyWire, string, error)) error {
+func (h *Handler) keyAction(q *req, fn func(vaultID, keyID, ifMatch, token string) (KeyWire, string, error)) error {
 	vid, err := h.scope(q)
 	if err != nil {
 		return err
@@ -332,7 +332,7 @@ func (h *Handler) scheduleKeyDeletion(q *req) error {
 		return err
 	}
 
-	return h.keyAction(q, func(v, k, m, t string) (keyWire, string, error) {
+	return h.keyAction(q, func(v, k, m, t string) (KeyWire, string, error) {
 		return h.Backend.ScheduleKeyDeletion(v, k, m, t, at)
 	})
 }

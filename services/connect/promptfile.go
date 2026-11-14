@@ -19,21 +19,22 @@ type GetPromptFileInput struct {
 	instPath
 }
 
-type promptFileOut struct {
+// PromptFileOut is the GetPromptFile response.
+type PromptFileOut struct {
 	LastModifiedTime   *awstime.EpochTime `json:"LastModifiedTime,omitempty"`
 	LastModifiedRegion string             `json:"LastModifiedRegion,omitempty"`
 	PromptPresignedURL string             `json:"PromptPresignedUrl"`
 }
 
 // GetPromptFile returns a pre-signed URL of the prompt's WAV file on the emulator content endpoint.
-func (b *Backend) GetPromptFile(ctx context.Context, in *GetPromptFileInput) (*promptFileOut, error) {
-	return readInstance(b, "GetPromptFile", in.InstanceID, func(inst string) (*promptFileOut, error) {
+func (b *Backend) GetPromptFile(ctx context.Context, in *GetPromptFileInput) (*PromptFileOut, error) {
+	return readInstance(b, "GetPromptFile", in.InstanceID, func(inst string) (*PromptFileOut, error) {
 		p, err := b.prompts.get(inst, in.PromptID)
 		if err != nil {
 			return nil, err
 		}
 
-		return &promptFileOut{
+		return &PromptFileOut{
 			LastModifiedTime: p.Prompt.LastModifiedTime, LastModifiedRegion: p.Prompt.LastModifiedRegion,
 			PromptPresignedURL: b.contentURL(ctx, promptOp, inst, p.Prompt.PromptID, promptTTL).URL,
 		}, nil

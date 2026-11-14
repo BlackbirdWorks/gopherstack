@@ -126,7 +126,7 @@ type errorBody struct {
 
 func (q *req) header(k, v string) { q.w.Header().Set(k, v) }
 
-func (q *req) write(status int, v any, t tag) error {
+func (q *req) write(status int, v any, t Tag) error {
 	out, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return fmt.Errorf("ocidns: encode response: %w", err)
@@ -285,9 +285,9 @@ func (h *Handler) admin(q *req) {
 
 		_ = q.write(http.StatusCreated, map[string]string{
 			"keyId": ociauth.KeyID{Tenancy: in.Tenancy, User: in.User, Fingerprint: fp}.String(), "fingerprint": fp,
-		}, tag{})
+		}, Tag{})
 	case http.MethodGet:
-		_ = q.write(http.StatusOK, h.Backend.Auth.Records(), tag{})
+		_ = q.write(http.StatusOK, h.Backend.Auth.Records(), Tag{})
 	case http.MethodDelete:
 		if !h.Backend.Auth.Remove(q.r.URL.Query().Get("keyId")) {
 			h.fail(q, newErr(http.StatusNotFound, "NotFound", "No such API key"))

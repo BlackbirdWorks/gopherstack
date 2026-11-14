@@ -174,7 +174,8 @@ type ConsumerGroupWire struct {
 	QueueID        string                    `json:"queueId"`
 }
 
-type cgSummaryWire struct {
+// CgSummaryWire is the consumer-group summary wire shape.
+type CgSummaryWire struct {
 	TimeCreated    time.Time                 `json:"timeCreated"`
 	TimeUpdated    time.Time                 `json:"timeUpdated"`
 	FreeformTags   map[string]string         `json:"freeformTags,omitempty"`
@@ -220,8 +221,8 @@ func groupItem(g *ConsumerGroup) cgItem {
 	}}
 }
 
-func summaryOf(w ConsumerGroupWire) cgSummaryWire {
-	return cgSummaryWire{
+func summaryOf(w ConsumerGroupWire) CgSummaryWire {
+	return CgSummaryWire{
 		TimeCreated: w.TimeCreated, TimeUpdated: w.TimeUpdated, FreeformTags: w.FreeformTags,
 		DefinedTags: w.DefinedTags, ID: w.ID, Name: w.Name, LifecycleState: w.LifecycleState,
 		Filter: w.Filter, QueueID: w.QueueID,
@@ -414,7 +415,7 @@ func (f CGListQuery) match(w ConsumerGroupWire) bool {
 }
 
 // ListConsumerGroups lists consumer groups, primary groups included.
-func (b *InMemoryBackend) ListConsumerGroups(f CGListQuery, o ListOpts) (page.Page[cgSummaryWire], error) {
+func (b *InMemoryBackend) ListConsumerGroups(f CGListQuery, o ListOpts) (page.Page[CgSummaryWire], error) {
 	b.mu.Lock("ListConsumerGroups")
 	defer b.mu.Unlock()
 
@@ -443,12 +444,12 @@ func (b *InMemoryBackend) ListConsumerGroups(f CGListQuery, o ListOpts) (page.Pa
 	pg := paginate(all, o, func(i *cgItem) string { return i.wire.Name },
 		func(i *cgItem) (time.Time, int64) { return i.wire.TimeCreated, i.seq })
 
-	out := make([]cgSummaryWire, 0, len(pg.Data))
+	out := make([]CgSummaryWire, 0, len(pg.Data))
 	for _, it := range pg.Data {
 		out = append(out, summaryOf(it.wire))
 	}
 
-	return page.Page[cgSummaryWire]{Data: out, Next: pg.Next}, nil
+	return page.Page[CgSummaryWire]{Data: out, Next: pg.Next}, nil
 }
 
 func (b *InMemoryBackend) editableGroup(id, ifMatch string) (*Queue, *ConsumerGroup, *APIError) {

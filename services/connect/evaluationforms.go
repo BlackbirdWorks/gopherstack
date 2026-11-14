@@ -617,8 +617,8 @@ func (b *Backend) DeactivateEvaluationForm(ctx context.Context, in *FormRequest)
 }
 
 // DeleteEvaluationForm deletes one inactive version, or the whole form when no version is given.
-func (b *Backend) DeleteEvaluationForm(in *FormRequest) (*empty, error) {
-	return writeInstance(b, "DeleteEvaluationForm", in.InstanceID, func(inst string) (*empty, error) {
+func (b *Backend) DeleteEvaluationForm(in *FormRequest) (*EmptyOutput, error) {
+	return writeInstance(b, "DeleteEvaluationForm", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		r, err := b.formByID(inst, in.FormID)
 		if err != nil {
 			return nil, err
@@ -646,7 +646,7 @@ func (b *Backend) DeleteEvaluationForm(in *FormRequest) (*empty, error) {
 			return nil, b.evalForms.del(inst, in.FormID)
 		}
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 

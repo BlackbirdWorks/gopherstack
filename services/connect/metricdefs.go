@@ -96,7 +96,8 @@ type CreateMetricInput struct {
 	instPath
 }
 
-type metricIDsOut struct {
+// MetricIDsOut is a response carrying metric IDs.
+type MetricIDsOut struct {
 	MetricArn string `json:"MetricArn"`
 	MetricID  string `json:"MetricId"`
 }
@@ -221,7 +222,7 @@ func (m *metricRec) view() MetricDefinition {
 }
 
 // CreateMetric creates a customer-managed metric definition.
-func (b *Backend) CreateMetric(ctx context.Context, in *CreateMetricInput) (*metricIDsOut, error) {
+func (b *Backend) CreateMetric(ctx context.Context, in *CreateMetricInput) (*MetricIDsOut, error) {
 	if strings.TrimSpace(in.Name) == "" || in.Unit == "" {
 		return nil, invalidParamErr("Name and Unit are required")
 	}
@@ -233,7 +234,7 @@ func (b *Backend) CreateMetric(ctx context.Context, in *CreateMetricInput) (*met
 		return nil, err
 	}
 
-	return writeInstance(b, "CreateMetric", in.InstanceID, func(inst string) (*metricIDsOut, error) {
+	return writeInstance(b, "CreateMetric", in.InstanceID, func(inst string) (*MetricIDsOut, error) {
 		if nameExists(b.metricDefs, inst, func(m *metricRec) string { return m.Metric.Name }, in.Name, "") {
 			return nil, duplicateErr(labelMetric, in.Name)
 		}
@@ -255,7 +256,7 @@ func (b *Backend) CreateMetric(ctx context.Context, in *CreateMetricInput) (*met
 		b.touchMetric(ctx, rec)
 		b.metricDefs.put(rec)
 
-		return &metricIDsOut{MetricArn: rec.Metric.Arn, MetricID: id}, nil
+		return &MetricIDsOut{MetricArn: rec.Metric.Arn, MetricID: id}, nil
 	})
 }
 
@@ -309,7 +310,7 @@ func (b *Backend) ListMetrics(inst, typ, token string, maxResults int32) ([]Metr
 }
 
 // UpdateMetricContent changes the calculation, unit or trend of a metric.
-func (b *Backend) UpdateMetricContent(ctx context.Context, in *UpdateMetricContentInput) (*empty, error) {
+func (b *Backend) UpdateMetricContent(ctx context.Context, in *UpdateMetricContentInput) (*EmptyOutput, error) {
 	if err := checkMetricFields("", "", in.Unit, in.PositiveTrendIndicator, ""); err != nil {
 		return nil, err
 	}
@@ -320,7 +321,7 @@ func (b *Backend) UpdateMetricContent(ctx context.Context, in *UpdateMetricConte
 		}
 	}
 
-	return writeInstance(b, "UpdateMetricContent", in.InstanceID, func(inst string) (*empty, error) {
+	return writeInstance(b, "UpdateMetricContent", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		m, err := b.metricDefs.get(inst, in.MetricID)
 		if err != nil {
 			return nil, err
@@ -340,12 +341,12 @@ func (b *Backend) UpdateMetricContent(ctx context.Context, in *UpdateMetricConte
 
 		b.touchMetric(ctx, m)
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 
 // UpdateMetricMetadata renames a metric or changes its description.
-func (b *Backend) UpdateMetricMetadata(ctx context.Context, in *UpdateMetricMetadataInput) (*empty, error) {
+func (b *Backend) UpdateMetricMetadata(ctx context.Context, in *UpdateMetricMetadataInput) (*EmptyOutput, error) {
 	name, desc := "", ""
 	if in.Name != nil {
 		name = *in.Name
@@ -362,7 +363,7 @@ func (b *Backend) UpdateMetricMetadata(ctx context.Context, in *UpdateMetricMeta
 		return nil, err
 	}
 
-	return writeInstance(b, "UpdateMetricMetadata", in.InstanceID, func(inst string) (*empty, error) {
+	return writeInstance(b, "UpdateMetricMetadata", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		m, err := b.metricDefs.get(inst, in.MetricID)
 		if err != nil {
 			return nil, err
@@ -382,13 +383,13 @@ func (b *Backend) UpdateMetricMetadata(ctx context.Context, in *UpdateMetricMeta
 
 		b.touchMetric(ctx, m)
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 
 // DeleteMetric removes a metric definition.
-func (b *Backend) DeleteMetric(inst, id string) (*empty, error) {
-	return writeInstance(b, "DeleteMetric", inst, func(inst string) (*empty, error) {
+func (b *Backend) DeleteMetric(inst, id string) (*EmptyOutput, error) {
+	return writeInstance(b, "DeleteMetric", inst, func(inst string) (*EmptyOutput, error) {
 		return nil, b.metricDefs.del(inst, id)
 	})
 }

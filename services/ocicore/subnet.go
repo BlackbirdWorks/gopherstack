@@ -39,7 +39,7 @@ type CreateSubnetIn struct {
 }
 
 // refInVcn checks that id names a live resource of type T in the given VCN.
-func refInVcn[T resource](b *InMemoryBackend, id, vcnID, what string) *APIError {
+func refInVcn[T Resource](b *InMemoryBackend, id, vcnID, what string) *APIError {
 	r, aerr := getLive[T](b, id)
 	if aerr != nil {
 		return aerr
@@ -307,7 +307,7 @@ func prefixStrings(ps []netip.Prefix) []string {
 }
 
 // CreateSubnet creates a subnet in a VCN.
-func (b *InMemoryBackend) CreateSubnet(in CreateSubnetIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) CreateSubnet(in CreateSubnetIn) (Resource, string, *APIError) {
 	v, aerr := b.subnetVcn(in)
 	if aerr != nil {
 		return nil, "", aerr
@@ -364,7 +364,7 @@ type UpdateSubnetIn struct {
 	UpdateIn
 }
 
-func optRef[T resource](b *InMemoryBackend, id *string, vcnID, what string) *APIError {
+func optRef[T Resource](b *InMemoryBackend, id *string, vcnID, what string) *APIError {
 	if id == nil {
 		return nil
 	}
@@ -373,7 +373,7 @@ func optRef[T resource](b *InMemoryBackend, id *string, vcnID, what string) *API
 }
 
 // UpdateSubnet changes a subnet's name, tags, associations and CIDR blocks.
-func (b *InMemoryBackend) UpdateSubnet(id, ifMatch string, in UpdateSubnetIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) UpdateSubnet(id, ifMatch string, in UpdateSubnetIn) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(s *Subnet) *APIError {
 		if aerr := b.vcnWritable(s.VcnID); aerr != nil {
 			return aerr

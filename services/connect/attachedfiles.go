@@ -182,7 +182,8 @@ type BatchGetAttachedFileMetadataInput struct {
 	FileIDs []string `json:"FileIds"`
 }
 
-type attachedFileCreated struct {
+// AttachedFileCreated is the StartAttachedFileUpload response.
+type AttachedFileCreated struct {
 	UploadURLMetadata *URLMetadata   `json:"UploadUrlMetadata,omitempty"`
 	CreatedBy         *CreatedByInfo `json:"CreatedBy,omitempty"`
 	CreationTime      string         `json:"CreationTime"`
@@ -191,12 +192,14 @@ type attachedFileCreated struct {
 	FileStatus        string         `json:"FileStatus"`
 }
 
-type attachedFileOut struct {
+// AttachedFileOut is the attached-file metadata response.
+type AttachedFileOut struct {
 	DownloadURLMetadata *URLMetadata `json:"DownloadUrlMetadata,omitempty"`
 	AttachedFile
 }
 
-type attachedBatchOut struct {
+// AttachedBatchOut is the batch attached-file response.
+type AttachedBatchOut struct {
 	Files  []AttachedFile      `json:"Files"`
 	Errors []AttachedFileError `json:"Errors"`
 }
@@ -375,8 +378,8 @@ func (b *Backend) checkAttachUpload(inst string, in *StartAttachedFileUploadInpu
 func (b *Backend) StartAttachedFileUpload(
 	ctx context.Context,
 	in *StartAttachedFileUploadInput,
-) (*attachedFileCreated, error) {
-	return writeInstance(b, "StartAttachedFileUpload", in.InstanceID, func(inst string) (*attachedFileCreated, error) {
+) (*AttachedFileCreated, error) {
+	return writeInstance(b, "StartAttachedFileUpload", in.InstanceID, func(inst string) (*AttachedFileCreated, error) {
 		expiry, err := b.checkAttachUpload(inst, in)
 		if err != nil {
 			return nil, err
@@ -386,7 +389,7 @@ func (b *Backend) StartAttachedFileUpload(
 		rec.Size, rec.Status, rec.CreatedBy = in.FileSizeInBytes, fileStatusProcessing, in.CreatedBy
 		b.attachedFiles.put(rec)
 
-		return &attachedFileCreated{
+		return &AttachedFileCreated{
 			FileArn: rec.Arn, FileID: rec.FileID, CreationTime: rec.CreationTime, FileStatus: rec.Status,
 			CreatedBy:         rec.CreatedBy,
 			UploadURLMetadata: b.contentURL(ctx, "put", inst, rec.FileID, expiry),
@@ -395,7 +398,7 @@ func (b *Backend) StartAttachedFileUpload(
 }
 
 // CreateAttachedFile copies an S3 object into an attached voice recording.
-func (b *Backend) CreateAttachedFile(ctx context.Context, in *CreateAttachedFileInput) (*attachedFileCreated, error) {
+func (b *Backend) CreateAttachedFile(ctx context.Context, in *CreateAttachedFileInput) (*AttachedFileCreated, error) {
 	bucket, key, ok := parseS3URI(in.FileSourceURI)
 	if !ok {
 		return nil, invalidParamErr("FileSourceUri must be an s3:// URI")
@@ -408,7 +411,7 @@ func (b *Backend) CreateAttachedFile(ctx context.Context, in *CreateAttachedFile
 		return nil, err
 	}
 
-	return writeInstance(b, "CreateAttachedFile", in.InstanceID, func(inst string) (*attachedFileCreated, error) {
+	return writeInstance(b, "CreateAttachedFile", in.InstanceID, func(inst string) (*AttachedFileCreated, error) {
 		c, err := b.contactByARN(inst, in.AssociatedResourceArn)
 		if err != nil {
 			return nil, err
@@ -429,7 +432,7 @@ func (b *Backend) CreateAttachedFile(ctx context.Context, in *CreateAttachedFile
 		), fileStatusApproved, in.FileSourceURI, data, true
 		b.attachedFiles.put(rec)
 
-		return &attachedFileCreated{
+		return &AttachedFileCreated{
 			FileArn: rec.Arn, FileID: rec.FileID, CreationTime: rec.CreationTime, FileStatus: rec.Status,
 		}, nil
 	})
@@ -478,8 +481,8 @@ func (b *Backend) fileOf(inst, id, resource string) (*attachedFileRec, error) {
 }
 
 // CompleteAttachedFileUpload approves a file once its content was uploaded.
-func (b *Backend) CompleteAttachedFileUpload(in *fileRef) (*empty, error) {
-	return writeInstance(b, "CompleteAttachedFileUpload", in.InstanceID, func(inst string) (*empty, error) {
+func (b *Backend) CompleteAttachedFileUpload(in *fileRef) (*EmptyOutput, error) {
+	return writeInstance(b, "CompleteAttachedFileUpload", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		r, err := b.fileOf(inst, in.FileID, in.AssociatedResourceArn)
 		if err != nil {
 			return nil, err
@@ -495,24 +498,24 @@ func (b *Backend) CompleteAttachedFileUpload(in *fileRef) (*empty, error) {
 
 		r.Status = fileStatusApproved
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 
 // GetAttachedFile returns the metadata of a file and, once approved, a download URL.
-func (b *Backend) GetAttachedFile(ctx context.Context, in *GetAttachedFileInput) (*attachedFileOut, error) {
+func (b *Backend) GetAttachedFile(ctx context.Context, in *GetAttachedFileInput) (*AttachedFileOut, error) {
 	expiry, err := checkURLExpiry(in.URLExpiryInSeconds)
 	if err != nil {
 		return nil, err
 	}
 
-	return readInstance(b, "GetAttachedFile", in.InstanceID, func(inst string) (*attachedFileOut, error) {
+	return readInstance(b, "GetAttachedFile", in.InstanceID, func(inst string) (*AttachedFileOut, error) {
 		r, ferr := b.fileOf(inst, in.FileID, in.AssociatedResourceArn)
 		if ferr != nil {
 			return nil, ferr
 		}
 
-		out := &attachedFileOut{AttachedFile: r.view()}
+		out := &AttachedFileOut{AttachedFile: r.view()}
 		if r.Status == fileStatusApproved {
 			out.DownloadURLMetadata = b.contentURL(ctx, "get", inst, r.FileID, expiry)
 		}
@@ -522,13 +525,13 @@ func (b *Backend) GetAttachedFile(ctx context.Context, in *GetAttachedFileInput)
 }
 
 // BatchGetAttachedFileMetadata returns the metadata of up to 100 files; the rest are reported as errors.
-func (b *Backend) BatchGetAttachedFileMetadata(in *BatchGetAttachedFileMetadataInput) (*attachedBatchOut, error) {
+func (b *Backend) BatchGetAttachedFileMetadata(in *BatchGetAttachedFileMetadataInput) (*AttachedBatchOut, error) {
 	if n := len(in.FileIDs); n < 1 || n > maxBatchFiles {
 		return nil, invalidParamErr("FileIds must hold 1-%d items", maxBatchFiles)
 	}
 
-	return readInstance(b, "BatchGetAttachedFileMetadata", in.InstanceID, func(inst string) (*attachedBatchOut, error) {
-		out := &attachedBatchOut{Files: []AttachedFile{}, Errors: []AttachedFileError{}}
+	return readInstance(b, "BatchGetAttachedFileMetadata", in.InstanceID, func(inst string) (*AttachedBatchOut, error) {
+		out := &AttachedBatchOut{Files: []AttachedFile{}, Errors: []AttachedFileError{}}
 
 		for _, id := range in.FileIDs {
 			r, err := b.fileOf(inst, id, in.AssociatedResourceArn)
@@ -548,8 +551,8 @@ func (b *Backend) BatchGetAttachedFileMetadata(in *BatchGetAttachedFileMetadataI
 }
 
 // DeleteAttachedFile removes a file and its content.
-func (b *Backend) DeleteAttachedFile(in *fileRef) (*empty, error) {
-	return writeInstance(b, "DeleteAttachedFile", in.InstanceID, func(inst string) (*empty, error) {
+func (b *Backend) DeleteAttachedFile(in *fileRef) (*EmptyOutput, error) {
+	return writeInstance(b, "DeleteAttachedFile", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		if _, err := b.fileOf(inst, in.FileID, in.AssociatedResourceArn); err != nil {
 			return nil, err
 		}
@@ -559,7 +562,7 @@ func (b *Backend) DeleteAttachedFile(in *fileRef) (*empty, error) {
 }
 
 // DescribeAttachedFilesConfiguration returns the attachment policy of a scope, defaults when never updated.
-func (b *Backend) DescribeAttachedFilesConfiguration(in *configRef) (*attachedConfigOut, error) {
+func (b *Backend) DescribeAttachedFilesConfiguration(in *configRef) (*AttachedConfigOut, error) {
 	if err := oneOf("AttachmentScope", in.AttachmentScope, attachmentScopes()...); err != nil {
 		return nil, err
 	}
@@ -568,15 +571,16 @@ func (b *Backend) DescribeAttachedFilesConfiguration(in *configRef) (*attachedCo
 		b,
 		"DescribeAttachedFilesConfiguration",
 		in.InstanceID,
-		func(inst string) (*attachedConfigOut, error) {
-			return &attachedConfigOut{
+		func(inst string) (*AttachedConfigOut, error) {
+			return &AttachedConfigOut{
 				AttachedFilesConfiguration: b.attachedConfig(inst, in.AttachmentScope).view(),
 			}, nil
 		},
 	)
 }
 
-type attachedConfigOut struct {
+// AttachedConfigOut is the attached-file config response.
+type AttachedConfigOut struct {
 	AttachedFilesConfiguration *AttachedFilesConfiguration `json:"AttachedFilesConfiguration"`
 }
 

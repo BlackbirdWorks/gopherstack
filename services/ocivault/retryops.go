@@ -10,10 +10,10 @@ func (b *InMemoryBackend) retryNote(scope, token, value string) {
 	b.retry.Remember(scope, token, value, b.nowUTC())
 }
 
-func (b *InMemoryBackend) replayKey(vaultID, keyID string) (keyWire, string, error) {
+func (b *InMemoryBackend) replayKey(vaultID, keyID string) (KeyWire, string, error) {
 	k, _, aerr := b.keyFor(vaultID, keyID)
 	if aerr != nil {
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	return keyView(k), k.Etag, nil
@@ -33,10 +33,10 @@ func (b *InMemoryBackend) replayKeyVersion(vaultID, keyID, id string) (keyVersio
 	return keyVersionFull(k, kv, ""), k.Etag, nil
 }
 
-func (b *InMemoryBackend) replayVault(id, hostPort string) (vaultWire, string, error) {
+func (b *InMemoryBackend) replayVault(id, hostPort string) (VaultWire, string, error) {
 	v, aerr := b.vaultByID(id)
 	if aerr != nil {
-		return vaultWire{}, "", aerr
+		return VaultWire{}, "", aerr
 	}
 
 	return vaultView(v, hostPort), v.Etag, nil

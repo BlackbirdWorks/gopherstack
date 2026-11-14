@@ -85,13 +85,15 @@ type ExecutionRecord struct {
 	Status        string            `json:"Status"`
 }
 
-type startExecutionOut struct {
+// StartExecutionOut is the StartTestCaseExecution response.
+type StartExecutionOut struct {
 	Status              string `json:"Status"`
 	TestCaseExecutionID string `json:"TestCaseExecutionId"`
 	TestCaseID          string `json:"TestCaseId"`
 }
 
-type executionSummaryOut struct {
+// ExecutionSummaryOut is the GetTestCaseExecutionSummary response.
+type ExecutionSummaryOut struct {
 	StartTime awstime.EpochTime  `json:"StartTime"`
 	EndTime   *awstime.EpochTime `json:"EndTime,omitempty"`
 	Status    string             `json:"Status"`
@@ -117,8 +119,8 @@ func checkExecutionStatus(field, v string) error {
 }
 
 // StartTestCaseExecution starts an execution of a published test case.
-func (b *Backend) StartTestCaseExecution(in *StartTestCaseExecutionInput) (*startExecutionOut, error) {
-	return writeInstance(b, "StartTestCaseExecution", in.InstanceID, func(inst string) (*startExecutionOut, error) {
+func (b *Backend) StartTestCaseExecution(in *StartTestCaseExecutionInput) (*StartExecutionOut, error) {
+	return writeInstance(b, "StartTestCaseExecution", in.InstanceID, func(inst string) (*StartExecutionOut, error) {
 		tc, err := b.testCases.get(inst, in.TestCaseID)
 		if err != nil {
 			return nil, err
@@ -134,7 +136,7 @@ func (b *Backend) StartTestCaseExecution(in *StartTestCaseExecutionInput) (*star
 		}
 		b.testExecutions.put(rec)
 
-		return &startExecutionOut{Status: rec.Status, TestCaseExecutionID: rec.ID, TestCaseID: rec.TestCaseID}, nil
+		return &StartExecutionOut{Status: rec.Status, TestCaseExecutionID: rec.ID, TestCaseID: rec.TestCaseID}, nil
 	})
 }
 
@@ -148,8 +150,8 @@ func (b *Backend) executionLocked(inst string, ref *execRef) (*testExecutionRec,
 }
 
 // StopTestCaseExecution stops a running test case execution.
-func (b *Backend) StopTestCaseExecution(in *StopTestCaseExecutionInput) (*empty, error) {
-	return writeInstance(b, "StopTestCaseExecution", in.InstanceID, func(inst string) (*empty, error) {
+func (b *Backend) StopTestCaseExecution(in *StopTestCaseExecutionInput) (*EmptyOutput, error) {
+	return writeInstance(b, "StopTestCaseExecution", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		r, err := b.executionLocked(inst, &in.execRef)
 		if err != nil {
 			return nil, err
@@ -168,7 +170,7 @@ func (b *Backend) StopTestCaseExecution(in *StopTestCaseExecutionInput) (*empty,
 			Status:        execStopped,
 		})
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 
@@ -276,18 +278,18 @@ func (b *Backend) ListTestCaseExecutionRecords(in *ListTestCaseExecutionRecordsI
 }
 
 // GetTestCaseExecutionSummary returns the times and status of an execution.
-func (b *Backend) GetTestCaseExecutionSummary(in *execRef) (*executionSummaryOut, error) {
+func (b *Backend) GetTestCaseExecutionSummary(in *execRef) (*ExecutionSummaryOut, error) {
 	return readInstance(
 		b,
 		"GetTestCaseExecutionSummary",
 		in.InstanceID,
-		func(inst string) (*executionSummaryOut, error) {
+		func(inst string) (*ExecutionSummaryOut, error) {
 			r, err := b.executionLocked(inst, in)
 			if err != nil {
 				return nil, err
 			}
 
-			return &executionSummaryOut{StartTime: r.Start, EndTime: r.End, Status: r.Status}, nil
+			return &ExecutionSummaryOut{StartTime: r.Start, EndTime: r.End, Status: r.Status}, nil
 		},
 	)
 }

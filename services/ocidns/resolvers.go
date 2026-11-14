@@ -267,13 +267,13 @@ func (b *InMemoryBackend) resolverByID(id string) (*Resolver, *APIError) {
 }
 
 // GetResolver returns a resolver.
-func (b *InMemoryBackend) GetResolver(id string) (ResolverWire, tag, error) {
+func (b *InMemoryBackend) GetResolver(id string) (ResolverWire, Tag, error) {
 	b.mu.RLock("GetResolver")
 	defer b.mu.RUnlock()
 
 	r, err := b.resolverByID(id)
 	if err != nil {
-		return ResolverWire{}, tag{}, err
+		return ResolverWire{}, Tag{}, err
 	}
 
 	return b.resolverWire(r), tagOf(r.ID, r.meta), nil
@@ -299,12 +299,12 @@ var resolverSorters = sorter[*Resolver]{ //nolint:gochecknoglobals // immutable 
 }
 
 // ListResolvers lists the resolvers of a compartment.
-func (b *InMemoryBackend) ListResolvers(f ResolverFilter, o ListOpts) (listResult[ResolverSummaryWire], error) {
+func (b *InMemoryBackend) ListResolvers(f ResolverFilter, o ListOpts) (ListResult[ResolverSummaryWire], error) {
 	b.mu.RLock("ListResolvers")
 	defer b.mu.RUnlock()
 
 	if err := b.checkCompartment(f.Compart); err != nil {
-		return listResult[ResolverSummaryWire]{}, err
+		return ListResult[ResolverSummaryWire]{}, err
 	}
 
 	var all []*Resolver
@@ -318,7 +318,7 @@ func (b *InMemoryBackend) ListResolvers(f ResolverFilter, o ListOpts) (listResul
 
 	pg, err := sortPage(all, o, keyTimeCreated, true, resolverSorters)
 	if err != nil {
-		return listResult[ResolverSummaryWire]{}, err
+		return ListResult[ResolverSummaryWire]{}, err
 	}
 
 	return finish(pg, len(all), b.resolverSummary), nil
@@ -414,17 +414,17 @@ func (b *InMemoryBackend) endpointByName(resolverID, name string) *Endpoint {
 }
 
 // UpdateResolver changes the name, tags, attached views and rules of a resolver.
-func (b *InMemoryBackend) UpdateResolver(id string, c cond, in UpdateResolverIn) (ResolverWire, tag, error) {
+func (b *InMemoryBackend) UpdateResolver(id string, c cond, in UpdateResolverIn) (ResolverWire, Tag, error) {
 	b.mu.Lock("UpdateResolver")
 	defer b.mu.Unlock()
 
 	r, err := b.resolverByID(id)
 	if err != nil {
-		return ResolverWire{}, tag{}, err
+		return ResolverWire{}, Tag{}, err
 	}
 
 	if err = firstAPIErr(c.check(r.ID, r.meta), b.checkTags(in.Tags)); err != nil {
-		return ResolverWire{}, tag{}, err
+		return ResolverWire{}, Tag{}, err
 	}
 
 	var views []string
@@ -434,11 +434,11 @@ func (b *InMemoryBackend) UpdateResolver(id string, c cond, in UpdateResolverIn)
 
 		for _, v := range in.AttachedViews {
 			if _, ok := b.views[v.ViewID]; !ok {
-				return ResolverWire{}, tag{}, errNotFound(v.ViewID)
+				return ResolverWire{}, Tag{}, errNotFound(v.ViewID)
 			}
 
 			if seen[v.ViewID] {
-				return ResolverWire{}, tag{}, errParam("attachedViews must not repeat a view")
+				return ResolverWire{}, Tag{}, errParam("attachedViews must not repeat a view")
 			}
 
 			seen[v.ViewID] = true
@@ -451,7 +451,7 @@ func (b *InMemoryBackend) UpdateResolver(id string, c cond, in UpdateResolverIn)
 
 	if in.Rules != nil {
 		if rules, err = b.checkRules(r, *in.Rules); err != nil {
-			return ResolverWire{}, tag{}, err
+			return ResolverWire{}, Tag{}, err
 		}
 	}
 
@@ -627,31 +627,31 @@ func (b *InMemoryBackend) validateEndpoint(r *Resolver, in CreateEndpointIn) (ne
 }
 
 // CreateEndpoint creates a VNIC endpoint on a resolver.
-func (b *InMemoryBackend) CreateEndpoint(resolverID string, in CreateEndpointIn) (EndpointWire, tag, error) {
+func (b *InMemoryBackend) CreateEndpoint(resolverID string, in CreateEndpointIn) (EndpointWire, Tag, error) {
 	b.mu.Lock("CreateEndpoint")
 	defer b.mu.Unlock()
 
 	r, err := b.resolverByID(resolverID)
 	if err != nil {
-		return EndpointWire{}, tag{}, err
+		return EndpointWire{}, Tag{}, err
 	}
 
 	if id, ok := b.retry.Lookup("CreateResolverEndpoint/"+resolverID, in.RetryToken, b.nowUTC()); ok {
 		e, live := b.endpoints[id]
 		if !live {
-			return EndpointWire{}, tag{}, errInvalidatedToken()
+			return EndpointWire{}, Tag{}, errInvalidatedToken()
 		}
 
 		return b.endpointWire(e), tagOf(e.ID, e.meta), nil
 	}
 
 	if aerr := b.checkTags(in.Tags); aerr != nil {
-		return EndpointWire{}, tag{}, aerr
+		return EndpointWire{}, Tag{}, aerr
 	}
 
 	prefix, aerr := b.validateEndpoint(r, in)
 	if aerr != nil {
-		return EndpointWire{}, tag{}, aerr
+		return EndpointWire{}, Tag{}, aerr
 	}
 
 	used := b.usedAddresses(in.SubnetID)
@@ -668,13 +668,13 @@ func (b *InMemoryBackend) CreateEndpoint(resolverID string, in CreateEndpointIn)
 			used,
 			"forwardingAddress",
 		); aerr != nil {
-			return EndpointWire{}, tag{}, aerr
+			return EndpointWire{}, Tag{}, aerr
 		}
 	}
 
 	if e.IsListening {
 		if e.ListeningAddress, aerr = pickAddress(in.ListeningAddress, prefix, used, "listeningAddress"); aerr != nil {
-			return EndpointWire{}, tag{}, aerr
+			return EndpointWire{}, Tag{}, aerr
 		}
 	}
 
@@ -700,13 +700,13 @@ func (b *InMemoryBackend) findEndpoint(resolverID, name string) (*Endpoint, *API
 }
 
 // GetEndpoint returns a resolver endpoint.
-func (b *InMemoryBackend) GetEndpoint(resolverID, name string) (EndpointWire, tag, error) {
+func (b *InMemoryBackend) GetEndpoint(resolverID, name string) (EndpointWire, Tag, error) {
 	b.mu.RLock("GetEndpoint")
 	defer b.mu.RUnlock()
 
 	e, err := b.findEndpoint(resolverID, name)
 	if err != nil {
-		return EndpointWire{}, tag{}, err
+		return EndpointWire{}, Tag{}, err
 	}
 
 	return b.endpointWire(e), tagOf(e.ID, e.meta), nil
@@ -724,12 +724,12 @@ var endpointSorters = sorter[*Endpoint]{ //nolint:gochecknoglobals // immutable 
 }
 
 // ListEndpoints lists the endpoints of a resolver.
-func (b *InMemoryBackend) ListEndpoints(resolverID, name, state string, o ListOpts) (listResult[EndpointWire], error) {
+func (b *InMemoryBackend) ListEndpoints(resolverID, name, state string, o ListOpts) (ListResult[EndpointWire], error) {
 	b.mu.RLock("ListEndpoints")
 	defer b.mu.RUnlock()
 
 	if _, err := b.resolverByID(resolverID); err != nil {
-		return listResult[EndpointWire]{}, err
+		return ListResult[EndpointWire]{}, err
 	}
 
 	var all []*Endpoint
@@ -742,7 +742,7 @@ func (b *InMemoryBackend) ListEndpoints(resolverID, name, state string, o ListOp
 
 	pg, err := sortPage(all, o, keyTimeCreated, true, endpointSorters)
 	if err != nil {
-		return listResult[EndpointWire]{}, err
+		return ListResult[EndpointWire]{}, err
 	}
 
 	return finish(pg, len(all), b.endpointWire), nil
@@ -760,21 +760,21 @@ func (b *InMemoryBackend) UpdateEndpoint(
 	resolverID, name string,
 	c cond,
 	in UpdateEndpointIn,
-) (EndpointWire, tag, error) {
+) (EndpointWire, Tag, error) {
 	b.mu.Lock("UpdateEndpoint")
 	defer b.mu.Unlock()
 
 	e, err := b.findEndpoint(resolverID, name)
 	if err != nil {
-		return EndpointWire{}, tag{}, err
+		return EndpointWire{}, Tag{}, err
 	}
 
 	if err = firstAPIErr(c.check(e.ID, e.meta), b.checkTags(in.Tags)); err != nil {
-		return EndpointWire{}, tag{}, err
+		return EndpointWire{}, Tag{}, err
 	}
 
 	if et := strings.ToUpper(in.EndpointType); et != "" && et != endpointVnic {
-		return EndpointWire{}, tag{}, errParam("endpointType must be VNIC")
+		return EndpointWire{}, Tag{}, errParam("endpointType must be VNIC")
 	}
 
 	if in.NsgIDs != nil {

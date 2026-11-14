@@ -43,7 +43,8 @@ type WorkRequest struct {
 	Seq           int64          `json:"seq"`
 }
 
-type workRequestWire struct {
+// WorkRequestWire is the work request wire shape.
+type WorkRequestWire struct {
 	TimeAccepted    time.Time      `json:"timeAccepted"`
 	TimeStarted     *time.Time     `json:"timeStarted,omitempty"`
 	TimeFinished    *time.Time     `json:"timeFinished,omitempty"`
@@ -55,7 +56,8 @@ type workRequestWire struct {
 	PercentComplete float64        `json:"percentComplete"`
 }
 
-type workRequestSummaryWire struct {
+// WorkRequestSummaryWire is the work request summary wire shape.
+type WorkRequestSummaryWire struct {
 	TimeAccepted    time.Time  `json:"timeAccepted"`
 	TimeStarted     *time.Time `json:"timeStarted,omitempty"`
 	TimeFinished    *time.Time `json:"timeFinished,omitempty"`
@@ -72,7 +74,8 @@ type WorkRequestEntry struct {
 	Message   string    `json:"message"`
 }
 
-type workRequestError struct {
+// WorkRequestError is a work request error entry.
+type WorkRequestError struct {
 	Timestamp time.Time `json:"timestamp"`
 	Code      string    `json:"code"`
 	Message   string    `json:"message"`
@@ -118,7 +121,7 @@ func (b *InMemoryBackend) wrTimes(w *WorkRequest, status string) (*time.Time, *t
 	return &started, &fin
 }
 
-func (b *InMemoryBackend) wrWire(w *WorkRequest) workRequestWire {
+func (b *InMemoryBackend) wrWire(w *WorkRequest) WorkRequestWire {
 	status, pct := b.wrState(w)
 	started, finished := b.wrTimes(w, status)
 
@@ -131,7 +134,7 @@ func (b *InMemoryBackend) wrWire(w *WorkRequest) workRequestWire {
 		}
 	}
 
-	return workRequestWire{
+	return WorkRequestWire{
 		TimeAccepted: w.TimeAccepted, TimeStarted: started, TimeFinished: finished, OperationType: w.OperationType,
 		Status: status, ID: w.ID, CompartmentID: w.CompartmentID, Resources: res, PercentComplete: pct,
 	}
@@ -147,13 +150,13 @@ func (b *InMemoryBackend) findWorkRequest(id string) (*WorkRequest, *APIError) {
 }
 
 // GetWorkRequest returns one work request.
-func (b *InMemoryBackend) GetWorkRequest(id string) (workRequestWire, *APIError) {
+func (b *InMemoryBackend) GetWorkRequest(id string) (WorkRequestWire, *APIError) {
 	b.mu.RLock("GetWorkRequest")
 	defer b.mu.RUnlock()
 
 	w, aerr := b.findWorkRequest(id)
 	if aerr != nil {
-		return workRequestWire{}, aerr
+		return WorkRequestWire{}, aerr
 	}
 
 	return b.wrWire(w), nil
@@ -162,12 +165,12 @@ func (b *InMemoryBackend) GetWorkRequest(id string) (workRequestWire, *APIError)
 // ListWorkRequests lists the work requests of a compartment, newest first, optionally for one resource.
 func (b *InMemoryBackend) ListWorkRequests(
 	compartment, resourceID, token string, limit int,
-) (page.Page[workRequestSummaryWire], *APIError) {
+) (page.Page[WorkRequestSummaryWire], *APIError) {
 	b.mu.RLock("ListWorkRequests")
 	defer b.mu.RUnlock()
 
 	if aerr := b.checkCompartment(compartment); aerr != nil {
-		return page.Page[workRequestSummaryWire]{}, aerr
+		return page.Page[WorkRequestSummaryWire]{}, aerr
 	}
 
 	var all []*WorkRequest
@@ -188,18 +191,18 @@ func (b *InMemoryBackend) ListWorkRequests(
 	})
 
 	pg := page.New(all, token, limit, defaultListLimit)
-	out := make([]workRequestSummaryWire, 0, len(pg.Data))
+	out := make([]WorkRequestSummaryWire, 0, len(pg.Data))
 
 	for _, w := range pg.Data {
 		v := b.wrWire(w)
-		out = append(out, workRequestSummaryWire{
+		out = append(out, WorkRequestSummaryWire{
 			TimeAccepted: v.TimeAccepted, TimeStarted: v.TimeStarted, TimeFinished: v.TimeFinished,
 			OperationType: v.OperationType, Status: v.Status, ID: v.ID, CompartmentID: v.CompartmentID,
 			PercentComplete: v.PercentComplete,
 		})
 	}
 
-	return page.Page[workRequestSummaryWire]{Data: out, Next: pg.Next}, nil
+	return page.Page[WorkRequestSummaryWire]{Data: out, Next: pg.Next}, nil
 }
 
 // ListWorkRequestLogs returns the log lines of a work request.
@@ -227,7 +230,7 @@ func (b *InMemoryBackend) ListWorkRequestLogs(
 }
 
 // ListWorkRequestErrors returns the errors of a work request; these operations never fail.
-func (b *InMemoryBackend) ListWorkRequestErrors(id string) ([]workRequestError, *APIError) {
+func (b *InMemoryBackend) ListWorkRequestErrors(id string) ([]WorkRequestError, *APIError) {
 	b.mu.RLock("ListWorkRequestErrors")
 	defer b.mu.RUnlock()
 
@@ -235,7 +238,7 @@ func (b *InMemoryBackend) ListWorkRequestErrors(id string) ([]workRequestError, 
 		return nil, aerr
 	}
 
-	return []workRequestError{}, nil
+	return []WorkRequestError{}, nil
 }
 
 func (b *InMemoryBackend) sweepWorkRequests(now time.Time) {

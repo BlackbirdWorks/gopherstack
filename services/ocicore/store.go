@@ -34,7 +34,7 @@ const (
 type InMemoryBackend struct {
 	mu          *lockmetrics.RWMutex
 	now         func() time.Time
-	res         map[string]resource
+	res         map[string]Resource
 	nsgRules    map[string]*NSGRule
 	workReqs    map[string]*WorkRequest
 	ipInvReqs   map[string]*IPInventoryRequest
@@ -59,7 +59,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 }
 
 func (b *InMemoryBackend) initMaps() {
-	b.res = map[string]resource{}
+	b.res = map[string]Resource{}
 	b.nsgRules = map[string]*NSGRule{}
 	b.workReqs = map[string]*WorkRequest{}
 	b.ipInvReqs = map[string]*IPInventoryRequest{}
@@ -112,7 +112,7 @@ func ocidKind(id string) string {
 	return parts[1]
 }
 
-func live(r resource) bool {
+func live(r Resource) bool {
 	switch r.base().LifecycleState {
 	case statTerminating, statTerminated, statDetaching, statDetached, statDeleted:
 		return false
@@ -126,7 +126,7 @@ func terminal(state string) bool {
 }
 
 // moveTo enters an interim state that settles into final after the transition window.
-func (b *InMemoryBackend) moveTo(r resource, interim, final string) {
+func (b *InMemoryBackend) moveTo(r Resource, interim, final string) {
 	bs := r.base()
 	at := b.nowUTC().Add(transitionWindow)
 	bs.LifecycleState, bs.Internal.TransitionAt, bs.Internal.NextState = interim, &at, final
@@ -169,13 +169,13 @@ func (b *InMemoryBackend) checkTags(in any) *APIError {
 
 // createOnce runs create under the write lock and answers a repeated retry token with the first resource.
 func (b *InMemoryBackend) createOnce(
-	scope, token string, create func() (resource, string, *APIError),
-) (resource, string, *APIError) {
+	scope, token string, create func() (Resource, string, *APIError),
+) (Resource, string, *APIError) {
 	b.mu.Lock("createOnce")
 	defer b.mu.Unlock()
 
 	var (
-		out  resource
+		out  Resource
 		etag string
 		aerr *APIError
 	)
@@ -226,7 +226,7 @@ func (b *InMemoryBackend) newBase(kind, compartment, name string, tags TagsIn) B
 	}
 }
 
-func (b *InMemoryBackend) add(r resource) { b.res[r.base().ID] = r }
+func (b *InMemoryBackend) add(r Resource) { b.res[r.base().ID] = r }
 
 func validName(name string) *APIError {
 	if len(name) > maxNameLen {
@@ -249,7 +249,7 @@ func (b *InMemoryBackend) checkCompartment(id string) *APIError {
 	return nil
 }
 
-func get[T resource](b *InMemoryBackend, id string) (T, *APIError) {
+func get[T Resource](b *InMemoryBackend, id string) (T, *APIError) {
 	var zero T
 
 	r, ok := b.res[id].(T)
@@ -261,7 +261,7 @@ func get[T resource](b *InMemoryBackend, id string) (T, *APIError) {
 }
 
 // getLive is get for a resource that must still accept changes.
-func getLive[T resource](b *InMemoryBackend, id string) (T, *APIError) {
+func getLive[T Resource](b *InMemoryBackend, id string) (T, *APIError) {
 	r, aerr := get[T](b, id)
 	if aerr != nil {
 		return r, aerr
@@ -274,7 +274,7 @@ func getLive[T resource](b *InMemoryBackend, id string) (T, *APIError) {
 	return r, nil
 }
 
-func checkEtag(r resource, ifMatch string) *APIError {
+func checkEtag(r Resource, ifMatch string) *APIError {
 	if ifMatch != "" && ifMatch != r.base().Internal.Etag {
 		return errEtag()
 	}
@@ -282,7 +282,7 @@ func checkEtag(r resource, ifMatch string) *APIError {
 	return nil
 }
 
-func (b *InMemoryBackend) bump(r resource) { r.base().Internal.Etag = newEtag() }
+func (b *InMemoryBackend) bump(r Resource) { r.base().Internal.Etag = newEtag() }
 
 // UpdateIn is the part of every update call shared by all resources.
 type UpdateIn struct {
@@ -291,7 +291,7 @@ type UpdateIn struct {
 }
 
 // updateCommon applies name and tags then bumps the etag; callers hold the lock.
-func (b *InMemoryBackend) updateCommon(r resource, in UpdateIn) {
+func (b *InMemoryBackend) updateCommon(r Resource, in UpdateIn) {
 	bs := r.base()
 	if in.DisplayName != nil {
 		bs.DisplayName = *in.DisplayName
@@ -342,7 +342,7 @@ func (b *InMemoryBackend) Sweep() {
 	}
 }
 
-func (b *InMemoryBackend) settle(r resource, at time.Time) {
+func (b *InMemoryBackend) settle(r Resource, at time.Time) {
 	bs := r.base()
 
 	switch bs.LifecycleState {
@@ -371,7 +371,7 @@ func (b *InMemoryBackend) dropRules(nsgID string) {
 
 // ListOpts carries the shared list query parameters.
 type ListOpts struct {
-	Match       func(resource) bool
+	Match       func(Resource) bool
 	Compartment string
 	DisplayName string
 	State       string
@@ -396,7 +396,7 @@ func validListOpts(o ListOpts) *APIError {
 	return nil
 }
 
-func sortRes[T resource](items []T, o ListOpts) {
+func sortRes[T Resource](items []T, o ListOpts) {
 	byName := strings.EqualFold(o.SortBy, "DISPLAYNAME")
 	desc := !byName
 	if o.Order != "" {
@@ -422,7 +422,7 @@ func sortRes[T resource](items []T, o ListOpts) {
 }
 
 // accepts applies the shared list filters to one resource.
-func (o ListOpts) accepts(t resource) bool {
+func (o ListOpts) accepts(t Resource) bool {
 	bs := t.base()
 
 	return (o.AnyCompartment || bs.CompartmentID == o.Compartment) &&
@@ -432,9 +432,9 @@ func (o ListOpts) accepts(t resource) bool {
 }
 
 // list returns the resources of one kind in a compartment, filtered, sorted and paged.
-func list[T resource](b *InMemoryBackend, o ListOpts) (page.Page[resource], *APIError) {
+func list[T Resource](b *InMemoryBackend, o ListOpts) (page.Page[Resource], *APIError) {
 	if aerr := validListOpts(o); aerr != nil {
-		return page.Page[resource]{}, aerr
+		return page.Page[Resource]{}, aerr
 	}
 
 	b.mu.RLock("list")
@@ -442,7 +442,7 @@ func list[T resource](b *InMemoryBackend, o ListOpts) (page.Page[resource], *API
 
 	if !o.AnyCompartment {
 		if aerr := b.checkCompartment(o.Compartment); aerr != nil {
-			return page.Page[resource]{}, aerr
+			return page.Page[Resource]{}, aerr
 		}
 	}
 
@@ -457,17 +457,17 @@ func list[T resource](b *InMemoryBackend, o ListOpts) (page.Page[resource], *API
 	sortRes(all, o)
 
 	pg := page.New(all, o.Page, o.Limit, defaultListLimit)
-	out := make([]resource, 0, len(pg.Data))
+	out := make([]Resource, 0, len(pg.Data))
 
 	for _, t := range pg.Data {
 		out = append(out, t.view())
 	}
 
-	return page.Page[resource]{Data: out, Next: pg.Next}, nil
+	return page.Page[Resource]{Data: out, Next: pg.Next}, nil
 }
 
 // getView returns one resource and its etag.
-func getView[T resource](b *InMemoryBackend, id string) (resource, string, *APIError) {
+func getView[T Resource](b *InMemoryBackend, id string) (Resource, string, *APIError) {
 	b.mu.RLock("get")
 	defer b.mu.RUnlock()
 
@@ -480,7 +480,7 @@ func getView[T resource](b *InMemoryBackend, id string) (resource, string, *APIE
 }
 
 // changeCompartment moves a resource to another compartment.
-func changeCompartment[T resource](b *InMemoryBackend, id, compartment, ifMatch string) *APIError {
+func changeCompartment[T Resource](b *InMemoryBackend, id, compartment, ifMatch string) *APIError {
 	b.mu.Lock("changeCompartment")
 	defer b.mu.Unlock()
 
@@ -504,7 +504,7 @@ func changeCompartment[T resource](b *InMemoryBackend, id, compartment, ifMatch 
 }
 
 // deleteRes starts termination of a resource unless something still depends on it.
-func deleteRes[T resource](b *InMemoryBackend, id, ifMatch string) *APIError {
+func deleteRes[T Resource](b *InMemoryBackend, id, ifMatch string) *APIError {
 	b.mu.Lock("delete")
 	defer b.mu.Unlock()
 
@@ -533,7 +533,7 @@ func deleteRes[T resource](b *InMemoryBackend, id, ifMatch string) *APIError {
 	return nil
 }
 
-func (b *InMemoryBackend) markTerminating(r resource) {
+func (b *InMemoryBackend) markTerminating(r Resource) {
 	bs := r.base()
 	at := b.nowUTC().Add(transitionWindow)
 	bs.LifecycleState, bs.Internal.TransitionAt = statTerminating, &at

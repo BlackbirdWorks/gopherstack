@@ -146,28 +146,28 @@ func (v *DrgAttachment) vcnRef() string        { return v.VcnID }
 func (v *DrgRouteTable) vcnRef() string        { return "" }
 func (v *DrgRouteDistribution) vcnRef() string { return "" }
 
-func (v *Drg) view() resource {
+func (v *Drg) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
 
-func (v *DrgAttachment) view() resource {
+func (v *DrgAttachment) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
 
-func (v *DrgRouteTable) view() resource {
+func (v *DrgRouteTable) view() Resource {
 	c := *v
 	c.Internal, c.Rules = nil, nil
 
 	return &c
 }
 
-func (v *DrgRouteDistribution) view() resource {
+func (v *DrgRouteDistribution) view() Resource {
 	c := *v
 	c.Internal, c.Statements = nil, nil
 
@@ -216,7 +216,7 @@ func (b *InMemoryBackend) newDrgTable(drg *Drg, name, importID string) *DrgRoute
 }
 
 // CreateDrg creates a DRG with its default route tables and route distributions.
-func (b *InMemoryBackend) CreateDrg(in CreateDrgIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) CreateDrg(in CreateDrgIn) (Resource, string, *APIError) {
 	if aerr := b.checkCompartment(in.CompartmentID); aerr != nil {
 		return nil, "", aerr
 	}
@@ -261,7 +261,7 @@ type UpdateDrgIn struct {
 }
 
 // UpdateDrg changes a DRG's name, tags and default route tables.
-func (b *InMemoryBackend) UpdateDrg(id, ifMatch string, in UpdateDrgIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) UpdateDrg(id, ifMatch string, in UpdateDrgIn) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(d *Drg) *APIError {
 		if in.DefaultDrgRouteTables == nil {
 			return nil
@@ -474,7 +474,7 @@ func (b *InMemoryBackend) vcnNetwork(in CreateDrgAttachmentIn) (*DrgNetworkDetai
 }
 
 // CreateDrgAttachment attaches a VCN to a DRG; each VCN attaches to at most one DRG.
-func (b *InMemoryBackend) CreateDrgAttachment(in CreateDrgAttachmentIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) CreateDrgAttachment(in CreateDrgAttachmentIn) (Resource, string, *APIError) {
 	if in.DrgID == "" {
 		return nil, "", errMissing("drgId is required")
 	}
@@ -552,7 +552,7 @@ type UpdateDrgAttachmentIn struct {
 func (b *InMemoryBackend) UpdateDrgAttachment(
 	id, ifMatch string,
 	in UpdateDrgAttachmentIn,
-) (resource, string, *APIError) {
+) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(a *DrgAttachment) *APIError {
 		if a.LifecycleState != statAttached && a.LifecycleState != statAttaching {
 			return errState("The DRG attachment " + a.ID + " is " + a.LifecycleState)

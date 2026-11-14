@@ -256,84 +256,84 @@ func (v *VolumeBackup) vcnRef() string           { return "" }
 func (v *VolumeBackupPolicy) vcnRef() string     { return "" }
 func (v *BackupPolicyAssignment) vcnRef() string { return "" }
 
-func (v *Instance) view() resource {
+func (v *Instance) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
 
-func (v *Image) view() resource {
+func (v *Image) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
 
-func (v *Vnic) view() resource {
+func (v *Vnic) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
 
-func (v *PrivateIP) view() resource {
+func (v *PrivateIP) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
 
-func (v *VnicAttachment) view() resource {
+func (v *VnicAttachment) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
 
-func (v *Volume) view() resource {
+func (v *Volume) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
 
-func (v *BootVolume) view() resource {
+func (v *BootVolume) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
 
-func (v *VolumeAttachment) view() resource {
+func (v *VolumeAttachment) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
 
-func (v *BootVolumeAttachment) view() resource {
+func (v *BootVolumeAttachment) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
 
-func (v *VolumeBackup) view() resource {
+func (v *VolumeBackup) view() Resource {
 	c := *v
 	c.Internal, c.Region = nil, ""
 
 	return &c
 }
 
-func (v *VolumeBackupPolicy) view() resource {
+func (v *VolumeBackupPolicy) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
 
-func (v *BackupPolicyAssignment) view() resource {
+func (v *BackupPolicyAssignment) view() Resource {
 	c := *v
 	c.Internal = nil
 

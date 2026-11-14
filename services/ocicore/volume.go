@@ -187,7 +187,7 @@ func (b *InMemoryBackend) volumeChecks(in CreateVolumeIn) *APIError {
 }
 
 // CreateVolume creates a block volume, optionally from a volume or backup.
-func (b *InMemoryBackend) CreateVolume(in CreateVolumeIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) CreateVolume(in CreateVolumeIn) (Resource, string, *APIError) {
 	if aerr := b.volumeChecks(in); aerr != nil {
 		return nil, "", aerr
 	}
@@ -246,7 +246,7 @@ type UpdateVolumeIn struct {
 }
 
 // UpdateVolume changes a volume; the size can only grow.
-func (b *InMemoryBackend) UpdateVolume(id, ifMatch string, in UpdateVolumeIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) UpdateVolume(id, ifMatch string, in UpdateVolumeIn) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(v *Volume) *APIError {
 		if in.BlockVolumeReplicas != nil {
 			if aerr := b.checkReplicas(v, *in.BlockVolumeReplicas); aerr != nil {
@@ -367,7 +367,7 @@ func (b *InMemoryBackend) newBootSource(in CreateBootVolumeIn) (bootSource, *API
 }
 
 // CreateBootVolume clones a boot volume or restores a boot volume backup.
-func (b *InMemoryBackend) CreateBootVolume(in CreateBootVolumeIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) CreateBootVolume(in CreateBootVolumeIn) (Resource, string, *APIError) {
 	if aerr := b.checkCompartment(in.CompartmentID); aerr != nil {
 		return nil, "", aerr
 	}
@@ -415,7 +415,7 @@ func (b *InMemoryBackend) CreateBootVolume(in CreateBootVolumeIn) (resource, str
 }
 
 // UpdateBootVolume changes a boot volume.
-func (b *InMemoryBackend) UpdateBootVolume(id, ifMatch string, in UpdateVolumeIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) UpdateBootVolume(id, ifMatch string, in UpdateVolumeIn) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(v *BootVolume) *APIError {
 		return applyVolumeChanges(&v.SizeInGBs, &v.SizeInMBs, &v.VpusPerGB, &v.IsAutoTuneEnabled, in)
 	})
@@ -505,7 +505,7 @@ func (b *InMemoryBackend) attachConflicts(in AttachVolumeIn, inst *Instance, vol
 }
 
 // AttachVolume attaches a block volume to an instance.
-func (b *InMemoryBackend) AttachVolume(in AttachVolumeIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) AttachVolume(in AttachVolumeIn) (Resource, string, *APIError) {
 	if aerr := validName(in.DisplayName); aerr != nil {
 		return nil, "", aerr
 	}
@@ -580,7 +580,7 @@ func iscsiLoginStates() []string {
 // UpdateVolumeAttachment sets the iSCSI login state of an attached iSCSI volume attachment.
 func (b *InMemoryBackend) UpdateVolumeAttachment(
 	id, ifMatch string, in UpdateVolumeAttachmentIn,
-) (resource, string, *APIError) {
+) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(a *VolumeAttachment) *APIError {
 		if in.IscsiLoginState == "" {
 			return nil

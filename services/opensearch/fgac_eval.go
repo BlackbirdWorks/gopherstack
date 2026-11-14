@@ -21,8 +21,8 @@ const maxActionGroupDepth = 8
 
 var errBadDLSQuery = errors.New("invalid document level security query")
 
-// securityPrincipal is an authenticated caller: an internal user or an IAM principal.
-type securityPrincipal struct {
+// SecurityPrincipal is an authenticated caller: an internal user or an IAM principal.
+type SecurityPrincipal struct {
 	Attributes   map[string]string
 	Name         string
 	BackendRoles []string
@@ -30,7 +30,7 @@ type securityPrincipal struct {
 }
 
 // String renders the principal the way OpenSearch security exceptions do.
-func (p securityPrincipal) String() string {
+func (p SecurityPrincipal) String() string {
 	return fmt.Sprintf("User [name=%s, backend_roles=[%s], requestedTenant=null]",
 		p.Name, strings.Join(p.BackendRoles, ","))
 }
@@ -44,12 +44,12 @@ type indexGrant struct {
 	Masked   []string
 }
 
-// effectivePerms is the flattened permission set of a principal.
-type effectivePerms struct {
+// EffectivePerms is the flattened permission set of a principal.
+type EffectivePerms struct {
 	Roles     []string
 	Cluster   []string
 	Grants    []indexGrant
-	Principal securityPrincipal
+	Principal SecurityPrincipal
 }
 
 // wildcardMatch matches s against a security plugin pattern: * and ? globs, or /regex/.
@@ -129,7 +129,7 @@ func expandActions(names []string, groups map[string]*SecurityActionGroup) []str
 	return out
 }
 
-func substitutePrincipal(s string, p securityPrincipal) string {
+func substitutePrincipal(s string, p SecurityPrincipal) string {
 	if !strings.Contains(s, "${") {
 		return s
 	}
@@ -144,7 +144,7 @@ func substitutePrincipal(s string, p securityPrincipal) string {
 	return s
 }
 
-func mappingMatches(m *RoleMapping, p securityPrincipal) bool {
+func mappingMatches(m *RoleMapping, p SecurityPrincipal) bool {
 	if matchesAny(m.Users, p.Name) {
 		return true
 	}
@@ -195,8 +195,8 @@ func mergedActionGroups(cfg *SecurityConfig) map[string]*SecurityActionGroup {
 }
 
 // buildEffectivePerms resolves the roles mapped to p and flattens their permissions.
-func buildEffectivePerms(cfg *SecurityConfig, p securityPrincipal) effectivePerms {
-	eff := effectivePerms{Principal: p}
+func buildEffectivePerms(cfg *SecurityConfig, p SecurityPrincipal) EffectivePerms {
+	eff := EffectivePerms{Principal: p}
 
 	if cfg == nil {
 		return eff
@@ -241,16 +241,16 @@ func buildEffectivePerms(cfg *SecurityConfig, p securityPrincipal) effectivePerm
 }
 
 // hasRole reports whether any of the principal's mapped roles is in names.
-func (e effectivePerms) hasRole(names ...string) bool {
+func (e EffectivePerms) hasRole(names ...string) bool {
 	return slices.ContainsFunc(e.Roles, func(r string) bool { return slices.Contains(names, r) })
 }
 
 // AllowCluster reports whether a cluster-level action is permitted.
-func (e effectivePerms) AllowCluster(action string) bool {
+func (e EffectivePerms) AllowCluster(action string) bool {
 	return matchesAny(e.Cluster, action)
 }
 
-func (e effectivePerms) grantsFor(index, action string) []indexGrant {
+func (e EffectivePerms) grantsFor(index, action string) []indexGrant {
 	var out []indexGrant
 
 	for _, g := range e.Grants {
@@ -263,7 +263,7 @@ func (e effectivePerms) grantsFor(index, action string) []indexGrant {
 }
 
 // AllowIndex reports whether an index-level action on index is permitted.
-func (e effectivePerms) AllowIndex(index, action string) bool {
+func (e EffectivePerms) AllowIndex(index, action string) bool {
 	return len(e.grantsFor(index, action)) > 0
 }
 
@@ -382,7 +382,7 @@ func (a accessRestriction) fieldRestricted() bool {
 
 // restrictionFor combines DLS / FLS / masking across every grant that allows the action.
 // Any grant without DLS makes documents unrestricted; otherwise DLS queries are OR-ed.
-func (e effectivePerms) restrictionFor(index, action string) (accessRestriction, error) {
+func (e EffectivePerms) restrictionFor(index, action string) (accessRestriction, error) {
 	grants := e.grantsFor(index, action)
 	res := accessRestriction{}
 

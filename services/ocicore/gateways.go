@@ -81,7 +81,7 @@ func (b *InMemoryBackend) optRouteTable(id, vcnID string) *APIError {
 }
 
 // gatewayLimit enforces the per-VCN count limit of one resource type.
-func gatewayLimit[T resource](b *InMemoryBackend, vcnID, what string, limit int) *APIError {
+func gatewayLimit[T Resource](b *InMemoryBackend, vcnID, what string, limit int) *APIError {
 	if len(liveOf(b, inVcn[T](vcnID))) >= limit {
 		return errLimit("A VCN can have at most " + strconv.Itoa(limit) + " " + what)
 	}
@@ -121,7 +121,7 @@ type CreateInternetGatewayIn struct {
 }
 
 // CreateInternetGateway creates an internet gateway.
-func (b *InMemoryBackend) CreateInternetGateway(in CreateInternetGatewayIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) CreateInternetGateway(in CreateInternetGatewayIn) (Resource, string, *APIError) {
 	if in.IsEnabled == nil {
 		return nil, "", errMissing("isEnabled is required")
 	}
@@ -155,7 +155,7 @@ type UpdateInternetGatewayIn struct {
 func (b *InMemoryBackend) UpdateInternetGateway(
 	id, ifMatch string,
 	in UpdateInternetGatewayIn,
-) (resource, string, *APIError) {
+) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(g *InternetGateway) *APIError {
 		if in.RouteTableID != nil {
 			if aerr := b.optRouteTable(*in.RouteTableID, g.VcnID); aerr != nil {
@@ -185,7 +185,7 @@ type CreateNatGatewayIn struct {
 }
 
 // CreateNatGateway creates a NAT gateway backed by a reserved or newly allocated public IP.
-func (b *InMemoryBackend) CreateNatGateway(in CreateNatGatewayIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) CreateNatGateway(in CreateNatGatewayIn) (Resource, string, *APIError) {
 	v, aerr := b.gatewayVcn(in.CompartmentID, in.VcnID, in.DisplayName, in.RouteTableID)
 	if aerr == nil {
 		aerr = gatewayLimit[*NatGateway](b, v.ID, "NAT gateway", 1)
@@ -252,7 +252,7 @@ type UpdateNatGatewayIn struct {
 }
 
 // UpdateNatGateway changes a NAT gateway.
-func (b *InMemoryBackend) UpdateNatGateway(id, ifMatch string, in UpdateNatGatewayIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) UpdateNatGateway(id, ifMatch string, in UpdateNatGatewayIn) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(g *NatGateway) *APIError {
 		if in.RouteTableID != nil {
 			if aerr := b.optRouteTable(*in.RouteTableID, g.VcnID); aerr != nil {
@@ -313,7 +313,7 @@ type CreateServiceGatewayIn struct {
 }
 
 // CreateServiceGateway creates a service gateway.
-func (b *InMemoryBackend) CreateServiceGateway(in CreateServiceGatewayIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) CreateServiceGateway(in CreateServiceGatewayIn) (Resource, string, *APIError) {
 	if len(in.Services) == 0 {
 		return nil, "", errMissing("services is required")
 	}
@@ -353,7 +353,7 @@ type UpdateServiceGatewayIn struct {
 func (b *InMemoryBackend) UpdateServiceGateway(
 	id, ifMatch string,
 	in UpdateServiceGatewayIn,
-) (resource, string, *APIError) {
+) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(g *ServiceGateway) *APIError {
 		if in.RouteTableID != nil {
 			if aerr := b.optRouteTable(*in.RouteTableID, g.VcnID); aerr != nil {
@@ -411,7 +411,7 @@ func (b *InMemoryBackend) sgwRulesStillValid(g *ServiceGateway, refs []ServiceRe
 }
 
 // AttachService adds a service to a service gateway.
-func (b *InMemoryBackend) AttachService(id, ifMatch string, in ServiceIDIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) AttachService(id, ifMatch string, in ServiceIDIn) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, UpdateIn{}, func(g *ServiceGateway) *APIError {
 		svc, ok := serviceByID(in.ServiceID)
 		if !ok {
@@ -434,7 +434,7 @@ func (b *InMemoryBackend) AttachService(id, ifMatch string, in ServiceIDIn) (res
 }
 
 // DetachService removes a service from a service gateway.
-func (b *InMemoryBackend) DetachService(id, ifMatch string, in ServiceIDIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) DetachService(id, ifMatch string, in ServiceIDIn) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, UpdateIn{}, func(g *ServiceGateway) *APIError {
 		i := slices.IndexFunc(g.Services, func(r ServiceRef) bool { return r.ServiceID == in.ServiceID })
 		if i < 0 {

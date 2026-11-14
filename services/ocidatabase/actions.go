@@ -22,18 +22,18 @@ func (b *InMemoryBackend) guard(id, ifMatch string, states ...string) (*ADB, *AP
 
 func (b *InMemoryBackend) transient(
 	id, ifMatch string, from []string, s step, pre func(*ADB) *APIError,
-) (adbWire, string, string, error) {
+) (AdbWire, string, string, error) {
 	b.mu.Lock(s.typ)
 	defer b.mu.Unlock()
 
 	db, aerr := b.guard(id, ifMatch, from...)
 	if aerr != nil {
-		return adbWire{}, "", "", aerr
+		return AdbWire{}, "", "", aerr
 	}
 
 	if pre != nil {
 		if aerr = pre(db); aerr != nil {
-			return adbWire{}, "", "", aerr
+			return AdbWire{}, "", "", aerr
 		}
 	}
 
@@ -53,7 +53,7 @@ func (b *InMemoryBackend) startable(db *ADB) *APIError {
 }
 
 // StartDatabase starts a stopped database.
-func (b *InMemoryBackend) StartDatabase(id, ifMatch string) (adbWire, string, string, error) {
+func (b *InMemoryBackend) StartDatabase(id, ifMatch string) (AdbWire, string, string, error) {
 	return b.transient(id, ifMatch, []string{stateStopped}, step{
 		typ: "START_AUTONOMOUS_DATABASE", action: wrInProgress, state: stateStarting, target: stateAvailable,
 		work: b.startWork(id),
@@ -61,7 +61,7 @@ func (b *InMemoryBackend) StartDatabase(id, ifMatch string) (adbWire, string, st
 }
 
 // StopDatabase stops an available database.
-func (b *InMemoryBackend) StopDatabase(id, ifMatch string) (adbWire, string, string, error) {
+func (b *InMemoryBackend) StopDatabase(id, ifMatch string) (AdbWire, string, string, error) {
 	return b.transient(id, ifMatch, []string{stateAvailable}, step{
 		typ: "STOP_AUTONOMOUS_DATABASE", action: wrInProgress, state: stateStopping, target: stateStopped,
 		work: b.stopWork(id),
@@ -69,7 +69,7 @@ func (b *InMemoryBackend) StopDatabase(id, ifMatch string) (adbWire, string, str
 }
 
 // RestartDatabase restarts an available database.
-func (b *InMemoryBackend) RestartDatabase(id, ifMatch string) (adbWire, string, string, error) {
+func (b *InMemoryBackend) RestartDatabase(id, ifMatch string) (AdbWire, string, string, error) {
 	return b.transient(id, ifMatch, []string{stateAvailable}, step{
 		typ: "RESTART_AUTONOMOUS_DATABASE", action: wrInProgress, state: stateRestarting, target: stateAvailable,
 		work: b.restartWork(id),
@@ -78,7 +78,7 @@ func (b *InMemoryBackend) RestartDatabase(id, ifMatch string) (adbWire, string, 
 
 // RestoreDatabase restores an available database to a point in time. Only the lifecycle is emulated: no data
 // changes.
-func (b *InMemoryBackend) RestoreDatabase(id, ifMatch string, in restoreIn) (adbWire, string, string, error) {
+func (b *InMemoryBackend) RestoreDatabase(id, ifMatch string, in restoreIn) (AdbWire, string, string, error) {
 	return b.transient(id, ifMatch, []string{stateAvailable}, step{
 		typ: "RESTORE_AUTONOMOUS_DATABASE", action: wrInProgress, state: stateRestoring, target: stateAvailable,
 	}, func(db *ADB) *APIError { return b.checkRestore(db, in) })

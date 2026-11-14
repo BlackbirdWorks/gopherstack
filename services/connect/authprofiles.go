@@ -175,12 +175,12 @@ func checkAuthProfileUpdate(in *UpdateAuthenticationProfileInput) error {
 // UpdateAuthenticationProfile changes the supplied settings of an authentication profile.
 func (b *Backend) UpdateAuthenticationProfile(
 	ctx context.Context, in *UpdateAuthenticationProfileInput,
-) (*empty, error) {
+) (*EmptyOutput, error) {
 	if err := checkAuthProfileUpdate(in); err != nil {
 		return nil, err
 	}
 
-	return writeInstance(b, "UpdateAuthenticationProfile", in.InstanceID, func(inst string) (*empty, error) {
+	return writeInstance(b, "UpdateAuthenticationProfile", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		b.ensureDefaultAuthProfile(ctx, inst)
 
 		r, err := b.authProfiles.get(inst, in.AuthenticationProfileID)
@@ -226,6 +226,6 @@ func (b *Backend) UpdateAuthenticationProfile(
 		st := b.stamp(ctx)
 		p.LastModifiedTime, p.LastModifiedRegion = st.LastModifiedTime, st.LastModifiedRegion
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }

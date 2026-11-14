@@ -82,7 +82,7 @@ func (b *Backend) ListAssociatedContacts(
 }
 
 // UpdateContactSchedule moves the start time of a scheduled task contact.
-func (b *Backend) UpdateContactSchedule(in *UpdateContactScheduleInput) (*empty, error) {
+func (b *Backend) UpdateContactSchedule(in *UpdateContactScheduleInput) (*EmptyOutput, error) {
 	if in.ScheduledTime == nil {
 		return nil, invalidParamErr("ScheduledTime is required")
 	}
@@ -108,11 +108,11 @@ func (b *Backend) UpdateContactSchedule(in *UpdateContactScheduleInput) (*empty,
 	c.Contact.ScheduledTimestamp = &t
 	b.touch(c)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 // DeleteContactData redacts personal data fields from a terminated contact.
-func (b *Backend) DeleteContactData(in *DeleteContactDataInput) (*empty, error) {
+func (b *Backend) DeleteContactData(in *DeleteContactDataInput) (*EmptyOutput, error) {
 	if len(in.ContactFields) == 0 {
 		return nil, invalidParamErr("ContactFields is required")
 	}
@@ -161,7 +161,7 @@ func (b *Backend) DeleteContactData(in *DeleteContactDataInput) (*empty, error) 
 
 	b.touch(c)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 // referenceMembers maps a ReferenceType to its ReferenceSummary union member.

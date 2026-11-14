@@ -75,7 +75,7 @@ func withBody[In any](q *req, call func(in In) error) error {
 }
 
 // get writes a 200 response, or 304 when the request's conditional headers match.
-func (q *req) get(v any, t tag, err error) error {
+func (q *req) get(v any, t Tag, err error) error {
 	if err != nil {
 		return err
 	}
@@ -98,7 +98,7 @@ func (q *req) get(v any, t tag, err error) error {
 	return q.write(http.StatusOK, v, t)
 }
 
-func (q *req) ok(v any, t tag, err error) error {
+func (q *req) ok(v any, t Tag, err error) error {
 	if err != nil {
 		return err
 	}
@@ -106,7 +106,7 @@ func (q *req) ok(v any, t tag, err error) error {
 	return q.write(http.StatusOK, v, t)
 }
 
-func (q *req) accepted(v any, t tag, location string, err error) error {
+func (q *req) accepted(v any, t Tag, location string, err error) error {
 	if err != nil {
 		return err
 	}
@@ -136,7 +136,7 @@ func accepted(q *req, err error) error {
 	return nil
 }
 
-func listOut[T any](q *req, res listResult[T], err error, totals bool) error {
+func listOut[T any](q *req, res ListResult[T], err error, totals bool) error {
 	if err != nil {
 		return err
 	}
@@ -149,7 +149,7 @@ func listOut[T any](q *req, res listResult[T], err error, totals bool) error {
 		q.header("opc-total-items", strconv.Itoa(res.Total))
 	}
 
-	return q.write(http.StatusOK, res.Items, tag{})
+	return q.write(http.StatusOK, res.Items, Tag{})
 }
 
 func (q *req) zoneRef(param string) ZoneRef {

@@ -338,14 +338,14 @@ var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // securityBackend is the fine-grained access control surface of a backend.
 type securityBackend interface {
-	AuthenticateInternalUser(domain, user, pass string) (securityPrincipal, bool)
+	AuthenticateInternalUser(domain, user, pass string) (SecurityPrincipal, bool)
 	AnonymousAuthActive(aso *AdvancedSecurityOptions) bool
-	EffectivePerms(domain string, p securityPrincipal) effectivePerms
-	SecurityTenantAccess(domain string, perms effectivePerms) map[string]bool
-	ChangeOwnPassword(domain, user, current, next string) *secError
-	SecurityList(domain string, kind securityKind) (map[string]any, *secError)
-	SecurityGet(domain string, kind securityKind, name string) (any, *secError)
-	SecurityPut(domain string, kind securityKind, name string, body []byte) (bool, *secError)
-	SecurityDelete(domain string, kind securityKind, name string) *secError
-	SecurityPatch(domain string, kind securityKind, name string, ops []patchOp) *secError
+	EffectivePerms(domain string, p SecurityPrincipal) EffectivePerms
+	SecurityTenantAccess(domain string, perms EffectivePerms) map[string]bool
+	ChangeOwnPassword(domain, user, current, next string) *SecError
+	SecurityList(domain string, kind securityKind) (map[string]any, *SecError)
+	SecurityGet(domain string, kind securityKind, name string) (any, *SecError)
+	SecurityPut(domain string, kind securityKind, name string, body []byte) (bool, *SecError)
+	SecurityDelete(domain string, kind securityKind, name string) *SecError
+	SecurityPatch(domain string, kind securityKind, name string, ops []patchOp) *SecError
 }

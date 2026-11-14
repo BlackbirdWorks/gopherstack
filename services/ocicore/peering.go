@@ -27,7 +27,7 @@ type CreateLpgIn struct {
 }
 
 // CreateLocalPeeringGateway creates a local peering gateway.
-func (b *InMemoryBackend) CreateLocalPeeringGateway(in CreateLpgIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) CreateLocalPeeringGateway(in CreateLpgIn) (Resource, string, *APIError) {
 	v, aerr := b.gatewayVcn(in.CompartmentID, in.VcnID, in.DisplayName, in.RouteTableID)
 	if aerr == nil {
 		aerr = b.vcnWritable(v.ID)
@@ -57,7 +57,7 @@ type UpdateLpgIn struct {
 }
 
 // UpdateLocalPeeringGateway changes a local peering gateway.
-func (b *InMemoryBackend) UpdateLocalPeeringGateway(id, ifMatch string, in UpdateLpgIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) UpdateLocalPeeringGateway(id, ifMatch string, in UpdateLpgIn) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(g *LocalPeeringGateway) *APIError {
 		if aerr := b.vcnWritable(g.VcnID); aerr != nil {
 			return aerr
@@ -149,7 +149,7 @@ type CreatePublicIPIn struct {
 }
 
 // CreatePublicIP allocates a reserved public IP, or an ephemeral one for a private IP.
-func (b *InMemoryBackend) CreatePublicIP(in CreatePublicIPIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) CreatePublicIP(in CreatePublicIPIn) (Resource, string, *APIError) {
 	if aerr := b.checkCompartment(in.CompartmentID); aerr != nil {
 		return nil, "", aerr
 	}
@@ -231,7 +231,7 @@ type UpdatePublicIPIn struct {
 }
 
 // UpdatePublicIP changes a public IP's name and tags, and assigns, moves or unassigns a reserved one.
-func (b *InMemoryBackend) UpdatePublicIP(id, ifMatch string, in UpdatePublicIPIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) UpdatePublicIP(id, ifMatch string, in UpdatePublicIPIn) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(p *PublicIP) *APIError {
 		if in.PrivateIPID == nil {
 			return nil
@@ -270,7 +270,7 @@ func (b *InMemoryBackend) UpdatePublicIP(id, ifMatch string, in UpdatePublicIPIn
 }
 
 // PublicIPByAddress finds a public IP by its address.
-func (b *InMemoryBackend) PublicIPByAddress(addr string) (resource, string, *APIError) {
+func (b *InMemoryBackend) PublicIPByAddress(addr string) (Resource, string, *APIError) {
 	b.mu.RLock("PublicIPByAddress")
 	defer b.mu.RUnlock()
 

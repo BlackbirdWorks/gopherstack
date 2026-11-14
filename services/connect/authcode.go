@@ -48,7 +48,8 @@ type CreateAuthCodeInput struct {
 	SessionInactivityDurationMinutes int32
 }
 
-type authCodeOut struct {
+// AuthCodeOut is the authentication code response.
+type AuthCodeOut struct {
 	AuthCode   string `json:"AuthCode"`
 	SessionID  string `json:"SessionId"`
 	EntityType string `json:"EntityType"`
@@ -85,7 +86,7 @@ func checkAuthDurations(inactivity int32, maxSession *int32) error {
 }
 
 // CreateAuthCode issues a one-time authorization code and records the session it opens.
-func (b *Backend) CreateAuthCode(in *CreateAuthCodeInput) (*authCodeOut, error) {
+func (b *Backend) CreateAuthCode(in *CreateAuthCodeInput) (*AuthCodeOut, error) {
 	sc := in.Scope
 	if sc == nil {
 		return nil, invalidParamErr("Scope is required")
@@ -111,7 +112,7 @@ func (b *Backend) CreateAuthCode(in *CreateAuthCodeInput) (*authCodeOut, error) 
 		)
 	}
 
-	return writeInstance(b, "CreateAuthCode", in.InstanceID, func(inst string) (*authCodeOut, error) {
+	return writeInstance(b, "CreateAuthCode", in.InstanceID, func(inst string) (*AuthCodeOut, error) {
 		for _, id := range sc.SecurityProfileIDs {
 			if !b.securityProfiles.has(inst, id) {
 				return nil, notFoundErr("SecurityProfile", id)
@@ -139,7 +140,7 @@ func (b *Backend) CreateAuthCode(in *CreateAuthCodeInput) (*authCodeOut, error) 
 		}
 		b.authSessions.put(rec)
 
-		return &authCodeOut{
+		return &AuthCodeOut{
 			AuthCode: base64.RawURLEncoding.EncodeToString(code), SessionID: rec.SessionID,
 			EntityType: sc.EntityType, EntityID: sc.EntityID,
 		}, nil
@@ -147,8 +148,8 @@ func (b *Backend) CreateAuthCode(in *CreateAuthCodeInput) (*authCodeOut, error) 
 }
 
 // DeleteSession ends a session opened by an auth code.
-func (b *Backend) DeleteSession(in *sessionRef) (*empty, error) {
-	return writeInstance(b, "DeleteSession", in.InstanceID, func(inst string) (*empty, error) {
+func (b *Backend) DeleteSession(in *sessionRef) (*EmptyOutput, error) {
+	return writeInstance(b, "DeleteSession", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		return nil, b.authSessions.del(inst, in.SessionID)
 	})
 }

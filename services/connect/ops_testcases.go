@@ -22,7 +22,7 @@ func (h *Handler) testCaseOps(ops map[string]restroute.OpFunc) {
 
 	ops["StartTestCaseExecution"] = replay(h, "StartTestCaseExecution",
 		func(in *StartTestCaseExecutionInput) string { return in.ClientToken },
-		func(_ context.Context, in *StartTestCaseExecutionInput) (*startExecutionOut, error) {
+		func(_ context.Context, in *StartTestCaseExecutionInput) (*StartExecutionOut, error) {
 			return b.StartTestCaseExecution(in)
 		})
 	ops["StopTestCaseExecution"] = typed(b.StopTestCaseExecution)

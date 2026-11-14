@@ -105,28 +105,28 @@ func (v *VolumeGroupBackup) vcnRef() string {
 }
 func (v *BlockVolumeReplica) vcnRef() string { return "" }
 
-func (v *BootVolumeBackup) view() resource {
+func (v *BootVolumeBackup) view() Resource {
 	c := *v
 	c.Internal, c.Region = nil, ""
 
 	return &c
 }
 
-func (v *VolumeGroup) view() resource {
+func (v *VolumeGroup) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
 
-func (v *VolumeGroupBackup) view() resource {
+func (v *VolumeGroupBackup) view() Resource {
 	c := *v
 	c.Internal, c.Region = nil, ""
 
 	return &c
 }
 
-func (v *BlockVolumeReplica) view() resource {
+func (v *BlockVolumeReplica) view() Resource {
 	c := *v
 	c.Internal = nil
 

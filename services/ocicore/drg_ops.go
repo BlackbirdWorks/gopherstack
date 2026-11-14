@@ -5,8 +5,8 @@ import (
 	"strconv"
 )
 
-func drgAttachmentFilter(q *req) func(resource) bool {
-	return func(r resource) bool {
+func drgAttachmentFilter(q *req) func(Resource) bool {
+	return func(r Resource) bool {
 		a, ok := r.(*DrgAttachment)
 		if !ok {
 			return false
@@ -23,10 +23,10 @@ func drgAttachmentFilter(q *req) func(resource) bool {
 	}
 }
 
-func drgChildFilter(q *req) func(resource) bool {
+func drgChildFilter(q *req) func(Resource) bool {
 	drgID, imp := q.query("drgId"), q.query("importDrgRouteDistributionId")
 
-	return func(r resource) bool {
+	return func(r Resource) bool {
 		switch v := r.(type) {
 		case *DrgRouteTable:
 			return v.DrgID == drgID && (imp == "" || v.ImportDrgRouteDistributionID == imp)
@@ -39,7 +39,7 @@ func drgChildFilter(q *req) func(resource) bool {
 }
 
 // listByParent is listOp for resources scoped by drgId instead of compartmentId.
-func listByParent[T resource](extra func(*req) func(resource) bool) opFunc {
+func listByParent[T Resource](extra func(*req) func(Resource) bool) opFunc {
 	return func(h *Handler, q *req) error {
 		if q.query("drgId") == "" {
 			return errMissing("drgId is required")

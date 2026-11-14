@@ -109,12 +109,12 @@ func (b *InMemoryBackend) validateTsig(in *CreateTsigKeyIn) *APIError {
 }
 
 // CreateTsigKey creates a TSIG key.
-func (b *InMemoryBackend) CreateTsigKey(in CreateTsigKeyIn) (TsigKeyWire, tag, error) {
+func (b *InMemoryBackend) CreateTsigKey(in CreateTsigKeyIn) (TsigKeyWire, Tag, error) {
 	b.mu.Lock("CreateTsigKey")
 	defer b.mu.Unlock()
 
 	if err := firstAPIErr(b.validateTsig(&in), b.checkTags(in.Tags)); err != nil {
-		return TsigKeyWire{}, tag{}, err
+		return TsigKeyWire{}, Tag{}, err
 	}
 
 	now := b.nowUTC()
@@ -129,13 +129,13 @@ func (b *InMemoryBackend) CreateTsigKey(in CreateTsigKeyIn) (TsigKeyWire, tag, e
 }
 
 // GetTsigKey returns a TSIG key.
-func (b *InMemoryBackend) GetTsigKey(id string) (TsigKeyWire, tag, error) {
+func (b *InMemoryBackend) GetTsigKey(id string) (TsigKeyWire, Tag, error) {
 	b.mu.RLock("GetTsigKey")
 	defer b.mu.RUnlock()
 
 	k, err := b.tsigByID(id)
 	if err != nil {
-		return TsigKeyWire{}, tag{}, err
+		return TsigKeyWire{}, Tag{}, err
 	}
 
 	return b.tsigWire(k), tagOf(k.ID, k.meta), nil
@@ -155,12 +155,12 @@ var tsigSorters = sorter[*TsigKey]{ //nolint:gochecknoglobals // immutable compa
 }
 
 // ListTsigKeys lists the TSIG keys of a compartment; secrets are never included.
-func (b *InMemoryBackend) ListTsigKeys(f TsigFilter, o ListOpts) (listResult[TsigKeySummaryWire], error) {
+func (b *InMemoryBackend) ListTsigKeys(f TsigFilter, o ListOpts) (ListResult[TsigKeySummaryWire], error) {
 	b.mu.RLock("ListTsigKeys")
 	defer b.mu.RUnlock()
 
 	if err := b.checkCompartment(f.Compart); err != nil {
-		return listResult[TsigKeySummaryWire]{}, err
+		return ListResult[TsigKeySummaryWire]{}, err
 	}
 
 	var all []*TsigKey
@@ -175,7 +175,7 @@ func (b *InMemoryBackend) ListTsigKeys(f TsigFilter, o ListOpts) (listResult[Tsi
 
 	pg, err := sortPage(all, o, keyTimeCreated, true, tsigSorters)
 	if err != nil {
-		return listResult[TsigKeySummaryWire]{}, err
+		return ListResult[TsigKeySummaryWire]{}, err
 	}
 
 	return finish(pg, len(all), b.tsigSummary), nil
@@ -187,17 +187,17 @@ type UpdateTsigKeyIn struct {
 }
 
 // UpdateTsigKey changes the tags of a TSIG key.
-func (b *InMemoryBackend) UpdateTsigKey(id string, c cond, in UpdateTsigKeyIn) (TsigKeyWire, tag, error) {
+func (b *InMemoryBackend) UpdateTsigKey(id string, c cond, in UpdateTsigKeyIn) (TsigKeyWire, Tag, error) {
 	b.mu.Lock("UpdateTsigKey")
 	defer b.mu.Unlock()
 
 	k, err := b.tsigByID(id)
 	if err != nil {
-		return TsigKeyWire{}, tag{}, err
+		return TsigKeyWire{}, Tag{}, err
 	}
 
 	if err = firstAPIErr(c.check(k.ID, k.meta), b.checkTags(in.Tags)); err != nil {
-		return TsigKeyWire{}, tag{}, err
+		return TsigKeyWire{}, Tag{}, err
 	}
 
 	k.Tags.merge(in.Tags)

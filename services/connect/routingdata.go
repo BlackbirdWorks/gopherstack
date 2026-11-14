@@ -103,7 +103,7 @@ func buildRoutingCriteria(in *UpdateContactRoutingDataInput, now awstime.EpochTi
 }
 
 // UpdateContactRoutingData sets the queue priority, queue time adjustment or routing criteria of a contact.
-func (b *Backend) UpdateContactRoutingData(in *UpdateContactRoutingDataInput) (*empty, error) {
+func (b *Backend) UpdateContactRoutingData(in *UpdateContactRoutingDataInput) (*EmptyOutput, error) {
 	if err := validateRoutingData(in); err != nil {
 		return nil, err
 	}
@@ -130,5 +130,5 @@ func (b *Backend) UpdateContactRoutingData(in *UpdateContactRoutingDataInput) (*
 
 	b.touch(c)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }

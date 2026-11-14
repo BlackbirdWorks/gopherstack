@@ -68,7 +68,7 @@ func validateRoleConfig(in *UpdateParticipantRoleConfigInput) error {
 }
 
 // UpdateParticipantRoleConfig sets or unsets the idle and auto-disconnect timers of an active chat contact.
-func (b *Backend) UpdateParticipantRoleConfig(in *UpdateParticipantRoleConfigInput) (*empty, error) {
+func (b *Backend) UpdateParticipantRoleConfig(in *UpdateParticipantRoleConfigInput) (*EmptyOutput, error) {
 	if err := validateRoleConfig(in); err != nil {
 		return nil, err
 	}
@@ -102,5 +102,5 @@ func (b *Backend) UpdateParticipantRoleConfig(in *UpdateParticipantRoleConfigInp
 
 	b.touch(c)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }

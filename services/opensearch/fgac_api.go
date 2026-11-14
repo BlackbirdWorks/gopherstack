@@ -21,7 +21,7 @@ func writeSecStatus(w http.ResponseWriter, status int, code, message string) {
 	writeRawJSON(w, status, map[string]any{jsonKeyStatusLower: code, "message": message})
 }
 
-func writeSecError(w http.ResponseWriter, e *secError) {
+func writeSecError(w http.ResponseWriter, e *SecError) {
 	if e.Code == jsonKeyError {
 		body := map[string]any{jsonKeyStatusLower: jsonKeyError, jsonKeyReason: e.Message}
 		maps.Copy(body, e.Extra)
@@ -36,7 +36,7 @@ func writeSecError(w http.ResponseWriter, e *secError) {
 
 // serveSecurityAPI serves the /_plugins/_security REST API of a domain.
 func (h *Handler) serveSecurityAPI(
-	w http.ResponseWriter, r *http.Request, domain string, perms effectivePerms, sub string,
+	w http.ResponseWriter, r *http.Request, domain string, perms EffectivePerms, sub string,
 ) {
 	segs := strings.Split(sub, "/")
 
@@ -61,7 +61,7 @@ func (h *Handler) serveSecurityAPI(
 	}
 }
 
-func (h *Handler) writeAuthInfo(w http.ResponseWriter, domain string, perms effectivePerms) {
+func (h *Handler) writeAuthInfo(w http.ResponseWriter, domain string, perms EffectivePerms) {
 	p := perms.Principal
 	tenants := h.Backend.SecurityTenantAccess(domain, perms)
 
@@ -92,7 +92,7 @@ func (h *Handler) writeAuthInfo(w http.ResponseWriter, domain string, perms effe
 	})
 }
 
-func (h *Handler) serveAccount(w http.ResponseWriter, r *http.Request, domain string, perms effectivePerms) {
+func (h *Handler) serveAccount(w http.ResponseWriter, r *http.Request, domain string, perms EffectivePerms) {
 	p := perms.Principal
 
 	switch r.Method {
@@ -125,12 +125,12 @@ func (h *Handler) serveAccount(w http.ResponseWriter, r *http.Request, domain st
 
 		writeSecStatus(w, http.StatusOK, secStatusOK, "'"+p.Name+"' updated.")
 	default:
-		writeSecError(w, &secError{Status: http.StatusMethodNotAllowed, Code: "METHOD_NOT_ALLOWED",
+		writeSecError(w, &SecError{Status: http.StatusMethodNotAllowed, Code: "METHOD_NOT_ALLOWED",
 			Message: "Method " + r.Method + " not allowed for this action."})
 	}
 }
 
-func (h *Handler) writeAccount(w http.ResponseWriter, domain string, perms effectivePerms) {
+func (h *Handler) writeAccount(w http.ResponseWriter, domain string, perms EffectivePerms) {
 	p := perms.Principal
 	tenants := h.Backend.SecurityTenantAccess(domain, perms)
 
@@ -153,7 +153,7 @@ func (h *Handler) writeAccount(w http.ResponseWriter, domain string, perms effec
 }
 
 func (h *Handler) serveSecurityResource(
-	w http.ResponseWriter, r *http.Request, domain string, perms effectivePerms, kind securityKind, name string,
+	w http.ResponseWriter, r *http.Request, domain string, perms EffectivePerms, kind securityKind, name string,
 ) {
 	if !perms.hasRole(roleAllAccess, roleSecurityManager, roleSecurityRESTAPI) {
 		roles := slices.Sorted(slices.Values(perms.Roles))
@@ -174,7 +174,7 @@ func (h *Handler) serveSecurityResource(
 	case http.MethodPatch:
 		h.patchSecurityResource(w, r, domain, kind, name)
 	default:
-		writeSecError(w, &secError{Status: http.StatusMethodNotAllowed, Code: "METHOD_NOT_ALLOWED",
+		writeSecError(w, &SecError{Status: http.StatusMethodNotAllowed, Code: "METHOD_NOT_ALLOWED",
 			Message: "Method " + r.Method + " not allowed for this action."})
 	}
 }
