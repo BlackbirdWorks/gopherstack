@@ -38,6 +38,8 @@ func ParseUpdate(src string) (*Update, error) {
 		return nil, syntaxf("empty update request")
 	}
 
+	u.Hints = p.hints
+
 	return u, nil
 }
 

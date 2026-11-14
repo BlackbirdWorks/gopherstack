@@ -19,14 +19,16 @@ type dataset struct {
 }
 
 type evaluator struct {
-	ctx     context.Context
-	ds      *dataset
-	started time.Time
-	funcs   map[string]builtin
-	labels  map[string]Term
-	baseIRI string
-	steps   int
-	bn      int
+	ctx      context.Context
+	ds       *dataset
+	started  time.Time
+	funcs    map[string]builtin
+	labels   map[string]Term
+	svc      ServiceFunc
+	baseIRI  string
+	prologue string
+	steps    int
+	bn       int
 }
 
 func newEvaluator(ctx context.Context, ds *dataset, base string) *evaluator {
@@ -244,6 +246,13 @@ func (ev *evaluator) evalElement(el element, gc Term, sols []Binding) ([]Binding
 		return ev.join(sols, valuesRows(x.V), nil, false, gc)
 	case *graphEl:
 		return ev.evalGraph(x, sols)
+	default:
+		return ev.evalNested(el, gc, sols)
+	}
+}
+
+func (ev *evaluator) evalNested(el element, gc Term, sols []Binding) ([]Binding, error) {
+	switch x := el.(type) {
 	case *subSelectEl:
 		rows, _, err := ev.selectRows(x.Q, gc)
 		if err != nil {
@@ -251,6 +260,8 @@ func (ev *evaluator) evalElement(el element, gc Term, sols []Binding) ([]Binding
 		}
 
 		return ev.join(sols, rows, nil, false, gc)
+	case *serviceEl:
+		return ev.evalService(x, sols, gc)
 	case *groupEl:
 		r, err := ev.evalGroup(x.G, gc)
 		if err != nil {

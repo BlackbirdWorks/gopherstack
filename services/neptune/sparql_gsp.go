@@ -25,6 +25,7 @@ func gspFormats() []gspFormat {
 		{mimeTurtle, sparql.FormatTurtle}, {"text/n3", sparql.FormatTurtle},
 		{"application/rdf+xml", sparql.FormatRDFXML}, {"application/trig", sparql.FormatTriG},
 		{"application/x-trig", sparql.FormatTriG},
+		{"application/ld+json", sparql.FormatJSONLD},
 	}
 }
 

@@ -17,6 +17,7 @@ const (
 	PrincipalIoT       = "iot.amazonaws.com"
 	PrincipalSNS       = "sns.amazonaws.com"
 	PrincipalS3        = "s3.amazonaws.com"
+	PrincipalRDS       = "rds.amazonaws.com"
 )
 
 const arnFields = 6

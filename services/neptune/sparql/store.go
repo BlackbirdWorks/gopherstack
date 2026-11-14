@@ -358,3 +358,36 @@ func (s *Store) ApplyGraphWrite(g Term, qs []Quad, replace bool) {
 		}
 	}
 }
+
+// Stats summarises the store for the DFE statistics endpoints: distinct predicate sets per subject (signatures),
+// subjects (instances) and distinct predicates.
+func (s *Store) Stats() (int, int, int) {
+	s.mu.RLock("Stats")
+	defer s.mu.RUnlock()
+
+	sets := map[Term]map[string]struct{}{}
+	preds := map[string]struct{}{}
+
+	for q := range s.quads {
+		if sets[q.S] == nil {
+			sets[q.S] = map[string]struct{}{}
+		}
+
+		sets[q.S][q.P.Value] = struct{}{}
+		preds[q.P.Value] = struct{}{}
+	}
+
+	sigs := map[string]struct{}{}
+
+	for _, ps := range sets {
+		keys := make([]string, 0, len(ps))
+		for p := range ps {
+			keys = append(keys, p)
+		}
+
+		sort.Strings(keys)
+		sigs[strings.Join(keys, "\x00")] = struct{}{}
+	}
+
+	return len(sigs), len(sets), len(preds)
+}

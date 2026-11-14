@@ -278,6 +278,8 @@ func (b *InMemoryBackend) provisionClusterLocked(c *DBCluster) {
 		svcPort: cmp.Or(c.Port, defaultNeptunePort),
 	}
 
+	lb.rdf.info = b.engineInfoFn(lb)
+
 	if old, ok := e.units[lb.key]; ok {
 		e.reap(old)
 	}

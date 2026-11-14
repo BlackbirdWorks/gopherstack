@@ -41,6 +41,12 @@ func wireNeptuneIAMAuth(services []service.Registerable, enforceIAM bool) {
 		}
 	}
 
+	if rbk, isSetter := nepH.Backend.(roleAuthSetter); isSetter && enforceIAM {
+		if auth := buildServiceRoleAuthorizer(services); auth != nil {
+			rbk.SetRoleAuthorizer(auth)
+		}
+	}
+
 	bk, ok := nepH.Backend.(interface{ SetIAMAuth(neptune.IAMAuthResolver) })
 	if !ok {
 		return

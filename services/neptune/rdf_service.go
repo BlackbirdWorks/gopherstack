@@ -5,12 +5,20 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
+	"os"
+	"runtime"
 	"strings"
+	"sync"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
 	"github.com/blackbirdworks/gopherstack/services/neptune/sparql"
 )
@@ -24,20 +32,42 @@ type S3Reader interface {
 var (
 	errNoS3     = errors.New("S3 is not available in this emulator instance")
 	errNotS3URI = errors.New("source is not an Amazon S3 URI")
+
+	errNotLoadURI      = errors.New("LOAD source must be an http(s) or Amazon S3 URL")
+	errLoadFetch       = errors.New("could not fetch the LOAD source")
+	errNotServiceURI   = errors.New("SERVICE endpoint must be an http(s) URL")
+	errServiceFailed   = errors.New("remote SPARQL endpoint rejected the query")
+	errLoadDestination = errors.New("host is not permitted; set NEPTUNE_ALLOW_EXTERNAL_HTTP=true")
+)
+
+const (
+	schemeHTTP           = "http"
+	schemeHTTPS          = "https"
+	envAllowExternalHTTP = "NEPTUNE_ALLOW_EXTERNAL_HTTP"
+	loadMaxBytes         = 1 << 30
+	loadFetchTimeout     = 5 * time.Minute
 )
 
 // rdfService is one cluster's RDF data plane: the triple store, SPARQL query tracking and the bulk loader.
 type rdfService struct {
-	store   *sparql.Store
-	queries *queryTracker
-	loader  *loaderState
-	graph   *opencypher.Graph
-	s3      func() S3Reader
+	store    *sparql.Store
+	queries  *queryTracker
+	loader   *loaderState
+	graph    *opencypher.Graph
+	s3       func() S3Reader
+	web      *http.Client
+	roleAuth func() roleauth.Authorizer
+	info     func() engineInfo
+	rdfStats *statsState
+	pgStats  *statsState
+	cpus     func() int
+	webOnce  sync.Once
 }
 
 func newRDFService(s3 func() S3Reader) *rdfService {
 	return &rdfService{
 		store: sparql.NewStore(), queries: newQueryTracker(), loader: newLoaderState(), s3: s3,
+		rdfStats: newStatsState(), pgStats: newStatsState(),
 	}
 }
 
@@ -56,11 +86,18 @@ func (b *InMemoryBackend) s3Reader() S3Reader {
 	return b.s3
 }
 
+func (b *InMemoryBackend) newClusterRDF() *rdfService {
+	r := newRDFService(b.s3Reader)
+	r.roleAuth, r.cpus = b.roleAuthorizer, b.loaderCPUCount
+
+	return r
+}
+
 // rdfLocked returns the cluster's RDF service, creating it on first use. Callers hold b.mu.
 func (b *InMemoryBackend) rdfLocked(key string) *rdfService {
 	r, ok := b.rdf[key]
 	if !ok {
-		r = newRDFService(b.s3Reader)
+		r = b.newClusterRDF()
 		b.rdf[key] = r
 	}
 
@@ -87,7 +124,7 @@ func (b *InMemoryBackend) importRDFLocked(ctx context.Context, dumps map[string]
 	b.rdf = make(map[string]*rdfService, len(dumps))
 
 	for key, data := range dumps {
-		r := newRDFService(b.s3Reader)
+		r := b.newClusterRDF()
 		if err := r.store.Import([]byte(data)); err != nil {
 			logger.Load(ctx).WarnContext(ctx, "neptune: RDF store import failed", "cluster", key, "error", err)
 
@@ -108,7 +145,7 @@ func parseS3Source(src string) (string, string, error) {
 	switch u.Scheme {
 	case "s3":
 		return u.Host, strings.TrimPrefix(u.Path, "/"), nil
-	case "http", "https":
+	case schemeHTTP, schemeHTTPS:
 		if host := u.Hostname(); host == "s3.amazonaws.com" || (strings.HasPrefix(host, "s3.") &&
 			strings.HasSuffix(host, ".amazonaws.com")) {
 			bucket, key, _ := strings.Cut(strings.TrimPrefix(u.Path, "/"), "/")
@@ -120,32 +157,111 @@ func parseS3Source(src string) (string, string, error) {
 	return "", "", fmt.Errorf("%w: %q", errNotS3URI, src)
 }
 
-// fetch reads the object behind an S3 URL (the SPARQL LOAD source).
-func (r *rdfService) fetch(ctx context.Context, src string) ([]byte, error) {
-	bucket, key, err := parseS3Source(src)
+// fetchDoc reads a SPARQL LOAD source: an S3 object, or an http(s) document on a web server.
+func (r *rdfService) fetchDoc(ctx context.Context, src string) (sparql.Document, error) {
+	if bucket, key, err := parseS3Source(src); err == nil {
+		return r.readObjectDoc(ctx, bucket, key)
+	}
+
+	u, err := url.Parse(src)
+	if err != nil || (u.Scheme != schemeHTTP && u.Scheme != schemeHTTPS) || u.Host == "" {
+		return sparql.Document{}, fmt.Errorf("%w: %q", errNotLoadURI, src)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, src, http.NoBody)
+	if err != nil {
+		return sparql.Document{}, err
+	}
+
+	resp, err := r.webClient().Do(req)
+	if err != nil {
+		return sparql.Document{}, err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return sparql.Document{}, fmt.Errorf("%w: HTTP %d", errLoadFetch, resp.StatusCode)
+	}
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, loadMaxBytes))
+
+	return sparql.Document{Data: data, ContentType: resp.Header.Get("Content-Type")}, err
+}
+
+// service runs one SERVICE sub-query against a remote SPARQL endpoint (read-only: SELECT results only).
+func (r *rdfService) service(ctx context.Context, endpoint, query string) (*sparql.Result, error) {
+	u, err := url.Parse(endpoint)
+	if err != nil || (u.Scheme != schemeHTTP && u.Scheme != schemeHTTPS) || u.Host == "" {
+		return nil, fmt.Errorf("%w: %q", errNotServiceURI, endpoint)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint,
+		strings.NewReader(url.Values{"query": {query}}.Encode()))
 	if err != nil {
 		return nil, err
 	}
 
-	return r.readObject(ctx, bucket, key)
+	req.Header.Set("Content-Type", mimeForm)
+	req.Header.Set("Accept", mimeSparqlJSON)
+
+	resp, err := r.webClient().Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, loadMaxBytes))
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%w: HTTP %d", errServiceFailed, resp.StatusCode)
+	}
+
+	return sparql.ParseSelectJSON(body)
 }
 
-func (r *rdfService) readObject(ctx context.Context, bucket, key string) ([]byte, error) {
+func (r *rdfService) cpuCount() int {
+	if r.cpus != nil {
+		return r.cpus()
+	}
+
+	return runtime.NumCPU()
+}
+
+func (r *rdfService) webClient() *http.Client {
+	r.webOnce.Do(func() {
+		tr := httpclient.NewTransport()
+		tr.DialContext = httpclient.LoopbackDialer(loadExternalAllowed, errLoadDestination).DialContext
+		r.web = &http.Client{Transport: tr, Timeout: loadFetchTimeout}
+	})
+
+	return r.web
+}
+
+func loadExternalAllowed() bool { return strings.EqualFold(os.Getenv(envAllowExternalHTTP), "true") }
+
+func (r *rdfService) readObjectDoc(ctx context.Context, bucket, key string) (sparql.Document, error) {
 	var s3 S3Reader
 	if r.s3 != nil {
 		s3 = r.s3()
 	}
 
 	if s3 == nil {
-		return nil, errNoS3
+		return sparql.Document{}, errNoS3
 	}
 
 	out, err := s3.GetObject(ctx, &sdk_s3.GetObjectInput{Bucket: &bucket, Key: &key})
 	if err != nil {
-		return nil, fmt.Errorf("read s3://%s/%s: %w", bucket, key, err)
+		return sparql.Document{}, fmt.Errorf("read s3://%s/%s: %w", bucket, key, err)
 	}
 
 	defer out.Body.Close()
 
-	return io.ReadAll(out.Body)
+	data, err := io.ReadAll(out.Body)
+
+	return sparql.Document{Data: data, ContentType: aws.ToString(out.ContentType)}, err
 }

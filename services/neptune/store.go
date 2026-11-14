@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
@@ -176,10 +177,12 @@ type InMemoryBackend struct {
 	graphs                         map[string]*opencypher.Graph
 	rdf                            map[string]*rdfService
 	s3                             S3Reader
+	roleAuth                       roleauth.Authorizer
 	mu                             *lockmetrics.RWMutex
 	accountID                      string
 	region                         string
 	lifecycleDelay                 time.Duration
+	loaderCPUs                     int
 	closed                         bool
 }
 

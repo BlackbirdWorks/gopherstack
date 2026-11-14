@@ -19,6 +19,7 @@ const (
 	ResultCSV
 	ResultTSV
 	ResultBoolean
+	ResultBinary
 )
 
 const (
@@ -56,6 +57,8 @@ func WriteResult(r *Result, f ResultFormat) ([]byte, error) {
 	switch f {
 	case ResultXML:
 		return writeSelectXML(r)
+	case ResultBinary:
+		return writeSelectBinary(r), nil
 	case ResultCSV:
 		return writeSelectSV(r, false), nil
 	case ResultTSV:

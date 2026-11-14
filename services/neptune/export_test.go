@@ -99,3 +99,14 @@ func ClusterRoleCount(b *InMemoryBackend, clusterID string) int {
 func HandlerOpsLen(h *Handler) int {
 	return len(h.GetSupportedOperations())
 }
+
+// SetLoaderCPUs overrides the vCPU count the bulk loader derives its thread pool from.
+func SetLoaderCPUs(b *InMemoryBackend, n int) {
+	b.mu.Lock("SetLoaderCPUs")
+	defer b.mu.Unlock()
+
+	b.loaderCPUs = n
+}
+
+// LoaderThreads exposes the parallelism-to-thread-count mapping.
+func LoaderThreads(level string, cpus int) int { return loaderThreads(level, cpus) }

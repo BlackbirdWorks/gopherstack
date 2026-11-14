@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -316,4 +317,34 @@ func (t *Tx) Rollback() {
 		t.g.restore(t.snap)
 		t.g.release()
 	}
+}
+
+// Stats summarises the graph for the DFE statistics endpoints: distinct label and property-key sets (signatures),
+// nodes (instances) and distinct property keys plus relationship types (predicates).
+func (g *Graph) Stats() (int, int, int) {
+	g.sem <- struct{}{}
+	defer func() { <-g.sem }()
+
+	sigs := map[string]struct{}{}
+	preds := map[string]struct{}{}
+
+	for _, n := range g.nodes {
+		labels := append([]string(nil), n.Labels...)
+		sort.Strings(labels)
+
+		keys := make([]string, 0, len(n.Props))
+		for k := range n.Props {
+			keys = append(keys, k)
+			preds[k] = struct{}{}
+		}
+
+		sort.Strings(keys)
+		sigs[strings.Join(labels, ",")+"|"+strings.Join(keys, ",")] = struct{}{}
+	}
+
+	for _, r := range g.rels {
+		preds[r.Type] = struct{}{}
+	}
+
+	return len(sigs), len(g.nodes), len(preds)
 }

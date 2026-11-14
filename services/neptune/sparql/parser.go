@@ -1,6 +1,7 @@
 package sparql
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -10,7 +11,9 @@ import (
 type parser struct {
 	prefixes map[string]string
 	base     string
+	src      string
 	toks     []token
+	hints    Hints
 	i        int
 	bn       int
 }
@@ -22,7 +25,7 @@ func newParser(src string) (*parser, error) {
 	}
 
 	return &parser{
-		toks: toks, base: DefaultBase,
+		toks: toks, base: DefaultBase, src: src,
 		prefixes: map[string]string{"rdf": NSRDF, "rdfs": NSRDFS, "owl": NSOWL, "xsd": NSXSD},
 	}, nil
 }
@@ -205,7 +208,7 @@ func ParseQuery(src string) (*Query, error) {
 		return nil, p.errf("unexpected trailing input")
 	}
 
-	q.Prefixes, q.Base = p.prefixes, p.base
+	q.Prefixes, q.Base, q.Hints = p.prefixes, p.base, p.hints
 
 	return q, nil
 }
@@ -761,7 +764,7 @@ func (p *parser) parseElement(g *group) error {
 
 		return nil
 	case t.kw("SERVICE"):
-		return syntaxf("SERVICE federation is not supported")
+		return p.parseService(g)
 	case t.is("{"):
 		return p.parseUnionChain(g)
 	default:
@@ -805,6 +808,15 @@ func (p *parser) parseTriplesBlock(g *group) error {
 
 	if err := p.parseTriplesSameSubject(func(tp triplePat) { tps = append(tps, tp) }); err != nil {
 		return err
+	}
+
+	tps, err := p.takeHints(tps)
+	if err != nil {
+		return err
+	}
+
+	if len(tps) == 0 {
+		return nil
 	}
 
 	if n := len(g.Elems); n > 0 {
@@ -1226,6 +1238,32 @@ func (p *parser) parseGraphTerm() (node, error) {
 	return node{}, p.errf("expected RDF term")
 }
 
+// numericLiteral builds a bare numeric literal, rejecting values beyond the 64-bit storage limit.
+func numericLiteral(t token, sign string) (Term, error) {
+	lex := sign + t.val
+
+	switch t.kind {
+	case tInt:
+		if _, err := strconv.ParseInt(lex, 10, 64); err != nil {
+			return Term{}, &NumericDataError{Msg: "Integer literal " + lex + " exceeds the 64-bit storage limit"}
+		}
+
+		return Typed(lex, XSDInteger), nil
+	case tDecimal:
+		if _, err := strconv.ParseInt(strings.Replace(lex, ".", "", 1), 10, 64); err != nil {
+			return Term{}, &NumericDataError{Msg: "Decimal literal " + lex + " exceeds the 64-bit storage limit"}
+		}
+
+		return Typed(lex, XSDDecimal), nil
+	default:
+		if _, err := strconv.ParseFloat(lex, 64); err != nil && !errors.Is(err, strconv.ErrSyntax) {
+			return Term{}, &NumericDataError{Msg: "Floating point literal " + lex + " exceeds the 64-bit storage limit"}
+		}
+
+		return Typed(lex, XSDDouble), nil
+	}
+}
+
 func (p *parser) parseLiteral() (Term, error) {
 	t := p.advance()
 	sign := ""
@@ -1239,18 +1277,8 @@ func (p *parser) parseLiteral() (Term, error) {
 	}
 
 	switch t.kind {
-	case tInt:
-		if _, err := strconv.ParseInt(sign+t.val, 10, 64); err != nil {
-			return Term{}, &NumericDataError{
-				Msg: "Integer literal " + sign + t.val + " exceeds the 64-bit storage limit",
-			}
-		}
-
-		return Typed(sign+t.val, XSDInteger), nil
-	case tDecimal:
-		return Typed(sign+t.val, XSDDecimal), nil
-	case tDouble:
-		return Typed(sign+t.val, XSDDouble), nil
+	case tInt, tDecimal, tDouble:
+		return numericLiteral(t, sign)
 	case tString:
 		if lt := p.peek(); lt.kind == tLang {
 			p.i++

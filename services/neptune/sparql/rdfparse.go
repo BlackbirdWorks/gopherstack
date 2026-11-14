@@ -17,6 +17,9 @@ const (
 	FormatTurtle
 	FormatTriG
 	FormatRDFXML
+	FormatJSONLD
+	FormatTriX
+	FormatRDF4JBinary
 )
 
 // ParseOptions tunes RDF parsing.
@@ -79,6 +82,15 @@ func ParseRDFLenient(f Format, data []byte, opts ParseOptions, skip bool) ([]Qua
 		}
 
 		return qs, nil
+	case FormatJSONLD:
+		qs, err := parseJSONLD(data, opts, doc)
+		if err != nil {
+			return qs, []*ParseError{asParseError(err, 0)}
+		}
+
+		return qs, nil
+	case FormatTriX, FormatRDF4JBinary:
+		return nil, []*ParseError{{Msg: "format is output-only"}}
 	case FormatNTriples, FormatNQuads:
 		return parseLines(f, string(data), opts, doc, skip)
 	default:

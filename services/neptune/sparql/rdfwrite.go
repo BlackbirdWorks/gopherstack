@@ -37,6 +37,14 @@ func SerializeQuads(f Format, qs []Quad) ([]byte, error) {
 		if err := writeRDFXML(&buf, qs); err != nil {
 			return nil, err
 		}
+	case FormatJSONLD:
+		if err := writeJSONLD(&buf, qs); err != nil {
+			return nil, err
+		}
+	case FormatTriX:
+		writeTriX(&buf, qs)
+	case FormatRDF4JBinary:
+		writeRDF4JBinary(&buf, qs)
 	}
 
 	return buf.Bytes(), nil

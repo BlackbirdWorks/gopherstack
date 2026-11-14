@@ -63,6 +63,8 @@ type backendSnapshot struct {
 	EventsLog                 map[string][]Event                             `json:"eventsLog"`
 	OpenCypherGraphs          map[string]jsontext.Value                      `json:"openCypherGraphs,omitempty"`
 	SparqlStores              map[string]string                              `json:"sparqlStores,omitempty"`
+	LoaderJobs                map[string]string                              `json:"loaderJobs,omitempty"`
+	GraphStatistics           map[string]graphStatsDTO                       `json:"graphStatistics,omitempty"`
 	AccountID                 string                                         `json:"accountID"`
 	Region                    string                                         `json:"region"`
 	Version                   int                                            `json:"version"`
@@ -178,6 +180,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		EventsLog:                 b.eventsLog,
 		OpenCypherGraphs:          b.exportGraphsLocked(ctx),
 		SparqlStores:              b.exportRDFLocked(),
+		LoaderJobs:                b.exportLoaderJobsLocked(),
+		GraphStatistics:           b.exportGraphStatsLocked(),
 		AccountID:                 b.accountID,
 		Region:                    b.region,
 	}
@@ -260,6 +264,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.eventsLog = snap.EventsLog
 	b.importGraphsLocked(ctx, snap.OpenCypherGraphs)
 	b.importRDFLocked(ctx, snap.SparqlStores)
+	b.importLoaderJobsLocked(ctx, snap.LoaderJobs)
+	b.importGraphStatsLocked(snap.GraphStatistics)
 
 	b.accountID = snap.AccountID
 	b.region = snap.Region
