@@ -148,4 +148,12 @@ func registerAllTables(b *InMemoryBackend) {
 
 	b.investigations = store.New(investigationTableKeyFn)
 	b.investigationsByDetector = b.investigations.AddIndex("byDetector", investigationDetectorIndexKeyFn)
+
+	b.customDetectionRules = store.Register(b.registry, "customDetectionRules", store.New(customRuleKeyFn))
+	b.customRuleAssociations = store.Register(
+		b.registry, "customDetectionRuleAssociations", store.New(customRuleAssociationKeyFn),
+	)
+	b.customRuleOrgConfigs = store.Register(
+		b.registry, "customDetectionRuleOrgConfigs", store.New(customRuleOrgConfigKeyFn),
+	)
 }
