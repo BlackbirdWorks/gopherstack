@@ -19,6 +19,11 @@ import (
 	gcparbackend "github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 )
 
+var (
+	errRegistrySecretID    = errors.New("invalid secret identifier")
+	errRegistrySecretEmpty = errors.New("secret has no value")
+)
+
 // GetRegistryDataDir keeps container registry blobs under the data dir when --persist is on
 // (azurecontainerregistry.DataDirConfig, gcpartifactregistry.DataDirConfig); empty keeps them in memory.
 func (c *CLI) GetRegistryDataDir() string {
@@ -280,7 +285,7 @@ func keyVaultSecretResolver(kv *azurekeyvault.InMemoryBackend) acr.SecretResolve
 	return func(secretURI string) (string, error) {
 		u, err := url.Parse(secretURI)
 		if err != nil || u.Host == "" {
-			return "", fmt.Errorf("invalid secret identifier %q", secretURI)
+			return "", fmt.Errorf("%w: %q", errRegistrySecretID, secretURI)
 		}
 
 		vault, _, _ := strings.Cut(u.Hostname(), ".")
@@ -297,7 +302,7 @@ func keyVaultSecretResolver(kv *azurekeyvault.InMemoryBackend) acr.SecretResolve
 		}
 
 		if secret.Value == nil {
-			return "", fmt.Errorf("secret %q has no value", secretURI)
+			return "", fmt.Errorf("%w: %q", errRegistrySecretEmpty, secretURI)
 		}
 
 		return *secret.Value, nil
