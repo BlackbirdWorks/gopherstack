@@ -72,6 +72,12 @@ func TestReconcile(t *testing.T) {
 			wantRemoved: []string{"c1"},
 		},
 		{
+			name: "same owner without resource launched by this process untouched",
+			all: []container.ManagedContainer{
+				mc(true, container.LabelOwner, "dir-me", container.LabelPID, strconv.Itoa(os.Getpid())+":"),
+			},
+		},
+		{
 			name: "same owner live other process untouched",
 			all: []container.ManagedContainer{mc(true, container.LabelOwner, "dir-me",
 				container.LabelPID, parent, container.LabelService, "gcpsql", container.LabelResource, "p/i")},
