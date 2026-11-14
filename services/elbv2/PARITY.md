@@ -88,7 +88,6 @@ families:
 gaps: []
 items_still_open:
   - "Kept lenient for in-repo fixtures: a target group attached to no listener reports healthy (real AWS: unused/Target.NotInUse), an ALB with subnets in one AZ is accepted, and health-check defaults stay 3/3/5 because the SDK docs and observed AWS values disagree."
-  - "LB VpcId/ZoneName from the real subnet needs internal/app/cli.go to give elbEC2ResolverAdapter SubnetVPC(id) and SubnetAZ(id) (same bodies as efsEC2ResolverAdapter); until then they stay vpc-00000000 and index-derived zones."
 structural_gaps:
   - "Default (--elbv2-listeners=routed) data plane has no real listener sockets or TLS: HTTPS listeners are served as plain HTTP on the emulator port and the client address is the TCP peer of the emulator. --elbv2-listeners=real binds a socket per listener (see 2026-10-29 section); HTTP/2, gRPC, mTLS, UDP proxy protocol and IAM-uploaded server certificates (no private key stored) are not served even there."
   - "GetTrustStoreCaCertificatesBundle/GetTrustStoreRevocationContent return an empty Location: the real value is a presigned URL to an AWS-owned copy of the bundle, which the emulator does not store. The ops still validate TrustStoreNotFound/RevocationIdNotFound."
@@ -619,3 +618,7 @@ Restore and Close reconcile sockets; policy and certificate changes apply on the
   balancer, in routed mode too. HTTPS adds X-Amzn-Tls-Version and X-Amzn-Tls-Cipher-Suite. WebSocket upgrades are tunnelled in both modes.
 - NLB TCP, TLS (terminate, then plain or TLS to the target), UDP (120 s flow idle) and TCP_UDP proxy to the forward action's target group. TLS ALPN policy
   is honoured. `proxy_protocol_v2.enabled` prepends a PROXY v2 header (no TLVs) on TCP; not on UDP. NLB listener rules (source-ip) and TLS session resumption are not modelled.
+
+## 2026-11-13
+
+- LB VpcId/AvailabilityZone from the real subnet is wired (`elbEC2ResolverAdapter.SubnetVPC/SubnetAZ`, internal/app/cli.go); the former open item was stale.
