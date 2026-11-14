@@ -196,8 +196,7 @@ func challenge(w http.ResponseWriter, r *http.Request, scope string) {
 	writeRegistryError(w, http.StatusUnauthorized, "UNAUTHORIZED", unauthorizedMessage)
 }
 
-func v2Scope(r *http.Request) string {
-	needs := v2Needs(r)
+func scopeOf(needs []need) string {
 	scopes := make([]string, 0, len(needs))
 
 	for _, n := range needs {
@@ -206,6 +205,8 @@ func v2Scope(r *http.Request) string {
 
 	return strings.Join(scopes, " ")
 }
+
+func v2Scope(r *http.Request) string { return scopeOf(v2Needs(r)) }
 
 // v2Needs lists the accesses a registry request requires, per the distribution token scope rules.
 func v2Needs(r *http.Request) []need {
@@ -238,7 +239,7 @@ func actionsFor(method string) (string, string) {
 	case http.MethodGet, http.MethodHead:
 		return actionPull, actionPull
 	case http.MethodDelete:
-		return "delete", "delete"
+		return actionDelete, actionDelete
 	}
 
 	return "push", "pull,push"
@@ -250,7 +251,7 @@ func denyScope(w http.ResponseWriter, r *http.Request, needs []need) {
 		detail = append(detail, tokenAccess{Type: n.typ, Name: n.name, Actions: strings.Split(n.hint, ",")})
 	}
 
-	setChallengeHeader(w, r, v2Scope(r), "insufficient_scope")
+	setChallengeHeader(w, r, scopeOf(needs), "insufficient_scope")
 	writeJSON(w, http.StatusUnauthorized, errorBody{Errors: []errorEntry{{
 		Code: "UNAUTHORIZED", Message: unauthorizedMessage, Detail: detail,
 	}}})

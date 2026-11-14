@@ -460,7 +460,7 @@ func (h *Handler) dispatchARMResource(c *echo.Context, segs []string) error {
 		appConfigRoutes, searchRoutes, containerRegistryRoutes,
 		monitorRoutes, redisRoutes, sqlRoutes, flexRoutes, containerInstanceRoutes, containerAppsRoutes,
 		containerServiceRoutes, networkRoutes, managedIdentityRoutes, computeRoutes, webRoutes,
-		storageFileServiceRoutes, apimRoutes, logicRoutes, armResourceRoutes,
+		storageFileServiceRoutes, storageFileShareRoutes, apimRoutes, logicRoutes, armResourceRoutes,
 	} {
 		if handled, err := matchRoutes(table, h, c, segs); handled {
 			return err
@@ -609,6 +609,10 @@ func (h *Handler) writeError(c *echo.Context, status int, code, message string) 
 // HTTP status, mirroring services/sqs's errorDetails pattern.
 func errorDetails(err error) errorEntry {
 	if e, ok := providerErrorDetails(err); ok {
+		return e
+	}
+
+	if e, ok := fileShareErrorDetails(err); ok {
 		return e
 	}
 

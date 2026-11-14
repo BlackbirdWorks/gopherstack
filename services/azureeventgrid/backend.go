@@ -27,6 +27,7 @@ type InMemoryBackend struct {
 	pullWake       chan struct{}
 	validationBase string
 	deadRetries    []deadRetry
+	storageSeq     uint64
 }
 
 // NewInMemoryBackend returns an empty backend using the wall clock.

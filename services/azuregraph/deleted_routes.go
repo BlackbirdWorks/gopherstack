@@ -23,6 +23,12 @@ func deletedMap(d DeletedObject) map[string]any {
 
 // handleDirectory serves /directory/deletedItems: list by type cast, get, restore and permanentDelete.
 func (h *Handler) handleDirectory(c *echo.Context, segs []string) error {
+	if len(segs) >= pathWithID {
+		if name, key := splitKey(segs[1]); name == collAdminUnits {
+			return h.handleCollection(c, h.colls[collAdminUnits], key, segs[1:], nil)
+		}
+	}
+
 	if len(segs) < pathWithID || strings.ToLower(segs[1]) != segDeletedItems {
 		return h.writeErr(c, segmentErr(segs[len(segs)-1]))
 	}

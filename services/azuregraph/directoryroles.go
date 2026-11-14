@@ -19,7 +19,7 @@ const (
 )
 
 func (r builtinRole) templateMap() map[string]any {
-	return map[string]any{"id": r.id, "deletedDateTime": nil, propDisplayName: r.name, propDescription: r.description}
+	return map[string]any{"id": r.id, propDeletedDateTime: nil, propDisplayName: r.name, propDescription: r.description}
 }
 
 func findTemplate(id string) (builtinRole, bool) {
@@ -36,7 +36,7 @@ func (b *Backend) roleMap(templateID, id string) map[string]any {
 	t, _ := findTemplate(templateID)
 
 	return map[string]any{
-		"id": id, "deletedDateTime": nil, propDescription: t.description, propDisplayName: t.name,
+		"id": id, propDeletedDateTime: nil, propDescription: t.description, propDisplayName: t.name,
 		keyRoleTemplateID: t.id,
 	}
 }

@@ -144,13 +144,34 @@ func parseShareExtras(h http.Header, o shareOptions) (shareOptions, *apiError) {
 		return o, aerr
 	}
 
-	if o.Extra.Iops, aerr = optInt(h, "x-ms-share-provisioned-iops"); aerr != nil {
+	if o.Extra.Iops, aerr = optIntRange(h, "x-ms-share-provisioned-iops", minProvIops, maxProvIops); aerr != nil {
 		return o, aerr
 	}
 
-	o.Extra.Bandwidth, aerr = optInt(h, "x-ms-share-provisioned-bandwidth-mibps")
+	o.Extra.Bandwidth, aerr = optIntRange(h, "x-ms-share-provisioned-bandwidth-mibps", minProvMiBps, maxProvMiBps)
 
 	return o, aerr
+}
+
+// Union of the HDD and SSD tier ranges documented on Create Share; the emulator keeps no account tier.
+const (
+	minProvIops  = 500
+	maxProvIops  = 102400
+	minProvMiBps = 60
+	maxProvMiBps = 10340
+)
+
+func optIntRange(h http.Header, name string, lo, hi int64) (*int64, *apiError) {
+	n, err := optInt(h, name)
+	if err != nil || n == nil {
+		return n, err
+	}
+
+	if *n < lo || *n > hi {
+		return nil, errInvalidHeader(name)
+	}
+
+	return n, nil
 }
 
 func (o shareOptions) applyTo(sh *share, now time.Time) *apiError {
@@ -518,25 +539,35 @@ func (h *Handler) restoreShare(rc *reqCtx) (*resp, *apiError) {
 	b.mu.Lock("RestoreShare")
 	defer b.mu.Unlock()
 
-	a := b.acct(rc.acct)
-	a.purgeExpired(rc.now)
+	d, aerr := b.restoreLocked(rc.acct, rc.share, name, version, rc.now)
+	if aerr != nil {
+		return nil, aerr
+	}
 
-	if _, ok := a.Shares[strs.Fold(rc.share)]; ok {
+	rs := newResp(http.StatusCreated)
+	rs.hdr.Set("ETag", d.ETag)
+	rs.hdr.Set("Last-Modified", fmtHTTP(d.LastModified))
+
+	return rs, nil
+}
+
+// restoreLocked revives the soft-deleted share name@version as target. Caller holds the write lock.
+func (b *InMemoryBackend) restoreLocked(account, target, name, version string, now time.Time) (*share, *apiError) {
+	a := b.acct(account)
+	a.purgeExpired(now)
+
+	if _, ok := a.Shares[strs.Fold(target)]; ok {
 		return nil, newErr(http.StatusConflict, "ShareAlreadyExists", "The specified share already exists.")
 	}
 
 	for i, d := range a.Deleted {
 		if strs.Equal(d.Name, name) && d.Version == version {
 			a.Deleted = append(a.Deleted[:i], a.Deleted[i+1:]...)
-			d.Deleted, d.Version, d.DeletedAt, d.Name = false, "", time.Time{}, rc.share
-			d.ETag, d.LastModified = b.etag(), rc.now
-			a.Shares[strs.Fold(rc.share)] = d
+			d.Deleted, d.Version, d.DeletedAt, d.Name = false, "", time.Time{}, target
+			d.ETag, d.LastModified = b.etag(), now
+			a.Shares[strs.Fold(target)] = d
 
-			rs := newResp(http.StatusCreated)
-			rs.hdr.Set("ETag", d.ETag)
-			rs.hdr.Set("Last-Modified", fmtHTTP(d.LastModified))
-
-			return rs, nil
+			return d, nil
 		}
 	}
 

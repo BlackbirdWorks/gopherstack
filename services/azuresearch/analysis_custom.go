@@ -58,7 +58,7 @@ func customFilter(name string, stops map[string]bool) (func([]Token) []Token, bo
 }
 
 // customAnalyzer builds an analyzer from an index-definition analyzer entry.
-func customAnalyzer(def map[string]any) (Analyzer, error) {
+func customAnalyzer(def map[string]any, defs *analysisDefs) (Analyzer, error) {
 	name, _ := def["name"].(string)
 	kind, _ := def["@odata.type"].(string)
 	stops := stopWords["en"]
@@ -76,17 +76,19 @@ func customAnalyzer(def map[string]any) (Analyzer, error) {
 		return standardAnalyzer(stops, false, nil), nil
 	case typeStopAnalyzer:
 		return simpleAnalyzer(stops), nil
+	case typePatternAnalyzer:
+		return patternAnalyzerFrom(def)
 	case typeCustomAnalyzer:
-		return pipelineAnalyzer(name, def, stops)
+		return pipelineAnalyzer(name, def, stops, defs)
 	}
 
 	return nil, wrapf(ErrBadRequest, "analyzer %q has unsupported type %q", name, kind)
 }
 
-func pipelineAnalyzer(name string, def map[string]any, stops map[string]bool) (Analyzer, error) {
+func pipelineAnalyzer(name string, def map[string]any, stops map[string]bool, defs *analysisDefs) (Analyzer, error) {
 	tokName, _ := def["tokenizer"].(string)
 
-	tok, ok := customTokenizer(tokName)
+	tok, ok := defs.tokenizer(tokName)
 	if !ok {
 		return nil, wrapf(ErrBadRequest, "analyzer %q uses unsupported tokenizer %q", name, tokName)
 	}
@@ -97,7 +99,7 @@ func pipelineAnalyzer(name string, def map[string]any, stops map[string]bool) (A
 	for _, f := range list {
 		fname, _ := f.(string)
 
-		fn, found := customFilter(fname, stops)
+		fn, found := defs.filter(fname, stops)
 		if !found {
 			return nil, wrapf(ErrBadRequest, "analyzer %q uses unsupported token filter %q", name, fname)
 		}
@@ -105,11 +107,25 @@ func pipelineAnalyzer(name string, def map[string]any, stops map[string]bool) (A
 		filters = append(filters, fn)
 	}
 
-	if cf, _ := def["charFilters"].([]any); len(cf) > 0 {
-		return nil, wrapf(ErrBadRequest, "analyzer %q uses unsupported char filters", name)
+	var charFilters []func(string) string
+
+	cfs, _ := def["charFilters"].([]any)
+	for _, c := range cfs {
+		cname, _ := c.(string)
+
+		fn, found := defs.charFilter(cname)
+		if !found {
+			return nil, wrapf(ErrBadRequest, "analyzer %q uses unsupported char filter %q", name, cname)
+		}
+
+		charFilters = append(charFilters, fn)
 	}
 
 	return func(text string) []Token {
+		for _, fn := range charFilters {
+			text = fn(text)
+		}
+
 		toks := tok(text)
 		for _, fn := range filters {
 			toks = fn(toks)

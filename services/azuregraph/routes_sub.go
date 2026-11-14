@@ -99,6 +99,10 @@ func (h *Handler) handleSub(c *echo.Context, coll *collection, ref Ref, rest []s
 
 	id, _ := m["id"].(string)
 
+	if coll.kind == kindAdministrativeUnit {
+		return h.adminUnitSub(c, id, rest)
+	}
+
 	route, ok := h.subs[strings.ToLower(rest[0])]
 	if !ok || !supports(coll.kind, route.kinds...) {
 		return h.writeErr(c, segmentErr(rest[0]))

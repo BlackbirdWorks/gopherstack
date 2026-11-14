@@ -2,6 +2,7 @@ package azurefile_test
 
 import (
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -176,4 +177,47 @@ func TestSDK_ThroughListener(t *testing.T) {
 
 	_, err = sc.NewRootDirectoryClient().NewFileClient("missing").Delete(ctx(t), nil)
 	requireCode(t, err, fileerror.ResourceNotFound)
+}
+
+func TestShareProvisionedRanges(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+
+	tests := []struct {
+		opts share.CreateOptions
+		name string
+		ok   bool
+	}{
+		{name: "iops low", opts: share.CreateOptions{ShareProvisionedIops: new(int64(499))}},
+		{name: "iops high", opts: share.CreateOptions{ShareProvisionedIops: new(int64(102401))}},
+		{name: "iops bounds", opts: share.CreateOptions{ShareProvisionedIops: new(int64(500))}, ok: true},
+		{name: "bandwidth low", opts: share.CreateOptions{ShareProvisionedBandwidthMibps: new(int64(59))}},
+		{
+			name: "bandwidth high",
+			opts: share.CreateOptions{ShareProvisionedBandwidthMibps: new(int64(10341))},
+		},
+		{
+			name: "bandwidth bounds",
+			opts: share.CreateOptions{ShareProvisionedBandwidthMibps: new(int64(10340))}, ok: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			sc := e.svc.NewShareClient("prov" + strings.ReplaceAll(tt.name, " ", ""))
+			_, err := sc.Create(ctx(t), &tt.opts)
+
+			if tt.ok {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "InvalidHeaderValue")
+		})
+	}
 }

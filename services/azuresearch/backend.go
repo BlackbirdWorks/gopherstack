@@ -69,6 +69,7 @@ type InMemoryBackend struct {
 	clock    func() time.Time
 	blobs    BlobSource
 	cosmos   CosmosSource
+	tables   TableSource
 }
 
 // Option customises a backend.
@@ -81,7 +82,7 @@ func WithClock(clock func() time.Time) Option { return func(b *InMemoryBackend) 
 func NewInMemoryBackend(opts ...Option) *InMemoryBackend {
 	b := &InMemoryBackend{
 		mu: lockmetrics.New("azuresearch"), services: map[string]*Service{}, clock: time.Now,
-		blobs: noBlobs{}, cosmos: noCosmos{},
+		blobs: noBlobs{}, cosmos: noCosmos{}, tables: noTables{},
 	}
 
 	for _, o := range opts {
@@ -107,6 +108,14 @@ func (b *InMemoryBackend) SetCosmosSource(s CosmosSource) {
 	defer b.mu.Unlock()
 
 	b.cosmos = s
+}
+
+// SetTableSource wires the in-process Table Storage emulator used by azuretable data sources.
+func (b *InMemoryBackend) SetTableSource(s TableSource) {
+	b.mu.Lock("SetTableSource")
+	defer b.mu.Unlock()
+
+	b.tables = s
 }
 
 // Reset drops all state.

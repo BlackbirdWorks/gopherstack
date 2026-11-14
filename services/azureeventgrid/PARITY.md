@@ -27,22 +27,24 @@ families:
   event_subscription_patch: {status: ok, note: "EventSubscriptionsClient.BeginUpdate (PATCH with a flat EventSubscriptionUpdateParameters body) on custom topic, domain, domain topic, subscription, resource group and resource scopes answers 201 with the subscription like PUT (provisioningState Succeeded, no Azure-AsyncOperation header) and 404 for a missing subscription. A supplied destination, filter, labels, expirationTimeUtc, eventDeliverySchema, retryPolicy or deadLetterDestination replaces the stored member wholesale (a filter or retryPolicy is not merged field by field); absent or null members are kept. The merged spec is validated as a PUT (including the webhook handshake when the endpoint changed); a rejected patch changes nothing. deliveryWithResourceIdentity and deadLetterWithResourceIdentity are rejected with 400 because managed-identity delivery is not implemented."}
   auth: {status: ok, note: "Off by default (any credential is accepted and the topic is picked by host label, key or the single topic). With --azure-eventgrid-validate-sas the aeg-sas-key must equal a topic key and SAS tokens (r, e, s; HMAC-SHA256 over the base64-decoded key) must verify and be unexpired; namespace requests use SharedAccessKey or SAS against the namespace keys."}
 gaps:
-  - "System topics, partner topics and partner namespaces are not implemented."
+  - "System topics, partner topics and partner configurations are not implemented (no Microsoft.EventGrid/systemTopics ARM resource with source and topicType). Of the emulated sources only azureblob emits events (BlobCreated, BlobDeleted); azureservicebus and azurekeyvault publish none."
   - "Azure Function, Hybrid Connection and Partner destinations are not implemented."
   - "Delivery with managed identity and AAD bearer validation are not implemented."
   - "Namespace topic subscriptions do not support dead-letter destinations or webhook push delivery."
-  - "Resource-scope event subscriptions receive no events."
+  - "Resource-scope event subscriptions receive Microsoft.Storage.BlobCreated (PutBlob, PutBlockList, CopyBlob) and BlobDeleted (DeleteBlob without a snapshot) for a storage account scope, published by azureblob; BlobRenamed, DirectoryCreated/Deleted, BlobTierChanged and AsyncOperationInitiated are not emitted (no hierarchical namespace, no archive tier), and Service Bus, Key Vault and every other resource type emit nothing. Microsoft.Resources events come only from subscription and resource group topics, and only the Succeeded outcomes (write, delete, action) of ARM lifecycle events are emitted."
 deferred: []
 items_still_open:
-  - "System topics, partner topics and partner configurations are not implemented; a system topic needs a source service that emits its events, and the emulated azureblob, azureservicebus and azurekeyvault publish none."
+  - "System topics, partner topics and partner configurations are not implemented (no Microsoft.EventGrid/systemTopics ARM resource with source and topicType). Of the emulated sources only azureblob emits events (BlobCreated, BlobDeleted); azureservicebus and azurekeyvault publish none."
   - "Azure Function, Hybrid Connection and Partner destinations are not implemented."
   - "Managed-identity delivery and AAD bearer validation are not implemented."
   - "Namespace topic subscriptions have no dead-letter destination, push (webhook) delivery mode or ARM-level topic spaces."
-  - "Resource-scope event subscriptions (e.g. a storage account) are stored, listed and patchable but receive no events: Microsoft.Resources events come only from subscription and resource group topics, and the emulated services (azureblob, azureservicebus, azurekeyvault) publish no system events (BlobCreated etc.). Only the Succeeded outcomes (write, delete, action) of ARM lifecycle events are emitted at subscription and resource group scope."
+  - "Resource-scope event subscriptions receive Microsoft.Storage.BlobCreated (PutBlob, PutBlockList, CopyBlob) and BlobDeleted (DeleteBlob without a snapshot) for a storage account scope, published by azureblob; BlobRenamed, DirectoryCreated/Deleted, BlobTierChanged and AsyncOperationInitiated are not emitted (no hierarchical namespace, no archive tier), and Service Bus, Key Vault and every other resource type emit nothing. Microsoft.Resources events come only from subscription and resource group topics, and only the Succeeded outcomes (write, delete, action) of ARM lifecycle events are emitted."
 leaks: {status: clean, note: "Shutdown cancels the delivery worker and waits for it, then closes the HTTPS server; the outbound HTTP client owns its transport (pkgs/httpclient)."}
 ---
 
 ## Notes
+
+Blob events: learn.microsoft.com/azure/event-grid/event-schema-blob-storage (BlobCreated fires on PutBlob, PutBlockList, CopyBlob; BlobDeleted on DeleteBlob; data.api, eTag, contentLength, blobType, url, sequencer, storageDiagnostics.batchId; dataVersion empty, metadataVersion 1). azureblob reports them through its Events sink; the event url is the emulator path-style blob URL.
 
 Subscription properties cross the ARM seam as ARM property maps, so the service keeps the exact wire shape (destination, filter, retryPolicy, deadLetterDestination, eventDeliverySchema, labels, expirationTimeUtc) and renders it back with defaults and provisioningState. WebHook endpoint query strings are withheld from reads and returned by `getFullUrl`.
 

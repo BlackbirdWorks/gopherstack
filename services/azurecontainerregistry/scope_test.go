@@ -204,3 +204,65 @@ func TestAnonymousTokenEndpoint(t *testing.T) {
 		})
 	}
 }
+
+func TestACRMetadataScopeEnforced(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, "")
+	creds := e.registry(t, "metascope", true)
+	admin := e.client(t, "metascope", basic(creds.Username, creds.Password1))
+	admin.PushImage("app", "v1")
+	admin.PushImage("app", "v2")
+
+	tests := []struct {
+		name      string
+		method    string
+		path      string
+		body      []byte
+		wantScope string
+		scopes    []string
+		want      int
+	}{
+		{name: "read ok", method: http.MethodGet, path: "/acr/v1/app/_tags", want: http.StatusOK,
+			scopes: []string{"repository:app:metadata_read"}},
+		{name: "pull cannot read", method: http.MethodGet, path: "/acr/v1/app/_tags", want: http.StatusUnauthorized,
+			scopes: []string{"repository:app:pull"}, wantScope: "repository:app:metadata_read"},
+		{name: "other repo", method: http.MethodGet, path: "/acr/v1/app", want: http.StatusUnauthorized,
+			scopes: []string{"repository:other:metadata_read"}, wantScope: "repository:app:metadata_read"},
+		{name: "read cannot patch", method: http.MethodPatch, path: "/acr/v1/app/_tags/v1",
+			want: http.StatusUnauthorized, scopes: []string{"repository:app:metadata_read"},
+			wantScope: "repository:app:metadata_write"},
+		{name: "write patches", method: http.MethodPatch, path: "/acr/v1/app/_tags/v1",
+			body: []byte(`{"value":{"deleteEnabled":true}}`), want: http.StatusOK,
+			scopes: []string{"repository:app:metadata_write"}},
+		{name: "untag needs write", method: http.MethodDelete, path: "/acr/v1/app/_tags/v2",
+			want: http.StatusUnauthorized, scopes: []string{"repository:app:delete"},
+			wantScope: "repository:app:metadata_write"},
+		{name: "repo delete needs delete", method: http.MethodDelete, path: "/acr/v1/app",
+			want: http.StatusUnauthorized, scopes: []string{"repository:app:metadata_write"},
+			wantScope: "repository:app:delete"},
+		{name: "catalog needs registry scope", method: http.MethodGet, path: "/acr/v1/_catalog",
+			want: http.StatusUnauthorized, scopes: []string{"repository:app:metadata_read"},
+			wantScope: "registry:catalog:*"},
+		{name: "wildcard action", method: http.MethodGet, path: "/acr/v1/app", want: http.StatusOK,
+			scopes: []string{"repository:app:*"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tok, err := e.h.Backend.IssueAccessToken("metascope", host("metascope"), tt.scopes)
+			require.NoError(t, err)
+
+			got := e.client(t, "metascope", bearer(tok)).Do(tt.method, tt.path, tt.body, nil)
+			assert.Equal(t, tt.want, got.Status, string(got.Body))
+
+			if tt.want == http.StatusUnauthorized {
+				challenge := got.Header.Get("WWW-Authenticate")
+				assert.Contains(t, challenge, `scope="`+tt.wantScope+`"`)
+				assert.Contains(t, challenge, `error="insufficient_scope"`)
+			}
+		})
+	}
+}

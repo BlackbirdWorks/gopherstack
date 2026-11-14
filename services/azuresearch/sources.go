@@ -39,6 +39,24 @@ type CosmosSource interface {
 	ListDocuments(database, container string) ([]CosmosDoc, error)
 }
 
+// TableEntity is one entity of the in-process Table Storage emulator.
+type TableEntity struct {
+	Timestamp    time.Time
+	Properties   map[string]any
+	PartitionKey string
+	RowKey       string
+	ETag         string
+}
+
+// TableSource reads entities from the in-process Table Storage emulator; filter is an OData $filter or empty.
+type TableSource interface {
+	ListEntities(table, filter string) ([]TableEntity, error)
+}
+
+type noTables struct{}
+
+func (noTables) ListEntities(string, string) ([]TableEntity, error) { return nil, ErrSourceUnavailable }
+
 type noBlobs struct{}
 
 func (noBlobs) ListBlobs(string) ([]BlobEntry, error)   { return nil, ErrSourceUnavailable }

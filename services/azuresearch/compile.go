@@ -117,12 +117,19 @@ func (c *compiler) finishKey() error {
 }
 
 func (c *compiler) analyzers(def map[string]any) error {
+	defs, err := buildAnalysisDefs(def)
+	if err != nil {
+		return err
+	}
+
+	c.comp.defs = defs
+
 	for _, raw := range listOf(def, "analyzers") {
 		a := objOf(raw)
 
-		fn, err := customAnalyzer(a)
-		if err != nil {
-			return err
+		fn, aerr := customAnalyzer(a, defs)
+		if aerr != nil {
+			return aerr
 		}
 
 		c.comp.analyzers[strOf(a, "name")] = fn

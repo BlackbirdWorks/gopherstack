@@ -131,6 +131,8 @@ func (b *InMemoryBackend) loadSource(ds Object, params map[string]any) ([]source
 		return b.loadBlobs(conn, container, strOf(objOf(ds["container"]), "query"), params, ds)
 	case "cosmosdb":
 		return b.loadCosmos(conn, container, ds)
+	case "azuretable":
+		return b.loadTable(container, strOf(objOf(ds["container"]), "query"), ds)
 	}
 
 	return nil, wrapf(ErrBadRequest, "unsupported data source type")
@@ -162,6 +164,31 @@ func (b *InMemoryBackend) loadCosmos(conn, container string, ds Object) ([]sourc
 
 		sd := sourceDoc{fields: f, id: d.ID, version: d.ETag}
 		sd.deleted = col != "" && fmt.Sprint(f[col]) == marker
+
+		out = append(out, sd)
+	}
+
+	return out, nil
+}
+
+// loadTable keys each document PartitionKey+RowKey and exposes it as Key (Learn: search-how-to-index-azure-tables).
+func (b *InMemoryBackend) loadTable(table, query string, ds Object) ([]sourceDoc, error) {
+	ents, err := b.tables.ListEntities(table, query)
+	if err != nil {
+		return nil, err
+	}
+
+	col, marker := deletionMarker(ds)
+	out := make([]sourceDoc, 0, len(ents))
+
+	for _, e := range ents {
+		f := cloneMap(e.Properties)
+		key := e.PartitionKey + e.RowKey
+		f["PartitionKey"], f["RowKey"], f["Key"] = e.PartitionKey, e.RowKey, key
+		f["Timestamp"] = e.Timestamp.UTC().Format(time.RFC3339)
+
+		sd := sourceDoc{fields: f, id: key, version: e.ETag}
+		sd.deleted = col != "" && f[col] != nil && fmt.Sprint(f[col]) == marker
 
 		out = append(out, sd)
 	}

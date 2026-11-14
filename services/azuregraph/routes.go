@@ -226,7 +226,7 @@ func (h *Handler) createObject(c *echo.Context, coll *collection, claims jwt.Map
 		return h.entity(c, http.StatusCreated, coll.name, m)
 	}
 
-	if oid, _ := claims["oid"].(string); coll.kind != kindUser && oid != "" {
+	if oid, _ := claims["oid"].(string); coll.kind != kindUser && coll.kind != kindAdministrativeUnit && oid != "" {
 		if id, _ := m["id"].(string); id != "" {
 			_ = h.Backend.AddOwner(id, oid)
 		}

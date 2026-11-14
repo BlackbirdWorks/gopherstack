@@ -101,6 +101,7 @@ type compiled struct {
 	profiles   map[string]*scoringProfile
 	vecProfile map[string]vectorProfile
 	analyzers  map[string]Analyzer
+	defs       *analysisDefs
 	key        *fieldDef
 	defProfile string
 	fields     []*fieldDef

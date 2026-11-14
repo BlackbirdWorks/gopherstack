@@ -1,13 +1,16 @@
 package app
 
 import (
+	"encoding/base64"
 	"errors"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/odatatable"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 	"github.com/blackbirdworks/gopherstack/services/azureblob"
 	"github.com/blackbirdworks/gopherstack/services/azuresearch"
+	"github.com/blackbirdworks/gopherstack/services/azuretable"
 	"github.com/blackbirdworks/gopherstack/services/cosmosdb"
 )
 
@@ -25,6 +28,10 @@ func wireAzureSearch(byName map[string]service.Registerable) {
 
 	if blobH, blobOk := byName["AzureBlob"].(*azureblob.Handler); blobOk {
 		searchH.Backend.SetBlobSource(azureSearchBlobs{b: blobH.Backend})
+	}
+
+	if tableH, tableOk := byName["AzureTable"].(*azuretable.Handler); tableOk {
+		searchH.Backend.SetTableSource(azureSearchTables{b: tableH.Backend})
 	}
 
 	if cosmosH, cosmosOk := byName["CosmosDB"].(*cosmosdb.Handler); cosmosOk {
@@ -90,6 +97,61 @@ func (s azureSearchCosmos) ListDocuments(database, container string) ([]azuresea
 	}
 
 	return out, nil
+}
+
+// azureSearchTables exposes the Table Storage emulator to the search indexers.
+type azureSearchTables struct {
+	b azuretable.StorageBackend
+}
+
+func (s azureSearchTables) ListEntities(table, filter string) ([]azuresearch.TableEntity, error) {
+	var node odatatable.Node
+
+	if filter != "" {
+		n, err := odatatable.ParseFilter(filter)
+		if err != nil {
+			return nil, err
+		}
+
+		node = n
+	}
+
+	ents, err := s.b.QueryEntities(table, node, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]azuresearch.TableEntity, 0, len(ents))
+
+	for _, e := range ents {
+		props := make(map[string]any, len(e.Properties))
+		for k, p := range e.Properties {
+			props[k] = tableValue(p)
+		}
+
+		out = append(out, azuresearch.TableEntity{
+			PartitionKey: e.PartitionKey, RowKey: e.RowKey, ETag: e.ETag, Timestamp: e.Timestamp, Properties: props,
+		})
+	}
+
+	return out, nil
+}
+
+func tableValue(p odatatable.EntityProperty) any {
+	switch v := p.Value.(type) {
+	case int:
+		return float64(v)
+	case int32:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case time.Time:
+		return v.UTC().Format(time.RFC3339Nano)
+	case []byte:
+		return base64.StdEncoding.EncodeToString(v)
+	}
+
+	return p.Value
 }
 
 // azureSearchAdapter adapts services/azuresearch's backend to services/azurearm.SearchPlane.

@@ -32,13 +32,12 @@ ops:
 families:
   arm_integration: {status: ok, note: "services/azurearm Microsoft.ContainerRegistry (internal/app adapter): registries (PUT, GET, PATCH, DELETE, list by group and subscription; sku Basic, Standard or Premium; adminUserEnabled; loginServer https-less {name}.azurecr.{host}:{port}), listCredentials, regenerateCredential, checkNameAvailability, replications (Premium only) and webhooks (getCallbackConfig, ping, listEvents; the data plane fires them on manifest push and delete). Credentials and registry existence live in the data plane; deleting a registry in ARM deletes its images."}
   host_routing: {status: ok, note: "The registry is the first label of the Host header (name.azurecr.localhost:10011), else the only registry when exactly one exists; an unknown host with several registries answers 404 NAME_UNKNOWN."}
-  auth: {status: ok, note: "Basic with the admin user (username = registry name, password or password2, constant-time compared, only while adminUserEnabled), Basic with a refresh or access token as the password (username 00000000-0000-0000-0000-000000000000 for az acr login), or Bearer access token. Access tokens are limited to the scopes they carry (repository:<name>:pull,push,delete or *; registry:catalog:*): a missing scope answers 401 UNAUTHORIZED with a Bearer challenge naming the scope and error="insufficient_scope". Admin and refresh-token credentials are unrestricted. Anything else gets 401 with a Bearer challenge naming the scope."}
+  auth: {status: ok, note: "Basic with the admin user (username = registry name, password or password2, constant-time compared, only while adminUserEnabled), Basic with a refresh or access token as the password (username 00000000-0000-0000-0000-000000000000 for az acr login), or Bearer access token. Access tokens are limited to the scopes they carry (repository:<name>:pull,push,delete or *; registry:catalog:*; on /acr/v1 metadata_read for reads, metadata_write for attribute PATCH and untag, delete for repository and manifest delete): a missing scope answers 401 UNAUTHORIZED with a Bearer challenge naming the scope and error="insufficient_scope". Admin and refresh-token credentials are unrestricted. Anything else gets 401 with a Bearer challenge naming the scope."}
   storage: {status: ok, note: "One embedded distribution registry per registry, built on first use. In memory by default; with --persist blobs and manifests live under <data dir>/registries/<name>, while credentials and image metadata are in the snapshot."}
   terraform: {status: ok, note: "azurerm_container_registry (admin_enabled) applies, re-plans empty and destroys; the admin credentials push and pull an image over the registry API (test/terraform/azure/containerregistry_test.go)."}
 gaps: []
 deferred: []
 items_still_open:
-  - "Access-token scopes are enforced on /v2 only; the /acr/v1 metadata API accepts any valid token."
   - "The listener is plain HTTP unless --azure-acr-tls-cert/--azure-acr-tls-key are set, so az acr login and docker only trust it as an insecure or localhost registry."
   - "Repository-scoped tokens, scope maps and tokens, connected registries, cache rules, credential sets, agent pools and tasks are not modelled."
   - "ARM importImage, listUsages, listPrivateLinkResources, private endpoint connections, customer-managed keys, network rules and policies other than their defaults are stored or defaulted but have no effect."
@@ -51,6 +50,8 @@ leaks: {status: partial, note: "Shutdown closes the HTTP server and every regist
 ---
 
 Initial implementation (2026-10-22): data plane verified against the Docker Registry v2 conformance calls in pkgs/ociregistry/ocitest, ARM against armcontainerregistry v1.2.0 (internal/app/registry_wiring_test.go), and against hashicorp/azurerm (azurerm_container_registry) in test/terraform/azure.
+
+/acr/v1 scope actions follow learn.microsoft.com/azure/container-registry/container-registry-token-based-repository-permissions (metadata/read lists tags and manifests, metadata/write updates attributes and untags, content/delete deletes a repository or manifest); the REST reference pages under rest/api/containerregistry/containerregistry returned 404, so the wire scope strings are the existing metadata_read challenge extended.
 
 ARM PATCH of webhooks and replications merges WebhookUpdateParameters (tags; properties serviceUri, customHeaders, status, scope, actions): Azure/azure-rest-api-specs containerregistry 2023-07-01 containerregistry.json.
 

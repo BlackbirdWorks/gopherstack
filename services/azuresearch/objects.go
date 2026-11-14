@@ -10,7 +10,9 @@ const (
 	maxObjectLen = 128
 )
 
-var supportedSources = map[string]bool{"azureblob": true, "cosmosdb": true} //nolint:gochecknoglobals // read-only
+var supportedSources = map[string]bool{ //nolint:gochecknoglobals // read-only
+	"azureblob": true, "cosmosdb": true, "azuretable": true,
+}
 
 func validObjectName(name string) bool {
 	if name == "" || len(name) > maxObjectLen {
@@ -113,7 +115,7 @@ func validateDataSource(o Object) error {
 	if !supportedSources[typ] {
 		return badf(
 			"The request is invalid. Details: data source type '%s' is not supported; "+
-				"supported types are azureblob and cosmosdb.",
+				"supported types are azureblob, cosmosdb and azuretable.",
 			typ,
 		)
 	}

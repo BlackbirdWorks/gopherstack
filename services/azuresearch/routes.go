@@ -340,9 +340,20 @@ func analyzeRequest(ix *Index, body map[string]any) ([]Token, error) {
 		return an(text), nil
 	}
 
-	tok, ok := customTokenizer(strOf(body, "tokenizer"))
+	tok, ok := ix.comp.defs.tokenizer(strOf(body, "tokenizer"))
 	if !ok {
 		return nil, badf("The request is invalid. Details: specify a supported analyzer or tokenizer.")
+	}
+
+	for _, f := range listOf(body, "charFilters") {
+		name, _ := f.(string)
+
+		fn, found := ix.comp.defs.charFilter(name)
+		if !found {
+			return nil, badf("The request is invalid. Details: unsupported char filter '%s'.", name)
+		}
+
+		text = fn(text)
 	}
 
 	toks := tok(text)
@@ -350,7 +361,7 @@ func analyzeRequest(ix *Index, body map[string]any) ([]Token, error) {
 	for _, f := range listOf(body, "tokenFilters") {
 		name, _ := f.(string)
 
-		fn, found := customFilter(name, stopWords["en"])
+		fn, found := ix.comp.defs.filter(name, stopWords["en"])
 		if !found {
 			return nil, badf("The request is invalid. Details: unsupported token filter '%s'.", name)
 		}

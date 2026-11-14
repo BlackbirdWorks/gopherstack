@@ -39,6 +39,9 @@ type Backend struct {
 	grants      store[OAuth2PermissionGrant]
 	deleted     store[deletedItem]
 	roleAssigns store[RoleAssignment]
+	adminUnits  store[AdministrativeUnit]
+	auMembers   map[string][]string
+	auRoles     map[string][]ScopedRoleMembership
 	domains     []domain
 	cfg         Settings
 }
@@ -89,6 +92,8 @@ func (b *Backend) reset() {
 	b.owners, b.members, b.secrets = map[string][]string{}, map[string][]string{}, map[string]string{}
 	b.managers, b.dirRoles = map[string]string{}, map[string]string{}
 	b.keyMaterial, b.fics = map[string]string{}, map[string][]FederatedCredential{}
+	b.adminUnits, b.auMembers = newStore[AdministrativeUnit](), map[string][]string{}
+	b.auRoles = map[string][]ScopedRoleMembership{}
 	b.seed()
 }
 

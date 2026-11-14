@@ -113,5 +113,8 @@ func buildCollections() map[string]*collection {
 		collGroups: newCollection(collGroups, "Group", kindGroup,
 			(*Backend).ListGroups, (*Backend).GetGroup, (*Backend).CreateGroup,
 			(*Backend).UpdateGroup, (*Backend).DeleteGroup),
+		collAdminUnits: newCollection(collAdminUnits, typeAdminUnit, kindAdministrativeUnit,
+			(*Backend).ListAdministrativeUnits, (*Backend).GetAdministrativeUnit, (*Backend).CreateAdministrativeUnit,
+			(*Backend).UpdateAdministrativeUnit, (*Backend).DeleteAdministrativeUnit),
 	}
 }

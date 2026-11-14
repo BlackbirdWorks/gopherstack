@@ -68,21 +68,12 @@ const (
 
 // Handler is the Echo HTTP handler for Azure Blob Storage operations.
 type Handler struct {
-	Backend StorageBackend
-	srvMu   *lockmetrics.RWMutex
-	srv     *http.Server
-	// Endpoint is e.g. "http://127.0.0.1:10000" -- used to build
-	// ServiceEndpoint in list responses.
-	Endpoint string
-	// Port is the TCP port StartWorker binds. Set from Settings at Init time
-	// (see provider.go); defaults to DefaultPort. Unlike a per-resource
-	// ephemeral allocation, this is a single fixed, protocol-conventional
-	// port (mirroring services/iot's MQTT broker) -- there is no fallback
-	// pool, so StartWorker fails fast if it's unavailable rather than
-	// silently binding a different port.
-	Port int
-	// EnforcePublicAccess makes anonymous requests honour container
-	// public-access levels; off, anonymous access is unrestricted.
+	Backend             StorageBackend
+	Events              BlobEventSink
+	srvMu               *lockmetrics.RWMutex
+	srv                 *http.Server
+	Endpoint            string
+	Port                int
 	EnforcePublicAccess bool
 }
 
@@ -203,6 +194,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleAccountLevel(c)
 		case blob == "":
 			return h.handleContainerLevel(c, container)
+		case h.Events != nil:
+			return h.serveBlobEvents(c, account, container, blob)
 		default:
 			return h.handleBlobLevel(c, container, blob)
 		}
