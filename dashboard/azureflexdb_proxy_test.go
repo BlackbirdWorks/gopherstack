@@ -143,7 +143,7 @@ func TestAzureFlexDBProxy(t *testing.T) {
 				px + "/databases/orders" + flexAPIPG,
 				`{"properties":{"charset":"UTF8","collation":"en_US.utf8"}}`,
 				`"name":"orders"`,
-				201,
+				http.StatusAccepted,
 			},
 			{http.MethodGet, px + "/databases" + flexAPIPG, "", `"name":"orders"`, 200},
 			{http.MethodDelete, px + "/databases/orders" + flexAPIPG, "", "", http.StatusAccepted},
@@ -152,7 +152,7 @@ func TestAzureFlexDBProxy(t *testing.T) {
 				px + "/firewallRules/office" + flexAPIPG,
 				`{"properties":{"startIpAddress":"10.0.0.1","endIpAddress":"10.0.0.9"}}`,
 				`"startIpAddress":"10.0.0.1"`,
-				201,
+				http.StatusAccepted,
 			},
 			{http.MethodGet, px + "/firewallRules" + flexAPIPG, "", `"name":"office"`, 200},
 			{http.MethodDelete, px + "/firewallRules/office" + flexAPIPG, "", "", http.StatusAccepted},
@@ -245,7 +245,7 @@ func TestAzureFlexDBProxy(t *testing.T) {
 		e := newFlexDashboard(t)
 		rec := flexDo(t, e.Echo, http.MethodPut, px+"/databases/extra"+flexAPIPG,
 			`{"properties":{"charset":"UTF8","collation":"en_US.utf8"},"id":"evil","type":"x","extra":{"a":1}}`)
-		require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+		require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
 
 		got := flexDo(t, e.Echo, http.MethodGet, px+"/databases/extra"+flexAPIPG, "").Body.String()
 		assert.Contains(t, got, `"charset":"UTF8"`)
