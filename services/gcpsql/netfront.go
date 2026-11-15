@@ -90,6 +90,7 @@ func peerIP(c net.Conn) net.IP {
 func (f *frontDoor) handle(ctx context.Context, c net.Conn) {
 	defer f.wg.Done()
 	defer c.Close()
+	defer logger.Recover(ctx, "gcpsql.front", nil)
 
 	if !f.allow(peerIP(c)) {
 		logger.Load(ctx).DebugContext(ctx, "gcpsql: connection refused, peer is not an authorized network",

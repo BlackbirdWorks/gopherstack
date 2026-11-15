@@ -12,7 +12,7 @@ import (
 	sqladmin "google.golang.org/api/sqladmin/v1"
 )
 
-func startEcho(t *testing.T) int {
+func startEcho(t *testing.T) *net.TCPAddr {
 	t.Helper()
 
 	var lc net.ListenConfig
@@ -38,7 +38,7 @@ func startEcho(t *testing.T) int {
 	a, ok := ln.Addr().(*net.TCPAddr)
 	require.True(t, ok)
 
-	return a.Port
+	return a
 }
 
 // echoes reports whether a connection to addr is forwarded to the engine.
@@ -93,7 +93,7 @@ func TestAuthorizedNetworks(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			e := newEnvWith(t, &fakeLauncher{base: startEcho(t)})
+			e := newEnvWith(t, &fakeLauncher{base: startEcho(t).Port})
 			e.createInstance(t, "net", "POSTGRES_16", tt.settings)
 
 			in, err := e.backend.GetInstance(project, "net")
@@ -109,7 +109,7 @@ func TestAuthorizedNetworks(t *testing.T) {
 func TestAuthorizedNetworksFollowPatch(t *testing.T) {
 	t.Parallel()
 
-	e := newEnvWith(t, &fakeLauncher{base: startEcho(t)})
+	e := newEnvWith(t, &fakeLauncher{base: startEcho(t).Port})
 	e.createInstance(t, "net", "POSTGRES_16", netSettings(true, "10.0.0.0/8"))
 
 	in, err := e.backend.GetInstance(project, "net")

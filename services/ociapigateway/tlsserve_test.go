@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 )
 
 type tlsReply struct {
@@ -51,13 +53,9 @@ func tlsGet(t *testing.T, port int, serverName, path string) tlsReply {
 func freePort(t *testing.T) int {
 	t.Helper()
 
-	var lc net.ListenConfig
-
-	ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+	port, err := portalloc.AcquireEphemeral()
 	require.NoError(t, err)
-
-	port := ln.Addr().(*net.TCPAddr).Port
-	require.NoError(t, ln.Close())
+	t.Cleanup(func() { portalloc.ReleaseEphemeral(port) })
 
 	return port
 }
