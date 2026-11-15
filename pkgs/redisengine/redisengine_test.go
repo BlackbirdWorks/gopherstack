@@ -70,7 +70,7 @@ func TestEngine_SnapshotRestore(t *testing.T) {
 				v, err := mr.Get("s")
 				require.NoError(t, err)
 				assert.Equal(t, "v\x00\xff", v)
-				assert.Equal(t, 90*time.Second, mr.TTL("s"))
+				assert.InDelta(t, float64(90*time.Second), float64(mr.TTL("s")), float64(time.Second))
 			},
 		},
 		{
@@ -95,7 +95,7 @@ func TestEngine_SnapshotRestore(t *testing.T) {
 				ents, _ := mr.Stream("x")
 				require.Len(t, ents, 1)
 				assert.Equal(t, "1-1", ents[0].ID)
-				assert.Equal(t, time.Hour, mr.TTL("l"))
+				assert.InDelta(t, float64(time.Hour), float64(mr.TTL("l")), float64(time.Second))
 			},
 		},
 		{

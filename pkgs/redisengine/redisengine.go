@@ -24,9 +24,18 @@ type Engine struct {
 	Front *sgfilter.Proxy
 	// Gate decides Front's admissions; deny-all until Set.
 	Gate          *Gate
+	auth          string
+	tuner         *tuner
 	Host          string
 	Port          int
 	AllocatedPort int
+}
+
+// RequireAuth makes the server demand password and remembers it so in-process operations (snapshots, RDB
+// import and export) can authenticate.
+func (e *Engine) RequireAuth(password string) {
+	e.auth = password
+	e.Mini.RequireAuth(password)
 }
 
 // Start launches a server. With a non-nil allocator the port is acquired from it
@@ -38,6 +47,7 @@ func Start(alloc *portalloc.Allocator, label string) (*Engine, error) {
 // StartTLS is Start serving TLS with cfg; a nil cfg serves plaintext.
 func StartTLS(alloc *portalloc.Allocator, label string, cfg *tls.Config) (*Engine, error) {
 	mr := miniredis.NewMiniRedis()
+	mr.ClockTTL(true)
 	e := &Engine{Mini: mr, alloc: alloc}
 
 	if alloc != nil {
@@ -96,6 +106,8 @@ func (g *Gate) Admit(remote net.Addr) bool {
 // Gate can refuse clients. The allocator port (or an ephemeral loopback one) is the relay's.
 func StartGated(alloc *portalloc.Allocator, label string) (*Engine, error) {
 	mr := miniredis.NewMiniRedis()
+	mr.ClockTTL(true)
+
 	if err := mr.StartAddr("127.0.0.1:0"); err != nil {
 		return nil, fmt.Errorf("start miniredis: %w", err)
 	}
@@ -147,6 +159,9 @@ func (e *Engine) Close() {
 	if e == nil || e.Mini == nil {
 		return
 	}
+
+	e.tuner.close()
+	e.tuner = nil
 
 	if e.Front != nil {
 		e.Front.Close()

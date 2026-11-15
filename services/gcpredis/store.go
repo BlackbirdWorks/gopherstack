@@ -32,15 +32,16 @@ type instRec struct {
 
 // InMemoryBackend holds all Memorystore for Redis state under one lock.
 type InMemoryBackend struct {
+	objects   ObjectStore
+	keys      cmek.Checker
 	now       func() time.Time
 	mu        *lockmetrics.RWMutex
 	alloc     *portalloc.Allocator
-	objects   ObjectStore
 	ops       *gcplro.Store
 	wg        *sync.WaitGroup
 	instances map[string]*instRec
 	gate      func()
-	keys      cmek.Checker
+	unit      int64
 }
 
 // NewInMemoryBackend creates an empty backend that serves instances on ephemeral loopback ports.

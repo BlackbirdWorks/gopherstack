@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	keyspaceDBs = 16
+	keyspaceDBs = 100
 	// maxRestoreBytes caps the decompressed size of a snapshot blob.
 	maxRestoreBytes = 256 << 20
 
@@ -29,10 +29,7 @@ const (
 // ErrBadSnapshot is returned when snapshot data cannot be decoded.
 var ErrBadSnapshot = errors.New("invalid engine snapshot data")
 
-var (
-	errEmptyStream = errors.New("empty stream")
-	errUnknownType = errors.New("unknown key type")
-)
+var errUnknownType = errors.New("unknown key type")
 
 type zMember struct {
 	Member string
@@ -45,18 +42,20 @@ type streamEntry struct {
 }
 
 type keyDump struct {
-	Hash      map[string]string
-	HashTTL   map[string]time.Duration
-	Key       string
-	Type      string
-	Str       string
-	List      []string
-	Set       []string
-	ZSet      []zMember
-	Stream    []streamEntry
-	TTL       time.Duration
-	DB        int
-	HasExpiry bool
+	Hash         map[string]string
+	HashTTL      map[string]time.Duration
+	Key          string
+	Type         string
+	Str          string
+	StreamLastID string
+	List         []string
+	Set          []string
+	ZSet         []zMember
+	Stream       []streamEntry
+	Groups       []streamGroupDump
+	TTL          time.Duration
+	DB           int
+	HasExpiry    bool
 }
 
 type keyspaceDump struct {
@@ -72,14 +71,18 @@ func (e *Engine) Snapshot() ([]byte, error) {
 		return nil, nil
 	}
 
-	return DumpKeyspace(e.Mini)
+	return dumpKeyspace(e.Mini, e.auth)
 }
 
 // DumpKeyspace is Snapshot for a bare miniredis server. A nil server yields nil.
-func DumpKeyspace(mr *miniredis.Miniredis) ([]byte, error) {
+func DumpKeyspace(mr *miniredis.Miniredis) ([]byte, error) { return dumpKeyspace(mr, "") }
+
+func dumpKeyspace(mr *miniredis.Miniredis, auth string) ([]byte, error) {
 	if mr == nil {
 		return nil, nil
 	}
+
+	cl, _ := newLocalClient(mr, auth)
 
 	var dump keyspaceDump
 
@@ -88,9 +91,15 @@ func DumpKeyspace(mr *miniredis.Miniredis) ([]byte, error) {
 
 		for _, k := range db.Keys() {
 			kd, ok := dumpKey(db, i, k)
-			if ok {
-				dump.Keys = append(dump.Keys, kd)
+			if !ok {
+				continue
 			}
+
+			if kd.Type == typeStream {
+				_ = attachStreamState(cl, &kd)
+			}
+
+			dump.Keys = append(dump.Keys, kd)
 		}
 	}
 
@@ -212,10 +221,6 @@ func readStream(db *miniredis.RedisDB, k string, kd *keyDump) error {
 		return err
 	}
 
-	if len(entries) == 0 {
-		return errEmptyStream
-	}
-
 	for _, en := range entries {
 		kd.Stream = append(kd.Stream, streamEntry{ID: en.ID, Values: slices.Clone(en.Values)})
 	}
@@ -234,11 +239,15 @@ func (e *Engine) Restore(data []byte) error {
 		return fmt.Errorf("%w: engine not running", ErrBadSnapshot)
 	}
 
-	return LoadKeyspace(e.Mini, data)
+	defer e.tuner.invalidate()
+
+	return loadKeyspace(e.Mini, e.auth, data)
 }
 
 // LoadKeyspace is Restore for a bare miniredis server.
-func LoadKeyspace(mr *miniredis.Miniredis, data []byte) error {
+func LoadKeyspace(mr *miniredis.Miniredis, data []byte) error { return loadKeyspace(mr, "", data) }
+
+func loadKeyspace(mr *miniredis.Miniredis, auth string, data []byte) error {
 	if len(data) == 0 {
 		return nil
 	}
@@ -259,13 +268,19 @@ func LoadKeyspace(mr *miniredis.Miniredis, data []byte) error {
 		return fmt.Errorf("%w: %w", ErrBadSnapshot, err)
 	}
 
+	cl, _ := newLocalClient(mr, auth)
+
 	for i := range dump.Keys {
 		kd := &dump.Keys[i]
 		if kd.DB < 0 || kd.DB >= keyspaceDBs {
 			return fmt.Errorf("%w: database index %d", ErrBadSnapshot, kd.DB)
 		}
 
-		if err = loadKey(mr.DB(kd.DB), kd); err != nil {
+		if err = loadKey(mr.DB(kd.DB), kd); err == nil && kd.Type == typeStream {
+			err = restoreStreamState(cl, mr, kd)
+		}
+
+		if err != nil {
 			return fmt.Errorf("%w: key %q: %w", ErrBadSnapshot, kd.Key, err)
 		}
 	}
