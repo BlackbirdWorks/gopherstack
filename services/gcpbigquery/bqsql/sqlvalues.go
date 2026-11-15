@@ -59,6 +59,7 @@ func scalarToSQLite(k Kind, s string) driver.Value {
 
 		return b
 	case KindUnknown, KindString, KindTimestamp, KindDate, KindTime, KindDatetime, KindJSON, KindGeography,
+		KindInterval,
 		KindStruct, KindArray:
 		return s
 	}
@@ -144,7 +145,7 @@ func writeJSONScalar(buf *bytes.Buffer, k Kind, s string) {
 
 		buf.WriteString(strconv.FormatFloat(f, 'g', -1, bitSize))
 	case KindUnknown, KindString, KindBytes, KindTimestamp, KindDate, KindTime, KindDatetime, KindNumeric,
-		KindBigNumeric, KindJSON, KindGeography, KindStruct, KindArray:
+		KindBigNumeric, KindJSON, KindGeography, KindInterval, KindStruct, KindArray:
 		q, _ := json.Marshal(s, jsonx.V1())
 		buf.Write(q)
 	}
@@ -288,7 +289,7 @@ func scalarFromSQLite(k Kind, v any) (any, error) {
 			return s, nil
 		}
 	case KindUnknown, KindInt, KindFloat, KindString, KindTimestamp, KindDate, KindTime, KindDatetime,
-		KindGeography, KindStruct, KindArray:
+		KindGeography, KindInterval, KindStruct, KindArray:
 	}
 
 	return scalarStored(k, v)

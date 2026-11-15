@@ -11,10 +11,13 @@ import (
 type Effect struct {
 	Options      map[string]string
 	Routine      *RoutineData
+	Policy       *RowPolicyData
+	PolicyName   string
 	Ref          TableRef
 	Op           string
 	ViewQuery    string
 	AlterOp      string
+	PartFields   []Field
 	Fields       []Field
 	Rows         [][]any
 	OrReplace    bool
@@ -22,21 +25,26 @@ type Effect struct {
 	IfExists     bool
 	Materialized bool
 	Cascade      bool
+	DropAll      bool
+	External     bool
+	WithPartCols bool
 }
 
 // Effect operations.
 const (
-	OpWrite         = "WRITE"
-	OpCreateTable   = "CREATE_TABLE"
-	OpCreateView    = "CREATE_VIEW"
-	OpCreateSchema  = "CREATE_SCHEMA"
-	OpDropTable     = "DROP_TABLE"
-	OpDropView      = "DROP_VIEW"
-	OpDropSchema    = "DROP_SCHEMA"
-	OpAlter         = "ALTER"
-	OpRefreshView   = "REFRESH_VIEW"
-	OpCreateRoutine = "CREATE_ROUTINE"
-	OpDropRoutine   = "DROP_ROUTINE"
+	OpWrite           = "WRITE"
+	OpCreateTable     = "CREATE_TABLE"
+	OpCreateView      = "CREATE_VIEW"
+	OpCreateSchema    = "CREATE_SCHEMA"
+	OpDropTable       = "DROP_TABLE"
+	OpDropView        = "DROP_VIEW"
+	OpDropSchema      = "DROP_SCHEMA"
+	OpAlter           = "ALTER"
+	OpRefreshView     = "REFRESH_VIEW"
+	OpCreateRoutine   = "CREATE_ROUTINE"
+	OpDropRoutine     = "DROP_ROUTINE"
+	OpCreateRowPolicy = "CREATE_ROW_POLICY"
+	OpDropRowPolicy   = "DROP_ROW_POLICY"
 )
 
 // Result is the outcome of one statement.
@@ -63,7 +71,7 @@ func Run(ctx context.Context, st *Statement, in *Input, dryRun bool) (*Result, e
 	case StmtInsert, StmtUpdate, StmtDelete, StmtMerge, StmtTruncate:
 		return c.runDML(ctx, st, dryRun)
 	case StmtCreateTable, StmtCreateView, StmtCreateSchema, StmtDrop, StmtAlter, StmtCreateRoutine,
-		StmtDropRoutine:
+		StmtDropRoutine, StmtCreateRowPolicy, StmtDropRowPolicy:
 		return c.runDDL(ctx, st, dryRun)
 	}
 
@@ -127,6 +135,7 @@ func affinity(t Type) string {
 	case KindBytes:
 		return "BLOB"
 	case KindUnknown, KindString, KindTimestamp, KindDate, KindTime, KindDatetime, KindJSON, KindGeography,
+		KindInterval,
 		KindStruct, KindArray:
 		return "TEXT"
 	}
@@ -136,6 +145,17 @@ func affinity(t Type) string {
 
 func (c *compiler) materialize(ctx context.Context, db *sql.DB) error {
 	for _, lt := range c.loads {
+		if lt.td.RowsFn != nil {
+			rows, err := lt.td.RowsFn()
+			if err != nil {
+				return &Error{Kind: ErrRuntime, Message: err.Error()}
+			}
+
+			cp := *lt.td
+			cp.Rows = rows
+			lt.td = &cp
+		}
+
 		if err := loadTable(ctx, db, lt); err != nil {
 			return err
 		}
@@ -145,10 +165,11 @@ func (c *compiler) materialize(ctx context.Context, db *sql.DB) error {
 }
 
 func loadTable(ctx context.Context, db *sql.DB, lt *loadedTable) error {
-	cols := make([]string, len(lt.td.Fields))
-	marks := make([]string, len(lt.td.Fields))
+	all := append(append([]Field{}, lt.td.Fields...), lt.td.Pseudo...)
+	cols := make([]string, len(all))
+	marks := make([]string, len(all))
 
-	for i, f := range lt.td.Fields {
+	for i, f := range all {
 		cols[i] = quoteIdent(f.Name) + " " + affinity(f.SQLType())
 		marks[i] = "?"
 	}
@@ -175,10 +196,10 @@ func loadTable(ctx context.Context, db *sql.DB, lt *loadedTable) error {
 
 	defer stmt.Close()
 
-	args := make([]any, len(lt.td.Fields))
+	args := make([]any, len(all))
 
 	for _, row := range lt.td.Rows {
-		for i, f := range lt.td.Fields {
+		for i, f := range all {
 			var v any
 			if i < len(row) {
 				v = row[i]

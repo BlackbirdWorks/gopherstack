@@ -94,7 +94,7 @@ func (p *parser) atScriptEnd() bool {
 	t := p.peek()
 
 	return t.kind == tkEOF || t.isKw("END") || t.isKw("ELSE") || t.isKw("ELSEIF") || t.isKw("UNTIL") ||
-		t.isKw("EXCEPTION")
+		t.isKw("EXCEPTION") || t.isKw("WHEN")
 }
 
 func (p *parser) scriptList() ([]*scriptStmt, error) {
@@ -201,6 +201,8 @@ func (p *parser) controlStmt(t token) (*scriptStmt, bool, error) {
 	switch {
 	case t.isKw("IF"):
 		s, err = p.ifStmt()
+	case t.isKw("CASE"):
+		s, err = p.caseStmt()
 	case t.isKw("WHILE"):
 		s, err = p.whileStmt()
 	case t.isKw("LOOP"):
@@ -399,6 +401,60 @@ func (p *parser) ifStmt() (*scriptStmt, error) {
 	}
 
 	return s, p.endKw("IF")
+}
+
+// caseStmt parses CASE [search] WHEN ... THEN ... [ELSE ...] END CASE as an IF chain; a search expression is
+// compared with each WHEN value by equality.
+func (p *parser) caseStmt() (*scriptStmt, error) {
+	p.i++
+
+	var search *node
+
+	if !p.kw("WHEN") {
+		var err error
+		if search, err = p.expr(); err != nil {
+			return nil, err
+		}
+	}
+
+	s := &scriptStmt{kind: skIf}
+
+	for p.acceptKw("WHEN") {
+		cond, err := p.expr()
+		if err != nil {
+			return nil, err
+		}
+
+		if search != nil {
+			cond = &node{kind: nBinary, name: "=", args: []*node{search, cond}, pos: cond.pos}
+		}
+
+		if err = p.expectKw("THEN"); err != nil {
+			return nil, err
+		}
+
+		body, err := p.thenList("WHEN", "ELSE", "END")
+		if err != nil {
+			return nil, err
+		}
+
+		s.conds, s.blocks = append(s.conds, cond), append(s.blocks, body)
+	}
+
+	if len(s.conds) == 0 {
+		return nil, p.unexpected("expected WHEN")
+	}
+
+	if p.acceptKw("ELSE") {
+		body, err := p.thenList("END")
+		if err != nil {
+			return nil, err
+		}
+
+		s.body = body
+	}
+
+	return s, p.endKw("CASE")
 }
 
 func (p *parser) whileStmt() (*scriptStmt, error) {

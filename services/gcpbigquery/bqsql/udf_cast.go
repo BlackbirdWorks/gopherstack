@@ -41,7 +41,16 @@ func udfCast(a []driver.Value) (driver.Value, error) {
 		return castTemporal(k, a[0])
 	case KindJSON:
 		return toStr(a[0]), nil
-	case KindUnknown, KindGeography, KindStruct, KindArray:
+	case KindGeography:
+		return castGeography(toStr(a[0]))
+	case KindInterval:
+		v, err := castInterval(toStr(a[0]))
+		if err != nil {
+			return nil, err
+		}
+
+		return v.String(), nil
+	case KindUnknown, KindStruct, KindArray:
 	}
 
 	return nil, errBQ("unsupported cast to %s", target)

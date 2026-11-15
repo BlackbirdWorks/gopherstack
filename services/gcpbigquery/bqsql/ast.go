@@ -166,6 +166,8 @@ const (
 	StmtAlter
 	StmtCreateRoutine
 	StmtDropRoutine
+	StmtCreateRowPolicy
+	StmtDropRowPolicy
 )
 
 // DML reports whether the statement modifies table rows.
@@ -207,8 +209,12 @@ type Statement struct {
 	Text         string
 	alias        string
 	dropKind     string
+	policyName   string
+	filterSQL    string
 	alterOp      string
 	viewSQL      string
+	grantees     []string
+	partCols     []colDef
 	target       []string
 	cols         []string
 	alterCols    []colDef
@@ -216,6 +222,9 @@ type Statement struct {
 	whens        []mergeWhen
 	set          []assignment
 	rows         [][]*node
+	dropAll      bool
+	external     bool
+	withPartCols bool
 	Kind         StmtKind
 	orReplace    bool
 	ifNot        bool

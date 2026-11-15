@@ -96,6 +96,10 @@ func (b *InMemoryBackend) execCopy(_ string, cfg map[string]any, dryRun bool) (*
 			return nil, errInvalid("Cannot copy %s:%s.%s: it is a view", s.ProjectID, s.DatasetID, s.TableID)
 		}
 
+		if t.isExternal() {
+			return nil, errInvalid("Cannot copy %s:%s.%s: it is an external table", s.ProjectID, s.DatasetID, s.TableID)
+		}
+
 		if i == 0 {
 			fields = t.Schema
 		} else if !sameSchema(fields, t.Schema) {

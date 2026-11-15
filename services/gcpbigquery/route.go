@@ -36,6 +36,13 @@ const (
 	opListRoutines    = "ListRoutines"
 	opUpdateRoutine   = "UpdateRoutine"
 	opDeleteRoutine   = "DeleteRoutine"
+	opInsertRowPolicy = "InsertRowAccessPolicy"
+	opGetRowPolicy    = "GetRowAccessPolicy"
+	opListRowPolicies = "ListRowAccessPolicies"
+	opUpdateRowPolicy = "UpdateRowAccessPolicy"
+	opDeleteRowPolicy = "DeleteRowAccessPolicy"
+	opBatchDeletePols = "BatchDeleteRowAccessPolicies"
+	opReservation     = "ReservationService"
 	segRoutines       = "routines"
 	unknownOperation  = "Unknown"
 	segProjects       = "projects"
@@ -51,6 +58,7 @@ const (
 	datasetCollection = 5
 	tableItem         = 6
 	tableSubresource  = 7
+	policyItem        = 8
 	jobItem           = 4
 	jobSubresource    = 5
 )
@@ -62,6 +70,11 @@ type route struct {
 	table   string
 	job     string
 	routine string
+	policy  string
+	act     string
+	loc     string
+	id1     string
+	id2     string
 }
 
 func splitSegments(escaped string) []string {
@@ -101,6 +114,10 @@ func methodOp(method string, ops map[string]string) string {
 }
 
 func parseRoute(r *http.Request) route {
+	if rest, ok := stripPrefix(r.URL.EscapedPath(), reservationsPrefix); ok {
+		return reservationRoute(r.Method, splitSegments(rest))
+	}
+
 	if rest, ok := stripPrefix(r.URL.EscapedPath(), uploadPrefix); ok {
 		segs := splitSegments(rest)
 		if len(segs) == projectCollection && segs[0] == segProjects && segs[2] == segJobs {
@@ -243,6 +260,19 @@ func tableRoute(method string, s []string, rt route) route {
 			rt.op = opListTableData
 		case s[6] == "insertAll" && method == http.MethodPost:
 			rt.op = opInsertAll
+		case s[6] == litRowPolicies:
+			rt.op = methodOp(method, map[string]string{
+				http.MethodGet: opListRowPolicies, http.MethodPost: opInsertRowPolicy,
+			})
+		case s[6] == batchDeleteVerb && method == http.MethodPost:
+			rt.op = opBatchDeletePols
+		}
+	case policyItem:
+		if s[6] == litRowPolicies {
+			rt.table, rt.policy = s[5], s[7]
+			rt.op = methodOp(method, map[string]string{
+				http.MethodGet: opGetRowPolicy, http.MethodPut: opUpdateRowPolicy, http.MethodDelete: opDeleteRowPolicy,
+			})
 		}
 	}
 

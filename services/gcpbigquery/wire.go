@@ -107,6 +107,7 @@ func tableWire(project, ds, id string, t *Table, location string) map[string]any
 		out["materializedView"] = materializedWire(t)
 	case t.ViewQuery != "":
 		out["view"] = map[string]any{"query": t.ViewQuery, litUselegacysql: false}
+	case t.isExternal():
 	default:
 		out["numRows"] = strconv.Itoa(len(t.Rows))
 		out["numBytes"] = msString(tableBytes(t))

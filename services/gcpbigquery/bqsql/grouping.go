@@ -315,7 +315,8 @@ func aggregateNames() map[string]bool {
 	for _, n := range []string{
 		"COUNT", "COUNTIF", "SUM", "AVG", "MIN", "MAX", "ANY_VALUE", "LOGICAL_AND", "LOGICAL_OR",
 		"APPROX_COUNT_DISTINCT", "STRING_AGG", "ARRAY_AGG", "APPROX_QUANTILES", "APPROX_TOP_COUNT", "STDDEV",
-		"STDDEV_SAMP", "STDDEV_POP", "VARIANCE", "VAR_SAMP", "VAR_POP",
+		"STDDEV_SAMP", "STDDEV_POP", "VARIANCE", "VAR_SAMP", "VAR_POP", "HLL_COUNT.INIT", "HLL_COUNT.MERGE",
+		"HLL_COUNT.MERGE_PARTIAL",
 	} {
 		m[n] = true
 	}

@@ -19,6 +19,7 @@ type InMemoryBackend struct {
 	datasets map[string]*Dataset
 	jobs     map[string]*Job
 	objects  ObjectStore
+	res      *reservationState
 	// Audit records Cloud Audit Logs entries for dataset, table and job changes.
 	Audit gcpaudit.Emitter
 	seq   int64
@@ -30,6 +31,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		mu:       lockmetrics.New("gcpbigquery"),
 		datasets: make(map[string]*Dataset),
 		jobs:     make(map[string]*Job),
+		res:      newReservationState(),
 	}
 }
 
@@ -40,6 +42,7 @@ func (b *InMemoryBackend) Reset() {
 
 	b.datasets = make(map[string]*Dataset)
 	b.jobs = make(map[string]*Job)
+	b.res = newReservationState()
 	b.seq = 0
 }
 
@@ -128,13 +131,20 @@ func (c catalog) Table(ref bqsql.TableRef) (*bqsql.TableData, bool) {
 		return nil, false
 	}
 
-	return &bqsql.TableData{
+	td := &bqsql.TableData{
 		Ref:          ref,
 		Fields:       t.Schema,
 		Rows:         t.Rows,
 		ViewQuery:    t.ViewQuery,
 		Materialized: t.MV != nil,
-	}, true
+		RowPolicies:  t.policyData(),
+	}
+
+	if t.isExternal() {
+		externalTableData(c.b, t, td)
+	}
+
+	return td, true
 }
 
 // TableAt implements bqsql.TimeTravelCatalog.

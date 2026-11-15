@@ -28,6 +28,7 @@ const (
 	KindGeography
 	KindStruct
 	KindArray
+	KindInterval
 )
 
 // Column is a named, typed struct member or relation column.
@@ -71,7 +72,8 @@ func kindNames() map[string]Kind {
 		litFloat64: KindFloat, litBoolean: KindBool, litBool: KindBool, litTimestamp: KindTimestamp, litDate: KindDate,
 		litTime: KindTime, litDatetime: KindDatetime, litNumeric: KindNumeric, litDecimal: KindNumeric,
 		litBignumeric: KindBigNumeric, "BIGDECIMAL": KindBigNumeric, litJSON: KindJSON, litGeography: KindGeography,
-		litRecord: KindStruct, litStruct: KindStruct,
+		litInterval: KindInterval,
+		litRecord:   KindStruct, litStruct: KindStruct,
 	}
 }
 
@@ -84,38 +86,21 @@ func KindOf(name string) (Kind, bool) {
 
 // RESTName is the type name the REST API reports for k.
 func (k Kind) RESTName() string {
-	switch k {
-	case KindInt:
-		return litInteger
-	case KindFloat:
-		return litFloat
-	case KindBool:
-		return litBoolean
-	case KindBytes:
-		return litBytes
-	case KindTimestamp:
-		return litTimestamp
-	case KindDate:
-		return litDate
-	case KindTime:
-		return litTime
-	case KindDatetime:
-		return litDatetime
-	case KindNumeric:
-		return litNumeric
-	case KindBigNumeric:
-		return litBignumeric
-	case KindJSON:
-		return litJSON
-	case KindGeography:
-		return litGeography
-	case KindStruct, KindArray:
-		return litRecord
-	case KindUnknown, KindString:
-		return litString
+	if n, ok := restNames()[k]; ok {
+		return n
 	}
 
 	return litString
+}
+
+func restNames() map[Kind]string {
+	m := make(map[Kind]string)
+	m[KindInt], m[KindFloat], m[KindBool], m[KindBytes] = litInteger, litFloat, litBoolean, litBytes
+	m[KindTimestamp], m[KindDate], m[KindTime], m[KindDatetime] = litTimestamp, litDate, litTime, litDatetime
+	m[KindNumeric], m[KindBigNumeric], m[KindJSON] = litNumeric, litBignumeric, litJSON
+	m[KindGeography], m[KindInterval], m[KindStruct], m[KindArray] = litGeography, litInterval, litRecord, litRecord
+
+	return m
 }
 
 // SQLName is the GoogleSQL spelling of k.
@@ -132,7 +117,7 @@ func (k Kind) SQLName() string {
 	case KindArray:
 		return litArray
 	case KindUnknown, KindString, KindBytes, KindTimestamp, KindDate, KindTime, KindDatetime, KindNumeric,
-		KindBigNumeric, KindJSON, KindGeography:
+		KindBigNumeric, KindJSON, KindGeography, KindInterval:
 		return k.RESTName()
 	}
 

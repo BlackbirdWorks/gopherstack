@@ -57,7 +57,7 @@ func jsonVal(g *gx) string {
 	case KindNumeric, KindBigNumeric:
 		return "CAST(" + g.sql + " AS TEXT)"
 	case KindUnknown, KindInt, KindFloat, KindString, KindTimestamp, KindDate, KindTime, KindDatetime,
-		KindJSON, KindGeography:
+		KindJSON, KindGeography, KindInterval:
 		return g.sql
 	}
 
@@ -85,7 +85,7 @@ func (c *compiler) expr(n *node, sc *scope) (*gx, error) {
 	case nStar:
 		return nil, invalid("Argument * is only allowed in COUNT(*) and the select list")
 	case nInterval:
-		return nil, invalid("INTERVAL is only supported as an argument of date and time arithmetic")
+		return c.intervalValue(n, sc)
 	case nUnary, nBinary, nCase, nCast, nExtract, nBetween, nIn, nLike, nIs:
 		return c.operatorExpr(n, sc)
 	case nExists, nSubquery, nArrayQuery, nArray, nStruct, nIndex, nField:
@@ -405,6 +405,10 @@ func (c *compiler) unary(n *node, sc *scope) (*gx, error) {
 
 	switch n.name {
 	case "-":
+		if a.typ.Kind == KindInterval {
+			return &gx{sql: "bq_interval_neg(" + a.sql + ")", typ: a.typ}, nil
+		}
+
 		return &gx{sql: "(-" + a.sql + ")", typ: a.typ}, nil
 	case "~":
 		return &gx{sql: "(~" + a.sql + ")", typ: a.typ}, nil
@@ -436,10 +440,6 @@ func coerceLiteral(lit *gx, to Type) *gx {
 func (c *compiler) binary(n *node, sc *scope) (*gx, error) {
 	op := n.name
 
-	if (op == "+" || op == "-") && n.args[1].kind == nInterval {
-		return c.intervalArith(n, sc)
-	}
-
 	l, err := c.expr(n.args[0], sc)
 	if err != nil {
 		return nil, err
@@ -448,6 +448,10 @@ func (c *compiler) binary(n *node, sc *scope) (*gx, error) {
 	r, err := c.expr(n.args[1], sc)
 	if err != nil {
 		return nil, err
+	}
+
+	if g, ok, ierr := intervalBinary(op, l, r); ok || ierr != nil {
+		return g, ierr
 	}
 
 	switch op {
@@ -517,27 +521,6 @@ func coalesceNumeric(t Type) Type {
 	}
 
 	return scalar(KindInt)
-}
-
-func (c *compiler) intervalArith(n *node, sc *scope) (*gx, error) {
-	l, err := c.expr(n.args[0], sc)
-	if err != nil {
-		return nil, err
-	}
-
-	iv := n.args[1]
-
-	v, err := c.expr(iv.args[0], sc)
-	if err != nil {
-		return nil, err
-	}
-
-	amount := v.sql
-	if n.name == "-" {
-		amount = "(-" + amount + ")"
-	}
-
-	return &gx{sql: "bq_date_add(" + l.sql + ", " + amount + ", " + quoteStr(iv.name) + ")", typ: l.typ}, nil
 }
 
 func (c *compiler) caseExpr(n *node, sc *scope) (*gx, error) {
@@ -629,6 +612,10 @@ func (c *compiler) extract(n *node, sc *scope) (*gx, error) {
 	}
 
 	typ := scalar(KindInt)
+
+	if a.typ.Kind == KindInterval {
+		return &gx{sql: "bq_interval_extract(" + a.sql + ", " + quoteStr(n.name) + ")", typ: typ}, nil
+	}
 
 	switch n.name {
 	case litDate:

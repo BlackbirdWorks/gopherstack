@@ -28,6 +28,10 @@ func (c *compiler) dmlTarget(path []string, alias string, sc *scope) (*dmlTarget
 		return nil, invalid("Cannot modify view %s", ref)
 	}
 
+	if td.External {
+		return nil, invalid("Cannot modify external table %s", ref)
+	}
+
 	if alias == "" {
 		alias = ref.Table
 	}
@@ -60,7 +64,7 @@ func stmtName(k StmtKind) string {
 	case StmtTruncate:
 		return "TRUNCATE_TABLE"
 	case StmtQuery, StmtCreateTable, StmtCreateView, StmtCreateSchema, StmtDrop, StmtAlter, StmtCreateRoutine,
-		StmtDropRoutine:
+		StmtDropRoutine, StmtCreateRowPolicy, StmtDropRowPolicy:
 		return litSelect
 	}
 
@@ -93,7 +97,7 @@ func (c *compiler) runDML(ctx context.Context, st *Statement, dryRun bool) (*Res
 	case StmtTruncate:
 		target, steps, err = c.planTruncate(st, sc)
 	case StmtQuery, StmtCreateTable, StmtCreateView, StmtCreateSchema, StmtDrop, StmtAlter, StmtCreateRoutine,
-		StmtDropRoutine:
+		StmtDropRoutine, StmtCreateRowPolicy, StmtDropRowPolicy:
 		err = unsupported("statement")
 	}
 

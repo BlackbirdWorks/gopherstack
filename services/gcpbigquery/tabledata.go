@@ -2,6 +2,7 @@ package gcpbigquery
 
 import (
 	"maps"
+	"net/http"
 	"regexp"
 	"slices"
 	"strconv"
@@ -51,6 +52,10 @@ func (b *InMemoryBackend) InsertAll(project, ds, id string, req InsertRequest) (
 
 	if t.ViewQuery != "" {
 		return nil, errInvalid("Cannot insert into view %s:%s.%s", project, ds, id)
+	}
+
+	if t.isExternal() {
+		return nil, errInvalid("Cannot insert into external table %s:%s.%s", project, ds, id)
 	}
 
 	if len(req.Rows) == 0 {
@@ -285,6 +290,15 @@ func (b *InMemoryBackend) ListData(project, ds, id string, o DataOptions) (map[s
 
 	if t.ViewQuery != "" {
 		return nil, errInvalid("Cannot list a table of type VIEW.")
+	}
+
+	if t.isExternal() {
+		return nil, errInvalid("Cannot list a table of type EXTERNAL.")
+	}
+
+	if len(t.RowPolicies) > 0 {
+		return nil, newErr(http.StatusForbidden, "accessDenied", "Access Denied: Table "+project+":"+ds+"."+id+
+			" has row access policies; previewing table data is not supported, query the table instead.")
 	}
 
 	schema, rows := t.Schema, t.Rows

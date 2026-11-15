@@ -87,3 +87,11 @@ func fromSQL(err error) *APIError {
 
 // ErrSnapshotNull is returned when a snapshot holds a null dataset.
 var ErrSnapshotNull = errors.New("gcpbigquery: snapshot contains a null dataset")
+
+func errStatus(e *APIError) string {
+	if e.Reason == failedPrecondition {
+		return "FAILED_PRECONDITION"
+	}
+
+	return statusText(e.Status)
+}

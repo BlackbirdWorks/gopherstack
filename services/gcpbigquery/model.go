@@ -61,16 +61,17 @@ func (t *Table) expired(now int64) bool {
 
 // Table is a table or view with its rows in the canonical stored encoding.
 type Table struct {
-	Meta      map[string]any   `json:"meta"`
-	Seen      map[string]int64 `json:"seen,omitempty"`
-	ViewQuery string           `json:"viewQuery,omitempty"`
-	MV        map[string]any   `json:"mv,omitempty"`
-	Schema    []bqsql.Field    `json:"schema"`
-	Rows      [][]any          `json:"rows"`
-	History   []TableVersion   `json:"history,omitempty"`
-	Created   int64            `json:"created"`
-	Modified  int64            `json:"modified"`
-	Seq       int64            `json:"seq"`
+	Meta        map[string]any   `json:"meta"`
+	Seen        map[string]int64 `json:"seen,omitempty"`
+	ViewQuery   string           `json:"viewQuery,omitempty"`
+	MV          map[string]any   `json:"mv,omitempty"`
+	Schema      []bqsql.Field    `json:"schema"`
+	Rows        [][]any          `json:"rows"`
+	History     []TableVersion   `json:"history,omitempty"`
+	RowPolicies []*RowPolicy     `json:"rowPolicies,omitempty"`
+	Created     int64            `json:"created"`
+	Modified    int64            `json:"modified"`
+	Seq         int64            `json:"seq"`
 }
 
 func (t *Table) kind() string {
@@ -80,6 +81,10 @@ func (t *Table) kind() string {
 
 	if t.ViewQuery != "" {
 		return typeView
+	}
+
+	if t.isExternal() {
+		return typeExternal
 	}
 
 	return typeTable

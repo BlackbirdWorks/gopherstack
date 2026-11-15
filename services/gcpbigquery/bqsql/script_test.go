@@ -116,6 +116,42 @@ func TestScripts(t *testing.T) {
 			`[["medium"]]`,
 		},
 		{
+			"case simple",
+			`DECLARE product_id INT64 DEFAULT 2; DECLARE s STRING;
+			CASE product_id WHEN 1 THEN SET s = 'Product one'; WHEN 2 THEN SET s = 'Product two';
+			ELSE SET s = 'Invalid product'; END CASE;
+			SELECT s;`,
+			`[["Product two"]]`,
+		},
+		{
+			"case else",
+			`DECLARE product_id INT64 DEFAULT 9; DECLARE s STRING;
+			CASE product_id WHEN 1 THEN SET s = 'one'; ELSE SET s = 'Invalid product'; END CASE;
+			SELECT s;`,
+			`[["Invalid product"]]`,
+		},
+		{
+			"case searched",
+			`DECLARE n INT64 DEFAULT 7; DECLARE s STRING DEFAULT 'none';
+			CASE WHEN n < 5 THEN SET s = 'small';
+			WHEN EXISTS(SELECT 1 FROM UNNEST([7]) AS x WHERE x = n) THEN SET s = 'seven';
+			ELSE SET s = 'large'; END CASE;
+			SELECT s;`,
+			`[["seven"]]`,
+		},
+		{
+			"case no match",
+			"DECLARE s STRING DEFAULT 'kept'; CASE WHEN FALSE THEN SET s = 'x'; END CASE; SELECT s;",
+			`[["kept"]]`,
+		},
+		{
+			"case nested",
+			`DECLARE a INT64 DEFAULT 1; DECLARE s STRING;
+			CASE a WHEN 1 THEN CASE WHEN a > 0 THEN SET s = 'inner'; END CASE; ELSE SET s = 'outer'; END CASE;
+			SELECT s;`,
+			`[["inner"]]`,
+		},
+		{
 			"loop break continue",
 			`DECLARE i INT64 DEFAULT 0; DECLARE total INT64 DEFAULT 0;
 			LOOP

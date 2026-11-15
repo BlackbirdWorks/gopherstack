@@ -323,6 +323,10 @@ func (p *parser) createStmt() (*Statement, error) {
 		return nil, err
 	}
 
+	if p.isRowPolicy() {
+		return p.createRowPolicy(st)
+	}
+
 	if kind, ok, err := p.routineKind(); err != nil || ok {
 		if err != nil {
 			return nil, err
@@ -331,18 +335,8 @@ func (p *parser) createStmt() (*Statement, error) {
 		return p.createRoutine(st, kind)
 	}
 
-	switch {
-	case p.acceptKw("TABLE"):
-		st.Kind = StmtCreateTable
-	case p.kw("MATERIALIZED") && p.peekNext().isKw("VIEW"):
-		p.i += 2
-		st.Kind, st.materialized = StmtCreateView, true
-	case p.acceptKw("VIEW"):
-		st.Kind = StmtCreateView
-	case p.acceptKw("SCHEMA"):
-		st.Kind = StmtCreateSchema
-	default:
-		return nil, p.unexpected("expected TABLE, VIEW or SCHEMA")
+	if err := p.createKind(st); err != nil {
+		return nil, err
 	}
 
 	if p.kw("IF") {
@@ -369,6 +363,24 @@ func (p *parser) createStmt() (*Statement, error) {
 	return st, p.createBody(st)
 }
 
+func (p *parser) createKind(st *Statement) error {
+	switch {
+	case p.acceptKw("TABLE"):
+		st.Kind = StmtCreateTable
+	case p.kw("MATERIALIZED") && p.peekNext().isKw("VIEW"):
+		p.i += 2
+		st.Kind, st.materialized = StmtCreateView, true
+	case p.acceptKw("VIEW"):
+		st.Kind = StmtCreateView
+	case p.acceptKw("SCHEMA"):
+		st.Kind = StmtCreateSchema
+	default:
+		return p.unexpected("expected TABLE, VIEW or SCHEMA")
+	}
+
+	return nil
+}
+
 func (p *parser) createModifiers(st *Statement) error {
 	if p.acceptKw("OR") {
 		if err := p.expectKw("REPLACE"); err != nil {
@@ -379,7 +391,7 @@ func (p *parser) createModifiers(st *Statement) error {
 	}
 
 	st.temp = p.acceptKw("TEMP") || p.acceptKw("TEMPORARY")
-	p.acceptKw("EXTERNAL")
+	st.external = p.acceptKw("EXTERNAL")
 
 	return nil
 }
@@ -402,7 +414,7 @@ func (p *parser) routineKind() (string, bool, error) {
 	return "", false, nil
 }
 
-func (p *parser) createBody(st *Statement) error {
+func (p *parser) createColumns(st *Statement) error {
 	var err error
 
 	if p.peek().isPunct("(") && st.Kind == StmtCreateTable {
@@ -429,6 +441,22 @@ func (p *parser) createBody(st *Statement) error {
 		}
 
 		if _, err = p.exprList(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (p *parser) createBody(st *Statement) error {
+	if err := p.createColumns(st); err != nil {
+		return err
+	}
+
+	var err error
+
+	if st.external {
+		if err = p.externalClauses(st); err != nil {
 			return err
 		}
 	}
@@ -542,6 +570,16 @@ func (p *parser) dropStmt() (*Statement, error) {
 
 	st := &Statement{Kind: StmtDrop}
 
+	if p.isRowPolicy() {
+		return p.dropRowPolicy(st, false)
+	}
+
+	if p.kw("ALL") && p.peekNext().isKw("ROW") {
+		p.i++
+
+		return p.dropRowPolicy(st, true)
+	}
+
 	if kind, ok, err := p.routineKind(); err != nil || ok {
 		if err != nil {
 			return nil, err
@@ -550,18 +588,8 @@ func (p *parser) dropStmt() (*Statement, error) {
 		return p.dropRoutine(st, kind)
 	}
 
-	switch {
-	case p.kw("MATERIALIZED") && p.peekNext().isKw("VIEW"):
-		p.i += 2
-		st.dropKind = "MATERIALIZED_VIEW"
-	case p.acceptKw("TABLE"):
-		st.dropKind = "TABLE"
-	case p.acceptKw("VIEW"):
-		st.dropKind = "VIEW"
-	case p.acceptKw("SCHEMA"):
-		st.dropKind = "SCHEMA"
-	default:
-		return nil, p.unexpected("expected TABLE, VIEW or SCHEMA")
+	if err := p.dropKindClause(st); err != nil {
+		return nil, err
 	}
 
 	if p.kw("IF") {
@@ -588,6 +616,27 @@ func (p *parser) dropStmt() (*Statement, error) {
 	}
 
 	return st, nil
+}
+
+func (p *parser) dropKindClause(st *Statement) error {
+	switch {
+	case p.kw("MATERIALIZED") && p.peekNext().isKw("VIEW"):
+		p.i += 2
+		st.dropKind = "MATERIALIZED_VIEW"
+	case p.kw("EXTERNAL") && p.peekNext().isKw("TABLE"):
+		p.i += 2
+		st.dropKind = kwTable
+	case p.acceptKw("TABLE"):
+		st.dropKind = kwTable
+	case p.acceptKw("VIEW"):
+		st.dropKind = "VIEW"
+	case p.acceptKw("SCHEMA"):
+		st.dropKind = "SCHEMA"
+	default:
+		return p.unexpected("expected TABLE, VIEW or SCHEMA")
+	}
+
+	return nil
 }
 
 func (p *parser) truncateStmt() (*Statement, error) {

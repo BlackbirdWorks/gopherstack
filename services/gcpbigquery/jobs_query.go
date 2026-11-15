@@ -46,6 +46,8 @@ func intOf(v any) (int, bool) {
 		return n, err == nil
 	case float64:
 		return int(t), true
+	case int64:
+		return int(t), true
 	case string:
 		n, err := strconv.Atoi(t)
 
@@ -95,7 +97,7 @@ func (b *InMemoryBackend) execQuery(
 		return nil, err
 	}
 
-	in := &bqsql.Input{Catalog: catalog{b: b}, Project: project, Params: params}
+	in := &bqsql.Input{Catalog: catalog{b: b}, Project: project, Params: params, User: principalFrom(ctx)}
 	if qc.DefaultDataset != nil {
 		in.Dataset = qc.DefaultDataset.DatasetID
 		if qc.DefaultDataset.ProjectID != "" {
@@ -220,6 +222,10 @@ func (b *InMemoryBackend) writeDestination(
 		return &jobError{Reason: litInvalid, Message: "Cannot write to view " + ref.TableID}
 	}
 
+	if t.isExternal() {
+		return &jobError{Reason: litInvalid, Message: "Cannot write to external table " + ref.TableID}
+	}
+
 	return b.fillExisting(t, ref, fields, rows, write, replaceSchema)
 }
 
@@ -244,6 +250,8 @@ func (b *InMemoryBackend) fillExisting(
 
 		fallthrough
 	case writeTruncate:
+		t.RowPolicies = nil
+
 		if replaceSchema || len(t.Schema) == 0 {
 			t.Schema = fields
 		} else if len(fields) != len(t.Schema) {
@@ -308,6 +316,8 @@ func (b *InMemoryBackend) applyEffect(e bqsql.Effect) error {
 		return b.applyRoutineEffect(e)
 	case bqsql.OpRefreshView:
 		return b.effectRefresh(e)
+	case bqsql.OpCreateRowPolicy, bqsql.OpDropRowPolicy:
+		return b.effectRowPolicy(e)
 	}
 
 	return errInvalidQuery("Unsupported catalog operation " + e.Op)
@@ -361,6 +371,12 @@ func (b *InMemoryBackend) effectCreate(e bqsql.Effect) error {
 
 	if t.Rows == nil {
 		t.Rows = [][]any{}
+	}
+
+	if e.External {
+		if err := b.externalFromEffect(e, t); err != nil {
+			return err
+		}
 	}
 
 	if e.Materialized {
@@ -436,6 +452,10 @@ func (b *InMemoryBackend) effectAlter(e bqsql.Effect) error {
 	case "OPTIONS":
 		mergePatch(t.Meta, optionsMeta(e.Options))
 	default:
+		if err = t.checkPolicyColumns(e.Fields); err != nil {
+			return err
+		}
+
 		t.record(nowMs())
 
 		t.Schema, t.Rows = e.Fields, e.Rows

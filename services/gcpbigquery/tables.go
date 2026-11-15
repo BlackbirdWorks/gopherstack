@@ -159,7 +159,7 @@ func (b *InMemoryBackend) createTable(project, ds string, body map[string]any) (
 		return nil, err
 	}
 
-	if view == "" && len(schema) == 0 && body["externalDataConfiguration"] == nil {
+	if view == "" && len(schema) == 0 && body[litExternalCfg] == nil {
 		schema = []bqsql.Field{}
 	}
 
@@ -175,10 +175,8 @@ func (b *InMemoryBackend) createTable(project, ds string, body map[string]any) (
 		return nil, errDuplicate("Already Exists: Table %s:%s.%s", project, ds, id)
 	}
 
-	if view != "" {
-		if schema, err = b.viewSchema(project, ds, view); err != nil {
-			return nil, err
-		}
+	if schema, err = b.newTableSchema(project, ds, view, body, schema); err != nil {
+		return nil, err
 	}
 
 	now := nowMs()
@@ -197,6 +195,21 @@ func (b *InMemoryBackend) createTable(project, ds string, body map[string]any) (
 	d.Tables[id] = t
 
 	return tableWire(project, ds, id, t, d.Location), nil
+}
+
+// newTableSchema resolves the schema of a new view or external table; other tables keep the declared one.
+func (b *InMemoryBackend) newTableSchema(
+	project, ds, view string, body map[string]any, schema []bqsql.Field,
+) ([]bqsql.Field, error) {
+	if view != "" {
+		return b.viewSchema(project, ds, view)
+	}
+
+	if cfg, ok := body[litExternalCfg].(map[string]any); ok {
+		return b.externalTableSchema(cfg, schema)
+	}
+
+	return schema, nil
 }
 
 // viewSchema validates a view query and returns its output schema.

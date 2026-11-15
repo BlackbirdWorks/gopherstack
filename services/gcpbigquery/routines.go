@@ -69,7 +69,7 @@ func stdFromType(t bqsql.Type) map[string]any {
 		return map[string]any{litTypeKind: "TYPE_KIND_UNSPECIFIED"}
 	case bqsql.KindInt, bqsql.KindFloat, bqsql.KindBool, bqsql.KindString, bqsql.KindBytes, bqsql.KindTimestamp,
 		bqsql.KindDate, bqsql.KindTime, bqsql.KindDatetime, bqsql.KindNumeric, bqsql.KindBigNumeric, bqsql.KindJSON,
-		bqsql.KindGeography:
+		bqsql.KindGeography, bqsql.KindInterval:
 	}
 
 	return map[string]any{litTypeKind: t.Kind.SQLName()}
@@ -262,7 +262,7 @@ func resourceFromData(r *bqsql.RoutineData) map[string]any {
 
 func routineWire(project, ds, id string, r *Routine) map[string]any {
 	out := cloneMap(r.Resource)
-	out["routineReference"] = map[string]any{"projectId": project, litDatasetID: ds, litRoutineID: id}
+	out["routineReference"] = map[string]any{litProjectid: project, litDatasetID: ds, litRoutineID: id}
 	out[litCreationtime] = msString(r.Created)
 	out[litLastModified] = msString(r.Modified)
 	out[litEtag] = etagOf("routine", project, ds, id, msString(r.Seq))
@@ -320,7 +320,7 @@ func (b *InMemoryBackend) routineBody(project, ds string, body map[string]any, p
 		return "", errInvalid("Invalid routine ID %q.", id)
 	}
 
-	if p := ref["projectId"]; p != "" && p != project {
+	if p := ref[litProjectid]; p != "" && p != project {
 		return "", errInvalid(
 			"Project ID in the routine reference (%s) does not match the request project (%s)",
 			p,

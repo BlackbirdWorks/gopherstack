@@ -21,11 +21,20 @@ func (r TableRef) String() string { return r.Project + ":" + r.Dataset + "." + r
 
 // TableData is a table's schema and rows as the catalog holds them.
 type TableData struct {
-	Ref          TableRef
-	ViewQuery    string
-	Fields       []Field
-	Rows         [][]any
-	Materialized bool
+	// RowsFn supplies the rows of an external table at query time; they carry the Pseudo columns after Fields.
+	RowsFn    func() ([][]any, error)
+	Ref       TableRef
+	ViewQuery string
+	Fields    []Field
+	Rows      [][]any
+	// RowPolicies are the row access policies in force on the table.
+	RowPolicies []RowPolicyData
+	// Pseudo lists columns selectable by name but not part of the schema, such as _FILE_NAME.
+	Pseudo []Field
+	// PartitionFilter names the columns a query must filter on (require_hive_partition_filter).
+	PartitionFilter []string
+	Materialized    bool
+	External        bool
 }
 
 // Catalog resolves tables for the compiler.
@@ -48,6 +57,7 @@ type Input struct {
 	Vars    VarScope
 	Project string
 	Dataset string
+	User    string
 	Params  []Param
 }
 
@@ -56,12 +66,15 @@ type colInfo struct {
 	sql    string
 	typ    Type
 	hidden bool
+	pseudo bool
 }
 
 type relation struct {
 	alias string
 	cols  []*colInfo
-	value bool
+	// needFilter lists partition columns a WHERE conjunct must reference exclusively.
+	needFilter []string
+	value      bool
 }
 
 type scope struct {
@@ -108,6 +121,7 @@ type compiler struct {
 	frames    []*frame
 	seq       int
 	viewDepth int
+	polDepth  int
 }
 
 const maxViewDepth = 16
@@ -508,6 +522,10 @@ func (c *compiler) compileSelect(s *selectStmt, outer *scope) (*selOut, error) {
 		}
 	}
 
+	if err := requirePartitionFilters(s, sc); err != nil {
+		return nil, err
+	}
+
 	items, err := c.compileItems(s, sc)
 	if err != nil {
 		return nil, err
@@ -808,7 +826,7 @@ func (c *compiler) starColumns(rel *relation) []*colInfo {
 	var out []*colInfo
 
 	for _, col := range rel.cols {
-		if !col.hidden {
+		if !col.hidden && !col.pseudo {
 			out = append(out, col)
 		}
 	}
@@ -902,7 +920,18 @@ func (c *compiler) fromTable(f *fromItem, sc *scope) (string, error) {
 		)
 	}
 
+	for _, ps := range td.Pseudo {
+		rel.cols = append(rel.cols, &colInfo{
+			name: ps.Name, typ: ps.SQLType(), sql: quoteIdent(alias) + "." + quoteIdent(ps.Name), pseudo: true,
+		})
+	}
+
+	rel.needFilter = td.PartitionFilter
 	sc.rels = append(sc.rels, rel)
+
+	if len(td.RowPolicies) > 0 {
+		return c.policySource(td, lt, alias)
+	}
 
 	return quoteIdent(lt.name) + " AS " + quoteIdent(alias), nil
 }

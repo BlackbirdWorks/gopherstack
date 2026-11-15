@@ -28,6 +28,10 @@ func (c *compiler) runDDL(ctx context.Context, st *Statement, dryRun bool) (*Res
 		eff, err = c.ddlCreateRoutine(st)
 	case StmtDropRoutine:
 		eff, err = c.ddlDropRoutine(st)
+	case StmtCreateRowPolicy:
+		eff, err = c.ddlCreateRowPolicy(st)
+	case StmtDropRowPolicy:
+		eff, err = c.ddlDropRowPolicy(st)
 	case StmtQuery, StmtInsert, StmtUpdate, StmtDelete, StmtMerge, StmtTruncate:
 		err = unsupported("statement")
 	}
@@ -67,6 +71,14 @@ func ddlName(st *Statement) string {
 		return routineEffectName(st)
 	case StmtDropRoutine:
 		return dropRoutineName(st.dropKind)
+	case StmtCreateRowPolicy:
+		return "CREATE_ROW_ACCESS_POLICY"
+	case StmtDropRowPolicy:
+		if st.dropAll {
+			return "DROP_ALL_ROW_ACCESS_POLICIES"
+		}
+
+		return "DROP_ROW_ACCESS_POLICY"
 	case StmtQuery, StmtInsert, StmtUpdate, StmtDelete, StmtMerge, StmtTruncate:
 		return litSelect
 	}
@@ -103,6 +115,10 @@ func (c *compiler) ddlCreateTable(ctx context.Context, st *Statement, dryRun boo
 	skip, err := c.existing(ref, st)
 	if err != nil || skip {
 		return nil, err
+	}
+
+	if st.external {
+		return c.ddlCreateExternal(st, ref)
 	}
 
 	e := Effect{Op: OpCreateTable, Ref: ref, OrReplace: st.orReplace, Options: st.options}
@@ -307,5 +323,5 @@ func dropKindOf(td *TableData) string {
 		return "VIEW"
 	}
 
-	return "TABLE"
+	return kwTable
 }
