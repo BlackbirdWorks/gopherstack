@@ -226,17 +226,18 @@ func TestWireCostMeteringS3StorageAndRequests(t *testing.T) {
 	t.Parallel()
 
 	f := newMeteringFixture(t)
-	url := sdktest.Serve(t, f.s3H)
+	httpClient := sdktest.ServeInMemory(t, f.s3H)
 
 	cfg, err := awscfg.LoadDefaultConfig(
 		t.Context(),
 		awscfg.WithRegion("us-east-1"),
+		awscfg.WithHTTPClient(httpClient),
 		awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")),
 	)
 	require.NoError(t, err)
 
 	client := sdk_s3.NewFromConfig(cfg, func(o *sdk_s3.Options) {
-		o.BaseEndpoint = aws.String(url)
+		o.BaseEndpoint = aws.String(sdktest.InMemoryEndpoint)
 		o.UsePathStyle = true
 	})
 
