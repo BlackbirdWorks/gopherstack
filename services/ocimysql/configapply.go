@@ -139,6 +139,10 @@ func applyVariables(ctx context.Context, q Querier, vars map[string]any) (bool, 
 			_, err = q.Query(ctx, "", strings.Replace(stmt, "SET PERSIST", "SET PERSIST_ONLY", 1))
 		}
 
+		if err != nil && strings.Contains(strings.ToLower(err.Error()), "non persistent") {
+			_, err = q.Query(ctx, "", strings.Replace(stmt, "SET PERSIST", "SET GLOBAL", 1))
+		}
+
 		switch {
 		case err == nil:
 		case strings.Contains(strings.ToLower(err.Error()), errUnknownVar):

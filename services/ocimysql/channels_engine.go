@@ -95,6 +95,22 @@ func (b *InMemoryBackend) interruptChannels() {
 	}
 }
 
+// interruptBlueGreens fails the deployments whose engine job an emulator restart cut short.
+func (b *InMemoryBackend) interruptBlueGreens() {
+	for _, g := range b.blueGreens {
+		if g.TransitionAt != nil {
+			continue
+		}
+
+		switch g.State {
+		case stateCreating, stateUpdating:
+			g.State, g.Details = stateFailed, "Operation interrupted by an emulator restart"
+		case stateDeleting:
+			g.State = stateDeleted
+		}
+	}
+}
+
 // emulatedSource finds the DB system a channel source address names. It must be called with the lock held.
 func (b *InMemoryBackend) emulatedSource(host string, port int, except string) (string, bool) {
 	if strings.EqualFold(host, "localhost") {

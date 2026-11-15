@@ -335,3 +335,71 @@ func TestPitrEngineToggle(t *testing.T) {
 	assert.Equal(t, 1, l.insts[*db.Id].pitrOff)
 	l.mu.Unlock()
 }
+
+func TestPitrEngineDeletedSource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		retention  my.CreateDeletionPolicyDetailsAutomaticBackupRetentionEnum
+		wantStatus int
+	}{
+		{name: "retained", retention: my.CreateDeletionPolicyDetailsAutomaticBackupRetentionRetain},
+		{
+			name: "dropped", retention: my.CreateDeletionPolicyDetailsAutomaticBackupRetentionDelete,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e, l := newEngineEnv(t)
+			src := e.mkEngineDB(t, "src", func(d *my.CreateDbSystemDetails) {
+				withPitr(d)
+				d.DeletionPolicy = &my.CreateDeletionPolicyDetails{AutomaticBackupRetention: tt.retention}
+			})
+
+			e.clock.Advance(2 * time.Second)
+			at := e.clock.Now()
+			e.clock.Advance(time.Hour)
+
+			_, err := e.db.DeleteDbSystem(t.Context(), my.DeleteDbSystemRequest{DbSystemId: src.Id})
+			require.NoError(t, err)
+			e.awaitState(t, src.Id, my.DbSystemLifecycleStateDeleted)
+
+			resp, err := e.createFromPitr(t, "clone", pitrSource(src.Id, &at))
+			if tt.wantStatus != 0 {
+				assert.Equal(t, tt.wantStatus, svcErr(t, err).GetHTTPStatusCode())
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			clone := e.awaitState(t, resp.Id, my.DbSystemLifecycleStateActive)
+
+			l.mu.Lock()
+			srcInst, cloneInst := l.insts[*src.Id], l.insts[*clone.Id]
+			assert.False(t, srcInst.closed, "the deleted DB system's server is retained for recovery")
+			assert.True(t, srcInst.stopped, "and stopped again once the replay is done")
+			assert.Equal(t, at, srcInst.prepAt)
+			assert.NotNil(t, cloneInst.applied)
+			l.mu.Unlock()
+
+			e.clock.Advance(8 * 24 * time.Hour)
+			e.backend.Sweep()
+
+			require.Eventually(t, func() bool {
+				l.mu.Lock()
+				defer l.mu.Unlock()
+
+				return srcInst.closed && srcInst.purged
+			}, e.waitFor(), 20*time.Millisecond)
+
+			_, err = e.createFromPitr(t, "late", pitrSource(src.Id, nil))
+			assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode())
+		})
+	}
+}

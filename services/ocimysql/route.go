@@ -64,6 +64,14 @@ const (
 	opListWorkRequests  = "ListWorkRequests"
 	opListWorkReqErrors = "ListWorkRequestErrors"
 	opListWorkReqLogs   = "ListWorkRequestLogs"
+	opCancelWorkRequest = "CancelWorkRequest"
+	opCreateBG          = "CreateBlueGreenDeployment"
+	opGetBG             = "GetBlueGreenDeployment"
+	opListBG            = "ListBlueGreenDeployments"
+	opUpdateBG          = "UpdateBlueGreenDeployment"
+	opDeleteBG          = "DeleteBlueGreenDeployment"
+	opChangeBGComp      = "ChangeBlueGreenDeploymentCompartment"
+	opSwitchoverBG      = "SwitchoverBlueGreenDeployment"
 	opAdminKeys         = "ManageAPIKeys"
 	opUnknown           = "Unknown"
 	adminPrefix         = "_gopherstack"
@@ -72,6 +80,7 @@ const (
 	backupPath          = base + "/backups/{backupId}"
 	replicaPath         = base + "/replicas/{replicaId}"
 	channelPath         = base + "/channels/{channelId}"
+	blueGreenPath       = base + "/blueGreenDeployments/{blueGreenDeploymentId}"
 	configPath          = base + "/configurations/{configurationId}"
 	workRequestPath     = base + "/workRequests/{workRequestId}"
 )
@@ -86,6 +95,8 @@ const (
 	keySourceType  = "sourceType"
 	keyIsEnabled   = "isEnabled"
 	paramDBSystem  = "dbSystemId"
+	keyMysqlVer    = "mysqlVersion"
+	keyConfigID    = "configurationId"
 )
 
 //nolint:gochecknoglobals // immutable route table
@@ -147,6 +158,14 @@ var router = restroute.New([]restroute.Route{
 	{Method: http.MethodGet, Path: base + "/versions", Op: opListVersions},
 	{Method: http.MethodGet, Path: base + "/workRequests", Op: opListWorkRequests},
 	{Method: http.MethodGet, Path: workRequestPath, Op: opGetWorkRequest},
+	{Method: http.MethodDelete, Path: workRequestPath, Op: opCancelWorkRequest},
+	{Method: http.MethodPost, Path: base + "/blueGreenDeployments", Op: opCreateBG},
+	{Method: http.MethodGet, Path: base + "/blueGreenDeployments", Op: opListBG},
+	{Method: http.MethodGet, Path: blueGreenPath, Op: opGetBG},
+	{Method: http.MethodPut, Path: blueGreenPath, Op: opUpdateBG},
+	{Method: http.MethodDelete, Path: blueGreenPath, Op: opDeleteBG},
+	{Method: http.MethodPost, Path: blueGreenPath + "/actions/changeCompartment", Op: opChangeBGComp},
+	{Method: http.MethodPost, Path: blueGreenPath + "/actions/switchover", Op: opSwitchoverBG},
 	{Method: http.MethodGet, Path: workRequestPath + "/errors", Op: opListWorkReqErrors},
 	{Method: http.MethodGet, Path: workRequestPath + "/logs", Op: opListWorkReqLogs},
 })

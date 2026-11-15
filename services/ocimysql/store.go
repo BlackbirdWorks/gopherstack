@@ -54,6 +54,7 @@ type InMemoryBackend struct {
 	eng         *dbEngine
 	Auth        *ociauth.Registry
 	channels    map[string]*Channel
+	blueGreens  map[string]*BlueGreen
 	replicas    map[string]*Replica
 	events      map[string]*MaintenanceEvent
 	configs     map[string]*Configuration
@@ -97,6 +98,7 @@ func (b *InMemoryBackend) resetMaps() {
 	b.systems, b.backups, b.channels = map[string]*DBSystem{}, map[string]*Backup{}, map[string]*Channel{}
 	b.configs, b.workReqs = map[string]*Configuration{}, map[string]*WorkRequest{}
 	b.replicas, b.events = map[string]*Replica{}, map[string]*MaintenanceEvent{}
+	b.blueGreens = map[string]*BlueGreen{}
 	b.retry = ociretry.New()
 }
 
@@ -135,11 +137,13 @@ func (b *InMemoryBackend) Reset() {
 
 	b.mu.Lock("Reset")
 	lives := b.detachAllLocked()
+	fronts := b.takeFrontsLocked()
 	b.resetMaps()
 	b.runCtx, b.stop = context.WithCancel(context.Background())
 	e := b.eng
 	b.mu.Unlock()
 
+	closeFronts(fronts)
 	e.closeAll(lives, true)
 	b.Auth.Reset()
 }
@@ -151,9 +155,11 @@ func (b *InMemoryBackend) Close() {
 
 	b.mu.Lock("Close")
 	lives := b.detachAllLocked()
+	fronts := b.takeFrontsLocked()
 	e := b.eng
 	b.mu.Unlock()
 
+	closeFronts(fronts)
 	e.closeAll(lives, false)
 }
 

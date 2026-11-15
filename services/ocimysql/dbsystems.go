@@ -686,38 +686,17 @@ func orStr(vals ...string) string {
 	return ""
 }
 
-// CreateDBSystem creates a DB system in CREATING state and returns its body, etag and work request.
-func (b *InMemoryBackend) CreateDBSystem(in CreateDBSystemIn) (Doc, string, string, error) {
-	b.mu.Lock("CreateDbSystem")
-	defer b.mu.Unlock()
-
-	id, rwr, hit, rerr := b.replayCreate("CreateDbSystem", in.RetryToken, func(id string) (string, bool) {
-		s, ok := b.systems[id]
-		if !ok {
-			return "", false
-		}
-
-		return s.State, true
-	})
-	if hit {
-		if rerr != nil {
-			return nil, "", "", rerr
-		}
-
-		s := b.systems[id]
-
-		return b.systemDoc(s), s.Etag, rwr, nil
-	}
-
+// createSystemLocked validates and records a DB system and starts its server; it must be called with the lock held.
+func (b *InMemoryBackend) createSystemLocked(in CreateDBSystemIn) (*DBSystem, string, *APIError) {
 	plan, aerr := b.buildSystem(in)
 	if aerr != nil {
-		return nil, "", "", aerr
+		return nil, "", aerr
 	}
 
 	s := plan.sys
 
 	if aerr = b.checkSystemLimits(s); aerr != nil {
-		return nil, "", "", aerr
+		return nil, "", aerr
 	}
 
 	s.TransitionAt = b.transitionAt()
@@ -741,6 +720,37 @@ func (b *InMemoryBackend) CreateDBSystem(in CreateDBSystemIn) (Doc, string, stri
 		}
 
 		b.spawn(s.ID, wr, work, func(s *DBSystem) { s.State = stateActive })
+	}
+
+	return s, wr, nil
+}
+
+// CreateDBSystem creates a DB system in CREATING state and returns its body, etag and work request.
+func (b *InMemoryBackend) CreateDBSystem(in CreateDBSystemIn) (Doc, string, string, error) {
+	b.mu.Lock("CreateDbSystem")
+	defer b.mu.Unlock()
+
+	id, rwr, hit, rerr := b.replayCreate("CreateDbSystem", in.RetryToken, func(id string) (string, bool) {
+		s, ok := b.systems[id]
+		if !ok {
+			return "", false
+		}
+
+		return s.State, true
+	})
+	if hit {
+		if rerr != nil {
+			return nil, "", "", rerr
+		}
+
+		s := b.systems[id]
+
+		return b.systemDoc(s), s.Etag, rwr, nil
+	}
+
+	s, wr, aerr := b.createSystemLocked(in)
+	if aerr != nil {
+		return nil, "", "", aerr
 	}
 
 	return b.systemDoc(s), s.Etag, wr, nil
@@ -856,7 +866,7 @@ func (b *InMemoryBackend) systemBase(s *DBSystem) Doc {
 		keyDisplayName:              s.Name,
 		keyCompartment:              s.CompartmentID,
 		keyLifecycle:                s.State,
-		"mysqlVersion":              s.Version,
+		keyMysqlVer:                 s.Version,
 		keyTimeCreated:              s.TimeCreated,
 		keyTimeUpdated:              s.TimeUpdated,
 		"databaseMode":              s.DatabaseMode,

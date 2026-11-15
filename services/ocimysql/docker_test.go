@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 
 	ocimysql "github.com/blackbirdworks/gopherstack/services/ocimysql"
 )
@@ -511,4 +512,96 @@ func TestDockerChannelFromEmulatedSource(t *testing.T) {
 	st, err := e.ch.GenerateChannelStatus(ctx, my.GenerateChannelStatusRequest{ChannelId: created.Id})
 	require.NoError(t, err)
 	assert.True(t, *st.ChannelStatusResult.IsHealthy)
+}
+
+func TestDockerBlueGreen(t *testing.T) {
+	t.Parallel()
+
+	e := dockerEnv(t)
+	ctx := t.Context()
+
+	blue := e.awaitState(t, e.createDB(t, dbDetails("bgblue")).Id, my.DbSystemLifecycleStateActive)
+	blueConn := e.connect(t, blue, adminPass)
+
+	for _, stmt := range []string{
+		"CREATE DATABASE shop",
+		"CREATE TABLE shop.orders (id INT PRIMARY KEY, item VARCHAR(40))",
+		"INSERT INTO shop.orders VALUES (1, 'widget')",
+		"CREATE USER 'repl'@'%' IDENTIFIED BY 'Repl#Pass1'",
+		"GRANT REPLICATION SLAVE ON *.* TO 'repl'@'%'",
+	} {
+		_, err := blueConn.ExecContext(ctx, stmt)
+		require.NoError(t, err, stmt)
+	}
+
+	created, err := e.bg.CreateBlueGreenDeployment(ctx, my.CreateBlueGreenDeploymentRequest{
+		CompartmentId: new(testCompartment), DisplayName: new("live"), SourceDbSystemId: blue.Id,
+		TargetDbSystemDetails: &my.CreateBlueGreenDeploymentTargetDbSystemDetails{MysqlVersion: blue.MysqlVersion},
+		ChannelDetails: &my.CreateBlueGreenDeploymentChannelDetails{
+			SourceUsername: new("repl"), SourcePassword: new("Repl#Pass1"), SslMode: my.SslModeRequired,
+		},
+	})
+	require.NoError(t, err)
+
+	var bg my.BlueGreenDeployment
+
+	require.Eventually(t, func() bool {
+		bg = e.getBG(t, created.Id)
+
+		return bg.LifecycleState == my.BlueGreenDeploymentLifecycleStateActive ||
+			bg.LifecycleState == my.BlueGreenDeploymentLifecycleStateFailed
+	}, dockerWait, time.Second)
+	require.Equal(
+		t,
+		my.BlueGreenDeploymentLifecycleStateActive,
+		bg.LifecycleState,
+		"details: %s",
+		ptrconv.String(bg.LifecycleDetails),
+	)
+
+	green := e.awaitState(t, bg.TargetDbSystemId, my.DbSystemLifecycleStateActive)
+	greenConn := e.connect(t, green, adminPass)
+
+	_, err = blueConn.ExecContext(ctx, "INSERT INTO shop.orders VALUES (2, 'gadget')")
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		var n int
+
+		return greenConn.QueryRowContext(ctx, "SELECT COUNT(*) FROM shop.orders").Scan(&n) == nil && n == 2
+	}, time.Minute, 500*time.Millisecond, "the seed and later writes reach the green server")
+
+	_, err = e.bg.SwitchoverBlueGreenDeployment(ctx, my.SwitchoverBlueGreenDeploymentRequest{
+		BlueGreenDeploymentId: created.Id,
+		WaitTimeInSeconds:     new(60),
+	})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		bg = e.getBG(t, created.Id)
+
+		return bg.SwitchoverStatus == my.BlueGreenDeploymentSwitchoverStatusSwitchoverCompleted ||
+			bg.LifecycleState == my.BlueGreenDeploymentLifecycleStateFailed
+	}, time.Minute, 500*time.Millisecond)
+	require.Equal(
+		t,
+		my.BlueGreenDeploymentSwitchoverStatusSwitchoverCompleted,
+		bg.SwitchoverStatus,
+		"%s",
+		ptrconv.String(bg.LifecycleDetails),
+	)
+	assert.Equal(t, *green.Id, *bg.ActiveDbSystemId)
+
+	_, err = greenConn.ExecContext(ctx, "INSERT INTO shop.orders VALUES (3, 'gizmo')")
+	require.NoError(t, err, "the green server accepts writes after switchover")
+
+	_, err = blueConn.ExecContext(ctx, "INSERT INTO shop.orders VALUES (4, 'blocked')")
+	require.Error(t, err, "the blue server no longer takes writes")
+
+	viaFront := e.connect(t, e.getDB(t, blue.Id), adminPass)
+
+	var n int
+
+	require.NoError(t, viaFront.QueryRowContext(ctx, "SELECT COUNT(*) FROM shop.orders").Scan(&n))
+	assert.Equal(t, 3, n, "the blue DB system's endpoint now reaches the green server")
 }

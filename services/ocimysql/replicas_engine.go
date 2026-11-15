@@ -201,6 +201,7 @@ func (b *InMemoryBackend) adoptReplica(ctx context.Context, id string, inst Inst
 
 	cur.EngineHost, cur.EnginePort, cur.AppliedConfig = host, port, cfgID
 	b.eng.live[id] = inst
+	b.ensureReadFront(ctx, cur.DBSystemID)
 
 	return nil
 }

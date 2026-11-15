@@ -240,8 +240,8 @@ func (b *InMemoryBackend) replicaDoc(r *Replica) Doc {
 	d := Doc{
 		"id": r.ID, paramDBSystem: r.DBSystemID, keyCompartment: r.CompartmentID, keyDisplayName: r.Name,
 		keyLifecycle: r.State, keyTimeCreated: r.TimeCreated, keyTimeUpdated: r.TimeUpdated,
-		"mysqlVersion": r.version(s), keyIPAddress: ip, keyPort: port, keyPortX: s.PortX,
-		keyAD: s.AD, keyFD: s.FD, keyShapeName: r.shape(s), "configurationId": r.config(s),
+		keyMysqlVer: r.version(s), keyIPAddress: ip, keyPort: port, keyPortX: s.PortX,
+		keyAD: s.AD, keyFD: s.FD, keyShapeName: r.shape(s), keyConfigID: r.config(s),
 		"isDeleteProtected": r.DeleteProtected,
 	}
 	putTags(d, r.Tags)
@@ -282,7 +282,17 @@ func (b *InMemoryBackend) replicaEndpoints(s *DBSystem) []Doc {
 		})
 	}
 
-	if s.ReadIP != "" && b.eng == nil && len(out) > 0 {
+	on, _ := readSettings(s)
+	host, port, front := b.readFrontAddr(s.ID)
+
+	switch {
+	case !on || len(out) == 0:
+	case front:
+		out = append(out, Doc{
+			keyIPAddress: host, keyPort: port, keyPortX: s.PortX, keyIPVersion: ipv4,
+			keyModes: []string{modeRead}, keyStatus: stateActive, keyResourceType: resourceLB,
+		})
+	case s.ReadIP != "" && b.eng == nil:
 		out = append(out, Doc{
 			keyIPAddress: s.ReadIP, keyPort: s.Port, keyPortX: s.PortX, keyIPVersion: ipv4,
 			keyModes: []string{modeRead}, keyStatus: stateActive, keyResourceType: resourceLB,

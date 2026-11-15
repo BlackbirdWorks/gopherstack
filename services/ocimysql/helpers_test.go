@@ -112,6 +112,7 @@ type env struct {
 	ch      my.ChannelsClient
 	aas     my.MysqlaasClient
 	rp      my.ReplicasClient
+	bg      my.BlueGreenDeploymentsClient
 	wr      my.WorkRequestsClient
 	base    string
 	port    int
@@ -179,6 +180,11 @@ func newEnv(t *testing.T, opts envOpts) *env {
 
 	e.rp, err = my.NewReplicasClientWithConfigurationProvider(e.prov)
 	require.NoError(t, err)
+
+	e.bg, err = my.NewBlueGreenDeploymentsClientWithConfigurationProvider(e.prov)
+	require.NoError(t, err)
+
+	e.bg.Host = e.base
 
 	e.db.Host, e.bk.Host, e.ch.Host, e.aas.Host, e.wr.Host = e.base, e.base, e.base, e.base, e.base
 	e.rp.Host = e.base
@@ -303,6 +309,7 @@ var errEmptyDump = errors.New("empty dump")
 
 type fakeLauncher struct {
 	failLaunch error
+	portOf     func(id string) int
 	insts      map[string]*fakeInst
 	specs      []ocimysql.LaunchSpec
 	removed    []string
@@ -310,24 +317,25 @@ type fakeLauncher struct {
 }
 
 type fakeInst struct {
-	prepAt  time.Time
-	source  *mysqlengine.ReplSource
-	applied *mysqlengine.Recovery
-	admins  map[string]string
-	seed    []byte
-	queries []string
-	tables  []string
-
+	source    *mysqlengine.ReplSource
+	applied   *mysqlengine.Recovery
+	admins    map[string]string
 	channels  map[string]mysqlengine.ChannelSpec
 	started   map[string]bool
+	chErr     error
+	prepAt    time.Time
+	seed      []byte
+	queries   []string
+	tables    []string
 	joined    []string
 	chRemoved []string
-	chErr     error
+	seeded    []byte
 	chState   mysqlengine.ChannelState
 	pitrOff   int
 	port      int
 	starts    int
 	pitrOn    bool
+	behind    bool
 	stopped   bool
 	closed    bool
 	purged    bool
@@ -348,6 +356,10 @@ func (l *fakeLauncher) Launch(_ context.Context, spec ocimysql.LaunchSpec) (ocim
 	in := &fakeInst{
 		admins: map[string]string{}, port: 40000 + len(l.specs),
 		channels: map[string]mysqlengine.ChannelSpec{}, started: map[string]bool{},
+	}
+
+	if l.portOf != nil {
+		in.port = l.portOf(spec.ID)
 	}
 	l.insts[spec.ID] = in
 
@@ -526,6 +538,10 @@ func (h *fakeHandle) Query(_ context.Context, _, q string) ([][]string, error) {
 	case strings.HasPrefix(q, "SELECT @@offline_mode"):
 		return [][]string{{"a", "b"}, {"0", "0"}}, nil
 	case strings.Contains(q, "GTID_SUBSET"):
+		if h.in.behind {
+			return [][]string{{"x"}, {"0"}}, nil
+		}
+
 		return [][]string{{"x"}, {"1"}}, nil
 	case strings.Contains(q, "GTID_SUBTRACT"):
 		return [][]string{{"x"}, {"uuid:3-5"}}, nil
@@ -610,4 +626,17 @@ func (h *fakeHandle) ChannelStatus(context.Context, string) (mysqlengine.Channel
 	defer h.l.mu.Unlock()
 
 	return h.in.chState, nil
+}
+
+func (h *fakeHandle) Seed(_ context.Context, seed []byte) error {
+	h.l.mu.Lock()
+	defer h.l.mu.Unlock()
+
+	h.in.seeded = seed
+
+	if len(seed) > 0 {
+		h.in.tables = strings.Split(string(seed), ",")
+	}
+
+	return nil
 }

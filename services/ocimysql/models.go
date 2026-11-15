@@ -234,4 +234,5 @@ type WorkRequest struct {
 	Action        string     `json:"action"`
 	Failure       string     `json:"failure,omitempty"`
 	Seq           int64      `json:"seq"`
+	Canceled      bool       `json:"canceled,omitempty"`
 }

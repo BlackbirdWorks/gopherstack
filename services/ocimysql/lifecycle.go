@@ -37,6 +37,7 @@ func (b *InMemoryBackend) Sweep() {
 	b.settleAll()
 	b.autoBackups()
 	b.expireBackups()
+	b.expireRetained()
 }
 
 func (b *InMemoryBackend) settleAll() {
@@ -57,6 +58,8 @@ func (b *InMemoryBackend) settleAll() {
 	for _, r := range b.replicas {
 		settleReplica(r, now)
 	}
+
+	b.settleBlueGreen("")
 }
 
 func (b *InMemoryBackend) settleID(id string) {
@@ -787,6 +790,10 @@ func (b *InMemoryBackend) DeleteDBSystem(id, ifMatch string) (string, error) {
 		return "", aerr
 	}
 
+	if g := b.blueGreenOf(id); g != nil {
+		return "", errState("DB system " + id + " takes part in blue/green deployment " + g.ID + "; delete it first")
+	}
+
 	if s.Deletion.IsDeleteProtected {
 		return "", newErr(http.StatusConflict, "Conflict",
 			"DB system "+id+" is delete protected; set deletionPolicy.isDeleteProtected to false first")
@@ -805,6 +812,7 @@ func (b *InMemoryBackend) DeleteDBSystem(id, ifMatch string) (string, error) {
 	}
 
 	final := s.Deletion.FinalBackup == requireFinal
+	retain := s.BackupPolicy.PitrEnabled && s.Deletion.AutomaticBackupRetention == retainBackups
 
 	if b.eng == nil {
 		s.TransitionAt = b.transitionAt()
@@ -836,7 +844,9 @@ func (b *InMemoryBackend) DeleteDBSystem(id, ifMatch string) (string, error) {
 			b.closeReplica(ctx, rid, ri)
 		}
 
-		return b.teardown(ctx, &snap, inst, final, wasStopped)
+		defer b.dropFront(id)
+
+		return b.teardown(ctx, &snap, inst, final, wasStopped, retain)
 	}, func(s *DBSystem) {
 		s.State = stateDeleted
 		b.setReplicaStates(ids, stateDeleted)
@@ -846,7 +856,9 @@ func (b *InMemoryBackend) DeleteDBSystem(id, ifMatch string) (string, error) {
 }
 
 // teardown takes the final backup, if required, and removes the server and its data volume.
-func (b *InMemoryBackend) teardown(ctx context.Context, s *DBSystem, inst Instance, final, wasStopped bool) error {
+func (b *InMemoryBackend) teardown(
+	ctx context.Context, s *DBSystem, inst Instance, final, wasStopped, retain bool,
+) error {
 	var err error
 
 	if inst == nil {
@@ -873,9 +885,49 @@ func (b *InMemoryBackend) teardown(ctx context.Context, s *DBSystem, inst Instan
 		}
 	}
 
+	if retain && err == nil {
+		return b.retainServer(ctx, s.ID, inst)
+	}
+
 	inst.Close(ctx, true)
 
 	return err //nolint:wrapcheck // engine errors carry the cause
+}
+
+// retainServer stops the server of a deleted DB system and keeps it with its data so point-in-time recovery can
+// replay its binary logs until the retained backups expire.
+func (b *InMemoryBackend) retainServer(ctx context.Context, id string, inst Instance) error {
+	if err := inst.Stop(ctx); err != nil {
+		inst.Close(ctx, true)
+
+		return err //nolint:wrapcheck // engine errors carry the cause
+	}
+
+	b.mu.Lock("retainServer")
+	b.eng.retained[id] = inst
+	b.mu.Unlock()
+
+	return nil
+}
+
+// expireRetained closes the retained servers whose backup retention window has passed. It must be called with the
+// lock held.
+func (b *InMemoryBackend) expireRetained() {
+	if b.eng == nil {
+		return
+	}
+
+	now := b.nowUTC()
+
+	for id, inst := range b.eng.retained {
+		s, ok := b.systems[id]
+		if ok && s.TimeUpdated.AddDate(0, 0, s.BackupPolicy.RetentionInDays).After(now) {
+			continue
+		}
+
+		delete(b.eng.retained, id)
+		b.wg.Go(func() { inst.Close(context.WithoutCancel(b.runCtx), true) })
+	}
 }
 
 func (h *Handler) updateDBSystem(q *req) error {

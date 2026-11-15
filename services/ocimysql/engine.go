@@ -6,12 +6,15 @@ import (
 	"encoding/binary"
 	"errors"
 	"log/slog"
+	"maps"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/mysqlengine"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/tcpfront"
 )
 
 const enginePrefix = "gopherstack-ocimysql"
@@ -104,7 +107,11 @@ type DockerConfig struct {
 type dbEngine struct {
 	launcher Launcher
 	live     map[string]Instance
+	retained map[string]Instance
+	fronts   map[string]*tcpfront.Front
+	route    map[string]string
 	image    string
+	rr       atomic.Uint64
 }
 
 type dockerLauncher struct{ e *mysqlengine.Engine }
@@ -136,7 +143,14 @@ func (b *InMemoryBackend) EnableDockerEngine(cfg DockerConfig) error {
 // SetLauncher switches the backend to engine mode with a custom Launcher; image overrides the per-version image.
 func (b *InMemoryBackend) SetLauncher(l Launcher, image string) {
 	b.mu.Lock("SetLauncher")
-	b.eng = &dbEngine{launcher: l, live: map[string]Instance{}, image: image}
+	b.eng = &dbEngine{
+		launcher: l,
+		live:     map[string]Instance{},
+		retained: map[string]Instance{},
+		fronts:   map[string]*tcpfront.Front{},
+		route:    map[string]string{},
+		image:    image,
+	}
 	b.mu.Unlock()
 }
 
@@ -163,6 +177,9 @@ func (b *InMemoryBackend) detachAllLocked() map[string]Instance {
 	out := b.eng.live
 	b.eng.live = map[string]Instance{}
 
+	maps.Copy(out, b.eng.retained)
+	b.eng.retained = map[string]Instance{}
+
 	return out
 }
 
@@ -184,7 +201,11 @@ func (b *InMemoryBackend) instance(id string) Instance {
 		return nil
 	}
 
-	return b.eng.live[id]
+	if inst, ok := b.eng.live[id]; ok {
+		return inst
+	}
+
+	return b.eng.retained[id]
 }
 
 type launchIn struct {
@@ -269,6 +290,13 @@ func (b *InMemoryBackend) adoptInstance(
 	ctx context.Context, id string, inst Instance, purge bool, cfgID string, base *time.Time,
 ) {
 	host, port := inst.Endpoint()
+	b.mu.RLock("adoptInstance")
+	front := b.eng.fronts[id]
+	b.mu.RUnlock()
+
+	if front != nil {
+		host, port = front.Addr()
+	}
 
 	xport := 0
 	if xe, isX := inst.(XEndpointer); isX {
@@ -397,7 +425,22 @@ func (b *InMemoryBackend) recoveryWork(id string, p *pitrPlan, in launchIn) func
 
 		in.rec = &rec
 
-		return b.launchWork(id, in)(ctx)
+		err = b.launchWork(id, in)(ctx)
+		b.restopRetained(ctx, p.srcID, src)
+
+		return err
+	}
+}
+
+// restopRetained stops a deleted DB system's retained server again once a recovery has replayed from it.
+func (b *InMemoryBackend) restopRetained(ctx context.Context, id string, inst Instance) {
+	b.mu.RLock("restopRetained")
+	s, ok := b.systems[id]
+	deleted := ok && s.State == stateDeleted
+	b.mu.RUnlock()
+
+	if deleted {
+		_ = inst.Stop(ctx)
 	}
 }
 
@@ -410,7 +453,7 @@ func (b *InMemoryBackend) waitSourceOrStart(ctx context.Context, id string) (Ins
 
 	b.mu.RLock("waitSourceOrStart")
 	s, ok := b.systems[id]
-	stopped := ok && s.State == stateInactive
+	stopped := ok && (s.State == stateInactive || s.State == stateDeleted)
 	b.mu.RUnlock()
 
 	if stopped {
@@ -465,6 +508,7 @@ func (b *InMemoryBackend) relaunchLocked() {
 	}
 
 	b.interruptChannels()
+	b.interruptBlueGreens()
 
 	for _, s := range b.systems {
 		if s.State != stateActive && s.State != stateUpdating && s.State != stateCreating {

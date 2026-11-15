@@ -180,7 +180,7 @@ func (s *Server) ReplicaSeed(ctx context.Context, dbs []string) ([]byte, error) 
 }
 
 func (s *Server) resetStmt() string {
-	if strings.HasSuffix(s.spec.Image, ":8.4") {
+	if !strings.HasSuffix(s.spec.Image, ":8.0") {
 		return "RESET BINARY LOGS AND GTIDS"
 	}
 
@@ -287,4 +287,18 @@ func (s *Server) reguard(ctx context.Context) {
 				"server", s.spec.ID, "error", err)
 		}
 	}
+}
+
+// Seed resets the server's binary log state and loads seed (a ReplicaSeed dump), so a channel can continue from the
+// seed's GTID set.
+func (s *Server) Seed(ctx context.Context, seed []byte) error {
+	if _, err := s.Statement(ctx, s.resetStmt()); err != nil {
+		return err
+	}
+
+	if len(seed) == 0 {
+		return nil
+	}
+
+	return s.RestoreInto(ctx, "", seed)
 }

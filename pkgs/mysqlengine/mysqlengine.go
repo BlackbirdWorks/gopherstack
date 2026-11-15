@@ -721,12 +721,12 @@ func (s *Server) RestoreInto(ctx context.Context, db string, data []byte) error 
 		return fmt.Errorf("write dump: %w", err)
 	}
 
-	cmd := []string{mysqlBin, "-u" + RootUser}
+	cmd := []string{"sh", "-c", "exec " + mysqlBin + " -u" + RootUser + ` "$@" < ` + dumpMount + "/in.sql", "sh"}
 	if db != "" {
 		cmd = append(cmd, "--database="+db)
 	}
 
-	return s.run(ctx, mysqlBin, append(cmd, "-e", "source "+dumpMount+"/in.sql"), s.pwdEnv())
+	return s.run(ctx, mysqlBin, cmd, s.pwdEnv())
 }
 
 // Close removes the container and releases its port; purge also deletes the data volume.

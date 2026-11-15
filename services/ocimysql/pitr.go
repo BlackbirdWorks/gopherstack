@@ -118,8 +118,8 @@ func (b *InMemoryBackend) pitrSourceReady(s *DBSystem) *APIError {
 		return errParam("DB system " + s.ID + " does not have point-in-time recovery enabled")
 	case s.State == stateDeleted && s.Deletion.AutomaticBackupRetention != retainBackups:
 		return errParam("DB system " + s.ID + " was deleted without retaining its automatic backups")
-	case s.State == stateDeleted && b.eng != nil:
-		return errParam("DB system " + s.ID + " was deleted and its data was removed with it")
+	case s.State == stateDeleted && b.eng != nil && b.eng.retained[s.ID] == nil:
+		return errParam("DB system " + s.ID + " was deleted and its retained recovery data has expired")
 	case s.State == stateDeleted:
 		return nil
 	case s.State != stateActive && s.State != stateInactive:
