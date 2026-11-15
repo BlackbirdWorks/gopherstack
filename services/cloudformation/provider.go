@@ -55,6 +55,7 @@ import (
 	kinesisvideobackend "github.com/blackbirdworks/gopherstack/services/kinesisvideo"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	lambdawebbackend "github.com/blackbirdworks/gopherstack/services/lambdaweb"
 	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	networkmanagerbackend "github.com/blackbirdworks/gopherstack/services/networkmanager"
@@ -168,6 +169,7 @@ type BackendsProvider interface {
 	GetAccessAnalyzerHandler() service.Registerable
 	GetAmplifyHandler() service.Registerable
 	GetKinesisVideoHandler() service.Registerable
+	GetLambdaWebHandler() service.Registerable
 	GetECRPublicHandler() service.Registerable
 	GetKafkaConnectHandler() service.Registerable
 	GetRUMHandler() service.Registerable
@@ -228,6 +230,7 @@ func extractCoreBackends(bp BackendsProvider, backends *ServiceBackends) {
 	backends.AccessAnalyzer, _ = getHandler[*accessanalyzerbackend.Handler](bp.GetAccessAnalyzerHandler())
 	backends.Amplify, _ = getHandler[*amplifybackend.Handler](bp.GetAmplifyHandler())
 	backends.KinesisVideo, _ = getHandler[*kinesisvideobackend.Handler](bp.GetKinesisVideoHandler())
+	backends.LambdaWeb, _ = getHandler[*lambdawebbackend.Handler](bp.GetLambdaWebHandler())
 	backends.ECRPublic, _ = getHandler[*ecrpublicbackend.Handler](bp.GetECRPublicHandler())
 	backends.KafkaConnect, _ = getHandler[*kafkaconnectbackend.Handler](bp.GetKafkaConnectHandler())
 	backends.RUM, _ = getHandler[*rumbackend.Handler](bp.GetRUMHandler())

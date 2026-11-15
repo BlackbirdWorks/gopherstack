@@ -15,6 +15,7 @@ import (
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdawebbackend "github.com/blackbirdworks/gopherstack/services/lambdaweb"
+	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 )
@@ -146,6 +147,12 @@ func wireLambdaWeb(cli *CLI, byName map[string]service.Registerable) {
 	}
 
 	bk.SetPrincipalResolver(buildPrincipalResolvers(slices.Collect(maps.Values(byName))))
+
+	if orgH, orgOk := byName["Organizations"].(*organizationsbackend.Handler); orgOk {
+		if orgs, bkOk := orgH.Backend.(lambdawebbackend.OrgResolver); bkOk {
+			bk.SetOrgResolver(orgs)
+		}
+	}
 
 	if cli != nil {
 		bk.SetSigV4Secret(cli.SigV4Secret)

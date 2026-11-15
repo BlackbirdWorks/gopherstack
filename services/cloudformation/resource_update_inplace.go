@@ -47,6 +47,10 @@ func (rc *ResourceCreator) UpdateInPlace(
 		return true, rc.updateRUMAppMonitor(ctx, physicalID, props, params, physicalIDs)
 	case resTypeLambdaFunction:
 		return true, rc.updateLambdaFunction(physicalID, props, params, physicalIDs)
+	case resTypeLambdaWebFunction:
+		return true, rc.updateLambdaWebFunction(physicalID, props, params, physicalIDs)
+	case resTypeLambdaWebFunctionEndpoint:
+		return true, rc.updateLambdaWebEndpoint(physicalID, props, params, physicalIDs)
 	case resTypeSQSQueue:
 		return true, rc.updateSQSQueue(physicalID, props, params, physicalIDs)
 	case resTypeStepFunctionsStateMachine:

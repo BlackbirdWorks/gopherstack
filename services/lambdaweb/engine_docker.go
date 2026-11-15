@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	_ "embed"
 	"errors"
 	"fmt"
 	"io"
@@ -32,7 +33,14 @@ const (
 	environmentCPUs  = 2_000_000_000
 	dirPerm          = 0o755
 	logPortLabel     = "lambdaweb"
+	preloadName      = ".gopherstack-lambdaweb-preload.cjs"
+	// nodeHeaderFlag raises Node's 16 KiB header limit to the platform's 128 KiB, as the managed runtimes do.
+	nodeHeaderFlag = "--max-http-header-size=131072"
+	filePerm       = 0o644
 )
+
+//go:embed preload.cjs
+var preloadScript []byte
 
 var (
 	errListenTimeout = errors.New("application did not start listening")
@@ -100,6 +108,50 @@ func (e *dockerEnv) Close(ctx context.Context) {
 	}
 }
 
+// Stats samples the container's CPU time and memory use.
+func (e *dockerEnv) Stats(ctx context.Context) (EnvStats, bool) {
+	sr, ok := e.l.cfg.Runtime.(container.StatsReader)
+	if !ok {
+		return EnvStats{}, false
+	}
+
+	st, err := sr.Stats(ctx, e.id)
+	if err != nil {
+		return EnvStats{}, false
+	}
+
+	return EnvStats{
+		CPUTime:         time.Duration(st.CPUTimeNanos), //nolint:gosec // cumulative ns
+		MemoryBytes:     st.MemoryBytes,
+		PeakMemoryBytes: st.MemoryPeakBytes,
+	}, true
+}
+
+// CloseWithin sends SIGTERM and gives the app grace to exit before it is killed.
+func (e *dockerEnv) CloseWithin(ctx context.Context, grace time.Duration) bool {
+	gs, ok := e.l.cfg.Runtime.(container.GracefulStopper)
+	if !ok {
+		e.Close(ctx)
+
+		return true
+	}
+
+	e.cancel()
+
+	killed, err := gs.StopAndRemoveWithin(ctx, e.id, grace)
+	if err != nil {
+		_ = e.l.cfg.Runtime.StopAndRemove(ctx, e.id)
+	}
+
+	portalloc.ReleaseTo(e.l.cfg.Ports, e.port)
+
+	if e.codeDir != "" {
+		_ = os.RemoveAll(e.codeDir)
+	}
+
+	return !killed
+}
+
 // followLogs delivers the container's stdout and stderr lines to out.
 func (l *dockerLauncher) followLogs(ctx context.Context, out func(stderr bool, line string), id string) {
 	streamer, ok := l.cfg.Runtime.(container.LogStreamer)
@@ -136,7 +188,18 @@ func (l *dockerLauncher) Launch(ctx context.Context, spec LaunchSpec) (Environme
 		return nil, fmt.Errorf("%w: %w", ErrCodeUnavailable, err)
 	}
 
-	env := l.environmentVars(rev, creds, endpointURL)
+	if err = os.WriteFile(filepath.Join(dir, preloadName), preloadScript, filePerm); err != nil {
+		_ = os.RemoveAll(dir)
+
+		return nil, fmt.Errorf("%w: %w", ErrCodeUnavailable, err)
+	}
+
+	region := spec.Region
+	if region == "" {
+		region = rev.Region
+	}
+
+	env := l.environmentVars(rev, region, creds, endpointURL)
 
 	var port int
 
@@ -178,15 +241,18 @@ func (l *dockerLauncher) containerSpec(rev *Revision, dir string, env []string, 
 
 	return container.Spec{
 		Name:  "gopherstack-lambdaweb-" + rev.FunctionName + "-" + rev.ID + "-" + strconv.Itoa(port),
-		Image: l.cfg.Image, Env: env, Cmd: []string{"node", entry}, WorkingDir: taskRoot,
+		Image: l.cfg.Image, Env: env, WorkingDir: taskRoot,
+		Cmd:    []string{"node", nodeHeaderFlag, "--require", taskRoot + "/" + preloadName, entry},
 		Mounts: []string{dir + ":" + taskRoot + ":ro"}, MemoryBytes: environmentMem, NanoCPUs: environmentCPUs,
 		Ports: []string{container.PortSpec(container.BindHostFor(l.cfg.Host), strconv.Itoa(port), appPort)},
 	}
 }
 
-func (l *dockerLauncher) environmentVars(rev *Revision, creds CredentialIssuer, endpointURL string) []string {
+func (l *dockerLauncher) environmentVars(
+	rev *Revision, region string, creds CredentialIssuer, endpointURL string,
+) []string {
 	vars := map[string]string{
-		"AWS_REGION": rev.Region, "AWS_DEFAULT_REGION": rev.Region, "TZ": ":UTC",
+		"AWS_REGION": region, "AWS_DEFAULT_REGION": region, "TZ": ":UTC",
 	}
 
 	if endpointURL != "" {

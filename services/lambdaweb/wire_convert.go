@@ -91,11 +91,24 @@ func updateReason(e *Endpoint) string {
 func endpointResponseOf(e *Endpoint) endpointResponse {
 	regional := make(map[string]regionalEndpointDTO, len(e.Regions))
 	for _, r := range e.Regions {
-		regional[r] = regionalEndpointDTO{
+		dto := regionalEndpointDTO{
 			ScalingConfig: scalingToDTO(e), ThrottleConfig: throttleToDTO(e), AuthType: e.AuthType,
 			DomainName: e.RegionDomains[r], RevisionWeights: weightsToDTO(e.Weights), State: e.State,
 			StateReason: e.StateReason, UpdateStatus: e.UpdateStatus, UpdateStatusReason: updateReason(e),
 		}
+
+		if r == e.Region && e.Replicas != nil {
+			dto.State, dto.StateReason = homeRegionState(e)
+			dto.UpdateStatus, dto.UpdateStatusReason = homeRegionUpdate(e)
+		}
+
+		if rep := e.Replicas[r]; rep != nil {
+			dto.State, dto.StateReason = rep.State, rep.StateReason
+			dto.UpdateStatus, dto.UpdateStatusReason = rep.UpdateStatus, rep.UpdateReason
+			dto.RevisionWeights = weightsToDTO(rep.Weights)
+		}
+
+		regional[r] = dto
 	}
 
 	return endpointResponse{
@@ -214,4 +227,22 @@ func filtersFromDTO(fs []filterDTO) []Filter {
 	}
 
 	return out
+}
+
+// homeRegionState is the home Region's own state: a replica's replication failure fails the endpoint, not the home
+// Region's deployment.
+func homeRegionState(e *Endpoint) (string, string) {
+	if e.State == stateFailed {
+		return stateActive, ""
+	}
+
+	return e.State, e.StateReason
+}
+
+func homeRegionUpdate(e *Endpoint) (string, string) {
+	if e.UpdateStatus == updateFailed {
+		return updateSuccessful, ""
+	}
+
+	return e.UpdateStatus, updateReason(e)
 }

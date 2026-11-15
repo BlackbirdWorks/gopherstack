@@ -85,7 +85,7 @@ func (b *InMemoryBackend) policyAllowsInvoke(r *http.Request, ep *Endpoint, auth
 
 	switch iam.EvaluatePolicies([]string{filtered}, invokeAction, ep.ARN, iam.ConditionContext{
 		PrincipalARN: c.arn, PrincipalAccount: c.account, RequestedRegion: ep.Region, SourceIP: host,
-		SecureTransport: boolString(r.TLS != nil),
+		SecureTransport: boolString(r.TLS != nil), Extra: b.orgConditionKeys(c.account, ep.AccountID),
 	}) {
 	case iam.EvalExplicitDeny:
 		return false
@@ -187,4 +187,40 @@ func stringsOf(raw jsontext.Value) []string {
 	_ = json.Unmarshal(raw, &many, jsonx.V1())
 
 	return many
+}
+
+// orgConditionKeys exposes aws:PrincipalOrgID and aws:ResourceOrgID for accounts that belong to an organization.
+func (b *InMemoryBackend) orgConditionKeys(principalAccount, resourceAccount string) map[string]string {
+	b.mu.RLock("orgConditionKeys")
+	orgs := b.orgs
+	b.mu.RUnlock()
+
+	if orgs == nil {
+		return nil
+	}
+
+	out := map[string]string{}
+
+	if id := orgs.OrgIDForAccount(principalAccount); id != "" {
+		out["aws:principalorgid"] = id
+	}
+
+	if id := orgs.OrgIDForAccount(resourceAccount); id != "" {
+		out["aws:resourceorgid"] = id
+	}
+
+	return out
+}
+
+// OrgResolver maps an account to the organization it belongs to; the Organizations backend implements it.
+type OrgResolver interface {
+	OrgIDForAccount(accountID string) string
+}
+
+// SetOrgResolver wires the organization lookup behind aws:PrincipalOrgID and aws:ResourceOrgID.
+func (b *InMemoryBackend) SetOrgResolver(o OrgResolver) {
+	b.mu.Lock("SetOrgResolver")
+	defer b.mu.Unlock()
+
+	b.orgs = o
 }

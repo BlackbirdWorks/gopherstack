@@ -226,7 +226,10 @@ func TestDockerLauncher_Launch(t *testing.T) {
 	require.Len(t, rt.specs, 1)
 	cs := rt.specs[0]
 	assert.Equal(t, "docker.io/library/node:24-slim", cs.Image)
-	assert.Equal(t, []string{"node", "server.js"}, cs.Cmd)
+	assert.Equal(t, []string{
+		"node", "--max-http-header-size=131072", "--require",
+		"/var/task/.gopherstack-lambdaweb-preload.cjs", "server.js",
+	}, cs.Cmd)
 	assert.Equal(t, "/var/task", cs.WorkingDir)
 	assert.True(t, strings.HasSuffix(cs.Mounts[0], ":/var/task:ro"))
 	assert.ElementsMatch(t, []string{
@@ -274,7 +277,11 @@ func TestDockerLauncher_DefaultEntrypoint(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { e.Close(context.Background()) })
 
-	assert.Equal(t, []string{"node", "index.js"}, rt.specs[0].Cmd)
+	assert.Equal(t,
+		[]string{
+			"node", "--max-http-header-size=131072", "--require",
+			"/var/task/.gopherstack-lambdaweb-preload.cjs", "index.js",
+		}, rt.specs[0].Cmd)
 }
 
 func TestDockerLauncher_NeverListens(t *testing.T) {

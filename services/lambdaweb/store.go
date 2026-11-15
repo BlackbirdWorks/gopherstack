@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -63,6 +64,8 @@ type InMemoryBackend struct {
 	metrics        cwmetric.Emitter
 	keys           KeyChecker
 	roleTrust      RoleTrust
+	roleAuth       roleauth.Authorizer
+	orgs           OrgResolver
 	principals     awsmeta.PrincipalResolver
 	endpointURL    string
 	run            *runtimeState
@@ -339,8 +342,10 @@ func (b *InMemoryBackend) advanceEndpointsLocked(now time.Time) {
 			}
 		}
 
+		advanceReplicasLocked(e, now)
+
 		if e.UpdateStatus == updateInProgress && !now.Before(e.UpdatePendingUntil) {
-			e.UpdateStatus, e.UpdatePendingUntil = updateSuccessful, time.Time{}
+			finishEndpointUpdate(e)
 		}
 	}
 }
@@ -406,4 +411,24 @@ func (b *InMemoryBackend) removeFunctionLocked(f *Function) {
 
 	b.run.stopFunction(f.Region, f.Name)
 	b.functions.Delete(functionKey(f.Region, f.Name))
+}
+
+// FunctionARNOf returns the web function ARN that owns a function, revision or endpoint ARN.
+func FunctionARNOf(resourceARN string) (string, bool) {
+	p, ok := parseWebARN(resourceARN)
+	if !ok {
+		return "", false
+	}
+
+	return functionARN(p.region, p.account, p.function), true
+}
+
+// RegionOf returns the Region of a web function, revision or endpoint ARN.
+func RegionOf(resourceARN string) (string, bool) {
+	p, ok := parseWebARN(resourceARN)
+	if !ok {
+		return "", false
+	}
+
+	return p.region, true
 }

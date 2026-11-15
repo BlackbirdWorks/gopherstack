@@ -1587,6 +1587,7 @@ func resolveGetAtt(logicalID, attrName string, ctx resolveCtx) string {
 			resTypeEC2RouteServer, resTypeEC2RouteServerEndpoint, resTypeEC2RouteServerPeer,
 			resTypeEC2NetworkInsightsPath, resTypeElastiCacheUser,
 			resTypeKinesisVideoStream, resTypeKinesisVideoSignalingChannel,
+			resTypeLambdaWebFunction, resTypeLambdaWebFunctionRevision, resTypeLambdaWebFunctionEndpoint,
 			resTypeECRPublicRepository,
 			resTypeKafkaConnectConnector, resTypeKafkaConnectCustomPlugin, resTypeKafkaConnectWorkerConfiguration,
 			resTypeNMGlobalNetwork, resTypeNMSite, resTypeNMDevice, resTypeNMLink,
