@@ -442,6 +442,9 @@ jobs:
   codeql:
     runs-on: ubuntu-latest
     timeout-minutes: 360
+    env:
+      # codeql-action/init deprecates GOFLAGS in its environment; the build step passes -pgo=off itself.
+      GOFLAGS: ""
     permissions:
       actions: read
       contents: read
@@ -515,7 +518,7 @@ jobs:
       # Autobuild ran `make` (the whole UI build) under tracing and was OOM-killed; Go code only.
       # -p 2: each traced compile runs an extractor; full parallelism exhausts runner RAM.
       - name: Build Go code
-        run: go build -p 2 ./...
+        run: go build -pgo=off -p 2 ./...
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
