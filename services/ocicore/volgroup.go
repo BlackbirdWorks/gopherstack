@@ -21,7 +21,7 @@ type CreateVolumeGroupIn struct {
 	AvailabilityDomain  string             `json:"availabilityDomain"`
 	DisplayName         string             `json:"displayName"`
 	BackupPolicyID      string             `json:"backupPolicyId"`
-	VolumeGroupReplicas []any              `json:"volumeGroupReplicas"`
+	VolumeGroupReplicas []ReplicaDetailsIn `json:"volumeGroupReplicas"`
 }
 
 // groupMember is a volume or boot volume that belongs to a volume group.
@@ -121,10 +121,12 @@ func (b *InMemoryBackend) sourceMembers(g *VolumeGroup, src *VolumeGroupSource) 
 	case groupFromGroup:
 		return b.cloneGroup(g, src.VolumeGroupID)
 	case groupFromReplica:
-		return nil, errNotFound(src.VolumeGroupReplicaID)
+		return b.restoreFromGroupReplica(g, src.VolumeGroupReplicaID)
 	}
 
-	return nil, errParam("sourceDetails.type must be volumeIds, volumeGroupBackupId or volumeGroupId")
+	return nil, errParam(
+		"sourceDetails.type must be volumeIds, volumeGroupBackupId, volumeGroupId or volumeGroupReplicaId",
+	)
 }
 
 func (b *InMemoryBackend) restoreGroup(g *VolumeGroup, backupID string) ([]string, *APIError) {
@@ -275,7 +277,13 @@ func (b *InMemoryBackend) CreateVolumeGroup(in CreateVolumeGroupIn) (Resource, s
 
 	g.IsHydrated = in.SourceDetails.Type == groupFromIDs
 	b.adopt(g, ids)
+
+	if aerr = b.checkGroupReplicas(g, in.VolumeGroupReplicas); aerr != nil {
+		return nil, "", aerr
+	}
+
 	b.add(g)
+	b.applyGroupReplicas(g, in.VolumeGroupReplicas)
 
 	if in.BackupPolicyID != "" {
 		b.assignPolicy(g.ID, in.BackupPolicyID, g.CompartmentID)
@@ -303,10 +311,6 @@ func (b *InMemoryBackend) volumeGroupChecks(in CreateVolumeGroupIn) *APIError {
 
 	if in.SourceDetails == nil {
 		return errMissing("sourceDetails is required")
-	}
-
-	if len(in.VolumeGroupReplicas) > 0 {
-		return errParam("volumeGroupReplicas is not supported")
 	}
 
 	if in.BackupPolicyID != "" {
@@ -339,30 +343,61 @@ func (b *InMemoryBackend) adopt(g *VolumeGroup, ids []string) {
 // UpdateVolumeGroupIn is the UpdateVolumeGroup request body.
 type UpdateVolumeGroupIn struct {
 	UpdateIn
-	VolumeIDs           *[]string `json:"volumeIds"`
-	VolumeGroupReplicas []any     `json:"volumeGroupReplicas"`
+	VolumeIDs           *[]string           `json:"volumeIds"`
+	VolumeGroupReplicas *[]ReplicaDetailsIn `json:"volumeGroupReplicas"`
 }
 
 // UpdateVolumeGroup renames a group or replaces its set of volumes.
 func (b *InMemoryBackend) UpdateVolumeGroup(id, ifMatch string, in UpdateVolumeGroupIn) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(g *VolumeGroup) *APIError {
-		if len(in.VolumeGroupReplicas) > 0 {
-			return errParam("volumeGroupReplicas is not supported")
+		ids := g.VolumeIDs
+		if in.VolumeIDs != nil {
+			if _, aerr := b.groupMembers(g.AvailabilityDomain, *in.VolumeIDs, g.ID); aerr != nil {
+				return aerr
+			}
+
+			ids = *in.VolumeIDs
 		}
 
-		if in.VolumeIDs == nil {
-			return nil
-		}
-
-		if _, aerr := b.groupMembers(g.AvailabilityDomain, *in.VolumeIDs, g.ID); aerr != nil {
+		if aerr := b.checkGroupUpdate(g, ids, in); aerr != nil {
 			return aerr
 		}
 
-		b.leaveGroup(g)
-		b.adopt(g, *in.VolumeIDs)
+		if in.VolumeIDs != nil {
+			b.leaveGroup(g)
+			b.adopt(g, ids)
+		}
+
+		if in.VolumeGroupReplicas != nil {
+			b.applyGroupReplicas(g, *in.VolumeGroupReplicas)
+		}
+
+		b.sweepGroupReplicas()
 
 		return nil
 	})
+}
+
+// checkGroupUpdate validates the replica side of a group update against the member set it will end up with.
+func (b *InMemoryBackend) checkGroupUpdate(g *VolumeGroup, ids []string, in UpdateVolumeGroupIn) *APIError {
+	if in.VolumeGroupReplicas != nil {
+		probe := *g
+		probe.VolumeIDs = ids
+
+		return b.checkGroupReplicas(&probe, *in.VolumeGroupReplicas)
+	}
+
+	if in.VolumeIDs == nil || len(g.VolumeGroupReplicas) == 0 {
+		return nil
+	}
+
+	for _, id := range ids {
+		if aerr := b.ownReplicaBlock(id, g); aerr != nil {
+			return aerr
+		}
+	}
+
+	return nil
 }
 
 // leaveGroup detaches every member from the group.

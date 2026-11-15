@@ -157,7 +157,7 @@ func validSchedules(in []BackupSchedule) *APIError {
 			return errParam("schedule backupType must be FULL or INCREMENTAL")
 		}
 
-		if !slices.Contains([]string{"ONE_HOUR", "ONE_DAY", "ONE_WEEK", "ONE_MONTH", "ONE_YEAR"}, s.Period) {
+		if !slices.Contains([]string{periodHour, periodDay, periodWeek, periodMonth, periodYear}, s.Period) {
 			return errParam("schedule period must be ONE_HOUR, ONE_DAY, ONE_WEEK, ONE_MONTH or ONE_YEAR")
 		}
 

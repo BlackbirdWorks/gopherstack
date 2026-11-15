@@ -340,6 +340,10 @@ func (b *InMemoryBackend) Sweep() {
 			b.dropRules(id)
 		}
 	}
+
+	b.sweepBackupSchedules(now)
+	b.sweepAutotune(now)
+	b.sweepGroupReplicas()
 }
 
 func (b *InMemoryBackend) settle(r Resource, at time.Time) {
@@ -354,6 +358,10 @@ func (b *InMemoryBackend) settle(r Resource, at time.Time) {
 				v.LifecycleState = statAssigned
 			}
 		case *BlockVolumeReplica:
+			v.TimeLastSynced = at
+		case *BootVolumeReplica:
+			v.TimeLastSynced = at
+		case *VolumeGroupReplica:
 			v.TimeLastSynced = at
 		}
 	case statTerminating:

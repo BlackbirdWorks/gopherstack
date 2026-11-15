@@ -110,6 +110,7 @@ type PrivateIP struct {
 	Lifetime           string `json:"lifetime"`
 	SubnetID           string `json:"subnetId"`
 	VnicID             string `json:"vnicId,omitempty"`
+	RouteTableID       string `json:"routeTableId,omitempty"`
 	IsPrimary          bool   `json:"isPrimary"`
 }
 
@@ -126,12 +127,14 @@ type VnicAttachment struct {
 
 // Volume is a block volume.
 type Volume struct {
-	SourceDetails *VolumeSource `json:"sourceDetails,omitempty"`
+	SourceDetails      *VolumeSource `json:"sourceDetails,omitempty"`
+	AutoTunedVpusPerGB *int64        `json:"autoTunedVpusPerGB,omitempty"`
 	Base
 	AvailabilityDomain  string                   `json:"availabilityDomain"`
 	KmsKeyID            string                   `json:"kmsKeyId,omitempty"`
 	VolumeGroupID       string                   `json:"volumeGroupId,omitempty"`
 	BlockVolumeReplicas []BlockVolumeReplicaInfo `json:"blockVolumeReplicas,omitempty"`
+	AutotunePolicies    []AutotunePolicy         `json:"autotunePolicies,omitempty"`
 	SizeInMBs           int64                    `json:"sizeInMBs"`
 	SizeInGBs           int64                    `json:"sizeInGBs"`
 	VpusPerGB           int64                    `json:"vpusPerGB"`
@@ -147,17 +150,20 @@ type VolumeSource struct {
 
 // BootVolume is an instance boot volume.
 type BootVolume struct {
-	SourceDetails *VolumeSource `json:"sourceDetails,omitempty"`
+	SourceDetails      *VolumeSource `json:"sourceDetails,omitempty"`
+	AutoTunedVpusPerGB *int64        `json:"autoTunedVpusPerGB,omitempty"`
 	Base
-	AvailabilityDomain string `json:"availabilityDomain"`
-	ImageID            string `json:"imageId,omitempty"`
-	KmsKeyID           string `json:"kmsKeyId,omitempty"`
-	VolumeGroupID      string `json:"volumeGroupId,omitempty"`
-	SizeInMBs          int64  `json:"sizeInMBs"`
-	SizeInGBs          int64  `json:"sizeInGBs"`
-	VpusPerGB          int64  `json:"vpusPerGB"`
-	IsHydrated         bool   `json:"isHydrated"`
-	IsAutoTuneEnabled  bool   `json:"isAutoTuneEnabled"`
+	AvailabilityDomain string                  `json:"availabilityDomain"`
+	ImageID            string                  `json:"imageId,omitempty"`
+	KmsKeyID           string                  `json:"kmsKeyId,omitempty"`
+	VolumeGroupID      string                  `json:"volumeGroupId,omitempty"`
+	AutotunePolicies   []AutotunePolicy        `json:"autotunePolicies,omitempty"`
+	BootVolumeReplicas []BootVolumeReplicaInfo `json:"bootVolumeReplicas,omitempty"`
+	SizeInMBs          int64                   `json:"sizeInMBs"`
+	SizeInGBs          int64                   `json:"sizeInGBs"`
+	VpusPerGB          int64                   `json:"vpusPerGB"`
+	IsHydrated         bool                    `json:"isHydrated"`
+	IsAutoTuneEnabled  bool                    `json:"isAutoTuneEnabled"`
 }
 
 // VolumeAttachment is an iSCSI or paravirtualized volume attachment (attachmentType).

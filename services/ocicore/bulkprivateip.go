@@ -130,8 +130,8 @@ func (b *InMemoryBackend) BulkCreatePrivateIPs(token string, in bulkCreateIn) (s
 			return "", aerr
 		}
 
-		if it.RouteTableID != "" || it.CidrPrefixLength != nil || it.Ipv4SubnetCidr != "" {
-			return "", errParam("routeTableId, cidrPrefixLength and ipv4SubnetCidrAtCreation are not supported")
+		if it.CidrPrefixLength != nil || it.Ipv4SubnetCidr != "" {
+			return "", errParam("cidrPrefixLength and ipv4SubnetCidrAtCreation are not supported")
 		}
 	}
 
@@ -147,7 +147,7 @@ func (b *InMemoryBackend) bulkCreateLocked(in bulkCreateIn) (string, *APIError) 
 	for _, it := range in.Items {
 		v, _, aerr := b.CreatePrivateIP(CreatePrivateIPIn{
 			TagsIn: it.TagsIn, DisplayName: it.DisplayName, HostnameLabel: it.HostnameLabel, IPAddress: it.IPAddress,
-			Lifetime: it.Lifetime, SubnetID: in.SubnetID, VnicID: in.VnicID,
+			Lifetime: it.Lifetime, SubnetID: in.SubnetID, VnicID: in.VnicID, RouteTableID: it.RouteTableID,
 		})
 		if aerr != nil {
 			for _, id := range ids {
@@ -283,10 +283,6 @@ func (b *InMemoryBackend) BulkUpdatePrivateIPs(token string, in bulkUpdateIn) (s
 			return "", aerr
 		}
 
-		if it.RouteTableID != nil && *it.RouteTableID != "" {
-			return "", errParam("routeTableId is not supported")
-		}
-
 		if it.DisplayName != nil {
 			if aerr := validName(*it.DisplayName); aerr != nil {
 				return "", aerr
@@ -323,6 +319,10 @@ func (b *InMemoryBackend) bulkUpdateLocked(in bulkUpdateIn) (string, *APIError) 
 
 		if it.Lifetime != nil {
 			p.Lifetime = *it.Lifetime
+		}
+
+		if it.RouteTableID != nil {
+			p.RouteTableID = *it.RouteTableID
 		}
 
 		if in.VnicID != "" && p.VnicID != in.VnicID {
@@ -366,6 +366,10 @@ func (b *InMemoryBackend) checkBulkUpdate(
 		labels[key] = p.ID
 	}
 
+	if aerr = b.checkBulkRouteTable(p, it.RouteTableID); aerr != nil {
+		return nil, aerr
+	}
+
 	if it.Lifetime != nil {
 		if _, aerr = privateLifetime(*it.Lifetime, p.VnicID != "" || vnicID != ""); aerr != nil {
 			return nil, aerr
@@ -384,6 +388,16 @@ func (b *InMemoryBackend) checkBulkUpdate(
 	}
 
 	return p, nil
+}
+
+func (b *InMemoryBackend) checkBulkRouteTable(p *PrivateIP, id *string) *APIError {
+	if id == nil {
+		return nil
+	}
+
+	s, _ := get[*Subnet](b, p.SubnetID)
+
+	return b.optRouteTable(*id, s.VcnID)
 }
 
 func (b *InMemoryBackend) moveToVnic(p *PrivateIP, vnicID string) {

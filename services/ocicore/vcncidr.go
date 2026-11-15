@@ -23,7 +23,7 @@ const (
 	opAddSubnetIpv6    = "ADD_SUBNET_IPV6_CIDR"
 	opRemoveSubnetIpv6 = "REMOVE_SUBNET_IPV6_CIDR"
 
-	maxSubnetCidrs = 6
+	maxSubnetCidrs = 16
 )
 
 func within(outer, inner netip.Prefix) bool {
@@ -285,7 +285,7 @@ func (b *InMemoryBackend) AddIpv6VcnCidr(id, ifMatch string, in AddVcnIpv6In) (s
 	}
 
 	if len(v.Ipv6CidrBlocks) > 0 {
-		return "", errConflict("The VCN " + id + " already has an Oracle-allocated IPv6 prefix")
+		return "", errLimit("A VCN can have at most 1 Oracle-allocated IPv6 prefix")
 	}
 
 	b.ipv6Seq++

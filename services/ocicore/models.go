@@ -35,10 +35,16 @@ const (
 type Internal struct {
 	TransitionAt *time.Time `json:"transitionAt,omitempty"`
 	TimeDeleted  *time.Time `json:"timeDeleted,omitempty"`
-	Etag         string     `json:"etag"`
-	NextState    string     `json:"nextState,omitempty"`
-	Arch         string     `json:"arch,omitempty"`
-	Seq          int64      `json:"seq"`
+	// UnattachedSince is when a volume with autotune policies was first seen without an attachment.
+	UnattachedSince *time.Time `json:"unattachedSince,omitempty"`
+	// ExpireAt ends a scheduled backup once its policy retention has passed.
+	ExpireAt *time.Time `json:"expireAt,omitempty"`
+	// ScheduleRuns is the last fire time handled per schedule index of an assigned backup policy.
+	ScheduleRuns map[int]time.Time `json:"scheduleRuns,omitempty"`
+	Etag         string            `json:"etag"`
+	NextState    string            `json:"nextState,omitempty"`
+	Arch         string            `json:"arch,omitempty"`
+	Seq          int64             `json:"seq"`
 }
 
 // Base is the field set every Core networking resource shares.
@@ -296,60 +302,70 @@ func (v *Vcn) view() Resource {
 
 	return &c
 }
+
 func (v *Subnet) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
+
 func (v *InternetGateway) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
+
 func (v *NatGateway) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
+
 func (v *ServiceGateway) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
+
 func (v *RouteTable) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
+
 func (v *SecurityList) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
+
 func (v *NetworkSecurityGroup) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
+
 func (v *DhcpOptions) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
+
 func (v *LocalPeeringGateway) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
+
 func (v *PublicIP) view() Resource {
 	c := *v
 	c.Internal = nil

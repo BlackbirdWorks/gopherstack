@@ -62,7 +62,7 @@ func (b *InMemoryBackend) AddIpv4SubnetCidr(id, ifMatch, cidr string) (string, *
 	}
 
 	if len(s.Ipv4CidrBlocks) >= maxSubnetCidrs {
-		return "", errLimit("A subnet can have at most 6 IPv4 CIDR blocks")
+		return "", errLimit("A subnet can have at most 16 IPv4 CIDR blocks")
 	}
 
 	if _, aerr = b.subnetBlock(v, cidr, s.ID, prefixesOf(s.Ipv4CidrBlocks)); aerr != nil {

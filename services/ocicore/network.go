@@ -14,7 +14,7 @@ import (
 const (
 	entityPrivateIP = "PRIVATE_IP"
 	maxNsgsPerVnic  = 5
-	maxIPsPerVnic   = 32
+	maxIPsPerVnic   = 64
 	regionName      = "us-ashburn-1"
 	macPrefix       = "02:00:17:"
 	v4Bits          = 32
@@ -610,6 +610,22 @@ type CreatePrivateIPIn struct {
 	SubnetID      string `json:"subnetId"`
 	VnicID        string `json:"vnicId"`
 	VlanID        string `json:"vlanId"`
+	RouteTableID  string `json:"routeTableId"`
+}
+
+func (b *InMemoryBackend) checkNewPrivateIP(vnic *Vnic, s *Subnet, in CreatePrivateIPIn) *APIError {
+	if vnic != nil {
+		secondary := func(x *PrivateIP) bool { return x.VnicID == vnic.ID && !x.IsPrimary }
+		if len(liveOf(b, secondary)) >= maxIPsPerVnic {
+			return errLimit("A VNIC can have at most 64 secondary private IPv4 addresses")
+		}
+	}
+
+	if aerr := b.checkHostname(s, in.HostnameLabel, ""); aerr != nil {
+		return aerr
+	}
+
+	return b.optRouteTable(in.RouteTableID, s.VcnID)
 }
 
 // CreatePrivateIP adds a secondary private IP to a VNIC, or reserves one in a subnet.
@@ -637,11 +653,7 @@ func (b *InMemoryBackend) CreatePrivateIP(in CreatePrivateIPIn) (Resource, strin
 		return nil, "", aerr
 	}
 
-	if vnic != nil && len(liveOf(b, func(x *PrivateIP) bool { return x.VnicID == vnic.ID })) >= maxIPsPerVnic {
-		return nil, "", errLimit("A VNIC can have at most 32 private IP addresses")
-	}
-
-	if aerr = b.checkHostname(s, in.HostnameLabel, ""); aerr != nil {
+	if aerr = b.checkNewPrivateIP(vnic, s, in); aerr != nil {
 		return nil, "", aerr
 	}
 
@@ -653,7 +665,7 @@ func (b *InMemoryBackend) CreatePrivateIP(in CreatePrivateIPIn) (Resource, strin
 	p := &PrivateIP{
 		Base:               b.newBase(kindPrivateIP, comp, in.DisplayName, in.TagsIn),
 		AvailabilityDomain: ad, HostnameLabel: in.HostnameLabel, IPAddress: addr, IPState: statAvailable,
-		Lifetime: life, SubnetID: s.ID,
+		Lifetime: life, SubnetID: s.ID, RouteTableID: in.RouteTableID,
 	}
 	if vnic != nil {
 		p.VnicID, p.IPState = vnic.ID, statAssigned
@@ -708,6 +720,7 @@ type UpdatePrivateIPIn struct {
 	HostnameLabel *string `json:"hostnameLabel"`
 	VnicID        *string `json:"vnicId"`
 	Lifetime      *string `json:"lifetime"`
+	RouteTableID  *string `json:"routeTableId"`
 	UpdateIn
 }
 
@@ -731,6 +744,14 @@ func (b *InMemoryBackend) UpdatePrivateIP(id, ifMatch string, in UpdatePrivateIP
 			}
 
 			p.Lifetime = l
+		}
+
+		if in.RouteTableID != nil {
+			if aerr := b.optRouteTable(*in.RouteTableID, s.VcnID); aerr != nil {
+				return aerr
+			}
+
+			p.RouteTableID = *in.RouteTableID
 		}
 
 		if in.VnicID != nil {

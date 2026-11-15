@@ -4,10 +4,12 @@ import "time"
 
 // Block storage resource kinds added beyond volumes and backups.
 const (
-	kindBootBackup  = "bootvolumebackup"
-	kindVolumeGroup = "volumegroup"
-	kindGroupBackup = "volumegroupbackup"
-	kindReplica     = "blockvolumereplica"
+	kindBootBackup   = "bootvolumebackup"
+	kindVolumeGroup  = "volumegroup"
+	kindGroupBackup  = "volumegroupbackup"
+	kindReplica      = "blockvolumereplica"
+	kindBootReplica  = "bootvolumereplica"
+	kindGroupReplica = "volumegroupreplica"
 )
 
 // RetentionDuration is the retentionPeriod of a backup.
@@ -55,11 +57,12 @@ type VolumeGroupSource struct {
 type VolumeGroup struct {
 	SourceDetails *VolumeGroupSource `json:"sourceDetails,omitempty"`
 	Base
-	AvailabilityDomain string   `json:"availabilityDomain"`
-	VolumeIDs          []string `json:"volumeIds"`
-	SizeInMBs          int64    `json:"sizeInMBs"`
-	SizeInGBs          int64    `json:"sizeInGBs"`
-	IsHydrated         bool     `json:"isHydrated"`
+	AvailabilityDomain  string                   `json:"availabilityDomain"`
+	VolumeIDs           []string                 `json:"volumeIds"`
+	VolumeGroupReplicas []VolumeGroupReplicaInfo `json:"volumeGroupReplicas,omitempty"`
+	SizeInMBs           int64                    `json:"sizeInMBs"`
+	SizeInGBs           int64                    `json:"sizeInGBs"`
+	IsHydrated          bool                     `json:"isHydrated"`
 }
 
 // VolumeGroupBackup is a crash-consistent backup of every member of a volume group.
@@ -86,6 +89,7 @@ type BlockVolumeReplica struct {
 	AvailabilityDomain        string `json:"availabilityDomain"`
 	BlockVolumeID             string `json:"blockVolumeId"`
 	KmsKeyID                  string `json:"kmsKeyId,omitempty"`
+	VolumeGroupReplicaID      string `json:"volumeGroupReplicaId,omitempty"`
 	SizeInGBs                 int64  `json:"sizeInGBs"`
 	TotalDataTransferredInGBs int64  `json:"totalDataTransferredInGBs"`
 }

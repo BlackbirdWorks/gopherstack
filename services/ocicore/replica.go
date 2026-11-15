@@ -15,16 +15,32 @@ type ReplicaDetailsIn struct {
 }
 
 func (b *InMemoryBackend) checkReplicas(vol *Volume, want []ReplicaDetailsIn) *APIError {
+	if aerr := b.checkReplicaDetails(vol.AvailabilityDomain, want, "block volume"); aerr != nil {
+		return aerr
+	}
+
+	for _, cur := range vol.BlockVolumeReplicas {
+		r, ok := b.res[cur.BlockVolumeReplicaID].(*BlockVolumeReplica)
+		if ok && live(r) && r.VolumeGroupReplicaID != "" {
+			return errConflict("The block volume replica " + r.ID + " is managed by volume group replica " +
+				r.VolumeGroupReplicaID)
+		}
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) checkReplicaDetails(ad string, want []ReplicaDetailsIn, what string) *APIError {
 	if len(want) > maxReplicasPerVolume {
-		return errLimit("A block volume can have at most 1 replica")
+		return errLimit("A " + what + " can have at most 1 replica")
 	}
 
 	for _, r := range want {
 		switch {
 		case !blockAdRe.MatchString(r.AvailabilityDomain):
 			return errParam("availabilityDomain " + r.AvailabilityDomain + " is not a valid availability domain")
-		case r.AvailabilityDomain == vol.AvailabilityDomain:
-			return errParam("A replica must be in a different availability domain than its volume")
+		case r.AvailabilityDomain == ad:
+			return errParam("A replica must be in a different availability domain than its " + what)
 		}
 
 		if aerr := validName(r.DisplayName); aerr != nil {
@@ -119,7 +135,11 @@ func replicaFilter(q *req) func(Resource) bool {
 
 			return x.AvailabilityDomain
 		}),
-		queryEq(q, "volumeGroupReplicaId", func(Resource) string { return "" }),
+		queryEq(q, "volumeGroupReplicaId", func(r Resource) string {
+			x, _ := r.(*BlockVolumeReplica)
+
+			return x.VolumeGroupReplicaID
+		}),
 	)
 }
 
@@ -145,7 +165,9 @@ func replicaList(h *Handler, q *req) error {
 func replicaEntries() []entry {
 	return []entry{
 		{replicaList, http.MethodGet, "/blockVolumeReplicas", "ListBlockVolumeReplicas"},
-		{getOp[*BlockVolumeReplica]("blockVolumeReplicaId"), http.MethodGet,
-			idPath("/blockVolumeReplicas", "blockVolumeReplicaId"), "GetBlockVolumeReplica"},
+		{
+			getOp[*BlockVolumeReplica]("blockVolumeReplicaId"), http.MethodGet,
+			idPath("/blockVolumeReplicas", "blockVolumeReplicaId"), "GetBlockVolumeReplica",
+		},
 	}
 }

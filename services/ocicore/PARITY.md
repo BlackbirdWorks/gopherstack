@@ -11,7 +11,7 @@ ops:
   UpdateVcn: {wire: ok, errors: ok, state: ok, persist: ok, note: "displayName, tags and the documented mutable fields; If-Match gives 412 NoEtagMatch; 409 IncorrectState once terminating."}
   DeleteVcn: {wire: ok, errors: partial, state: ok, persist: ok, note: "204; TERMINATING then TERMINATED after two seconds; 409 Conflict while the VCN is referenced (see families.delete_in_use)."}
   ChangeVcnCompartment: {wire: ok, errors: ok, state: ok, persist: ok, note: "Moves the resource; the target compartment is checked against OCI Identity when wired."}
-  CreateSubnet: {wire: ok, errors: partial, state: ok, persist: ok, note: "IPv4 CIDRs /16 to /30 inside a VCN CIDR with no overlap among live subnets; regional or AD-specific (availabilityDomain checked for shape only); dnsLabel needs a VCN dnsLabel and is unique per VCN; prohibitPublicIpOnVnic implies prohibitInternetIngress; defaults to the VCN default route table, DHCP options and security list; at most 5 security lists; ipv4CidrBlocks (up to 6) and ipv6CidrBlock/ipv6CidrBlocks (/64 inside a VCN IPv6 or ULA prefix). Lifecycle PROVISIONING to AVAILABLE after two seconds on the injectable clock."}
+  CreateSubnet: {wire: ok, errors: partial, state: ok, persist: ok, note: "IPv4 CIDRs /16 to /30 inside a VCN CIDR with no overlap among live subnets; regional or AD-specific (availabilityDomain checked for shape only); dnsLabel needs a VCN dnsLabel and is unique per VCN; prohibitPublicIpOnVnic implies prohibitInternetIngress; defaults to the VCN default route table, DHCP options and security list; at most 5 security lists; ipv4CidrBlocks (up to 16) and ipv6CidrBlock/ipv6CidrBlocks (/64 inside a VCN IPv6 or ULA prefix). Lifecycle PROVISIONING to AVAILABLE after two seconds on the injectable clock."}
   GetSubnet: {wire: ok, errors: ok, state: ok, persist: n/a, note: "etag header; TERMINATED resources stay readable for an hour."}
   ListSubnets: {wire: ok, errors: ok, state: ok, persist: n/a, note: "compartmentId required; displayName, lifecycleState filters; sortBy TIMECREATED (newest first by default) or DISPLAYNAME; paged with opc-next-page."}
   UpdateSubnet: {wire: ok, errors: ok, state: ok, persist: ok, note: "displayName, tags, route table, DHCP options, security lists, and cidrBlock under the SDK rules (same network address, inside a VCN block, all private IPs of the old block kept, new last address unused, no overlap); the subnet is UPDATING and takes no VNICs until the clock settles. ipv6CidrBlock and ipv6CidrBlocks replace the IPv6 prefixes (409 while an IPv6 lives in a removed one). If-Match gives 412 NoEtagMatch; 409 IncorrectState once terminating."}
@@ -92,8 +92,8 @@ ops:
   LaunchInstance: {wire: ok, errors: partial, state: ok, persist: ok, note: "availabilityDomain, shape, shapeConfig (flex ocpus 1..max, memory 1 GB or ocpus up to 64 GB per OCPU and the shape total; fixed shapes reject shapeConfig), image or boot volume source (architecture compatibility, bootVolumeSizeInGBs), primary VNIC in the subnet (lowest free private IP from .2, optional privateIp, ephemeral public IP unless the subnet prohibits it, nsgIds up to 5, hostnameLabel unique per subnet and needing a subnet dnsLabel), metadata with base64 user_data, fault domain, creates a boot volume and attachment. PROVISIONING to RUNNING after two seconds. launchVolumeAttachments, instanceConfigurationId, capacity reservations, dedicated hosts and platformConfig are not supported. No VM runs."}
   GetInstance: {wire: ok, errors: ok, state: ok, persist: n/a, note: "etag header."}
   ListInstances: {wire: ok, errors: ok, state: ok, persist: n/a, note: "compartmentId required; availabilityDomain, displayName, lifecycleState filters; paged."}
-  UpdateInstance: {wire: ok, errors: partial, state: ok, persist: ok, note: "displayName, tags, metadata merge, extendedMetadata, agentConfig; shape or shapeConfig changes need a STOPPED instance (409 IncorrectState) and an architecture compatible with the image. Metadata merge semantics are unverified."}
-  InstanceAction: {wire: ok, errors: partial, state: ok, persist: ok, note: "STOP and SOFTSTOP (RUNNING to STOPPING to STOPPED), START (STOPPED to STARTING to RUNNING), RESET and SOFTRESET (stay RUNNING; the live interim state is unverified); wrong state is 409 IncorrectState. SENDDIAGNOSTICINTERRUPT, DIAGNOSTICREBOOT and REBOOTMIGRATE answer 400."}
+  UpdateInstance: {wire: ok, errors: partial, state: ok, persist: ok, note: "displayName, tags, metadata merge, extendedMetadata, agentConfig; shape or shapeConfig changes need a STOPPED instance (409 IncorrectState) and an architecture compatible with the image. sourceDetails (bootVolume or image) replaces the boot volume of a RUNNING or STOPPED instance, keeping the old one only with isPreserveBootVolumeEnabled."}
+  InstanceAction: {wire: ok, errors: partial, state: ok, persist: ok, note: "STOP and SOFTSTOP (RUNNING to STOPPING to STOPPED), START (STOPPED to STARTING to RUNNING), RESET and SOFTRESET (stay RUNNING; the live interim state is unverified); wrong state is 409 IncorrectState. START needs a boot volume attached. SENDDIAGNOSTICINTERRUPT, DIAGNOSTICREBOOT and REBOOTMIGRATE answer 400."}
   TerminateInstance: {wire: ok, errors: partial, state: ok, persist: ok, note: "preserveBootVolume; detaches VNICs (terminated, private IPs dropped, ephemeral public IPs released), volume and boot volume attachments; TERMINATING then TERMINATED. preserveDataVolumesCreatedAtLaunch has no effect (no launch attachments)."}
   ChangeInstanceCompartment: {wire: ok, errors: partial, state: ok, persist: ok, note: "Moves the instance only; its VNICs and volumes keep their compartments."}
   ListVnicAttachments: {wire: ok, errors: ok, state: ok, persist: n/a, note: "compartmentId required; instanceId, vnicId, availabilityDomain filters."}
@@ -104,34 +104,34 @@ ops:
   UpdateVnic: {wire: ok, errors: partial, state: ok, persist: ok, note: "displayName, tags, hostnameLabel, nsgIds, skipSourceDestCheck."}
   ListPrivateIps: {wire: ok, errors: partial, state: ok, persist: n/a, note: "vnicId, or subnetId with optional ipAddress; ipState and lifetime filters; paged."}
   GetPrivateIp: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Real lookup."}
-  CreatePrivateIp: {wire: ok, errors: partial, state: ok, persist: ok, note: "Secondary IP on a VNIC (EPHEMERAL default) or a RESERVED one in a subnet; 32 per VNIC; reserved .0, .1 and last addresses refused."}
-  UpdatePrivateIp: {wire: ok, errors: partial, state: ok, persist: ok, note: "displayName, tags, hostnameLabel, lifetime and moving a non-primary IP to another VNIC of the same subnet (or unassigning a reserved one)."}
+  CreatePrivateIp: {wire: ok, errors: partial, state: ok, persist: ok, note: "Secondary IP on a VNIC (EPHEMERAL default) or a RESERVED one in a subnet; 64 secondary IPv4 per VNIC (Oracle service limits page); routeTableId must be a route table of the subnet VCN; reserved .0, .1 and last addresses refused."}
+  UpdatePrivateIp: {wire: ok, errors: partial, state: ok, persist: ok, note: "displayName, tags, hostnameLabel, lifetime and moving a non-primary IP to another VNIC of the same subnet (or unassigning a reserved one), and routeTableId."}
   DeletePrivateIp: {wire: ok, errors: partial, state: ok, persist: ok, note: "Primary IPs and route targets answer 409 Conflict; releases an assigned public IP."}
-  CreateVolume: {wire: ok, errors: partial, state: ok, persist: ok, note: "50 to 32768 GB (sizeInGBs or sizeInMBs), vpusPerGB multiples of 10 up to 120, volume or backup source, backupPolicyId assigns a policy. PROVISIONING (RESTORING from a backup) to AVAILABLE. blockVolumeReplicas (one replica in a different AD, any region AD form; the replica is PROVISIONING then AVAILABLE and its timeLastSynced is set when it settles) and a blockVolumeReplica source are supported; kmsKeyId is checked against OCI Vault when wired; autotune policies are rejected."}
+  CreateVolume: {wire: ok, errors: partial, state: ok, persist: ok, note: "50 to 32768 GB (sizeInGBs or sizeInMBs), vpusPerGB multiples of 10 up to 120, volume or backup source, backupPolicyId assigns a policy. PROVISIONING (RESTORING from a backup) to AVAILABLE. blockVolumeReplicas (one replica in a different AD, any region AD form; the replica is PROVISIONING then AVAILABLE and its timeLastSynced is set when it settles) and a blockVolumeReplica source are supported; kmsKeyId is checked against OCI Vault when wired; autotunePolicies (DETACHED_VOLUME, PERFORMANCE_BASED with maxVpusPerGB) are stored and autoTunedVpusPerGB falls to 0 once a DETACHED_VOLUME volume has been unattached for 14 days (Block Volume detached-perf documentation)."}
   GetVolume: {wire: ok, errors: ok, state: ok, persist: n/a, note: "etag header."}
   ListVolumes: {wire: ok, errors: ok, state: ok, persist: n/a, note: "compartmentId required; availabilityDomain, displayName, lifecycleState filters."}
-  UpdateVolume: {wire: ok, errors: partial, state: ok, persist: ok, note: "displayName, tags, vpusPerGB, isAutoTuneEnabled and growing sizeInGBs."}
+  UpdateVolume: {wire: ok, errors: partial, state: ok, persist: ok, note: "displayName, tags, vpusPerGB, isAutoTuneEnabled, autotunePolicies, blockVolumeReplicas and growing sizeInGBs."}
   DeleteVolume: {wire: ok, errors: partial, state: ok, persist: ok, note: "409 Conflict while attached; drops the policy assignment."}
   ChangeVolumeCompartment: {wire: ok, errors: ok, state: ok, persist: ok, note: "Moves the resource."}
-  CreateBootVolume: {wire: ok, errors: partial, state: ok, persist: ok, note: "Clone of an AVAILABLE boot volume or restore of an AVAILABLE boot volume backup (availabilityDomain required, RESTORING to AVAILABLE); kmsKeyId checked against OCI Vault when wired."}
+  CreateBootVolume: {wire: ok, errors: partial, state: ok, persist: ok, note: "Clone of an AVAILABLE boot volume or restore of an AVAILABLE boot volume backup (availabilityDomain required, RESTORING to AVAILABLE); kmsKeyId checked against OCI Vault when wired; sourceDetails bootVolumeReplica (in the replica availability domain), bootVolumeReplicas and autotunePolicies."}
   GetBootVolume: {wire: ok, errors: ok, state: ok, persist: n/a, note: "etag header."}
   ListBootVolumes: {wire: ok, errors: ok, state: ok, persist: n/a, note: "compartmentId required; availabilityDomain filter."}
-  UpdateBootVolume: {wire: ok, errors: partial, state: ok, persist: ok, note: "displayName, tags, vpusPerGB and growing sizeInGBs."}
+  UpdateBootVolume: {wire: ok, errors: partial, state: ok, persist: ok, note: "displayName, tags, vpusPerGB, autotunePolicies, bootVolumeReplicas and growing sizeInGBs."}
   DeleteBootVolume: {wire: ok, errors: partial, state: ok, persist: ok, note: "409 Conflict while attached."}
   ChangeBootVolumeCompartment: {wire: ok, errors: ok, state: ok, persist: ok, note: "Moves the resource."}
   GetBootVolumeAttachment: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Created with the instance."}
   ListBootVolumeAttachments: {wire: ok, errors: ok, state: ok, persist: n/a, note: "compartmentId required; instanceId, bootVolumeId, availabilityDomain filters."}
-  AttachVolume: {wire: ok, errors: partial, state: ok, persist: ok, note: "type iscsi (ipv4, iqn, port 3260, optional CHAP credentials) or paravirtualized; instance RUNNING or STOPPED, volume AVAILABLE in the same AD; 32 per instance; device /dev/oracleoci/oraclevd[b-z] unique per instance; a volume attached elsewhere needs isShareable and isReadOnly. ATTACHING to ATTACHED. iscsiLoginState stays UNKNOWN; emulated attachments and attaching boot volumes are not supported."}
+  AttachVolume: {wire: ok, errors: partial, state: ok, persist: ok, note: "type iscsi (ipv4, iqn, port 3260, optional CHAP credentials) or paravirtualized; instance RUNNING or STOPPED, volume AVAILABLE in the same AD; 32 per instance; device /dev/oracleoci/oraclevd[b-z] unique per instance; a volume attached elsewhere needs isShareable and isReadOnly. ATTACHING to ATTACHED. iscsiLoginState stays UNKNOWN."}
   GetVolumeAttachment: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Polymorphic on attachmentType."}
   ListVolumeAttachments: {wire: ok, errors: ok, state: ok, persist: n/a, note: "compartmentId required; instanceId, volumeId, availabilityDomain filters."}
   DetachVolume: {wire: ok, errors: partial, state: ok, persist: ok, note: "ATTACHED to DETACHING to DETACHED."}
-  CreateVolumeBackup: {wire: ok, errors: partial, state: ok, persist: ok, note: "Requires an AVAILABLE volume; the first backup of a volume is FULL (unverified), later ones default INCREMENTAL; CREATING to AVAILABLE. No data exists, so unique sizes are 0. Retention settings are stored and enforced on delete; kmsKeyId is checked against OCI Vault when wired."}
+  CreateVolumeBackup: {wire: ok, errors: partial, state: ok, persist: ok, note: "Requires an AVAILABLE volume; the first backup of a volume is FULL (unverified), later ones default INCREMENTAL; CREATING to AVAILABLE. Retention settings are stored and enforced on delete; kmsKeyId is checked against OCI Vault when wired."}
   GetVolumeBackup: {wire: ok, errors: ok, state: ok, persist: n/a, note: "etag header."}
   ListVolumeBackups: {wire: ok, errors: ok, state: ok, persist: n/a, note: "compartmentId required; volumeId, sourceVolumeBackupId, displayName, lifecycleState filters."}
   UpdateVolumeBackup: {wire: ok, errors: partial, state: ok, persist: ok, note: "displayName, tags and retention settings (retentionPeriod, isPreventDeletionEnabled, isRetentionLockEnabled, isIndefiniteRetentionEnabled)."}
   DeleteVolumeBackup: {wire: ok, errors: partial, state: ok, persist: ok, note: "TERMINATING then TERMINATED; 409 Conflict while retention settings protect the backup or it belongs to a volume group backup."}
   ChangeVolumeBackupCompartment: {wire: ok, errors: ok, state: ok, persist: ok, note: "Moves the resource."}
-  CreateVolumeBackupPolicy: {wire: ok, errors: partial, state: ok, persist: ok, note: "Stores schedules (backupType, period, retentionSeconds); they are never executed, so no scheduled backups are taken."}
+  CreateVolumeBackupPolicy: {wire: ok, errors: partial, state: ok, persist: ok, note: "Stores schedules (backupType, period, retentionSeconds); each schedule fires on the injectable clock for every assigned volume, boot volume or volume group (SCHEDULED backups, expired after retentionSeconds); periods, structured offsets and time zones follow the SDK VolumeBackupSchedule comments."}
   GetVolumeBackupPolicy: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Predefined bronze, silver and gold policies plus custom ones."}
   ListVolumeBackupPolicies: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Predefined policies, plus the custom policies of compartmentId when given."}
   UpdateVolumeBackupPolicy: {wire: ok, errors: partial, state: ok, persist: ok, note: "displayName, tags, schedules; predefined policies answer 404."}
@@ -182,14 +182,14 @@ ops:
   AddVcnCidr: {wire: ok, errors: partial, state: ok, persist: ok, note: "Per the SDK documentation: valid /16 to /30, no overlap with the VCN, a peered VCN (through connected LPGs) or reserved space, at most 16 blocks; the VCN is UPDATING until the work request completes and subnets, LPGs and route tables cannot change meanwhile (409 IncorrectState). Returns opc-work-request-id."}
   ModifyVcnCidr: {wire: ok, errors: partial, state: ok, persist: ok, note: "Replaces a block under the SDK criteria: valid, no overlap with the other blocks or peers, subnets and route rule destinations inside the old block stay inside the new one. Returns opc-work-request-id."}
   RemoveVcnCidr: {wire: ok, errors: partial, state: ok, persist: ok, note: "409 Conflict while a subnet uses the block; the last block stays. Returns opc-work-request-id."}
-  AddIpv6VcnCidr: {wire: ok, errors: partial, state: ok, persist: ok, note: "An Oracle-allocated /56 (one per VCN, then 409 Conflict) or a private ULA prefix; IPv6 default security list rules are added; BYOIP details answer 400. The range 2603:c020:4000::/36 is unverified."}
+  AddIpv6VcnCidr: {wire: ok, errors: partial, state: ok, persist: ok, note: "An Oracle-allocated /56 (one per VCN, then 400 LimitExceeded) or a private ULA prefix; IPv6 default security list rules are added; BYOIP details answer 400. The range 2603:c020:4000::/36 is unverified."}
   RemoveIpv6VcnCidr: {wire: ok, errors: partial, state: ok, persist: ok, note: "409 Conflict while a subnet uses the prefix."}
-  AddIpv4SubnetCidr: {wire: ok, errors: partial, state: ok, persist: ok, note: "Valid, inside a VCN block, clear of other subnets and of the subnet itself, at most 6 blocks (limit unverified); subnet UPDATING until the work request completes."}
+  AddIpv4SubnetCidr: {wire: ok, errors: partial, state: ok, persist: ok, note: "Valid, inside a VCN block, clear of other subnets and of the subnet itself, at most 16 blocks (Oracle service limits page); subnet UPDATING until the work request completes."}
   ModifyIpv4SubnetCidr: {wire: ok, errors: partial, state: ok, persist: ok, note: "Replaces one block; every private IP in the old block must stay inside the new one."}
   RemoveIpv4SubnetCidr: {wire: ok, errors: partial, state: ok, persist: ok, note: "409 Conflict while a private IP uses the block; the last block stays."}
   AddIpv6SubnetCidr: {wire: ok, errors: partial, state: ok, persist: ok, note: "A /64 inside a VCN prefix not used by another subnet; etag and work request headers."}
   RemoveIpv6SubnetCidr: {wire: ok, errors: partial, state: ok, persist: ok, note: "At least one prefix remains; 409 Conflict while an IPv6 lives in the prefix."}
-  CreateIpv6: {wire: ok, errors: partial, state: ok, persist: ok, note: "For a VNIC in an IPv6 subnet (lowest free address from ::2, or ipAddress, ipv6SubnetCidr, hostname, routeTableId, lifetime) or a reserved unassigned one for a subnet; 32 per VNIC (limit unverified)."}
+  CreateIpv6: {wire: ok, errors: partial, state: ok, persist: ok, note: "For a VNIC in an IPv6 subnet (lowest free address from ::2, or ipAddress, ipv6SubnetCidr, hostname, routeTableId, lifetime) or a reserved unassigned one for a subnet; 32 per VNIC (Oracle service limits page); routeTableId must belong to the subnet VCN."}
   GetIpv6: {wire: ok, errors: ok, state: ok, persist: n/a, note: "etag header."}
   ListIpv6s: {wire: ok, errors: ok, state: ok, persist: n/a, note: "subnetId or vnicId required; ipAddress, ipState, lifetime filters."}
   UpdateIpv6: {wire: ok, errors: partial, state: ok, persist: ok, note: "displayName, tags, hostname, routeTableId, lifetime and moving a reserved IPv6 to another VNIC of the same subnet."}
@@ -197,7 +197,7 @@ ops:
   BulkCreatePrivateIps: {wire: ok, errors: partial, state: ok, persist: ok, note: "1-32 items, all or none, on a vnicId (EPHEMERAL default) or a subnetId (RESERVED); 200 with opc-work-request-id (operationType BULK_CREATE_PRIVATE_IPS, unverified); opc-retry-token replays the first work request."}
   BulkDeletePrivateIps: {wire: ok, errors: partial, state: ok, persist: ok, note: "All or none; items must belong to the given vnicId or subnetId; primary IPs and route targets answer 409."}
   BulkDetachPrivateIps: {wire: ok, errors: partial, state: ok, persist: ok, note: "Unassigns RESERVED secondary IPs from the vnicId, all or none."}
-  BulkUpdatePrivateIps: {wire: ok, errors: partial, state: ok, persist: ok, note: "displayName, tags, hostnameLabel, lifetime and, with vnicId, moving IPs of the same subnet onto that VNIC; all or none."}
+  BulkUpdatePrivateIps: {wire: ok, errors: partial, state: ok, persist: ok, note: "displayName, tags, hostnameLabel, lifetime, routeTableId and, with vnicId, moving IPs of the same subnet onto that VNIC; all or none."}
   BulkCreateIpv6s: {wire: ok, errors: partial, state: ok, persist: ok, note: "1-32 items on a vnicId or subnetId with the CreateIpv6 rules, all or none; work request and retry token as BulkCreatePrivateIps."}
   BulkDeleteIpv6s: {wire: ok, errors: partial, state: ok, persist: ok, note: "All or none; items must belong to the given vnicId or subnetId."}
   BulkDetachIpv6s: {wire: ok, errors: partial, state: ok, persist: ok, note: "Unassigns RESERVED IPv6s from the vnicId, all or none."}
@@ -213,10 +213,10 @@ ops:
   CopyBootVolumeBackup: {wire: ok, errors: partial, state: ok, persist: ok, note: "Copies an AVAILABLE backup to another known region identifier: a new backup with the destination region key in its OCID, sourceBootVolumeBackupId, CREATING to AVAILABLE on the clock, opc-work-request-id. The emulator has one namespace, so the copy is listed with the source."}
   CopyVolumeBackup: {wire: ok, errors: partial, state: ok, persist: ok, note: "As CopyBootVolumeBackup, for volume backups (sourceVolumeBackupId filter on ListVolumeBackups)."}
   CopyVolumeGroupBackup: {wire: ok, errors: partial, state: ok, persist: ok, note: "Copies the group backup and every member backup."}
-  CreateVolumeGroup: {wire: ok, errors: partial, state: ok, persist: ok, note: "From volumeIds (volumes and boot volumes of the AD, each in one group, at most 32 (unverified)), a volumeGroupBackupId (restores new volumes), or a volumeGroupId clone in the same AD; volumeGroupReplicas and volume group replica sources are not supported; backupPolicyId assigns a policy."}
+  CreateVolumeGroup: {wire: ok, errors: partial, state: ok, persist: ok, note: "From volumeIds (volumes and boot volumes of the AD, each in one group, at most 32 (unverified)), a volumeGroupBackupId (restores new volumes), or a volumeGroupId clone in the same AD; volumeGroupReplicas (one per group; every member gets a block or boot volume replica) and a volumeGroupReplicaId source (new volumes from the member replicas, in the replica availability domain); backupPolicyId assigns a policy."}
   GetVolumeGroup: {wire: ok, errors: ok, state: ok, persist: n/a, note: "etag header; sizeInMBs sums the members."}
   ListVolumeGroups: {wire: ok, errors: ok, state: ok, persist: n/a, note: "compartmentId required; availabilityDomain, displayName, lifecycleState filters."}
-  UpdateVolumeGroup: {wire: ok, errors: partial, state: ok, persist: ok, note: "displayName, tags and the full volumeIds list (volumes left out are removed)."}
+  UpdateVolumeGroup: {wire: ok, errors: partial, state: ok, persist: ok, note: "displayName, tags, volumeGroupReplicas and the full volumeIds list (volumes left out are removed; a replicated group replicates new members and ends the replicas of removed ones)."}
   DeleteVolumeGroup: {wire: ok, errors: partial, state: ok, persist: ok, note: "Members survive; policy assignments are dropped."}
   ChangeVolumeGroupCompartment: {wire: ok, errors: ok, state: ok, persist: ok, note: "Moves the resource."}
   CreateVolumeGroupBackup: {wire: ok, errors: partial, state: ok, persist: ok, note: "Backs up every member (volume and boot volume backups carry volumeGroupBackupId); retention settings flow to the members; FULL first."}
@@ -227,6 +227,23 @@ ops:
   ChangeVolumeGroupBackupCompartment: {wire: ok, errors: ok, state: ok, persist: ok, note: "Moves the resource."}
   GetBlockVolumeReplica: {wire: ok, errors: ok, state: ok, persist: n/a, note: "etag header."}
   ListBlockVolumeReplicas: {wire: ok, errors: ok, state: ok, persist: n/a, note: "compartmentId optional; availabilityDomain, displayName, lifecycleState filters."}
+  GetBootVolumeReplica: {wire: ok, errors: ok, state: ok, persist: n/a, note: "etag header."}
+  ListBootVolumeReplicas: {wire: ok, errors: ok, state: ok, persist: n/a, note: "compartmentId optional; availabilityDomain, volumeGroupReplicaId, displayName, lifecycleState filters."}
+  GetVolumeGroupReplica: {wire: ok, errors: ok, state: ok, persist: n/a, note: "memberReplicas follow the group members: ADD_PENDING until the member replica settles, then STABLE, REMOVE_PENDING while it ends."}
+  ListVolumeGroupReplicas: {wire: ok, errors: ok, state: ok, persist: n/a, note: "compartmentId and availabilityDomain required (400 otherwise); displayName, lifecycleState filters."}
+  AttachBootVolume: {wire: ok, errors: partial, state: ok, persist: ok, note: "Instance RUNNING or STOPPED and boot volume AVAILABLE in the same AD; a boot volume attaches to one instance at a time (409). ATTACHING to ATTACHED."}
+  DetachBootVolume: {wire: ok, errors: partial, state: ok, persist: ok, note: "Only from a STOPPED instance (409 IncorrectState; Block Volume detachingabootvolume documentation); ATTACHED to DETACHING to DETACHED."}
+  CreateInstanceConsoleConnection: {wire: ok, errors: partial, state: ok, persist: ok, note: "publicKey must be an RSA authorized_keys line of at least 2048 bits; fingerprint is the MD5 fingerprint of the key; connectionString has the documented ProxyCommand shape but nothing serves it. CREATING to ACTIVE."}
+  GetInstanceConsoleConnection: {wire: ok, errors: ok, state: ok, persist: n/a, note: "etag header."}
+  ListInstanceConsoleConnections: {wire: ok, errors: ok, state: ok, persist: n/a, note: "compartmentId required; instanceId filter; paged."}
+  UpdateInstanceConsoleConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "Tags only, as the SDK details."}
+  DeleteInstanceConsoleConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETING to DELETED; terminating the instance ends its connections."}
+  CaptureConsoleHistory: {wire: ok, errors: partial, state: ok, persist: ok, note: "Instance RUNNING or STOPPED; REQUESTED to SUCCEEDED on the clock; the captured content is empty because no instance runs an OS."}
+  GetConsoleHistory: {wire: ok, errors: ok, state: ok, persist: n/a, note: "etag header."}
+  ListConsoleHistories: {wire: ok, errors: ok, state: ok, persist: n/a, note: "compartmentId required; instanceId, availabilityDomain, lifecycleState filters."}
+  UpdateConsoleHistory: {wire: ok, errors: ok, state: ok, persist: ok, note: "displayName and tags."}
+  DeleteConsoleHistory: {wire: ok, errors: ok, state: ok, persist: ok, note: "Removes the history; later reads answer 404."}
+  GetConsoleHistoryContent: {wire: ok, errors: partial, state: ok, persist: n/a, note: "Empty plain-text body with opc-bytes-remaining 0 once the history SUCCEEDED; 409 before."}
   GetVolumeKmsKey: {wire: ok, errors: ok, state: ok, persist: n/a, note: "kmsKeyId is null for Oracle-managed keys."}
   UpdateVolumeKmsKey: {wire: ok, errors: partial, state: ok, persist: ok, note: "The key must exist and be ENABLED in OCI Vault when the Vault checker is wired (cli.go), otherwise it is accepted as given."}
   DeleteVolumeKmsKey: {wire: ok, errors: partial, state: ok, persist: ok, note: "Back to Oracle-managed keys."}
@@ -250,17 +267,11 @@ families:
   routing_isolation: {status: ok, note: "Own http.Server bound in StartWorker to --oci-core-port / OCI_CORE_PORT (default 8155); never on the shared AWS router; cli.go reserves the port in the shared pool."}
   observability: {status: ok, note: "telemetry.WrapEchoHandler feeds ExtractOperation/ExtractResource; one lockmetrics.RWMutex guards all state."}
 items_still_open:
-  - "Compute is control plane only: no VM executes, so serial console (console history and connections), instance agent, run command, metadata service, boot/launch options enforcement, live migration and maintenance reboot do not exist. launchVolumeAttachments, instance configurations and pools, capacity reservations, dedicated VM hosts, compute clusters, cluster placement groups, platformConfig, preemptible instances, instance credentials and vnic VLAN attachments are not implemented."
-  - "Block storage gaps: boot volume replicas, volume group replicas, autotune policies, attaching a standalone boot volume to an instance, and executed backup policy schedules. Backups hold no data (unique sizes are 0). The emulator has one namespace, so a cross-region backup copy is listed next to its source and a replica in another region cannot be activated except by creating a volume in its AD from the same endpoint."
-  - "Platform image and shape catalogues are static and representative: image build dates, sizes and the shape list (four flex families, four fixed VM shapes, one bare metal) are not the live per-region values; fixed shape memory/vNIC limits follow the compute shapes documentation, flex VNIC limits are approximated."
-  - "Not published (checked Network dns.htm, Block blockvolumebackups.htm and the core SDK doc comments): the error code for a duplicate hostnameLabel (409 Conflict; the guide says only that hostnames must be unique within the subnet), and whether terminating an instance whose private IP is a route target is refused"
-  - "BYOIP and BYOIPv6 ranges, VCN and subnet IPv6 ULA allocation beyond the supplied prefixes, are not implemented. Unverified against the live service: the 6 IPv4 blocks per subnet limit, 409 for adding a second Oracle-allocated prefix, and the work request operationType names."
-  - "Not implemented: DRG NAT policies and rules, public IP pools, flow logs, VTAPs, private endpoints, cross-tenancy local peering and DRG attachments, route and security policy analysis, per-IP routeTableId (rejected with 400 by CreatePrivateIp and the bulk private IP operations), secondary IPv4 CIDR allocation by BulkCreatePrivateIps (cidrPrefixLength, ipv4SubnetCidrAtCreation are rejected with 400), and DRG upgrade of legacy DRGs (every DRG here is already upgraded). Non-VCN DRG attachments are created in-process with AttachDrgNetwork because IPSec, FastConnect and remote peering are not emulated. Unverified: the names of the default DRG route tables and distributions, 5 DRGs per tenancy, 409 for a second attachment of a VCN, the redundancy status mapping, the entity object shape of the topology responses, and the utilization unit of the IP inventory."
-  - "The service catalogue holds two entries (all IAD services, OCI IAD Object Storage) for the single emulated region us-ashburn-1."
-  - "Security rules are validated structurally and CanReach evaluates security lists and NSGs (stateful and stateless rules, the reply path, a stateful rule winning over a stateless one) for a flow inside one VCN, but no emulated service calls it and nothing enforces traffic; overlapping or duplicate rules are accepted because the documentation does not say they are refused (unverified)."
-  - "Availability domain names are checked for shape (<4 letters>:US-ASHBURN-AD-<1-3>) rather than against the OCI Identity list: the list carries a fixed prefix, so checking it would reject availability domain names copied from a real tenancy in existing fixtures."
-  - "Not published (checked Network dns.htm and the core SDK comments): the error codes for a duplicate dnsLabel and delete-in-use (409 Conflict), and the default DHCP domainNameType for custom option sets (emulator: CUSTOM_DOMAIN); dns.htm says only that subnet DNS labels are unique within the VCN"
-  - "Resource principals and instance principals are not applied; only API-key signatures are verified."
+  - "Compute resources not implemented: launchVolumeAttachments, instance configurations and pools, capacity reservations, dedicated VM hosts, compute clusters, cluster placement groups, platformConfig, preemptible instances, instance credentials and vnic VLAN attachments."
+  - "Platform image and shape catalogues are representative: the shape list (four flex families, four fixed VM shapes, one bare metal) omits the GPU, dense I/O, optimized and other families of the compute shapes documentation, and image build dates and sizes are not the live per-region values."
+  - "BYOIP and BYOIPv6 ranges (CreateByoipRange, validate, advertise, withdraw, allocated ranges) and VCN and subnet IPv6 ULA allocation beyond the supplied prefixes are not implemented."
+  - "Networking resources not implemented: DRG NAT policies and rules, public IP pools, VTAPs, flow logs (a Logging service log of category flowlogs on a subnet), private endpoints, cross-tenancy local peering and DRG attachments, route and security policy analysis, and secondary IPv4 CIDR allocation by BulkCreatePrivateIps (cidrPrefixLength and ipv4SubnetCidrAtCreation answer 400)."
+  - "Resource principals and instance principals are not applied: pkgs/ociauth verifies draft-cavage API-key signatures only (pkgs/ociauth/ociauth.go:58 reports other keyId shapes as unparsed) and no OCI service in the repo implements the certificate and security-token exchange."
 ---
 
 ## 2026-11-05 evidence
@@ -296,3 +307,39 @@ docs.oracle.com Network/Concepts/ipv6.htm: Oracle-allocated VCN IPv6 prefixes ar
 
 ## Primary-source checks (2026-11-13)
 - ocicore: UpdateInstanceDetails.Metadata comment says a metadata update completely replaces the set and may not change user_data or ssh_authorized_keys (fixed: was a merge); InstanceAction RESET powers off then on, leaving RUNNING; blockvolumebackups.htm describes an initial full backup followed by incrementals.
+
+## Emulator choices where the vendor is silent
+
+- A duplicate hostnameLabel, a duplicate subnet dnsLabel and deleting a referenced resource answer 409 Conflict; the Network dns.htm guide says only that the labels must be unique.
+- Custom DHCP option sets get domainNameType CUSTOM_DOMAIN.
+- Terminating an instance whose private IP is a route target is allowed; the documentation does not refuse it.
+- Overlapping or duplicate security rules are accepted; the documentation does not say they are refused.
+- Availability domain names are checked for shape (`<4 letters>:<REGION>-AD-<1-3>`) rather than against the OCI Identity list, so names copied from a real tenancy keep working.
+- The service catalogue holds the all-services entry and the Object Storage entry of the single emulated region us-ashburn-1, which is what a real tenancy lists for one region.
+- Every DRG is created already upgraded, so UpgradeDrg answers 409 IncorrectState; the default DRG route tables and distributions are named by the emulator, and the topology entity shapes and IP inventory utilization unit follow the SDK model comments.
+- Work request operationType names are the emulator's own upper-case constants.
+- A scheduled backup is named `backup<timestamp>`; a weekly schedule counts weeks from Monday; REGIONAL_DATA_CENTER_TIME is America/New_York; when several fire times were missed only the latest runs.
+- A PERFORMANCE_BASED autotune policy never raises vpusPerGB because no load is ever generated; maxVpusPerGB must be a multiple of 10 not below vpusPerGB.
+- A volume, boot volume or volume group has at most one replica; a volume whose replica is owned by a volume group replica refuses direct replica changes with 409.
+- A cross-region backup copy or replica lives in the one emulated namespace, so it is listed beside its source.
+- Console history captures succeed in one step (REQUESTED then SUCCEEDED).
+- Replacing a boot volume through UpdateInstance sourceDetails does not preserve the old boot volume unless isPreserveBootVolumeEnabled is true.
+
+## External effects that are recorded, not performed
+
+- No VM executes: the instance agent, run command, metadata service, boot and launch option enforcement, live migration and maintenance reboot have no effect, and an instance power action only changes lifecycleState.
+- Console connections are stored with the documented connectionString shape and the MD5 fingerprint of the supplied key, but nothing listens behind them; console history content is empty because no OS ever writes to a serial console.
+- Backups hold no data, so unique sizes are 0, and a replica copies no data (totalDataTransferredInGBs stays 0).
+- iSCSI login state stays UNKNOWN until UpdateVolumeAttachment sets it.
+- Non-VCN DRG attachments (IPSec, FastConnect, remote peering) are created in-process with AttachDrgNetwork because those transports are not emulated.
+- Security lists and NSGs are enforced for traffic through service VNICs (CreateServiceNic: API Gateway, Object Storage and File Storage) via CanReach and ClassifyPeer; nothing else carries packets.
+
+## Verified against SDK and documentation
+
+- Autotune: core/autotune_policy.go, performance_based_autotune_policy.go and detached_volume_autotune_policy.go (v65.126.2); docs.oracle.com Block/Tasks/detached-perf.htm (detached volumes drop to lower cost after 14 days).
+- Replicas: core/boot_volume_replica*.go, volume_group_replica*.go, member_replica.go and core_blockstorage_client.go routes /bootVolumeReplicas and /volumeGroupReplicas.
+- Boot volume attach, detach and replace: core/attach_boot_volume_details.go, update_instance_source_via_boot_volume_details.go and update_instance_source_via_image_details.go; docs.oracle.com Block/Tasks/detachingabootvolume.htm (stopped instance).
+- Console: core/console_history.go, instance_console_connection.go and get_console_history_content_request_response.go (opc-bytes-remaining).
+- Scheduled backups: core/volume_backup_schedule.go (period, offsetType, hourOfDay, dayOfWeek, dayOfMonth, month, timeZone, retentionSeconds) and volume_backup.go sourceType SCHEDULED.
+- Per-IP route table: core/create_private_ip_details.go, update_private_ip_details.go, bulk_create_private_ip_item.go and bulk_update_private_ip_item.go routeTableId.
+- Limits: docs.oracle.com General/service-limits/default.htm: 16 IPv4 CIDRs per subnet, 16 per VCN, 5 DRGs per region, 64 secondary private IPv4 and 32 secondary private IPv6 per VNIC, 1 Oracle-allocated IPv6 prefix per VCN, 1000 NSGs per VCN, 120 rules per NSG, 200 rules per route table.

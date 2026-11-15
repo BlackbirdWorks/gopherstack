@@ -382,6 +382,10 @@ func (b *InMemoryBackend) InstanceAction(id, action, ifMatch string) (Resource, 
 			" but it is " + inst.LifecycleState)
 	}
 
+	if strings.EqualFold(action, "START") && !b.hasBootVolume(inst.ID) {
+		return nil, "", errState("The instance " + inst.ID + " has no boot volume attached; attach one first")
+	}
+
 	if interim == "" {
 		b.bump(inst)
 	} else {
@@ -398,6 +402,7 @@ type UpdateInstanceIn struct {
 	Metadata         map[string]string `json:"metadata"`
 	ExtendedMetadata map[string]any    `json:"extendedMetadata"`
 	AgentConfig      map[string]any    `json:"agentConfig"`
+	SourceDetails    *UpdateSourceIn   `json:"sourceDetails"`
 	UpdateIn
 }
 
@@ -429,6 +434,12 @@ func (b *InMemoryBackend) UpdateInstance(id, ifMatch string, in UpdateInstanceIn
 
 		inst.Metadata, inst.ExtendedMetadata = md, ext
 		inst.Shape, inst.ShapeConfig = name, cfg
+
+		if in.SourceDetails != nil {
+			if aerr = b.replaceBootVolume(inst, in.SourceDetails); aerr != nil {
+				return aerr
+			}
+		}
 
 		if in.AgentConfig != nil {
 			inst.AgentConfig = mergeAny(inst.AgentConfig, in.AgentConfig)
@@ -531,6 +542,10 @@ func (b *InMemoryBackend) TerminateInstance(id, ifMatch string, preserveBoot boo
 		if bv, ok := b.res[a.BootVolumeID].(*BootVolume); ok && !preserveBoot && live(bv) {
 			b.endBootVolume(bv)
 		}
+	}
+
+	for _, c := range liveOf(b, func(x *InstanceConsoleConnection) bool { return x.InstanceID == id }) {
+		b.moveTo(c, statDeleting, statDeleted)
 	}
 
 	b.markTerminating(inst)
