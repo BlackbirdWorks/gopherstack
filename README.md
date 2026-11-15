@@ -934,7 +934,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [Azure AI Search](services/azuresearch/README.md) | B | 19 | 5 gaps |
+| [Azure AI Search](services/azuresearch/README.md) | B | 19 | 4 gaps |
 | [Azure App Configuration](services/azureappconfig/README.md) | B | 14 | 10 gaps |
 | [Azure Blob Storage](services/azureblob/README.md) | C | 29 | 5 gaps; 3 deferred |
 | [Azure Cache for Redis](services/azureredis/README.md) | B | 13 | 10 gaps |
@@ -995,7 +995,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [OCI Autonomous Database](services/ocidatabase/README.md) | B | 21 | 7 gaps |
 | [OCI Container Engine for Kubernetes](services/ocicontainerengine/README.md) | B | 49 | 10 gaps |
 | [OCI Container Instances](services/ocicontainerinstances/README.md) | B | 18 | 6 gaps |
-| [OCI Core Services](services/ocicore/README.md) | B | 236 | 11 gaps |
+| [OCI Core Services](services/ocicore/README.md) | B | 355 | 3 gaps |
 | [OCI DNS](services/ocidns/README.md) | B | 52 | 7 gaps |
 | [OCI Events](services/ocievents/README.md) | B | 6 | 4 gaps |
 | [OCI File Storage](services/ocifilestorage/README.md) | B | 74 | 7 gaps |

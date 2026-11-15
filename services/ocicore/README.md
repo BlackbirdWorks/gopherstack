@@ -7,25 +7,17 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 236 (109 ok, 127 partial) |
+| PARITY entries audited | 355 (155 ok, 200 partial) |
 | Feature families | 7 (6 ok, 1 partial) |
-| Known gaps | 11 |
+| Known gaps | 3 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- Compute is control plane only: no VM executes, so serial console (console history and connections), instance agent, run command, metadata service, boot/launch options enforcement, live migration and maintenance reboot do not exist. launchVolumeAttachments, instance configurations and pools, capacity reservations, dedicated VM hosts, compute clusters, cluster placement groups, platformConfig, preemptible instances, instance credentials and vnic VLAN attachments are not implemented.
-- Block storage gaps: boot volume replicas, volume group replicas, autotune policies, attaching a standalone boot volume to an instance, and executed backup policy schedules. Backups hold no data (unique sizes are 0). The emulator has one namespace, so a cross-region backup copy is listed next to its source and a replica in another region cannot be activated except by creating a volume in its AD from the same endpoint.
-- Platform image and shape catalogues are static and representative: image build dates, sizes and the shape list (four flex families, four fixed VM shapes, one bare metal) are not the live per-region values; fixed shape memory/vNIC limits follow the compute shapes documentation, flex VNIC limits are approximated.
-- Not published (checked Network dns.htm, Block blockvolumebackups.htm and the core SDK doc comments): the error code for a duplicate hostnameLabel (409 Conflict; the guide says only that hostnames must be unique within the subnet), and whether terminating an instance whose private IP is a route target is refused
-- BYOIP and BYOIPv6 ranges, VCN and subnet IPv6 ULA allocation beyond the supplied prefixes, are not implemented. Unverified against the live service: the 6 IPv4 blocks per subnet limit, 409 for adding a second Oracle-allocated prefix, and the work request operationType names.
-- Not implemented: DRG NAT policies and rules, public IP pools, flow logs, VTAPs, private endpoints, cross-tenancy local peering and DRG attachments, route and security policy analysis, per-IP routeTableId (rejected with 400 by CreatePrivateIp and the bulk private IP operations), secondary IPv4 CIDR allocation by BulkCreatePrivateIps (cidrPrefixLength, ipv4SubnetCidrAtCreation are rejected with 400), and DRG upgrade of legacy DRGs (every DRG here is already upgraded). Non-VCN DRG attachments are created in-process with AttachDrgNetwork because IPSec, FastConnect and remote peering are not emulated. Unverified: the names of the default DRG route tables and distributions, 5 DRGs per tenancy, 409 for a second attachment of a VCN, the redundancy status mapping, the entity object shape of the topology responses, and the utilization unit of the IP inventory.
-- The service catalogue holds two entries (all IAD services, OCI IAD Object Storage) for the single emulated region us-ashburn-1.
-- Security rules are validated structurally and CanReach evaluates security lists and NSGs (stateful and stateless rules, the reply path, a stateful rule winning over a stateless one) for a flow inside one VCN, but no emulated service calls it and nothing enforces traffic; overlapping or duplicate rules are accepted because the documentation does not say they are refused (unverified).
-- Availability domain names are checked for shape (<4 letters>:US-ASHBURN-AD-<1-3>) rather than against the OCI Identity list: the list carries a fixed prefix, so checking it would reject availability domain names copied from a real tenancy in existing fixtures.
-- Not published (checked Network dns.htm and the core SDK comments): the error codes for a duplicate dnsLabel and delete-in-use (409 Conflict), and the default DHCP domainNameType for custom option sets (emulator: CUSTOM_DOMAIN); dns.htm says only that subnet DNS labels are unique within the VCN
-- Resource principals and instance principals are not applied; only API-key signatures are verified.
+- Instance pool load balancer attachments and lifecycle management hooks (loadBalancers, lifecycleManagement, terminationProceed) answer 400, and cluster networks (the ClusterNetwork operations of ComputeManagementClient) are not implemented. Blocker: pools do not call OCI Load Balancer or OCI Events.
+- Cross-tenancy local peering and cross-tenancy DRG attachments need the tenancy of a compartment and cross-tenancy IAM policy evaluation: ocicore only has SetCompartmentChecker (a membership test, services/ocicore/store.go) and OCI Identity exposes no endorse or admit policy decision to it.
+- Resource principals and instance principals are not applied: pkgs/ociauth verifies draft-cavage API-key signatures only (pkgs/ociauth/ociauth.go:58 reports other keyId shapes as unparsed), and nothing in the repo serves the X.509 federation token exchange (/v1/x509) or issues security tokens; it needs a token store in pkgs/ociauth and a federation handler in OCI Identity.
 
 ## More
 
