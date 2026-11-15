@@ -58,6 +58,7 @@ type Handler struct {
 	ops         map[string]opFunc
 	wg          sync.WaitGroup
 	Port        int
+	TLSPort     int
 	EnforceAuth bool
 }
 
@@ -103,7 +104,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string { return parseRoute(c
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	p := parseRoute(c.Request()).params
 	for _, k := range []string{
-		"gatewayId", "deploymentId", "certificateId", "workRequestId", "apiId", "sdkId", "usagePlanId", "subscriberId",
+		keyGatewayID, keyDeploymentID, "certificateId", "workRequestId", "apiId", "sdkId", "usagePlanId", "subscriberId",
 	} {
 		if v := p[k]; v != "" {
 			return v
@@ -314,6 +315,16 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 
 	h.Port = port
 
+	var extra net.Listener
+
+	if h.TLSPort > 0 {
+		if extra, _, err = portalloc.ListenTCP(ctx, h.TLSPort); err != nil {
+			_ = listener.Close()
+
+			return fmt.Errorf("ociapigateway: bind TLS port %d: %w", h.TLSPort, err)
+		}
+	}
+
 	e := echo.New()
 	e.Use(logger.EchoMiddleware(logger.Load(ctx)))
 	e.Any("/*", telemetry.WrapEchoHandler("OCIAPIGateway", h.Handler(), h))
@@ -331,9 +342,8 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	h.srvMu.Unlock()
 
 	plainLn, secureLn := splitListener(listener, &h.wg)
-	tlsLn := tls.NewListener(secureLn, &tls.Config{
-		GetConfigForClient: h.Backend.tlsConfigFor, MinVersion: tls.VersionTLS12,
-	})
+	tlsCfg := &tls.Config{GetConfigForClient: h.Backend.tlsConfigFor, MinVersion: tls.VersionTLS12}
+	tlsLn := tls.NewListener(secureLn, tlsCfg)
 
 	workerCtx := logger.WithWorker(ctx, "ociapigateway", "listener")
 
@@ -341,6 +351,10 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 
 	h.serveOn(workerCtx, srv, plainLn, "listener stopped")
 	h.serveOn(workerCtx, tlsSrv, tlsLn, "TLS listener stopped")
+
+	if extra != nil {
+		h.serveOn(workerCtx, tlsSrv, tls.NewListener(extra, tlsCfg), "TLS port listener stopped")
+	}
 
 	h.wg.Go(func() {
 		t := time.NewTicker(sweepInterval)

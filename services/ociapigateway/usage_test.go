@@ -1,6 +1,8 @@
 package ociapigateway_test
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -8,6 +10,8 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/apigateway"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	ociapigateway "github.com/blackbirdworks/gopherstack/services/ociapigateway"
 )
 
 func usageSpec() string {
@@ -231,4 +235,89 @@ func TestUsagePlanTokenHandling(t *testing.T) {
 	assert.Equal(t, 200, e.call(t, *gw.Id, http.MethodGet, "/p/u", map[string]string{"X-Api-Key": "good"}, "").status)
 	assert.Equal(t, 403, e.call(t, *gw.Id, http.MethodGet, "/q/u", map[string]string{"X-Api-Key": "good"}, "").status,
 		"the plan does not entitle the subscriber to deployment "+other)
+}
+
+func TestUsageCountersSurviveRestore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		advance time.Duration
+		want    int
+	}{
+		{name: "same window", advance: 0, want: http.StatusTooManyRequests},
+		{name: "next window", advance: time.Hour, want: http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, envOpts{})
+			gw := e.mkGateway(t, "up-persist")
+			dep := e.mkDeployment(t, *gw.Id, "/p", usageSpec())
+			plan := e.mkPlan(t, "persist", apigateway.Entitlement{
+				Name: new("e1"),
+				Quota: &apigateway.Quota{
+					Value: new(2), Unit: apigateway.QuotaUnitHour, ResetPolicy: apigateway.QuotaResetPolicyCalendar,
+					OperationOnBreach: apigateway.QuotaOperationOnBreachReject,
+				},
+				Targets: []apigateway.EntitlementTarget{{DeploymentId: &dep}},
+			})
+			e.mkSubscriber(t, "persist-tok", plan)
+
+			hdr := map[string]string{"X-Api-Key": "persist-tok"}
+			for range 2 {
+				require.Equal(t, http.StatusOK, e.call(t, *gw.Id, http.MethodGet, "/p/u", hdr, "").status)
+			}
+
+			snap := e.handler.Snapshot(t.Context())
+
+			other := ociapigateway.NewInMemoryBackend()
+			other.SetClock(e.clock.Now)
+			require.NoError(t, other.Restore(t.Context(), snap))
+
+			h := ociapigateway.NewHandler(other)
+			h.Port = 0
+
+			require.NoError(t, h.StartWorker(t.Context()))
+			t.Cleanup(func() { h.Shutdown(context.Background()) })
+
+			restored := &env{
+				backend: other,
+				port:    h.Port,
+				clock:   e.clock,
+				base:    fmt.Sprintf("http://localhost:%d", h.Port),
+			}
+			other.Sweep()
+			e.clock.Advance(tt.advance)
+
+			assert.Equal(t, tt.want, restored.call(t, *gw.Id, http.MethodGet, "/p/u", hdr, "").status)
+		})
+	}
+}
+
+func TestUsageCountersForgottenOnDelete(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	gw := e.mkGateway(t, "up-forget")
+	dep := e.mkDeployment(t, *gw.Id, "/p", usageSpec())
+	plan := e.mkPlan(t, "forget", apigateway.Entitlement{
+		Name: new("e1"),
+		Quota: &apigateway.Quota{
+			Value: new(5), Unit: apigateway.QuotaUnitHour, ResetPolicy: apigateway.QuotaResetPolicyCalendar,
+			OperationOnBreach: apigateway.QuotaOperationOnBreachReject,
+		},
+		Targets: []apigateway.EntitlementTarget{{DeploymentId: &dep}},
+	})
+	sub := e.mkSubscriber(t, "forget-tok", plan)
+
+	require.Equal(t, http.StatusOK, e.call(t, *gw.Id, http.MethodGet, "/p/u",
+		map[string]string{"X-Api-Key": "forget-tok"}, "").status)
+	require.Contains(t, string(e.handler.Snapshot(t.Context())), "usageCounters")
+
+	_, err := e.sub.DeleteSubscriber(t.Context(), apigateway.DeleteSubscriberRequest{SubscriberId: &sub})
+	require.NoError(t, err)
+	assert.NotContains(t, string(e.handler.Snapshot(t.Context())), "usageCounters")
 }

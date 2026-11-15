@@ -324,21 +324,8 @@ func (b *InMemoryBackend) UpdateGateway(id, ifMatch string, in updateGatewayIn) 
 		g.DisplayName = *in.DisplayName
 	}
 
-	if in.NSGs != nil {
-		g.NSGs = in.NSGs
-	}
-
-	if len(in.CaBundles) > 0 {
-		g.CaBundles = nullRaw(in.CaBundles)
-	}
-
-	if len(in.ResponseCache) > 0 {
-		if cerr := validateResponseCache(in.ResponseCache); cerr != nil {
-			return "", cerr
-		}
-
-		g.ResponseCache = nullRaw(in.ResponseCache)
-		b.forgetGatewayCache(g.ID)
+	if aerr := b.applyNetworkUpdate(g, in); aerr != nil {
+		return "", aerr
 	}
 
 	g.Tags.merge(in.Tags)
@@ -382,6 +369,8 @@ func (b *InMemoryBackend) DeleteGateway(id, ifMatch string) (string, error) {
 	}
 
 	b.releaseAddresses(g)
+	b.extcache.forgetGateway(id)
+	b.defaultCerts.forget(id)
 
 	g.State, g.TransitionAt = stateDeleting, b.transitionAt()
 	g.TimeUpdated = b.nowUTC()
@@ -445,4 +434,32 @@ func (h *Handler) changeGatewayCompartment(q *req) error {
 	return withBody(q, func(in changeCompartmentIn) (string, error) {
 		return h.Backend.ChangeGatewayCompartment(q.param("gatewayId"), q.ifMatch(), in)
 	})
+}
+
+// applyNetworkUpdate applies NSGs, CA bundles and the cache configuration; the fallible steps run first.
+func (b *InMemoryBackend) applyNetworkUpdate(g *Gateway, in updateGatewayIn) *APIError {
+	if len(in.ResponseCache) > 0 {
+		if cerr := validateResponseCache(in.ResponseCache); cerr != nil {
+			return cerr
+		}
+	}
+
+	if in.NSGs != nil {
+		if nerr := b.applyNsgs(g, in.NSGs); nerr != nil {
+			return nerr
+		}
+
+		g.NSGs = in.NSGs
+	}
+
+	if len(in.CaBundles) > 0 {
+		g.CaBundles = nullRaw(in.CaBundles)
+	}
+
+	if len(in.ResponseCache) > 0 {
+		g.ResponseCache = nullRaw(in.ResponseCache)
+		b.extcache.forgetGateway(g.ID)
+	}
+
+	return nil
 }

@@ -232,13 +232,14 @@ type routeDoc struct {
 	Backend          *backendDoc            `json:"backend"`
 	RequestPolicies  *routeRequestPolicies  `json:"requestPolicies"`
 	ResponsePolicies *routeResponsePolicies `json:"responsePolicies"`
+	LoggingPolicies  *loggingDoc            `json:"loggingPolicies"`
 	Path             string                 `json:"path"`
 	Methods          []string               `json:"methods"`
 }
 
 type specDoc struct {
 	RequestPolicies *requestPolicies `json:"requestPolicies"`
-	LoggingPolicies jsontext.Value   `json:"loggingPolicies"`
+	LoggingPolicies *loggingDoc      `json:"loggingPolicies"`
 	Routes          []routeDoc       `json:"routes"`
 }
 
@@ -297,6 +298,10 @@ func compileSpec(raw jsontext.Value) (*compiledSpec, *APIError) {
 	}
 
 	if err := validateRequestPolicies(doc.RequestPolicies); err != nil {
+		return nil, err
+	}
+
+	if err := validateLogging(doc.LoggingPolicies); err != nil {
 		return nil, err
 	}
 

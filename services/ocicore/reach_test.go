@@ -365,3 +365,76 @@ func TestCanReachEndpoints(t *testing.T) {
 
 	assert.Equal(t, "allowed", byIP.String())
 }
+
+func TestClassifyPeer(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, false)
+	openOut := []core.EgressSecurityRule{egressTo("0.0.0.0/0", "all", false, nil)}
+	rs := e.reachPair(t,
+		reachSide{egress: openOut},
+		reachSide{ingress: []core.IngressSecurityRule{ingressFrom("10.0.1.0/24", "6", false, tcpPort(443, 443))}},
+	)
+
+	other := e.mkVcn(t, "10.1.0.0/16", "other")
+	otherSub := e.mkSLSubnet(t, other, "10.1.1.0/24", reachSide{egress: openOut})
+	e.settle()
+
+	foreign, err := e.backend.CreateServiceNic(
+		oci.ServiceNicIn{CompartmentID: testComp, AD: testAD, SubnetID: *otherSub.Id},
+	)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name string
+		src  string
+		port int
+		want oci.PeerClass
+	}{
+		{"permitted", rs.nicA.IPAddress, 443, oci.PeerAllowed},
+		{"port not permitted", rs.nicA.IPAddress, 80, oci.PeerDenied},
+		{"address owned by no vnic", "192.0.2.1", 443, oci.PeerUnknown},
+		{"vnic in another vcn", foreign.IPAddress, 443, oci.PeerOtherVCN},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := e.backend.ClassifyPeer(tt.src, rs.nicB.VnicID, oci.Flow{Protocol: "tcp", Port: tt.port})
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestSetServiceNicNsgs(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, false)
+	v := e.mkVcn(t, "10.0.0.0/16", "setnsg")
+	sub := e.mkSLSubnet(t, v, "10.0.1.0/24", reachSide{})
+	e.settle()
+
+	nsg, err := e.client.CreateNetworkSecurityGroup(t.Context(), core.CreateNetworkSecurityGroupRequest{
+		CompartmentId: new(testComp), VcnId: v.Id})
+	require.NoError(t, err)
+
+	nic, err := e.backend.CreateServiceNic(oci.ServiceNicIn{CompartmentID: testComp, AD: testAD, SubnetID: *sub.Id})
+	require.NoError(t, err)
+
+	require.Error(t, e.backend.SetServiceNicNsgs(nic.VnicID, []string{"ocid1.networksecuritygroup.oc1..none"}))
+	require.NoError(t, e.backend.SetServiceNicNsgs(nic.VnicID, []string{*nsg.Id}))
+
+	members, err := e.client.ListNetworkSecurityGroupVnics(t.Context(), core.ListNetworkSecurityGroupVnicsRequest{
+		NetworkSecurityGroupId: nsg.Id})
+	require.NoError(t, err)
+	require.Len(t, members.Items, 1)
+	assert.Equal(t, nic.VnicID, *members.Items[0].VnicId)
+
+	require.NoError(t, e.backend.SetServiceNicNsgs(nic.VnicID, nil))
+
+	members, err = e.client.ListNetworkSecurityGroupVnics(t.Context(), core.ListNetworkSecurityGroupVnicsRequest{
+		NetworkSecurityGroupId: nsg.Id})
+	require.NoError(t, err)
+	assert.Empty(t, members.Items)
+}

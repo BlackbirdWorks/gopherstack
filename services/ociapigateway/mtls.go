@@ -190,6 +190,8 @@ func (b *InMemoryBackend) checkMTLS(r *http.Request, tgt target) denial {
 		}
 	}
 
+	refuse.code = "mutualTls.clientCertificateSanInvalid"
+
 	return refuse
 }
 
@@ -216,17 +218,14 @@ func (b *InMemoryBackend) tlsConfigFor(hello *tls.ClientHelloInfo) (*tls.Config,
 			continue
 		}
 
-		c := b.certificates[g.CertificateID]
-		if c == nil || c.State == stateDeleted || c.PrivateKey == "" {
-			break
-		}
-
-		pair, err := tls.X509KeyPair([]byte(c.CertPEM+"\n"+c.Intermediate), []byte(c.PrivateKey))
+		pair, err := b.gatewayKeyPair(g)
 		if err != nil {
 			return nil, err
 		}
 
-		cfg := &tls.Config{Certificates: []tls.Certificate{pair}, MinVersion: tls.VersionTLS12}
+		cfg := &tls.Config{
+			Certificates: []tls.Certificate{pair}, MinVersion: tls.VersionTLS12, NextProtos: []string{"h2", "http/1.1"},
+		}
 		if b.wantsClientCert(g.ID) {
 			cfg.ClientAuth = tls.RequestClientCert
 		}
@@ -273,4 +272,18 @@ func (h *Handler) adminCABundles(q *req) {
 	default:
 		h.fail(q, errNoRoute())
 	}
+}
+
+// gatewayKeyPair is the uploaded certificate, or a generated self-signed one for a gateway without a certificate.
+func (b *InMemoryBackend) gatewayKeyPair(g *Gateway) (tls.Certificate, error) {
+	if g.CertificateID == "" {
+		return b.defaultCerts.forGateway(g.ID, g.Hostname)
+	}
+
+	c := b.certificates[g.CertificateID]
+	if c == nil || c.State == stateDeleted || c.PrivateKey == "" {
+		return tls.Certificate{}, errNoGatewayCert
+	}
+
+	return tls.X509KeyPair([]byte(c.CertPEM+"\n"+c.Intermediate), []byte(c.PrivateKey))
 }

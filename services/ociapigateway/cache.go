@@ -9,13 +9,11 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
-	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 const (
 	cacheTypeExternal = "EXTERNAL_RESP_CACHE"
 	cacheTypeNone     = "NONE"
-	cacheMaxEntries   = 10000
 	maxTCPPort        = 65535
 	cacheMaxBody      = 1 << 20
 	cacheStatusHeader = "X-Cache-Status"
@@ -25,72 +23,6 @@ const (
 )
 
 var cacheAdditionRe = regexp.MustCompile(`^request\.(query|headers|auth)\[[^\]]+\]$`)
-
-type cacheEntry struct {
-	expires time.Time
-	header  http.Header
-	dep     string
-	body    []byte
-	status  int
-}
-
-// respCache is the in-process stand-in for the external response cache server (the server is never contacted).
-type respCache struct {
-	mu      *lockmetrics.RWMutex
-	entries map[string]*cacheEntry
-}
-
-func newRespCache() *respCache {
-	return &respCache{mu: lockmetrics.New("ociapigateway.cache"), entries: map[string]*cacheEntry{}}
-}
-
-func (c *respCache) reset() {
-	c.mu.Lock("reset")
-	c.entries = map[string]*cacheEntry{}
-	c.mu.Unlock()
-}
-
-func (c *respCache) forgetDeployment(depID string) {
-	c.mu.Lock("forgetDeployment")
-	defer c.mu.Unlock()
-
-	for k, e := range c.entries {
-		if e.dep == depID {
-			delete(c.entries, k)
-		}
-	}
-}
-
-func (c *respCache) get(key string, now time.Time) (*cacheEntry, bool) {
-	c.mu.RLock("get")
-	defer c.mu.RUnlock()
-
-	e, ok := c.entries[key]
-	if !ok || !e.expires.After(now) {
-		return nil, false
-	}
-
-	return e, true
-}
-
-func (c *respCache) put(key string, e *cacheEntry, now time.Time) {
-	c.mu.Lock("put")
-	defer c.mu.Unlock()
-
-	if len(c.entries) >= cacheMaxEntries {
-		for k, old := range c.entries {
-			if !old.expires.After(now) {
-				delete(c.entries, k)
-			}
-		}
-
-		if len(c.entries) >= cacheMaxEntries {
-			return
-		}
-	}
-
-	c.entries[key] = e
-}
 
 // cachedStatus lists the response codes Oracle stores (docs: apigatewayresponsecaching.htm).
 func cachedStatus(code int) bool {
@@ -128,7 +60,7 @@ func cachePlan(tgt target, route *compiledRoute, r *http.Request, claims map[str
 	}
 
 	rc := routeCache{active: true, ttl: time.Duration(*store.TTL) * time.Second}
-	if !tgt.cacheOn || (!isTrue(lookup.IsPrivate) && privateRequest(tgt.spec.doc.RequestPolicies, r)) {
+	if tgt.cacheCfg == nil || (!isTrue(lookup.IsPrivate) && privateRequest(tgt.spec.doc.RequestPolicies, r)) {
 		rc.bypass = true
 
 		return rc
@@ -193,35 +125,18 @@ func additionValue(add string, r *http.Request, claims map[string]any) string {
 	}
 }
 
-func (b *InMemoryBackend) cacheServe(w http.ResponseWriter, r *http.Request, rc routeCache, cors *corsDoc) bool {
-	e, ok := b.cache.get(rc.key, b.clock())
-	if !ok {
-		return false
+// externalCacheOf returns the gateway's EXTERNAL_RESP_CACHE configuration, or nil when caching is off.
+func externalCacheOf(g *Gateway) *respCacheDetails {
+	var d respCacheDetails
+
+	if len(g.ResponseCache) == 0 || json.Unmarshal(g.ResponseCache, &d, jsonx.V1()) != nil ||
+		d.Type != cacheTypeExternal || len(d.Servers) != 1 {
+		return nil
 	}
 
-	h := w.Header()
-	for k, vs := range e.header {
-		h[k] = append([]string(nil), vs...)
-	}
+	d.raw = string(g.ResponseCache)
 
-	corsHeaders(h, cors, r.Header.Get("Origin"))
-	h.Set(cacheStatusHeader, cacheHit)
-	w.WriteHeader(e.status)
-
-	if r.Method != http.MethodHead {
-		_, _ = w.Write(e.body)
-	}
-
-	return true
-}
-
-// cacheOnFor reports whether the gateway has an external response cache configured.
-func cacheOnFor(g *Gateway) bool {
-	var d struct {
-		Type string `json:"type"`
-	}
-
-	return json.Unmarshal(g.ResponseCache, &d, jsonx.V1()) == nil && d.Type == cacheTypeExternal
+	return &d
 }
 
 type respCacheServer struct {
@@ -230,7 +145,13 @@ type respCacheServer struct {
 }
 
 type respCacheDetails struct {
-	AuthSecretVersion *int64            `json:"authenticationSecretVersionNumber"`
+	AuthSecretVersion *int64 `json:"authenticationSecretVersionNumber"`
+	SSLEnabled        *bool  `json:"isSslEnabled"`
+	SSLVerifyDisabled *bool  `json:"isSslVerifyDisabled"`
+	ConnectMs         *int   `json:"connectTimeoutInMs"`
+	ReadMs            *int   `json:"readTimeoutInMs"`
+	SendMs            *int   `json:"sendTimeoutInMs"`
+	raw               string
 	AuthSecretID      string            `json:"authenticationSecretId"`
 	Type              string            `json:"type"`
 	Servers           []respCacheServer `json:"servers"`
@@ -258,8 +179,14 @@ func validateResponseCache(raw jsontext.Value) *APIError {
 }
 
 func validateExternalCache(d *respCacheDetails) *APIError {
-	if len(d.Servers) == 0 {
-		return errParam("responseCacheDetails.servers must not be empty")
+	if len(d.Servers) != 1 {
+		return errParam("responseCacheDetails.servers must hold exactly one server")
+	}
+
+	for _, ms := range []*int{d.ConnectMs, d.ReadMs, d.SendMs} {
+		if ms != nil && *ms < 1 {
+			return errParam("responseCacheDetails timeouts must be at least 1 millisecond")
+		}
 	}
 
 	for _, s := range d.Servers {
@@ -273,13 +200,4 @@ func validateExternalCache(d *respCacheDetails) *APIError {
 	}
 
 	return nil
-}
-
-// forgetGatewayCache drops the cached responses of every deployment on the gateway.
-func (b *InMemoryBackend) forgetGatewayCache(gwID string) {
-	for id, d := range b.deployments {
-		if d.GatewayID == gwID {
-			b.cache.forgetDeployment(id)
-		}
-	}
 }

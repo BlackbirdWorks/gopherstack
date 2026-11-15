@@ -39,6 +39,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	handler := NewHandler(backend)
 	handler.Port = settings.Port
+	handler.TLSPort = settings.TLSPort
 	handler.EnforceAuth = settings.EnforceAuth
 
 	return handler, nil

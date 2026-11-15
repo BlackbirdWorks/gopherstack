@@ -56,6 +56,10 @@ func compileRoute(r *routeDoc, idx int) (*compiledRoute, *APIError) {
 		return nil, errParam(where + ".path must start with a forward slash and not contain adjacent slashes")
 	}
 
+	if lerr := validateLogging(r.LoggingPolicies); lerr != nil {
+		return nil, lerr
+	}
+
 	cr := &compiledRoute{doc: r, methods: map[string]bool{}}
 
 	parts := splitSegments(r.Path)
