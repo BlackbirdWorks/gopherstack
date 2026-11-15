@@ -33,6 +33,14 @@ func mapMySQLErr(err error) error {
 	return err
 }
 
+func resourceOf(spec LaunchSpec) string {
+	if spec.Standby {
+		return spec.Project + "/" + spec.ID + "#standby"
+	}
+
+	return spec.Project + "/" + spec.ID
+}
+
 func mysqlSpec(spec LaunchSpec, image string) mysqlengine.Spec {
 	ms := mysqlengine.Spec{
 		ID:           spec.ID,
@@ -40,9 +48,9 @@ func mysqlSpec(spec LaunchSpec, image string) mysqlengine.Spec {
 		RootPassword: spec.Password,
 		Persist:      spec.Persist,
 		Fresh:        spec.Fresh,
-		Volume:       volumeName("data", spec.Project, spec.ID),
+		Volume:       volumeName("data", spec.Slot, spec.Project, spec.ID),
 		VolumeLabels: map[string]string{volumeLabel: "true", volumeLabel + ".instance": spec.Project + "/" + spec.ID},
-		Resource:     spec.Project + "/" + spec.ID,
+		Resource:     resourceOf(spec),
 		Adopt:        spec.Replica == nil && spec.Recovery == nil && !spec.Fresh,
 		ServerID:     max(spec.ServerID, 1),
 		MemoryBytes:  spec.MemoryBytes,

@@ -72,7 +72,7 @@ func (s *Server) ReplicationSource(ctx context.Context) (ReplSource, error) {
 
 	pass := s.replicaPass()
 
-	if _, err := s.Statement(ctx, dbrepl.MySQLReplicaUserSQL(s.e.cfg.ReplUser, pass)); err != nil {
+	if _, err := s.Statement(ctx, s.replicaLoginSQL(pass)); err != nil {
 		return ReplSource{}, err
 	}
 
@@ -82,6 +82,22 @@ func (s *Server) ReplicationSource(ctx context.Context) (ReplSource, error) {
 	}
 
 	return ReplSource{Network: n.name, NetworkID: n.id, Host: s.ContainerName(), Port: mysqlPort, Password: pass}, nil
+}
+
+// replicaLoginSQL creates the replication login. A replica is read-only and must not log the account to its own
+// binary log, which would give it a transaction its source lacks.
+func (s *Server) replicaLoginSQL(pass string) string {
+	sqlText := dbrepl.MySQLReplicaUserSQL(s.e.cfg.ReplUser, pass)
+
+	s.mu.Lock()
+	replica := s.attached && !s.promoted
+	s.mu.Unlock()
+
+	if !replica {
+		return sqlText
+	}
+
+	return "SET GLOBAL super_read_only=OFF; SET SESSION sql_log_bin=0; " + sqlText + "; " + superRO
 }
 
 func (s *Server) sourceNetwork(ctx context.Context, nr container.NetworkRuntime) (*sourceNet, error) {
@@ -97,7 +113,6 @@ func (s *Server) sourceNetwork(ctx context.Context, nr container.NetworkRuntime)
 		}
 
 		s.net = &sourceNet{id: id, name: name}
-		s.netID = id
 	}
 
 	if !s.net.connected.Load() {
@@ -120,11 +135,17 @@ func (s *Server) releaseNetwork(ctx context.Context) {
 	}
 
 	s.mu.Lock()
-	id := s.netID
+	ids := []string{s.netID}
+
+	if s.net != nil {
+		ids = append(ids, s.net.id)
+	}
 	s.mu.Unlock()
 
-	if id != "" {
-		_ = nr.RemoveNetwork(ctx, id)
+	for _, id := range ids {
+		if id != "" {
+			_ = nr.RemoveNetwork(ctx, id)
+		}
 	}
 }
 
@@ -219,6 +240,12 @@ func (s *Server) Promote(ctx context.Context) error {
 	}
 
 	s.mu.Lock()
+	if s.net == nil && s.netID != "" {
+		n := &sourceNet{id: s.netID, name: s.spec.Network}
+		n.connected.Store(true)
+		s.net = n
+	}
+
 	s.promoted = true
 	s.mu.Unlock()
 

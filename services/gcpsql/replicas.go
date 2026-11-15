@@ -16,6 +16,7 @@ const (
 	primaryPollEvery    = 200 * time.Millisecond
 	serverIDMin         = 2
 	serverIDSpan        = 1<<31 - serverIDMin
+	maxReplicaLevels    = 4
 )
 
 func randomServerID() uint32 {
@@ -38,6 +39,27 @@ func masterName(project, v string) (string, error) {
 	}
 
 	return name, nil
+}
+
+// replicaDepthLocked is the level of rec in its replica hierarchy; the primary is level 1.
+func (b *InMemoryBackend) replicaDepthLocked(rec *instRec) int {
+	depth := 1
+
+	for b.isReplica(rec) && depth <= maxReplicaLevels {
+		name, err := masterName(rec.Inst.Project, rec.Inst.MasterInstanceName)
+		if err != nil {
+			break
+		}
+
+		parent, ok := b.instances[instKey(rec.Inst.Project, name)]
+		if !ok {
+			break
+		}
+
+		rec, depth = parent, depth+1
+	}
+
+	return depth
 }
 
 func (b *InMemoryBackend) isReplica(rec *instRec) bool { return rec.Inst.MasterInstanceName != "" }
@@ -76,8 +98,9 @@ func (b *InMemoryBackend) prepareReplicaLocked(project string, in *InstanceInput
 		return nil, errNotRunnable()
 	}
 
-	if b.isReplica(prim) {
-		return nil, errInvalid("Replicas of replicas are not supported by the emulator.")
+	if b.replicaDepthLocked(prim) >= maxReplicaLevels {
+		return nil, errInvalid("A replica hierarchy can be at most %d levels deep, including the primary instance.",
+			maxReplicaLevels)
 	}
 
 	if err = inheritFromPrimary(in, prim); err != nil {
@@ -153,6 +176,7 @@ func (b *InMemoryBackend) syncReplicasLocked(prim *instRec) {
 	for _, n := range prim.Inst.ReplicaNames {
 		if rep, ok := b.instances[instKey(prim.Inst.Project, n)]; ok && !rep.gone {
 			b.mirrorLocked(prim, rep)
+			b.syncReplicasLocked(rep)
 		}
 	}
 }

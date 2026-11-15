@@ -12,7 +12,7 @@ import (
 
 const pgPortNum = 5432
 
-func (e *dockerEngine) resourceKey() string { return e.spec.Project + "/" + e.id }
+func (e *dockerEngine) resourceKey() string { return resourceOf(e.spec) }
 
 func (e *dockerEngine) shape() string {
 	return e.image + "|" + strconv.FormatInt(e.spec.MemoryBytes, 10) + "|" + strconv.FormatInt(e.spec.NanoCPUs, 10)

@@ -86,10 +86,10 @@ func (l *dockerLauncher) Launch(ctx context.Context, spec LaunchSpec) (Engine, e
 
 	if vr, vok := r.(container.VolumeRuntime); vok && spec.Persist {
 		e.vols = vr
-		e.volData = volumeName("data", spec.Project, spec.ID)
+		e.volData = volumeName("data", spec.Slot, spec.Project, spec.ID)
 
-		if spec.Replica == nil {
-			e.volPITR = volumeName("pitr", spec.Project, spec.ID)
+		if spec.Replica == nil || spec.Standby {
+			e.volPITR = volumeName("pitr", spec.Slot, spec.Project, spec.ID)
 		}
 	}
 

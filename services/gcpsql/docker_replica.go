@@ -18,12 +18,13 @@ const (
 	pitrSrcMount = "/gopherstack-pitr-src"
 	recoveryEnv  = "GS_RECOVERY_AT"
 
-	pgWrapper = `set -e
-if [ -d ` + pitrMount + ` ]; then
+	pitrPrep = `if [ -d ` + pitrMount + ` ]; then
   mkdir -p ` + pitrMount + `/wal
   chown postgres:postgres ` + pitrMount + ` ` + pitrMount + `/wal
 fi
-if [ -n "$` + recoveryEnv + `" ] && [ ! -s "$PGDATA/PG_VERSION" ]; then
+`
+	pgWrapper = `set -e
+` + pitrPrep + `if [ -n "$` + recoveryEnv + `" ] && [ ! -s "$PGDATA/PG_VERSION" ]; then
   mkdir -p "$PGDATA"
   cp -a ` + pitrSrcMount + `/base/. "$PGDATA"/
   chown -R postgres:postgres "$PGDATA"
@@ -57,8 +58,15 @@ func (e *dockerEngine) pgLaunch(s *container.Spec) {
 	switch {
 	case e.spec.Replica != nil:
 		r := e.spec.Replica
+		script := dbrepl.PGReplicaScript(replUser)
+
+		if e.volPITR != "" {
+			s.Mounts = append(s.Mounts, e.volPITR+":"+pitrMount)
+			script = pitrPrep + script
+		}
+
 		s.Entrypoint = append([]string{
-			"sh", "-c", dbrepl.PGReplicaScript(replUser), "gs-pg-replica", r.Host, strconv.Itoa(r.Port),
+			"sh", "-c", script, "gs-pg-replica", r.Host, strconv.Itoa(r.Port),
 		}, args...)
 		s.Env = append(s.Env, dbrepl.PasswordEnv+"="+r.Password)
 	case e.volPITR != "":
@@ -113,9 +121,8 @@ func (e *dockerEngine) ReplicationSource(ctx context.Context) (ReplicaSource, er
 		return ReplicaSource{}, errNoReplication
 	}
 
-	pass := e.replicaPass()
-
-	if err := e.preparePGSource(ctx, pass); err != nil {
+	pass, err := e.sourcePass(ctx)
+	if err != nil {
 		return ReplicaSource{}, err
 	}
 
@@ -131,6 +138,22 @@ func (e *dockerEngine) ReplicationSource(ctx context.Context) (ReplicaSource, er
 		Port:      pgPortNum,
 		Password:  pass,
 	}, nil
+}
+
+// sourcePass readies the engine as a replication source. A replica cannot create the login, but streams the one its
+// own source made, so its replicas use that password.
+func (e *dockerEngine) sourcePass(ctx context.Context) (string, error) {
+	e.mu.RLock("sourcePass")
+	up := e.spec.Replica
+	e.mu.RUnlock()
+
+	if up != nil {
+		return up.Password, nil
+	}
+
+	pass := e.replicaPass()
+
+	return pass, e.preparePGSource(ctx, pass)
 }
 
 func (e *dockerEngine) containerName() string {
@@ -167,7 +190,6 @@ func (e *dockerEngine) sourceNetwork(ctx context.Context, nr container.NetworkRu
 		}
 
 		e.net = &sourceNet{id: id, name: name}
-		e.netID = id
 	}
 
 	if !e.net.connected.Load() {
@@ -190,11 +212,17 @@ func (e *dockerEngine) releaseNetwork(ctx context.Context) {
 	}
 
 	e.mu.RLock("releaseNetwork")
-	id := e.netID
+	ids := []string{e.netID}
+
+	if e.net != nil {
+		ids = append(ids, e.net.id)
+	}
 	e.mu.RUnlock()
 
-	if id != "" {
-		_ = nr.RemoveNetwork(ctx, id)
+	for _, id := range ids {
+		if id != "" {
+			_ = nr.RemoveNetwork(ctx, id)
+		}
 	}
 }
 
@@ -240,10 +268,23 @@ func (e *dockerEngine) Promote(ctx context.Context) error {
 	}
 
 	e.mu.Lock("Promote")
+	e.adoptNetworkLocked()
 	e.promoted, e.spec.Replica = true, nil
 	e.mu.Unlock()
 
 	return nil
+}
+
+// adoptNetworkLocked makes a promoted replica the source of the network it already sits on, so the old source's
+// other replicas can be re-pointed at it.
+func (e *dockerEngine) adoptNetworkLocked() {
+	if e.net != nil || e.spec.Replica == nil || e.spec.Replica.NetworkID == "" {
+		return
+	}
+
+	n := &sourceNet{id: e.spec.Replica.NetworkID, name: e.spec.Replica.Network}
+	n.connected.Store(true)
+	e.net = n
 }
 
 // SetReplication implements Replicator.

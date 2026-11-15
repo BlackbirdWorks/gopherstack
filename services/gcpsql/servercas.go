@@ -2,14 +2,12 @@ package gcpsql
 
 import (
 	"context"
-	"net/http"
 )
 
 const (
-	kindListServerCas    = "sql#instancesListServerCas"
-	availabilityRegional = "REGIONAL"
-	logGeneralTable      = "MYSQL_GENERAL_TABLE"
-	logSlowTable         = "MYSQL_SLOW_TABLE"
+	kindListServerCas = "sql#instancesListServerCas"
+	logGeneralTable   = "MYSQL_GENERAL_TABLE"
+	logSlowTable      = "MYSQL_SLOW_TABLE"
 )
 
 // ServerCas is the instances.listServerCas response.
@@ -118,36 +116,6 @@ func (b *InMemoryBackend) ResetSslConfig(project, instance string) (*Operation, 
 	b.touchLocked(rec)
 
 	return b.submitLocked(rec, project, "UPDATE", opMeta{}, func(context.Context) error { return nil }), nil
-}
-
-// Failover swaps the primary and standby zones of a REGIONAL instance.
-func (b *InMemoryBackend) Failover(project, instance string, settingsVersion string) (*Operation, error) {
-	b.mu.Lock("Failover")
-	defer b.mu.Unlock()
-
-	rec, err := b.opRec(project, instance)
-	if err != nil {
-		return nil, err
-	}
-
-	regional := settingString(rec.Inst.Settings, "availabilityType") == availabilityRegional
-	if !regional || rec.Inst.MasterInstanceName != "" {
-		return nil, errInvalid("Failover requires a high availability (REGIONAL) primary instance.")
-	}
-
-	if settingsVersion != "" && settingsVersion != settingString(rec.Inst.Settings, "settingsVersion") {
-		return nil, newErr(http.StatusPreconditionFailed, "conditionNotMet", "Precondition check failed.")
-	}
-
-	return b.submitLocked(rec, project, "FAILOVER", opMeta{}, func(context.Context) error {
-		b.mu.Lock("Failover.task")
-		defer b.mu.Unlock()
-
-		rec.Inst.GceZone, rec.Inst.SecondaryGceZone = rec.Inst.SecondaryGceZone, rec.Inst.GceZone
-		b.touchLocked(rec)
-
-		return nil
-	}), nil
 }
 
 // TruncateLog empties a MySQL general or slow log table.

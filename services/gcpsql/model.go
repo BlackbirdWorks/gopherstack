@@ -50,30 +50,37 @@ type SslCert struct {
 
 // Instance is the sql#instance resource.
 type Instance struct {
-	Settings                   map[string]any `json:"settings,omitempty"`
-	ServerCaCert               *SslCert       `json:"serverCaCert,omitempty"`
-	Kind                       string         `json:"kind"`
-	State                      string         `json:"state"`
-	DatabaseVersion            string         `json:"databaseVersion"`
-	Etag                       string         `json:"etag"`
-	InstanceType               string         `json:"instanceType"`
-	Project                    string         `json:"project"`
-	ServiceAccountEmailAddress string         `json:"serviceAccountEmailAddress,omitempty"`
-	BackendType                string         `json:"backendType"`
-	SelfLink                   string         `json:"selfLink"`
-	ConnectionName             string         `json:"connectionName"`
-	Name                       string         `json:"name"`
-	Region                     string         `json:"region"`
-	GceZone                    string         `json:"gceZone,omitempty"`
-	SecondaryGceZone           string         `json:"secondaryGceZone,omitempty"`
-	CreateTime                 string         `json:"createTime"`
-	MaintenanceVersion         string         `json:"maintenanceVersion,omitempty"`
-	SQLNetworkArchitecture     string         `json:"sqlNetworkArchitecture,omitempty"`
-	GopherstackEndpoint        string         `json:"gopherstackEndpoint,omitempty"`
-	MasterInstanceName         string         `json:"masterInstanceName,omitempty"`
-	ReplicaConfiguration       map[string]any `json:"replicaConfiguration,omitempty"`
-	IPAddresses                []IPMapping    `json:"ipAddresses,omitempty"`
-	ReplicaNames               []string       `json:"replicaNames,omitempty"`
+	Settings                   map[string]any      `json:"settings,omitempty"`
+	ServerCaCert               *SslCert            `json:"serverCaCert,omitempty"`
+	Kind                       string              `json:"kind"`
+	State                      string              `json:"state"`
+	DatabaseVersion            string              `json:"databaseVersion"`
+	Etag                       string              `json:"etag"`
+	InstanceType               string              `json:"instanceType"`
+	Project                    string              `json:"project"`
+	ServiceAccountEmailAddress string              `json:"serviceAccountEmailAddress,omitempty"`
+	BackendType                string              `json:"backendType"`
+	SelfLink                   string              `json:"selfLink"`
+	ConnectionName             string              `json:"connectionName"`
+	Name                       string              `json:"name"`
+	Region                     string              `json:"region"`
+	GceZone                    string              `json:"gceZone,omitempty"`
+	SecondaryGceZone           string              `json:"secondaryGceZone,omitempty"`
+	CreateTime                 string              `json:"createTime"`
+	MaintenanceVersion         string              `json:"maintenanceVersion,omitempty"`
+	SQLNetworkArchitecture     string              `json:"sqlNetworkArchitecture,omitempty"`
+	GopherstackEndpoint        string              `json:"gopherstackEndpoint,omitempty"`
+	MasterInstanceName         string              `json:"masterInstanceName,omitempty"`
+	ReplicaConfiguration       map[string]any      `json:"replicaConfiguration,omitempty"`
+	ReplicationCluster         *ReplicationCluster `json:"replicationCluster,omitempty"`
+	IPAddresses                []IPMapping         `json:"ipAddresses,omitempty"`
+	ReplicaNames               []string            `json:"replicaNames,omitempty"`
+}
+
+// ReplicationCluster designates the disaster recovery replica of a primary, or marks a replica as that DR replica.
+type ReplicationCluster struct {
+	FailoverDrReplicaName string `json:"failoverDrReplicaName,omitempty"`
+	DrReplica             bool   `json:"drReplica,omitempty"`
 }
 
 // OperationError is one error of a failed operation.
