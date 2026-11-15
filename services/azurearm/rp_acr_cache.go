@@ -41,7 +41,7 @@ func (p *ContainerRegistryProvider) cacheChildren(rg, registry string, kind acrK
 }
 
 func acrInvalid(format string, args ...any) error {
-	return badACRRequest(fmt.Errorf("%w: "+format, append([]any{ErrInvalidRequestBody}, args...)...))
+	return badACRRequest(fmt.Errorf("%w: %s", ErrInvalidRequestBody, fmt.Sprintf(format, args...)))
 }
 
 func (p *ContainerRegistryProvider) putCacheChild(

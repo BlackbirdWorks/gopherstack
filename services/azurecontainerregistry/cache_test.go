@@ -11,6 +11,8 @@ import (
 	acr "github.com/blackbirdworks/gopherstack/services/azurecontainerregistry"
 )
 
+var errNoSuchSecret = errors.New("no such secret")
+
 const upstreamHost = "upstreamreg.azurecr.localhost:10011"
 
 func newCacheEnv(t *testing.T, rule acr.CacheRule) (*env, acr.Credentials) {
@@ -32,7 +34,7 @@ func newCacheEnv(t *testing.T, rule acr.CacheRule) (*env, acr.Credentials) {
 			return up.Password1, nil
 		}
 
-		return "", errors.New("no such secret")
+		return "", errNoSuchSecret
 	})
 
 	rule.Name = "rule1"

@@ -11,6 +11,8 @@ import (
 	acr "github.com/blackbirdworks/gopherstack/services/azurecontainerregistry"
 )
 
+var errKeyDisabled = errors.New("key disabled")
+
 func TestEncryptionKeyFollowsKeyState(t *testing.T) {
 	t.Parallel()
 
@@ -20,7 +22,7 @@ func TestEncryptionKeyFollowsKeyState(t *testing.T) {
 	usable := true
 	e.h.Backend.SetKeyChecker(func(string) error {
 		if !usable {
-			return errors.New("key disabled")
+			return errKeyDisabled
 		}
 
 		return nil
