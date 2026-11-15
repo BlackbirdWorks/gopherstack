@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/aadauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 	"github.com/blackbirdworks/gopherstack/services/azureblob"
+	"github.com/blackbirdworks/gopherstack/services/azurekeyvault"
 	"github.com/blackbirdworks/gopherstack/services/azuresearch"
 	"github.com/blackbirdworks/gopherstack/services/cosmosdb"
 )
@@ -73,11 +75,19 @@ type searchE2E struct {
 	blobs   *azureblob.InMemoryBackend
 	cosmos  *cosmosdb.InMemoryBackend
 	search  *azuresearch.Handler
+	armH    *azurearm.Handler
+	armHTTP *http.Client
 	data    string
 	arm     string
 }
 
 func newSearchE2E(t *testing.T) *searchE2E {
+	t.Helper()
+
+	return newSearchE2EWith(t, false)
+}
+
+func newSearchE2EWith(t *testing.T, validateTokens bool) *searchE2E {
 	t.Helper()
 
 	armSvc, err := (&azurearm.Provider{}).Init(&service.AppContext{})
@@ -94,7 +104,7 @@ func newSearchE2E(t *testing.T) *searchE2E {
 			azuresearch.WithClock(func() time.Time { return clock.now }),
 			azuresearch.WithIndexerExecutor(func(f func()) { f() }),
 		),
-		azuresearch.DefaultSettings(),
+		azuresearch.Settings{Port: azuresearch.DefaultPort, ValidateTokens: validateTokens},
 	)
 	blobs := azureblob.NewInMemoryBackend()
 	cosmos := cosmosdb.NewInMemoryBackend()
@@ -126,7 +136,16 @@ func newSearchE2E(t *testing.T) *searchE2E {
 	})
 	require.NoError(t, err)
 
-	return &searchE2E{factory: f, blobs: blobs, cosmos: cosmos, search: searchH, data: dataSrv.URL, arm: armSrv.URL}
+	return &searchE2E{
+		armH:    armH,
+		armHTTP: armSrv.Client(),
+		factory: f,
+		blobs:   blobs,
+		cosmos:  cosmos,
+		search:  searchH,
+		data:    dataSrv.URL,
+		arm:     armSrv.URL,
+	}
 }
 
 func (e *searchE2E) call(t *testing.T, method, path, key string, body any) (int, map[string]any) {
@@ -300,4 +319,217 @@ func TestAzureSearchIndexerFromInProcessEmulators(t *testing.T) {
 
 	last, _ := body["lastResult"].(map[string]any)
 	assert.Equal(t, "success", last["status"])
+}
+
+func (e *searchE2E) bearer(t *testing.T, method, path, token string, body any) int {
+	t.Helper()
+
+	var rd io.Reader
+
+	if body != nil {
+		raw, err := json.Marshal(body, jsonx.V1())
+		require.NoError(t, err)
+
+		rd = bytes.NewReader(raw)
+	}
+
+	req, err := http.NewRequestWithContext(t.Context(), method, e.data+path, rd)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	res, err := testclient.New(t).Do(req)
+	require.NoError(t, err)
+
+	defer res.Body.Close()
+
+	_, _ = io.Copy(io.Discard, res.Body)
+
+	return res.StatusCode
+}
+
+func (e *searchE2E) assign(t *testing.T, scope, roleGUID, principal string) {
+	t.Helper()
+
+	const sub = "00000000-0000-0000-0000-000000000000"
+
+	body := map[string]any{"properties": map[string]any{
+		"roleDefinitionId": "/subscriptions/" + sub + "/providers/Microsoft.Authorization/roleDefinitions/" + roleGUID,
+		"principalId":      principal,
+	}}
+	raw, err := json.Marshal(body, jsonx.V1())
+	require.NoError(t, err)
+
+	e.rawARM(
+		t,
+		http.MethodPut,
+		"/subscriptions/"+sub+"/resourcegroups/rg?api-version=2021-04-01",
+		`{"location":"westus"}`,
+	)
+
+	name := roleGUID[:8] + principal[8:]
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPut,
+		e.arm+scope+"/providers/Microsoft.Authorization/roleAssignments/"+name+"?api-version=2022-04-01",
+		bytes.NewReader(raw))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	res, err := e.armHTTP.Do(req)
+	require.NoError(t, err)
+
+	defer res.Body.Close()
+
+	out, _ := io.ReadAll(res.Body)
+	require.Equal(t, http.StatusCreated, res.StatusCode, string(out))
+}
+
+func TestAzureSearchEntraTokensAndRoleAssignments(t *testing.T) {
+	t.Parallel()
+
+	e := newSearchE2EWith(t, true)
+	poller, err := e.factory.NewServicesClient().BeginCreateOrUpdate(t.Context(), "rg", "rbacsvc", armsearch.Service{
+		Location: new("westus"), SKU: &armsearch.SKU{Name: new(armsearch.SKUNameBasic)},
+		Properties: &armsearch.ServiceProperties{AuthOptions: &armsearch.DataPlaneAuthOptions{
+			AADOrAPIKey: &armsearch.DataPlaneAADOrAPIKeyAuthOption{},
+		}},
+	}, nil, nil)
+	require.NoError(t, err)
+
+	svc, err := poller.PollUntilDone(t.Context(), nil)
+	require.NoError(t, err)
+
+	keys, err := e.factory.NewAdminKeysClient().Get(t.Context(), "rg", "rbacsvc", nil, nil)
+	require.NoError(t, err)
+
+	idx := map[string]any{"name": "things", "fields": []any{
+		map[string]any{"name": "id", "type": "Edm.String", "key": true},
+	}}
+	status, _ := e.call(t, http.MethodPost, "/indexes?api-version=2024-07-01", *keys.PrimaryKey, idx)
+	require.Equal(t, http.StatusCreated, status)
+
+	const (
+		reader  = "1407120a-92aa-4202-b7e9-c0e197c71c8f"
+		svcCont = "7ca78c08-252a-4471-8644-bb5ff32d4ba0"
+		readerP = "aaaaaaaa-0000-0000-0000-000000000001"
+		contP   = "bbbbbbbb-0000-0000-0000-000000000002"
+		noneP   = "cccccccc-0000-0000-0000-000000000003"
+	)
+
+	e.assign(t, *svc.ID, reader, readerP)
+	e.assign(t, *svc.ID, svcCont, contP)
+
+	mint := func(audience, principal string) string {
+		tok, mErr := e.armH.Issuer.IssueClientCredentialsToken(aadauth.ClientCredentialsClaims{
+			Issuer:   "https://login.example/t/v2.0",
+			Audience: audience,
+			TenantID: "t",
+			ClientID: "app",
+			ObjectID: principal,
+		}, 0)
+		require.NoError(t, mErr)
+
+		return tok
+	}
+
+	const aud = "https://search.azure.com"
+
+	tests := []struct {
+		name   string
+		token  string
+		method string
+		path   string
+		want   int
+	}{
+		{
+			"reader queries",
+			mint(aud, readerP),
+			http.MethodGet,
+			"/indexes('things')/docs?search=*&api-version=2024-07-01",
+			200,
+		},
+		{"reader cannot list indexes", mint(aud, readerP), http.MethodGet, "/indexes?api-version=2024-07-01", 403},
+		{"contributor lists indexes", mint(aud, contP), http.MethodGet, "/indexes?api-version=2024-07-01", 200},
+		{
+			"contributor cannot query",
+			mint(aud, contP),
+			http.MethodGet,
+			"/indexes('things')/docs?search=*&api-version=2024-07-01",
+			403,
+		},
+		{"no assignment", mint(aud, noneP), http.MethodGet, "/indexes?api-version=2024-07-01", 403},
+		{
+			"wrong audience",
+			mint("https://management.azure.com", readerP),
+			http.MethodGet,
+			"/indexes?api-version=2024-07-01",
+			401,
+		},
+		{"garbage token", "not-a-jwt", http.MethodGet, "/indexes?api-version=2024-07-01", 401},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, e.bearer(t, tt.method, tt.path, tt.token, nil))
+		})
+	}
+}
+
+func (e *searchE2E) rawARM(t *testing.T, method, path, body string) {
+	t.Helper()
+
+	req, err := http.NewRequestWithContext(t.Context(), method, e.arm+path, strings.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	res, err := e.armHTTP.Do(req)
+	require.NoError(t, err)
+
+	defer res.Body.Close()
+
+	_, _ = io.Copy(io.Discard, res.Body)
+}
+
+func TestAzureSearchKeyResolverUsesKeyVault(t *testing.T) {
+	t.Parallel()
+
+	kv := azurekeyvault.NewInMemoryBackend(false)
+	kv.CreateVault("vault1", azurekeyvault.VaultOptions{})
+
+	_, err := kv.CreateKey("vault1", "", "good", &azurekeyvault.CreateKeyRequest{Kty: "RSA", KeySize: 2048})
+	require.NoError(t, err)
+
+	disabled := false
+	_, err = kv.CreateKey("vault1", "", "off", &azurekeyvault.CreateKeyRequest{
+		Kty: "RSA", KeySize: 2048, Attributes: &azurekeyvault.Attributes{Enabled: &disabled},
+	})
+	require.NoError(t, err)
+
+	r := azureSearchKeys{b: kv}
+
+	tests := []struct {
+		name    string
+		vault   string
+		key     string
+		wantErr bool
+	}{
+		{"enabled key", "vault1", "good", false},
+		{"disabled key", "vault1", "off", true},
+		{"missing key", "vault1", "nope", true},
+		{"missing vault", "nope", "good", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			resolveErr := r.ResolveKey(tt.vault, tt.key, "")
+			if tt.wantErr {
+				require.Error(t, resolveErr)
+			} else {
+				require.NoError(t, resolveErr)
+			}
+		})
+	}
 }

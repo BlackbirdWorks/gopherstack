@@ -6,15 +6,17 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/blevesearch/snowballstem/porter"
 	"golang.org/x/text/unicode/norm"
 )
 
 // Token is one analysed term with its position and byte offsets in the source text.
 type Token struct {
-	Term  string
-	Pos   int
-	Start int
-	End   int
+	Term    string
+	Pos     int
+	Start   int
+	End     int
+	Keyword bool
 }
 
 // Analyzer turns text into tokens.
@@ -169,7 +171,7 @@ func foldASCII(s string) string {
 	return sb.String()
 }
 
-func standardAnalyzer(stops map[string]bool, fold bool, stem func(string) string) Analyzer {
+func standardAnalyzer(stops map[string]bool, fold bool) Analyzer {
 	return func(text string) []Token {
 		toks := positions(mapTerms(scan(text, isWordRune, standardJoin), func(s string) string {
 			s = strings.ToLower(s)
@@ -180,12 +182,7 @@ func standardAnalyzer(stops map[string]bool, fold bool, stem func(string) string
 			return s
 		}))
 
-		toks = dropStop(toks, stops)
-		if stem != nil {
-			mapTerms(toks, stem)
-		}
-
-		return toks
+		return dropStop(toks, stops)
 	}
 }
 
@@ -219,7 +216,7 @@ func patternAnalyzer(text string) []Token {
 func builtinAnalyzer(name string) (Analyzer, bool) {
 	switch strings.ToLower(name) {
 	case analyzerStandard, "standardasciifolding.lucene":
-		return standardAnalyzer(stopWords["en"], strings.EqualFold(name, "standardasciifolding.lucene"), nil), true
+		return standardAnalyzer(stopWords["en"], strings.EqualFold(name, "standardasciifolding.lucene")), true
 	case analyzerKeyword:
 		return keywordAnalyzer, true
 	case analyzerSimple:
@@ -241,11 +238,52 @@ func builtinAnalyzer(name string) (Analyzer, bool) {
 	lang, _, _ = strings.Cut(lang, "-")
 	stops := stopWords[lang]
 
-	if lang == "en" {
-		return standardAnalyzer(stops, false, stemEnglish), true
+	return languageAnalyzer(lang, stops), true
+}
+
+// languageAnalyzer follows Lucene's per-language analyzers: tokenizer, lowercase, stop words, stemmer. English uses
+// the original Porter stemmer as EnglishAnalyzer does; the other languages use the Snowball stemmer, which differs
+// from Lucene's light stemmers; French also strips elisions as FrenchAnalyzer does.
+func languageAnalyzer(lang string, stops map[string]bool) Analyzer {
+	var stem func(string) string
+
+	switch lang {
+	case "en":
+		stem = stemmerFunc(porter.Stem)
+	default:
+		if f, ok := snowballLangs[snowballName[lang]]; ok {
+			stem = stemmerFunc(f)
+		}
 	}
 
-	return standardAnalyzer(stops, lang == "fr" || lang == "es" || lang == "de", nil), true
+	base := standardAnalyzer(stops, false)
+	elide := lang == "fr"
+
+	return func(text string) []Token {
+		toks := base(text)
+		if lang == "en" {
+			toks = mapTerms(toks, func(s string) string {
+				return strings.TrimSuffix(strings.TrimSuffix(s, "'s"), "’s")
+			})
+		}
+
+		if elide {
+			toks = defaultElision()(toks)
+		}
+
+		if stem != nil {
+			stemFilter(stem)(toks)
+		}
+
+		return toks
+	}
+}
+
+//nolint:gochecknoglobals // read-only language table
+var snowballName = map[string]string{
+	"fr": langFrench, "de": langGerman, "es": langSpanish, "it": langItalian, "pt": langPortuguese, "nl": langDutch,
+	"ru": langRussian, "sv": langSwedish, "da": langDanish, "fi": langFinnish, "hu": langHungarian, "nb": langNorwegian,
+	"no": langNorwegian, "ro": langRomanian, "tr": langTurkish, "ar": langArabic, "ga": langIrish,
 }
 
 // stemEnglish is a light English stemmer (plural, -ed, -ing and possessive endings).

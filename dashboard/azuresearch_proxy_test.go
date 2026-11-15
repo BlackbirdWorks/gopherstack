@@ -38,6 +38,8 @@ type srchPlane struct{ b *azuresearch.InMemoryBackend }
 
 func (p srchPlane) Port() int { return azuresearch.DefaultPort }
 
+func (p srchPlane) EncryptionCompliance(name string) string { return p.b.EncryptionCompliance(name) }
+
 func (p srchPlane) PutService(name string, cfg azurearm.SearchServiceConfig) (time.Time, error) {
 	return p.b.PutService(name, azuresearch.ServiceConfig(cfg))
 }

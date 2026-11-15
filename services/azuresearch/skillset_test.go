@@ -203,3 +203,85 @@ func TestSkillsetUnsupportedSkillWarns(t *testing.T) {
 	assert.Contains(t, w["message"], "not supported")
 	assert.NotNil(t, firstDoc(t, s), "the document is still indexed")
 }
+
+func TestSkillsetConditional(t *testing.T) {
+	t.Parallel()
+
+	cond := map[string]any{
+		"@odata.type": "#Microsoft.Skills.Util.ConditionalSkill",
+		"inputs": []any{
+			map[string]any{"name": "condition", "source": "= $(/document/metadata_storage_size) > 10 && true"},
+			map[string]any{"name": "whenTrue", "source": "= 'big'"},
+			map[string]any{"name": "whenFalse", "source": "/document/content"},
+		},
+		"outputs": []any{map[string]any{"name": "output", "targetName": "label"}},
+	}
+
+	s, last := runSkillIndexer(
+		t,
+		map[string]string{"a.txt": "tiny", "b.txt": "this is a much longer document body"},
+		"default",
+		[]any{cond},
+		[]any{map[string]any{"sourceFieldName": "/document/label", "targetFieldName": "merged"}},
+	)
+	assert.Equal(t, "success", last["status"], "%v", last)
+
+	r := s.admin2(t, http.MethodGet, "/indexes('docs')/docs?"+apiVer+"&search=*&$select=content,merged", nil)
+	require.Equal(t, http.StatusOK, r.status, string(r.raw))
+
+	got := map[string]string{}
+
+	rows, _ := r.body["value"].([]any)
+	for _, row := range rows {
+		m, _ := row.(map[string]any)
+		content, _ := m["content"].(string)
+		label, _ := m["merged"].(string)
+		got[content] = label
+	}
+
+	assert.Equal(t, map[string]string{"tiny": "tiny", "this is a much longer document body": "big"}, got)
+}
+
+func TestSkillExpressions(t *testing.T) {
+	t.Parallel()
+
+	cond := func(expr string) map[string]any {
+		return map[string]any{
+			"@odata.type": "#Microsoft.Skills.Util.ConditionalSkill",
+			"inputs": []any{
+				map[string]any{"name": "condition", "source": expr},
+				map[string]any{"name": "whenTrue", "source": "= 'yes'"},
+				map[string]any{"name": "whenFalse", "source": "= 'no'"},
+			},
+			"outputs": []any{map[string]any{"name": "output", "targetName": "label"}},
+		}
+	}
+
+	tests := []struct {
+		name string
+		expr string
+		want string
+	}{
+		{"literal true", "= true", "yes"},
+		{"not", "= !true", "no"},
+		{"number compare", "= 3 >= 3", "yes"},
+		{"string equality", "= 'a' == 'b'", "no"},
+		{"or and precedence", "= false || true && true", "yes"},
+		{"parentheses", "= (false || true) && false", "no"},
+		{"path compare", "= $(/document/metadata_storage_name) == 'a.txt'", "yes"},
+		{"malformed", "= (1 >", "no"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s, last := runSkillIndexer(
+				t, map[string]string{"a.txt": "x"}, "default", []any{cond(tt.expr)},
+				[]any{map[string]any{"sourceFieldName": "/document/label", "targetFieldName": "merged"}},
+			)
+			assert.Equal(t, "success", last["status"], "%v", last)
+			assert.Equal(t, tt.want, firstDoc(t, s)["merged"])
+		})
+	}
+}

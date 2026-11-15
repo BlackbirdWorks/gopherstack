@@ -234,7 +234,7 @@ func srchAuthOf(props map[string]any) (map[string]any, bool, error) {
 }
 
 func (r *storedSearch) planeConfig() SearchServiceConfig {
-	cfg := SearchServiceConfig{
+	cfg := SearchServiceConfig{CMKEnforcement: strOf(mapOf(r.extra[srchFieldCMK]), "enforcement"),
 		SKU: r.sku, HostingMode: r.hostingMode, PublicNetworkAccess: r.publicAccess, AuthMode: srchAuthAPIKeyOnly,
 		ReplicaCount: r.replicas, PartitionCount: r.partitions, DisableLocalAuth: r.disableLocal,
 	}
@@ -470,7 +470,7 @@ func (p *SearchProvider) body(id ResourceID, rec *storedSearch) map[string]any {
 			strOf(mapOf(rec.extra[srchFieldCMK]), "enforcement"),
 			"Unspecified",
 		),
-		"encryptionComplianceStatus": "Compliant",
+		"encryptionComplianceStatus": p.dataPlane.EncryptionCompliance(rec.name),
 	}
 
 	out := map[string]any{

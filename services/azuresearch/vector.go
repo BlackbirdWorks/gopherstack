@@ -172,9 +172,11 @@ func (vp *vecPlan) passes(pl *searchPlan, d *Doc, post bool) bool {
 	return pl.passes(d)
 }
 
-func (vp *vecPlan) candidate(pl *searchPlan, d *Doc, q []float64) (vecCand, bool) {
-	c := vecCand{doc: d, key: keyOf(pl.ix, d), fields: map[string]vecScore{}}
-	found := false
+func (vp *vecPlan) candidates(pl *searchPlan, d *Doc, q []float64, perDoc int) []vecCand {
+	shared := map[string]vecScore{}
+	key := keyOf(pl.ix, d)
+
+	var out []vecCand
 
 	for _, fd := range vp.fields {
 		v, ok := vecOf(d.Fields[fd.Name])
@@ -195,14 +197,20 @@ func (vp *vecPlan) candidate(pl *searchPlan, d *Doc, q []float64) (vecCand, bool
 			}
 		}
 
-		c.fields[fd.Path] = vecScore{Search: final, Similarity: canon}
+		shared[fd.Path] = vecScore{Search: final, Similarity: canon}
 
-		if !found || rank > c.rank {
-			c.rank, c.final, c.canon, c.metric, found = rank, final, canon, prof.Metric, true
-		}
+		out = append(out, vecCand{
+			doc: d, fields: shared, key: key, metric: prof.Metric, rank: rank, final: final, canon: canon,
+		})
 	}
 
-	return c, found
+	sort.SliceStable(out, func(i, j int) bool { return out[i].rank > out[j].rank })
+
+	if perDoc > 0 && len(out) > perDoc {
+		out = out[:perDoc]
+	}
+
+	return out
 }
 
 func (vq vectorQuery) keeps(c vecCand) bool {
@@ -234,9 +242,7 @@ func (pl *searchPlan) vectorList(vq vectorQuery, docs []*Doc) ([]hit, error) {
 			continue
 		}
 
-		if c, ok := vp.candidate(pl, d, vq.Vector); ok {
-			cands = append(cands, c)
-		}
+		cands = append(cands, vp.candidates(pl, d, vq.Vector, vq.PerDocLimit)...)
 	}
 
 	sort.SliceStable(cands, func(i, j int) bool { return cands[i].rank > cands[j].rank })
@@ -258,6 +264,8 @@ func (pl *searchPlan) vectorList(vq vectorQuery, docs []*Doc) ([]hit, error) {
 	if len(kept) > vq.K {
 		kept = kept[:vq.K]
 	}
+
+	kept = distinctDocs(kept)
 
 	return pl.vectorHitsOf(kept, vp, post), nil
 }
@@ -364,6 +372,21 @@ func fuseRRF(lists [][]hit, weights []float64) []hit {
 	}
 
 	sort.SliceStable(out, func(i, j int) bool { return out[i].score > out[j].score })
+
+	return out
+}
+
+func distinctDocs(c []vecCand) []vecCand {
+	seen := make(map[string]struct{}, len(c))
+	out := c[:0]
+
+	for _, x := range c {
+		if _, dup := seen[x.key]; !dup {
+			seen[x.key] = struct{}{}
+
+			out = append(out, x)
+		}
+	}
 
 	return out
 }

@@ -128,10 +128,12 @@ func (b *InMemoryBackend) loadSource(ds Object, params map[string]any) ([]source
 	container := strOf(objOf(ds["container"]), "name")
 
 	switch strOf(ds, "type") {
-	case "azureblob":
+	case "azureblob", "adlsgen2":
 		return b.loadBlobs(conn, container, strOf(objOf(ds["container"]), "query"), params, ds)
 	case "cosmosdb":
 		return b.loadCosmos(conn, container, ds)
+	case "azuresql":
+		return b.loadSQL(conn, container, ds)
 	case "azuretable":
 		return b.loadTable(container, strOf(objOf(ds["container"]), "query"), ds)
 	}

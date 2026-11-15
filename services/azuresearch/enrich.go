@@ -191,9 +191,10 @@ func runSkillset(set Object, tree enrichTree, warn func(skill, msg string)) erro
 type skillExec func(sk map[string]any, t enrichTree, ctx, concrete string) error
 
 var skillExecutors = map[string]skillExec{ //nolint:gochecknoglobals // dispatch table
-	skillSplit:  execSplit,
-	skillMerge:  execMerge,
-	skillShaper: execShaper,
+	skillSplit:       execSplit,
+	skillMerge:       execMerge,
+	skillShaper:      execShaper,
+	skillConditional: execConditional,
 }
 
 func skillInput(sk map[string]any, t enrichTree, name, ctx, concrete string) (any, bool) {
@@ -201,6 +202,10 @@ func skillInput(sk map[string]any, t enrichTree, name, ctx, concrete string) (an
 		in := objOf(raw)
 		if strOf(in, "name") != name {
 			continue
+		}
+
+		if src := strOf(in, "source"); strings.HasPrefix(strings.TrimSpace(src), "=") {
+			return evalExpression(src, t, ctx, concrete)
 		}
 
 		return t.get(bind(strOf(in, "source"), ctx, concrete))

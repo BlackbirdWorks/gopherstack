@@ -280,8 +280,8 @@ func (p *fparser) parsePrimary() (pred, error) {
 		return inner, p.expectSym(")")
 	}
 
-	if p.isWord("true") || p.isWord("false") {
-		v := p.next().text == "true"
+	if p.isWord(litTrue) || p.isWord("false") {
+		v := p.next().text == litTrue
 
 		return func(*fenv) bool { return v }, nil
 	}

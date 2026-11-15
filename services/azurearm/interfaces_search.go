@@ -10,6 +10,7 @@ type SearchServiceConfig struct {
 	AuthMode            string
 	AADFailureMode      string
 	ResourceID          string
+	CMKEnforcement      string
 	IPRules             []string
 	ReplicaCount        int
 	PartitionCount      int
@@ -39,6 +40,7 @@ type SearchPlane interface {
 	CreateQueryKey(name, keyName string) (SearchQueryKey, error)
 	DeleteQueryKey(name, key string) error
 	Port() int
+	EncryptionCompliance(name string) string
 }
 
 type noopSearchPlane struct{}
@@ -46,8 +48,9 @@ type noopSearchPlane struct{}
 func (noopSearchPlane) PutService(string, SearchServiceConfig) (time.Time, error) {
 	return time.Time{}, ErrSearchUnavailable
 }
-func (noopSearchPlane) DeleteService(string) error { return nil }
-func (noopSearchPlane) Port() int                  { return 0 }
+func (noopSearchPlane) DeleteService(string) error         { return nil }
+func (noopSearchPlane) Port() int                          { return 0 }
+func (noopSearchPlane) EncryptionCompliance(string) string { return "Compliant" }
 func (noopSearchPlane) AdminKeys(string) (SearchAdminKeys, error) {
 	return SearchAdminKeys{}, ErrSearchUnavailable
 }

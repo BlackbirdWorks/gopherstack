@@ -31,6 +31,8 @@ type fakeSearchPlane struct {
 	query    map[string][]azurearm.SearchQueryKey
 	counter  int
 	mu       sync.Mutex
+
+	noncompliant bool
 }
 
 func newFakeSearchPlane() *fakeSearchPlane {
@@ -41,6 +43,17 @@ func newFakeSearchPlane() *fakeSearchPlane {
 }
 
 func (f *fakeSearchPlane) Port() int { return 0 }
+
+func (f *fakeSearchPlane) EncryptionCompliance(name string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.services[name].CMKEnforcement == "Enabled" && f.noncompliant {
+		return "NonCompliant"
+	}
+
+	return "Compliant"
+}
 
 func (f *fakeSearchPlane) key() string {
 	f.counter++
@@ -628,4 +641,54 @@ func TestSearchSDK_Upgrade(t *testing.T) {
 
 	require.ErrorAs(t, err, &respErr)
 	assert.Equal(t, http.StatusNotFound, respErr.StatusCode)
+}
+
+func TestSearchSDK_EncryptionCompliance(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		enforcement  armsearch.SearchEncryptionWithCmk
+		want         armsearch.SearchEncryptionComplianceStatus
+		noncompliant bool
+	}{
+		{
+			"enabled and unencrypted objects",
+			armsearch.SearchEncryptionWithCmkEnabled,
+			armsearch.SearchEncryptionComplianceStatusNonCompliant,
+			true,
+		},
+		{
+			"enabled and clean",
+			armsearch.SearchEncryptionWithCmkEnabled,
+			armsearch.SearchEncryptionComplianceStatusCompliant,
+			false,
+		},
+		{
+			"disabled",
+			armsearch.SearchEncryptionWithCmkDisabled,
+			armsearch.SearchEncryptionComplianceStatusCompliant,
+			true,
+		},
+	}
+
+	for i, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := newSearchStack(t)
+			s.plane.mu.Lock()
+			s.plane.noncompliant = tc.noncompliant
+			s.plane.mu.Unlock()
+
+			svc := basicService(armsearch.SKUNameBasic)
+			svc.Properties = &armsearch.ServiceProperties{
+				EncryptionWithCmk: &armsearch.EncryptionWithCmk{Enforcement: new(tc.enforcement)},
+			}
+
+			got := s.create(t, fmt.Sprintf("cmk-%d", i), svc)
+			assert.Equal(t, tc.want, *got.Properties.EncryptionWithCmk.EncryptionComplianceStatus)
+			assert.Equal(t, tc.enforcement, *got.Properties.EncryptionWithCmk.Enforcement)
+		})
+	}
 }

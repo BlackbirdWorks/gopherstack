@@ -1,8 +1,10 @@
 package app
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/aadauth"
@@ -10,7 +12,9 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 	"github.com/blackbirdworks/gopherstack/services/azureblob"
+	"github.com/blackbirdworks/gopherstack/services/azurekeyvault"
 	"github.com/blackbirdworks/gopherstack/services/azuresearch"
+	"github.com/blackbirdworks/gopherstack/services/azuresql"
 	"github.com/blackbirdworks/gopherstack/services/azuretable"
 	"github.com/blackbirdworks/gopherstack/services/cosmosdb"
 )
@@ -35,6 +39,14 @@ func wireAzureSearch(byName map[string]service.Registerable) {
 
 	if tableH, tableOk := byName["AzureTable"].(*azuretable.Handler); tableOk {
 		searchH.Backend.SetTableSource(azureSearchTables{b: tableH.Backend})
+	}
+
+	if sqlH, sqlOk := byName["AzureSQL"].(*azuresql.Handler); sqlOk {
+		searchH.Backend.SetSQLSource(azureSearchSQL{b: sqlH.Backend})
+	}
+
+	if kvH, kvOk := byName["AzureKeyVault"].(*azurekeyvault.Handler); kvOk {
+		searchH.Backend.SetKeyResolver(azureSearchKeys{b: kvH.Backend})
 	}
 
 	if cosmosH, cosmosOk := byName["CosmosDB"].(*cosmosdb.Handler); cosmosOk {
@@ -82,6 +94,47 @@ func (a azureSearchAuthority) Authenticate(token string) (string, error) {
 
 func (a azureSearchAuthority) Allowed(principalID, resourceID, action string, data bool) bool {
 	return a.authz.Allowed(principalID, resourceID, action, data)
+}
+
+// azureSearchSQL runs indexer queries on the Azure SQL emulator.
+type azureSearchSQL struct {
+	b *azuresql.InMemoryBackend
+}
+
+var errSearchSQLServer = errors.New("no Azure SQL server with that name")
+
+func (s azureSearchSQL) Query(ctx context.Context, server, database, text string) ([]string, [][]string, error) {
+	id, ok := s.b.ServerIDByName(server)
+	if !ok {
+		return nil, nil, fmt.Errorf("%w: %q", errSearchSQLServer, server)
+	}
+
+	res, err := s.b.Query(ctx, id, database, text)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return res.Columns, res.Rows, nil
+}
+
+// azureSearchKeys resolves search encryptionKey references against the Key Vault emulator.
+type azureSearchKeys struct {
+	b *azurekeyvault.InMemoryBackend
+}
+
+var errSearchKeyDisabled = errors.New("the key is disabled")
+
+func (k azureSearchKeys) ResolveKey(vault, name, version string) error {
+	key, err := k.b.GetKey(vault, "", name, version)
+	if err != nil {
+		return err
+	}
+
+	if key.Attributes != nil && key.Attributes.Enabled != nil && !*key.Attributes.Enabled {
+		return errSearchKeyDisabled
+	}
+
+	return nil
 }
 
 // azureSearchBlobs exposes the Blob Storage emulator to the search indexers.
@@ -206,6 +259,10 @@ type azureSearchAdapter struct {
 }
 
 func (a *azureSearchAdapter) Port() int { return a.port }
+
+func (a *azureSearchAdapter) EncryptionCompliance(name string) string {
+	return a.b.EncryptionCompliance(name)
+}
 
 var _ azurearm.SearchPlane = (*azureSearchAdapter)(nil)
 

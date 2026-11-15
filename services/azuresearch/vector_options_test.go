@@ -290,3 +290,38 @@ func TestTextVectorQueryCustomWebApi(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusBadRequest, r.status, string(r.raw))
 }
+
+func TestPerDocumentVectorLimit(t *testing.T) {
+	t.Parallel()
+
+	s := newStack(t, "standard")
+	s.seedVectors(t)
+
+	tests := []struct {
+		extra  map[string]any
+		name   string
+		want   []string
+		status int
+	}{
+		{map[string]any{}, "default counts every vector", []string{"a"}, 200},
+		{map[string]any{"perDocumentVectorLimit": 0}, "unlimited", []string{"a"}, 200},
+		{map[string]any{"perDocumentVectorLimit": 1}, "one per document", []string{"a", "c"}, 200},
+		{map[string]any{"perDocumentVectorLimit": -1}, "negative", nil, 400},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			q := vq("Vec,VecE", map[string]any{"k": 2})
+			maps.Copy(q, tt.extra)
+
+			r := searchPost(t, s, map[string]any{"vectorQueries": []any{q}, "select": "HotelId"})
+			require.Equal(t, tt.status, r.status, string(r.raw))
+
+			if tt.status == http.StatusOK {
+				assert.Equal(t, tt.want, idsOf(r))
+			}
+		})
+	}
+}

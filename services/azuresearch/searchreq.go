@@ -46,6 +46,7 @@ type vectorQuery struct {
 	K              int
 	Weight         float64
 	Oversampling   float64
+	PerDocLimit    int
 	Exhaustive     bool
 }
 
@@ -285,6 +286,13 @@ func parseVectorQuery(m map[string]any) (vectorQuery, error) {
 }
 
 func parseVectorExtras(vq *vectorQuery, m map[string]any) error {
+	if n, ok := m["perDocumentVectorLimit"].(jsonx.Number); ok {
+		vq.PerDocLimit, _ = intParam(n.String(), "perDocumentVectorLimit")
+		if vq.PerDocLimit < 0 {
+			return badf("The vector query perDocumentVectorLimit must not be negative.")
+		}
+	}
+
 	if o, ok := m["oversampling"].(jsonx.Number); ok {
 		vq.Oversampling, _ = o.Float64()
 		if vq.Oversampling < minOversampling {

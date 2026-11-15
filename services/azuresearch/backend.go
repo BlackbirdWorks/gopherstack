@@ -32,6 +32,7 @@ type ServiceConfig struct {
 	AuthMode            string   `json:"authMode"`
 	AADFailureMode      string   `json:"aadFailureMode,omitempty"`
 	ResourceID          string   `json:"resourceId,omitempty"`
+	CMKEnforcement      string   `json:"cmkEnforcement,omitempty"`
 	IPRules             []string `json:"ipRules,omitempty"`
 	ReplicaCount        int      `json:"replicaCount"`
 	PartitionCount      int      `json:"partitionCount"`
@@ -76,6 +77,8 @@ type InMemoryBackend struct {
 	cosmos   CosmosSource
 	tables   TableSource
 	http     *http.Client
+	keys     KeyResolver
+	sql      SQLSource
 	exec     func(func())
 	runs     sync.WaitGroup
 }
@@ -93,7 +96,7 @@ func WithIndexerExecutor(exec func(func())) Option { return func(b *InMemoryBack
 func NewInMemoryBackend(opts ...Option) *InMemoryBackend {
 	b := &InMemoryBackend{
 		mu: lockmetrics.New("azuresearch"), services: map[string]*Service{}, clock: time.Now,
-		blobs: noBlobs{}, cosmos: noCosmos{}, tables: noTables{}, http: httpclient.New(webAPITimeout),
+		blobs: noBlobs{}, cosmos: noCosmos{}, tables: noTables{}, sql: noSQL{}, http: httpclient.New(webAPITimeout),
 	}
 
 	b.exec = func(f func()) { b.runs.Go(f) }
