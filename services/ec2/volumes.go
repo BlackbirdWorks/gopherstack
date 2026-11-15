@@ -253,7 +253,9 @@ func (b *InMemoryBackend) CopyVolumes(
 	}
 	b.volumes.Put(newVol)
 
-	return newVol, nil
+	cp := *newVol
+
+	return &cp, nil
 }
 
 // ---- VPC CIDR disassociation ----
@@ -576,7 +578,9 @@ func (b *InMemoryBackend) CreateVolume(
 	}
 	b.volumes.Put(vol)
 
-	return vol, nil
+	cp := *vol
+
+	return &cp, nil
 }
 
 // DescribeVolumes returns volumes, optionally filtered by IDs.

@@ -1171,7 +1171,13 @@ func (b *InMemoryBackend) RunInstancesWithID(
 		instances = append(instances, inst)
 	}
 
-	return instances, nil
+	out := make([]*Instance, len(instances))
+	for i, inst := range instances {
+		cp := *inst
+		out[i] = &cp
+	}
+
+	return out, nil
 }
 
 // attachLaunchENILocked registers inst and gives it the primary network interface, placing both
