@@ -83,12 +83,9 @@ func (f *fakeRuntime) CreateAndStart(_ context.Context, spec container.Spec) (st
 
 	addr := net.JoinHostPort("127.0.0.1", host)
 
-	var l net.Listener
-
-	if f.gate == nil {
-		if l, err = net.Listen("tcp", addr); err != nil {
-			return "", err
-		}
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		return "", err
 	}
 
 	env := envMap(spec)
@@ -123,7 +120,7 @@ func (f *fakeRuntime) CreateAndStart(_ context.Context, spec container.Spec) (st
 		_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), rec)
 	})}
 
-	go f.serve(c, l, addr)
+	go f.serve(c, l)
 
 	id := fmt.Sprintf("fake-%d", f.seq.Add(1))
 
@@ -172,13 +169,15 @@ func (f *fakeRuntime) requests() []received {
 	return append([]received(nil), f.reqs...)
 }
 
-// serve starts listening immediately, or once the readiness gate opens when one is set.
-func (f *fakeRuntime) serve(c *fakeContainer, l net.Listener, addr string) {
-	if l == nil {
-		<-f.gate
+// serve answers on l at once, or once the readiness gate opens when one is set. The port is held from the start so
+// another listener cannot take it and make a gated container look ready.
+func (f *fakeRuntime) serve(c *fakeContainer, l net.Listener) {
+	if f.gate != nil {
+		select {
+		case <-f.gate:
+		case <-c.gone:
+			_ = l.Close()
 
-		var err error
-		if l, err = net.Listen("tcp", addr); err != nil {
 			return
 		}
 	}
