@@ -282,7 +282,7 @@ func partAt(out any, idx any) (any, error) {
 }
 
 func workflowFormFuncs() map[string]wfFunc {
-	trig := func(c *logicEvalCtx) any { return c.rs.trigger["outputs"] }
+	trig := func(c *logicEvalCtx) any { return c.rs.trigger[logicKOutputs] }
 
 	return map[string]wfFunc{
 		"formdatavalue": {n: argsTwo, f: func(c *logicEvalCtx, a []any) (any, error) {

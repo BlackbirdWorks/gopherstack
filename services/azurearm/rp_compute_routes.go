@@ -226,6 +226,10 @@ func (h *Handler) computeAction(c *echo.Context, cp *ComputeProvider, segs []str
 		return h.computeGalleryShare(c, cp, id)
 	}
 
+	if strings.EqualFold(firstType(id), cmpVMs) && strings.EqualFold(action, vmActionAttachDetach) {
+		return h.computeAttachDetach(c, cp, id)
+	}
+
 	var actErr error
 
 	switch strings.ToLower(firstType(id)) {
@@ -292,4 +296,18 @@ func (h *Handler) computeListByLocation(c *echo.Context, segs []string) error {
 	}
 
 	return h.writeJSON(c, http.StatusOK, h.pageNS(c, filtered, nsDefaultTop(id.Namespace)))
+}
+
+func (h *Handler) computeAttachDetach(c *echo.Context, cp *ComputeProvider, id ResourceID) error {
+	body, err := decodeJSONBody(c.Request())
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	out, err := cp.AttachDetachDataDisks(id, body)
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	return h.writeJSON(c, http.StatusOK, out)
 }

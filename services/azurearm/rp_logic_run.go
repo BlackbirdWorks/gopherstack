@@ -2,6 +2,7 @@ package azurearm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -50,6 +51,13 @@ func (p *LogicProvider) startRunLocked(w *logicWorkflow, f logicFire) (*logicSta
 	}
 
 	now := p.clock.Now().UTC()
+
+	if met, err := p.conditionsMet(w, f, now); !met {
+		p.recordSkippedTrigger(w, f, now, err)
+
+		return nil, errLogicTriggerSkipped
+	}
+
 	name := p.newRunName(now)
 	tracking := uuid.NewString()
 	trig := logicRunTrigger{
@@ -88,7 +96,8 @@ func (p *LogicProvider) startRunLocked(w *logicWorkflow, f logicFire) (*logicSta
 		p: p, run: run, live: live, ctx: runCtx, stop: stop, vars: map[string]*logicVar{},
 		params: effectiveLogicParams(w), wfKey: w.key(), def: w.Definition, clock: p.clock.Now, wfName: w.Name,
 		trigger: map[string]any{
-			fieldName: f.trigger, "outputs": f.outputs, logicKStartTime: logicTime(now), logicKEndTime: logicTime(now),
+			fieldName: f.trigger, logicKOutputs: f.outputs,
+			logicKStartTime: logicTime(now), logicKEndTime: logicTime(now),
 			logicKScheduledTime: logicTime(f.scheduled), logicKStatus: logicStSucceeded, logicKTrackingID: tracking,
 		},
 		info: map[string]any{
@@ -275,6 +284,9 @@ func (p *LogicProvider) runTriggerLocked(w *logicWorkflow, name string) error {
 	}
 
 	_, err := p.startRunLocked(w, logicFire{trigger: name, scheduled: p.clock.Now().UTC(), outputs: map[string]any{}})
+	if errors.Is(err, errLogicTriggerSkipped) {
+		return nil
+	}
 
 	return err
 }

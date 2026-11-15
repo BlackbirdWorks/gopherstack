@@ -2,12 +2,15 @@ package azurearm
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
@@ -386,6 +389,9 @@ func (rs *logicRunState) dispatch(env *logicEnv, name, typ string, def map[strin
 	if strings.HasSuffix(typ, "variable") {
 		return rs.runVariable(env, name, typ, def)
 	}
+
+	logger.Load(rs.ctx).Log(rs.ctx, slog.LevelWarn, "azurearm: logic action not performed: no connector runtime",
+		"workflow", rs.wfName, "action", name, "type", stringOf(def[fieldType]))
 
 	return failOutcome(logicCodeNotImplemented, "The action type '"+stringOf(def[fieldType])+
 		"' is not supported by this emulator; the action did not run.")

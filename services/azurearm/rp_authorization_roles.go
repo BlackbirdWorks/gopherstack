@@ -11,6 +11,10 @@ const (
 	roleCodeNotFound   = "RoleDefinitionDoesNotExist"
 	roleCodeSameName   = "RoleDefinitionWithSameNameExists"
 	roleCodeHasAssigns = "RoleDefinitionHasAssignments"
+	roleCodeLimit      = "RoleDefinitionLimitExceeded"
+
+	// Limit from learn.microsoft.com/azure/role-based-access-control/troubleshoot-limits.
+	roleDefLimit = 5000
 )
 
 func (b *builtinRole) permissions() []authPermission { return nonNilPermissions(b.Permissions) }
@@ -181,6 +185,11 @@ func (p *AuthorizationProvider) putRoleDefinition(req authReq) (authResp, error)
 
 	if err = p.checkRoleNameFree(spec.RoleName, key); err != nil {
 		return authResp{}, err
+	}
+
+	if _, exists := p.roleDefs[key]; !exists && len(p.roleDefs) >= roleDefLimit {
+		return authResp{}, authErr(http.StatusBadRequest, roleCodeLimit,
+			"Role definition limit exceeded. No more role definitions can be created (code: %s)", roleCodeLimit)
 	}
 
 	now := p.now()

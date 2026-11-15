@@ -97,7 +97,7 @@ func workflowFuncs() map[string]wfFunc {
 		"result":           {n: 1, f: wfResult},
 		"iterationindexes": {n: 1, f: wfIterationIndexes},
 		"listcallbackurl":  {n: 0, f: wfListCallbackURL},
-		"outputs": {n: 1, f: func(c *logicEvalCtx, a []any) (any, error) {
+		logicKOutputs: {n: 1, f: func(c *logicEvalCtx, a []any) (any, error) {
 			return c.rs.actionOutputs(c.env, logicString(a[0]))
 		}},
 		logicKBody: {n: 1, f: func(c *logicEvalCtx, a []any) (any, error) {
@@ -111,10 +111,10 @@ func workflowFuncs() map[string]wfFunc {
 		logicKActions: {n: 1, f: wfActions},
 		"triggeroutputs": {
 			n: 0,
-			f: func(c *logicEvalCtx, _ []any) (any, error) { return c.rs.trigger["outputs"], nil },
+			f: func(c *logicEvalCtx, _ []any) (any, error) { return c.rs.trigger[logicKOutputs], nil },
 		},
 		"triggerbody": {n: 0, f: func(c *logicEvalCtx, _ []any) (any, error) {
-			out, _ := objectOf(c.rs.trigger["outputs"])
+			out, _ := objectOf(c.rs.trigger[logicKOutputs])
 
 			return out[logicKBody], nil
 		}},
@@ -185,7 +185,7 @@ func (rs *logicRunState) actionView(rec *logicActionRec) map[string]any {
 			o = map[string]any{logicKBody: o}
 		}
 
-		out["outputs"] = o
+		out[logicKOutputs] = o
 	}
 
 	return out

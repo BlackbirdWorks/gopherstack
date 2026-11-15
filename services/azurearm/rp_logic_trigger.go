@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -287,6 +288,12 @@ func (p *LogicProvider) serveInvoke(rw http.ResponseWriter, r *http.Request, seg
 	started, err := p.startRunLocked(cur, fire)
 	name, version := cur.Name, cur.Version
 	p.mu.Unlock()
+
+	if errors.Is(err, errLogicTriggerSkipped) {
+		rw.WriteHeader(http.StatusAccepted)
+
+		return
+	}
 
 	if err != nil {
 		e, _ := logicErrorDetails(err)

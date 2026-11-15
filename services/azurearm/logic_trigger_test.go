@@ -1,6 +1,7 @@
 package azurearm_test
 
 import (
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -299,4 +300,93 @@ func TestLogicRequestTriggerMethodAndPath(t *testing.T) {
 
 	s.waitRuns(t)
 	assert.Equal(t, 1, s.runCount(t, "paths"))
+}
+
+func TestLogicTriggerConditions(t *testing.T) {
+	t.Parallel()
+
+	s := newLogicStack(t)
+	s.create(t, "gated", logicDef(la{"manual": la{
+		"type": "Request", "kind": "Http",
+		"conditions": []any{la{"expression": "@greater(triggerBody()?['n'], 5)"}},
+	}}, la{"Mark": compose("@triggerBody()?['n']", nil)}))
+
+	tests := []struct {
+		name     string
+		body     string
+		wantRuns int
+		wantSkip int
+	}{
+		{name: "false skips", body: `{"n":1}`, wantRuns: 0, wantSkip: 1},
+		{name: "true runs", body: `{"n":9}`, wantRuns: 1, wantSkip: 1},
+	}
+
+	for _, tc := range tests {
+		code, _, _ := s.post(t, s.callback(t, "gated"), tc.body)
+		assert.Equal(t, http.StatusAccepted, code, tc.name)
+		s.waitRuns(t)
+
+		assert.Equal(t, tc.wantRuns, s.runCount(t, "gated"), tc.name)
+
+		skipped := 0
+
+		for p := s.factory.NewWorkflowTriggerHistoriesClient().NewListPager(logicRG, "gated", "manual", nil); p.More(); {
+			page, err := p.NextPage(t.Context())
+			require.NoError(t, err)
+
+			for _, h := range page.Value {
+				if *h.Properties.Status == armlogic.WorkflowStatusSkipped {
+					assert.False(t, *h.Properties.Fired)
+					skipped++
+				}
+			}
+		}
+
+		assert.Equal(t, tc.wantSkip, skipped, tc.name)
+	}
+}
+
+func TestLogicTriggerConditionsRecurrence(t *testing.T) {
+	t.Parallel()
+
+	s := newLogicStack(t)
+	s.create(t, "gatedtick", logicDef(la{"tick": la{
+		"type": "Recurrence", "conditions": []any{la{"expression": "@equals(1, 2)"}},
+		"recurrence": la{"frequency": "Minute", "interval": 1, "startTime": "2026-01-01T00:00:00Z"},
+	}}, la{"Mark": compose("x", nil)}))
+
+	s.clock.Advance(0)
+	s.clock.Advance(3 * time.Minute)
+	s.waitRuns(t)
+
+	assert.Equal(t, 0, s.runCount(t, "gatedtick"))
+}
+
+func TestLogicTriggerConditionsInvalid(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		cond any
+		name string
+	}{
+		{name: "not array", cond: "x"},
+		{name: "entry not object", cond: []any{"x"}},
+		{name: "missing expression", cond: []any{la{}}},
+		{name: "bad syntax", cond: []any{la{"expression": "@equals("}}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := newLogicStack(t)
+			body, err := json.Marshal(la{"location": "eastus", "properties": la{"definition": logicDef(la{"manual": la{
+				"type": "Request", "kind": "Http", "conditions": tc.cond,
+			}}, la{"Mark": compose("x", nil)})}})
+			require.NoError(t, err)
+
+			code, _ := s.rawJSON(t, http.MethodPut, "/workflows/bad", string(body))
+			assert.Equal(t, http.StatusBadRequest, code)
+		})
+	}
 }

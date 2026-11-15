@@ -13,8 +13,15 @@ const (
 	assignCodeBadName     = "InvalidRoleAssignmentId"
 	assignCodePrincipal   = "PrincipalNotFound"
 	assignCodeNotAssignee = "RoleAssignmentScopeNotAssignableToRoleDefinition"
+	assignCodeLimit       = "RoleAssignmentLimitExceeded"
 	principalUser         = "User"
 	principalSP           = "ServicePrincipal"
+)
+
+// Limits from learn.microsoft.com/azure/role-based-access-control/troubleshoot-limits.
+const (
+	assignLimitSubscription    = 5000
+	assignLimitManagementGroup = 500
 )
 
 func principalTypes() []string {
@@ -246,6 +253,12 @@ func (p *AuthorizationProvider) putRoleAssignment(req authReq) (authResp, error)
 		return authResp{}, err
 	}
 
+	if !exists {
+		if err := p.checkAssignmentLimit(req.Scope); err != nil {
+			return authResp{}, err
+		}
+	}
+
 	now := p.now()
 	rec := &storedRoleAssign{
 		Name: req.Name, Scope: req.Scope.id, RoleDefinitionID: p.canonicalRoleID(req.Scope, role.guid),
@@ -264,6 +277,39 @@ func (p *AuthorizationProvider) putRoleAssignment(req authReq) (authResp, error)
 	p.roleAssigns[key] = rec
 
 	return authResp{Status: status, Body: p.roleAssignmentBody(rec)}, nil
+}
+
+// checkAssignmentLimit enforces 5000 assignments per subscription (management group scope excluded) and 500 per
+// management group.
+func (p *AuthorizationProvider) checkAssignmentLimit(scope authScope) error {
+	var (
+		limit int
+		root  string
+	)
+
+	switch scope.kind {
+	case authScopeManagementGroup:
+		limit, root = assignLimitManagementGroup, scope.id
+	case authScopeSubscription, authScopeResourceGroup, authScopeResource:
+		limit, root = assignLimitSubscription, "/subscriptions/"+scope.sub
+	default:
+		return nil
+	}
+
+	n := 0
+
+	for _, a := range p.roleAssigns {
+		if scopeWithin(a.Scope, root) {
+			n++
+		}
+	}
+
+	if n >= limit {
+		return authErr(http.StatusBadRequest, assignCodeLimit,
+			"No more role assignments can be created (code: %s)", assignCodeLimit)
+	}
+
+	return nil
 }
 
 // checkAssignmentUnique rejects an update that changes identity, a name already used elsewhere and a duplicate
