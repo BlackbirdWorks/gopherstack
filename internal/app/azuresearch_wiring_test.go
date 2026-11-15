@@ -92,6 +92,7 @@ func newSearchE2E(t *testing.T) *searchE2E {
 	searchH := azuresearch.NewHandler(
 		azuresearch.NewInMemoryBackend(
 			azuresearch.WithClock(func() time.Time { return clock.now }),
+			azuresearch.WithIndexerExecutor(func(f func()) { f() }),
 		),
 		azuresearch.DefaultSettings(),
 	)

@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"time"
 )
 
 // AdminKeys returns the service's admin keys, regenerating the named one first when kind is set.
@@ -26,6 +27,24 @@ func (p *SearchProvider) AdminKeys(id ResourceID, kind string) (SearchAdminKeys,
 	}
 
 	return p.dataPlane.RegenerateAdminKey(rec.name, strings.ToLower(kind))
+}
+
+// Upgrade applies the pending service upgrade: the service reports no further upgrade and the time it was upgraded.
+func (p *SearchProvider) Upgrade(id ResourceID) (map[string]any, error) {
+	p.mu.Lock("Upgrade")
+	defer p.mu.Unlock()
+
+	rec, err := p.service(id)
+	if err != nil {
+		return nil, err
+	}
+
+	rec.extra = ehMerge(map[string]any{}, rec.extra, map[string]any{
+		"upgradeAvailable":  srchUpgradeNone,
+		"serviceUpgradedAt": time.Now().UTC().Format(time.RFC3339),
+	})
+
+	return p.body(id, rec), nil
 }
 
 // CreateQueryKey creates a named query key.

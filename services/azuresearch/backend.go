@@ -3,10 +3,13 @@ package azuresearch
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
@@ -23,14 +26,16 @@ const (
 
 // ServiceConfig is the ARM-controlled configuration of a search service.
 type ServiceConfig struct {
-	SKU                 string `json:"sku"`
-	HostingMode         string `json:"hostingMode"`
-	PublicNetworkAccess string `json:"publicNetworkAccess"`
-	AuthMode            string `json:"authMode"`
-	AADFailureMode      string `json:"aadFailureMode,omitempty"`
-	ReplicaCount        int    `json:"replicaCount"`
-	PartitionCount      int    `json:"partitionCount"`
-	DisableLocalAuth    bool   `json:"disableLocalAuth,omitempty"`
+	SKU                 string   `json:"sku"`
+	HostingMode         string   `json:"hostingMode"`
+	PublicNetworkAccess string   `json:"publicNetworkAccess"`
+	AuthMode            string   `json:"authMode"`
+	AADFailureMode      string   `json:"aadFailureMode,omitempty"`
+	ResourceID          string   `json:"resourceId,omitempty"`
+	IPRules             []string `json:"ipRules,omitempty"`
+	ReplicaCount        int      `json:"replicaCount"`
+	PartitionCount      int      `json:"partitionCount"`
+	DisableLocalAuth    bool     `json:"disableLocalAuth,omitempty"`
 }
 
 // QueryKey is a read-only key; Name may be empty.
@@ -70,6 +75,9 @@ type InMemoryBackend struct {
 	blobs    BlobSource
 	cosmos   CosmosSource
 	tables   TableSource
+	http     *http.Client
+	exec     func(func())
+	runs     sync.WaitGroup
 }
 
 // Option customises a backend.
@@ -78,12 +86,17 @@ type Option func(*InMemoryBackend)
 // WithClock injects the clock used for timestamps and indexer schedules.
 func WithClock(clock func() time.Time) Option { return func(b *InMemoryBackend) { b.clock = clock } }
 
+// WithIndexerExecutor injects how indexer runs execute (default: a goroutine tracked by WaitRuns).
+func WithIndexerExecutor(exec func(func())) Option { return func(b *InMemoryBackend) { b.exec = exec } }
+
 // NewInMemoryBackend returns an empty backend using the wall clock.
 func NewInMemoryBackend(opts ...Option) *InMemoryBackend {
 	b := &InMemoryBackend{
 		mu: lockmetrics.New("azuresearch"), services: map[string]*Service{}, clock: time.Now,
-		blobs: noBlobs{}, cosmos: noCosmos{}, tables: noTables{},
+		blobs: noBlobs{}, cosmos: noCosmos{}, tables: noTables{}, http: httpclient.New(webAPITimeout),
 	}
+
+	b.exec = func(f func()) { b.runs.Go(f) }
 
 	for _, o := range opts {
 		o(b)
@@ -307,12 +320,14 @@ func (b *InMemoryBackend) DeleteQueryKey(name, key string) error {
 }
 
 // keyRole is what a presented api-key allows.
-type keyRole int
+type keyRole uint8
 
 const (
-	roleNone keyRole = iota
-	roleQuery
-	roleAdmin
+	roleNone    keyRole = 0
+	roleQuery   keyRole = 1
+	roleWrite   keyRole = 2
+	roleObjects keyRole = 4
+	roleAdmin           = roleQuery | roleWrite | roleObjects
 )
 
 func (s *Service) roleOf(key string) keyRole {

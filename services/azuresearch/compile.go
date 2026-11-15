@@ -56,8 +56,12 @@ func compileIndex(def map[string]any) (*compiled, error) {
 	}
 
 	c := &compiler{comp: &compiled{
-		byPath: map[string]*fieldDef{}, suggesters: map[string]*suggester{}, profiles: map[string]*scoringProfile{},
-		vecProfile: map[string]vectorProfile{}, analyzers: map[string]Analyzer{},
+		byPath:      map[string]*fieldDef{},
+		suggesters:  map[string]*suggester{},
+		profiles:    map[string]*scoringProfile{},
+		vecProfile:  map[string]vectorProfile{},
+		vectorizers: map[string]map[string]any{},
+		analyzers:   map[string]Analyzer{},
 	}}
 
 	if err := c.analyzers(def); err != nil {
@@ -179,6 +183,15 @@ func (c *compiler) vectorSearch(def map[string]any) error {
 
 	algs := map[string]vectorProfile{}
 
+	comps, err := c.compressions(vs)
+	if err != nil {
+		return err
+	}
+
+	if err = c.vectorizerDefs(vs); err != nil {
+		return err
+	}
+
 	for _, raw := range listOf(vs, "algorithms") {
 		a := objOf(raw)
 		kind := strOf(a, "kind")
@@ -187,8 +200,8 @@ func (c *compiler) vectorSearch(def map[string]any) error {
 			return badf("The request is invalid. Details: unsupported vector search algorithm kind '%s'.", kind)
 		}
 
-		if err := checkHNSWParams(objOf(a["hnswParameters"])); err != nil {
-			return err
+		if hnswErr := checkHNSWParams(objOf(a["hnswParameters"])); hnswErr != nil {
+			return hnswErr
 		}
 
 		metric := strOf(objOf(a[kind+"Parameters"]), "metric")
@@ -196,7 +209,7 @@ func (c *compiler) vectorSearch(def map[string]any) error {
 			metric = "cosine"
 		}
 
-		if !slices.Contains([]string{"cosine", "euclidean", "dotProduct", "hamming"}, metric) {
+		if !slices.Contains([]string{"cosine", metricEuclidean, "dotProduct", metricHamming}, metric) {
 			return badf("The request is invalid. Details: unsupported vector similarity metric '%s'.", metric)
 		}
 
@@ -213,6 +226,10 @@ func (c *compiler) vectorSearch(def map[string]any) error {
 				strOf(p, "name"),
 				strOf(p, "algorithm"),
 			)
+		}
+
+		if alg, err = c.bindProfile(p, alg, comps); err != nil {
+			return err
 		}
 
 		c.comp.vecProfile[strOf(p, "name")] = alg

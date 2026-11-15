@@ -17,6 +17,10 @@ const (
 	opOr         = "or"
 
 	pathRun             = "search.run"
+	pathIndexBatch      = "search.index"
+	fieldDisabled       = accessDisabled
+	metricEuclidean     = "euclidean"
+	metricHamming       = "hamming"
 	pathPostSuggest     = "search.post.suggest"
 	pathPostAutocomplet = "search.post.autocomplete"
 

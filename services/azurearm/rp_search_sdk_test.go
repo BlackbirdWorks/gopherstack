@@ -549,3 +549,83 @@ func TestSearchSDK_UnavailableDataPlane(t *testing.T) {
 		"without a data plane nothing pretends to be created",
 	)
 }
+
+func TestSearchSDK_IPRulesReachDataPlane(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		rules []string
+		ok    bool
+	}{
+		{"address and cidr", []string{"1.2.3.4", "10.0.0.0/8"}, true},
+		{"not an address", []string{"host.example"}, false},
+		{"ipv6 address", []string{"2001:db8::1"}, false},
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := newSearchStack(t)
+			svc := basicService(armsearch.SKUNameBasic)
+			rules := make([]*armsearch.IPRule, 0, len(tc.rules))
+
+			for _, r := range tc.rules {
+				rules = append(rules, &armsearch.IPRule{Value: new(r)})
+			}
+
+			svc.Properties = &armsearch.ServiceProperties{NetworkRuleSet: &armsearch.NetworkRuleSet{IPRules: rules}}
+			name := fmt.Sprintf("ip-%d", i)
+
+			poller, err := s.factory.NewServicesClient().BeginCreateOrUpdate(t.Context(), searchRG, name, svc, nil, nil)
+			if !tc.ok {
+				var respErr *azcore.ResponseError
+
+				require.ErrorAs(t, err, &respErr)
+				assert.Equal(t, http.StatusBadRequest, respErr.StatusCode)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			_, err = poller.PollUntilDone(t.Context(), nil)
+			require.NoError(t, err)
+
+			s.plane.mu.Lock()
+			defer s.plane.mu.Unlock()
+
+			assert.Equal(t, tc.rules, s.plane.services[name].IPRules)
+			assert.Contains(t, s.plane.services[name].ResourceID, "/providers/Microsoft.Search/searchServices/"+name)
+		})
+	}
+}
+
+func TestSearchSDK_Upgrade(t *testing.T) {
+	t.Parallel()
+
+	s := newSearchStack(t)
+	created := s.create(t, "up1", basicService(armsearch.SKUNameBasic))
+	assert.Equal(t, armsearch.UpgradeAvailableNotAvailable, *created.Properties.UpgradeAvailable)
+	assert.Nil(t, created.Properties.ServiceUpgradedAt)
+
+	poller, err := s.factory.NewServicesClient().BeginUpgrade(t.Context(), searchRG, "up1", nil)
+	require.NoError(t, err)
+
+	res, err := poller.PollUntilDone(t.Context(), nil)
+	require.NoError(t, err)
+	require.NotNil(t, res.Properties.ServiceUpgradedAt)
+	assert.Equal(t, armsearch.UpgradeAvailableNotAvailable, *res.Properties.UpgradeAvailable)
+
+	got, err := s.factory.NewServicesClient().Get(t.Context(), searchRG, "up1", nil, nil)
+	require.NoError(t, err)
+	assert.NotNil(t, got.Properties.ServiceUpgradedAt, "the upgrade time persists on the service")
+
+	_, err = s.factory.NewServicesClient().BeginUpgrade(t.Context(), searchRG, "absent", nil)
+
+	var respErr *azcore.ResponseError
+
+	require.ErrorAs(t, err, &respErr)
+	assert.Equal(t, http.StatusNotFound, respErr.StatusCode)
+}

@@ -103,7 +103,7 @@ func newSearchFixture(t *testing.T) srchFixture {
 	require.True(t, ok)
 	t.Cleanup(func() { armH.Shutdown(t.Context()) })
 
-	b := azuresearch.NewInMemoryBackend()
+	b := azuresearch.NewInMemoryBackend(azuresearch.WithIndexerExecutor(func(f func()) { f() }))
 	b.SetBlobSource(srchBlobs{})
 	armH.Registry.SetSearch(srchPlane{b: b})
 

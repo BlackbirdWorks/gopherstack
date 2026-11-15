@@ -9,6 +9,8 @@ type SearchServiceConfig struct {
 	PublicNetworkAccess string
 	AuthMode            string
 	AADFailureMode      string
+	ResourceID          string
+	IPRules             []string
 	ReplicaCount        int
 	PartitionCount      int
 	DisableLocalAuth    bool

@@ -24,6 +24,8 @@ type fakeClock struct{ now time.Time }
 
 func (c *fakeClock) Now() time.Time { return c.now }
 
+func runInline(f func()) { f() }
+
 type stack struct {
 	b     *azuresearch.InMemoryBackend
 	clock *fakeClock
@@ -35,8 +37,20 @@ type stack struct {
 func newStack(t *testing.T, sku string) *stack {
 	t.Helper()
 
+	return newStackExec(t, sku, runInline)
+}
+
+func newStackExec(t *testing.T, sku string, exec func(func())) *stack {
+	t.Helper()
+
+	return newStackWith(t, sku, exec, nil)
+}
+
+func newStackWith(t *testing.T, sku string, exec func(func()), tune func(*azuresearch.Handler)) *stack {
+	t.Helper()
+
 	clock := &fakeClock{now: time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)}
-	b := azuresearch.NewInMemoryBackend(azuresearch.WithClock(clock.Now))
+	b := azuresearch.NewInMemoryBackend(azuresearch.WithClock(clock.Now), azuresearch.WithIndexerExecutor(exec))
 
 	_, err := b.PutService(testService, azuresearch.ServiceConfig{
 		SKU: sku, HostingMode: "default", PublicNetworkAccess: "enabled", AuthMode: "apiKeyOnly",
@@ -52,6 +66,10 @@ func newStack(t *testing.T, sku string) *stack {
 	require.NotEmpty(t, qk)
 
 	h := azuresearch.NewHandler(b, azuresearch.DefaultSettings())
+	if tune != nil {
+		tune(h)
+	}
+
 	e := echo.New()
 	e.Any("/*", h.Handler())
 
@@ -314,4 +332,32 @@ func serve(t *testing.T, b *azuresearch.InMemoryBackend) string {
 	t.Cleanup(srv.Close)
 
 	return srv.URL
+}
+
+func (s *stack) bearer(t *testing.T, method, path, token string, body any) resp {
+	t.Helper()
+
+	var rd io.Reader
+
+	if body != nil {
+		raw, err := json.Marshal(body, jsonx.V1())
+		require.NoError(t, err)
+
+		rd = bytes.NewReader(raw)
+	}
+
+	req, err := http.NewRequestWithContext(t.Context(), method, s.url+path, rd)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	res, err := testclient.New(t).Do(req)
+	require.NoError(t, err)
+
+	defer res.Body.Close()
+
+	raw, err := io.ReadAll(res.Body)
+	require.NoError(t, err)
+
+	return resp{status: res.StatusCode, header: res.Header, raw: raw}
 }

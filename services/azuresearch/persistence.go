@@ -107,6 +107,8 @@ func normalizeService(s *Service) error {
 		if rt.Seen == nil {
 			rt.Seen = map[string]string{}
 		}
+
+		interruptRuns(rt)
 	}
 
 	return nil
@@ -140,4 +142,13 @@ func (h *Handler) Snapshot(ctx context.Context) []byte { return h.Backend.Snapsh
 // Restore implements persistence.Persistable by delegating to the backend.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	return h.Backend.Restore(ctx, data)
+}
+
+func interruptRuns(rt *IndexerRuntime) {
+	for _, r := range append([]*RunResult{rt.Last}, rt.History...) {
+		if r != nil && r.Status == runInProgress {
+			r.Status, r.ErrorMessage = runTransient, "The run was interrupted by a restart."
+			r.EndTime = r.StartTime
+		}
+	}
 }

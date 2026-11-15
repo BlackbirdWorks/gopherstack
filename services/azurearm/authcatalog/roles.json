@@ -1393,6 +1393,58 @@
   ]
  },
  {
+  "name": "8ebe5a00-799e-43f5-93ac-243d3dce84a7",
+  "roleName": "Search Index Data Contributor",
+  "description": "Grants full access to Azure AI Search index data.",
+  "permissions": [
+   {
+    "actions": [],
+    "notActions": [],
+    "dataActions": [
+     "Microsoft.Search/searchServices/indexes/documents/*",
+     "Microsoft.Search/searchServices/indexes/contentSecurity/elevatedOperations/read"
+    ],
+    "notDataActions": []
+   }
+  ]
+ },
+ {
+  "name": "1407120a-92aa-4202-b7e9-c0e197c71c8f",
+  "roleName": "Search Index Data Reader",
+  "description": "Grants read access to Azure AI Search index data.",
+  "permissions": [
+   {
+    "actions": [],
+    "notActions": [],
+    "dataActions": [
+     "Microsoft.Search/searchServices/indexes/documents/read"
+    ],
+    "notDataActions": []
+   }
+  ]
+ },
+ {
+  "name": "7ca78c08-252a-4471-8644-bb5ff32d4ba0",
+  "roleName": "Search Service Contributor",
+  "description": "Lets you manage Azure AI Search services, including retrieving admin and query API keys. An admin key provides full access to the service's data plane. A query key provides read-only access.",
+  "permissions": [
+   {
+    "actions": [
+     "Microsoft.Authorization/*/read",
+     "Microsoft.Insights/alertRules/*",
+     "Microsoft.ResourceHealth/availabilityStatuses/read",
+     "Microsoft.Resources/deployments/*",
+     "Microsoft.Resources/subscriptions/resourceGroups/read",
+     "Microsoft.Search/searchServices/*",
+     "Microsoft.Support/*"
+    ],
+    "notActions": [],
+    "dataActions": [],
+    "notDataActions": []
+   }
+  ]
+ },
+ {
   "name": "9b7fa17d-e63e-47b0-bb0a-15c516ac86ec",
   "roleName": "SQL DB Contributor",
   "description": "Lets you manage SQL databases, but not access to them. Also, you can't manage their security-related policies or their parent SQL servers.",

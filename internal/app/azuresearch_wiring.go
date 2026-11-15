@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/aadauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/odatatable"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
@@ -24,6 +25,8 @@ func wireAzureSearch(byName map[string]service.Registerable) {
 
 	if armH, armOk := byName["AzureARM"].(*azurearm.Handler); armOk {
 		armH.Registry.SetSearch(&azureSearchAdapter{b: searchH.Backend, port: searchH.Port})
+
+		wireSearchAuthority(searchH, armH)
 	}
 
 	if blobH, blobOk := byName["AzureBlob"].(*azureblob.Handler); blobOk {
@@ -37,6 +40,48 @@ func wireAzureSearch(byName map[string]service.Registerable) {
 	if cosmosH, cosmosOk := byName["CosmosDB"].(*cosmosdb.Handler); cosmosOk {
 		searchH.Backend.SetCosmosSource(azureSearchCosmos{b: cosmosH.Backend})
 	}
+}
+
+const azureSearchAudience = "https://search.azure.com"
+
+// wireSearchAuthority lets the data plane validate Entra tokens and evaluate ARM role assignments.
+func wireSearchAuthority(searchH *azuresearch.Handler, armH *azurearm.Handler) {
+	if !searchH.Settings.ValidateTokens || armH.Issuer == nil {
+		return
+	}
+
+	p, found := armH.Registry.ProviderNamed("Microsoft.Authorization")
+	if !found {
+		return
+	}
+
+	if authz, isAuthz := p.(*azurearm.AuthorizationProvider); isAuthz {
+		searchH.Authority = azureSearchAuthority{iss: armH.Issuer, authz: authz}
+	}
+}
+
+type azureSearchAuthority struct {
+	iss   *aadauth.Issuer
+	authz *azurearm.AuthorizationProvider
+}
+
+func (a azureSearchAuthority) Authenticate(token string) (string, error) {
+	claims, err := a.iss.Validate(token, azureSearchAudience, "")
+	if err != nil {
+		return "", err
+	}
+
+	if oid, _ := claims["oid"].(string); oid != "" {
+		return oid, nil
+	}
+
+	sub, _ := claims["sub"].(string)
+
+	return sub, nil
+}
+
+func (a azureSearchAuthority) Allowed(principalID, resourceID, action string, data bool) bool {
+	return a.authz.Allowed(principalID, resourceID, action, data)
 }
 
 // azureSearchBlobs exposes the Blob Storage emulator to the search indexers.

@@ -15,6 +15,7 @@ var (
 	ErrQueryKeyNameTaken = errors.New("azuresearch: query key name already in use")
 	ErrBadRequest        = errors.New("azuresearch: bad request")
 	ErrPrecondition      = errors.New("azuresearch: precondition failed")
+	ErrConflict          = errors.New("azuresearch: conflict")
 	ErrIndexInUse        = errors.New("azuresearch: index is referenced by an indexer")
 	ErrUnauthorized      = errors.New("azuresearch: unauthorized")
 	ErrForbidden         = errors.New("azuresearch: forbidden")

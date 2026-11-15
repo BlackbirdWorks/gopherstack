@@ -11,6 +11,8 @@ const rrfK = 60
 
 type hit struct {
 	doc   *Doc
+	dbg   *debugInfo
+	vec   map[string]vecScore
 	key   string
 	score float64
 }
@@ -226,13 +228,14 @@ func (s *Service) search(ix *Index, req *searchRequest, version string, now time
 
 	docs := ix.orderedDocs()
 
-	var hits []hit
+	var hits, counted []hit
 
 	switch {
 	case len(req.Vectors) == 0:
 		hits = pl.textHits(docs)
+		counted = hits
 	default:
-		hits, err = pl.vectorHits(docs)
+		hits, counted, err = pl.vectorHits(docs)
 		if err != nil {
 			return nil, err
 		}
@@ -242,9 +245,9 @@ func (s *Service) search(ix *Index, req *searchRequest, version string, now time
 		order.sortHits(hits)
 	}
 
-	res := &searchResult{Hits: hits, Count: len(hits)}
+	res := &searchResult{Hits: hits, Count: len(counted)}
 
-	if res.Facets, err = computeFacets(ix.comp, req.Facets, hits); err != nil {
+	if res.Facets, err = computeFacets(ix.comp, req.Facets, counted); err != nil {
 		return nil, err
 	}
 
