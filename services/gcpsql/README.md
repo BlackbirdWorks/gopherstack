@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 42 (31 ok, 11 partial) |
+| PARITY entries audited | 45 (33 ok, 12 partial) |
 | Feature families | 12 (9 ok, 3 partial) |
 | Known gaps | 7 |
 | Deferred items | 0 |
@@ -15,9 +15,9 @@
 
 ### Known gaps
 
-- Not served: SQL Server, switchover, demote and demoteMaster, DR replicas and replicationCluster, cascading replicas, cross-region and cross-project replicas, maintenance windows and reschedule, executeSql (the engine query path returns no column types), the CAS-based server certificate and Entra ID certificate calls, major version upgrade, the projects/backups resource, DNS connect settings, Auth Proxy and IAM database authentication. SQL Server is out of scope: the RDS opt-in SQL Server engine is a separate proxy-based design that was not reused.
-- availabilityType REGIONAL assigns a secondaryGceZone and failover swaps it with gceZone, but no standby engine exists: the single container keeps serving.
-- Settings reaching the engine: tier (CPU and memory caps), databaseFlags, activationPolicy and the PITR switches. dataDiskSizeGb and dataDiskType are echoed only (docker volumes have no quota). ipConfiguration.authorizedNetworks, sslMode and requireSsl are not enforced: the engine publishes on 127.0.0.1 only. backupConfiguration schedule (no automated backups run), maintenanceWindow, insightsConfig and passwordValidationPolicy have no effect.
+- Not served: SQL Server (the only SQL Server engine in the repo is internal to services/rds and is wired to that service's own instance model; Cloud SQL would need its own engine with logins, BAK import/export and SQLSERVER_* versions, and the image is amd64-only), demote and demoteMaster (they make the instance a replica of an on-premises server, which has no emulated counterpart), cross-region and cross-project replicas (a replica must share its primary's region and project), maintenance windows and reschedule, the CAS-based server certificate and Entra ID certificate calls, major version upgrade, the projects/backups resource, DNS connect settings, Auth Proxy and IAM database authentication.
+- After a failover or switchover the promoted engine starts a new point-in-time recovery base, so the recovery window restarts at the hand-over instead of continuing across it.
+- Settings reaching the engine: tier (CPU and memory caps), databaseFlags, activationPolicy, the PITR switches, availabilityType (hot standby), ipConfiguration.authorizedNetworks and ipv4Enabled (instance front door), and dataDiskSizeGb with storageAutoResize and storageAutoResizeLimit (read-only mode when the data outgrows the disk). sslMode and requireSsl are not enforced: the engine speaks plain TCP. dataDiskType is echoed only, a growing disk does not raise the echoed dataDiskSizeGb, and the backupConfiguration schedule (no automated backups run), maintenanceWindow, insightsConfig and passwordValidationPolicy have no effect.
 - PostgreSQL ignores database charset and collation (stored only); MySQL users get GRANT ALL on *.*; PostgreSQL users join a cloudsqlsuperuser role the emulator creates. Backups keep object ownership, so restoring one into a different instance needs the same roles to exist.
 - Flags are validated by the engine when the restart applies them, not when the patch is accepted; flags.list is a static subset and tiers.list a fixed list. Duplicate database and user inserts return 409 but the real reason strings were not verified against the live service.
 - Docker engines need the container runtime to see the emulator's temp directory (bind mount), so a gopherstack running inside a container that talks to a remote daemon cannot export, import, back up or clone; admin SQL still works.

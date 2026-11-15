@@ -8,22 +8,18 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 52 (42 ok, 10 partial) |
-| Feature families | 19 (6 ok, 13 partial) |
-| Known gaps | 11 |
+| Feature families | 20 (6 ok, 14 partial) |
+| Known gaps | 7 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- Gateway addresses are not reachable (the emulator serves every gateway on its shared port); an IPV6-only gateway still holds an IPv4 private IP on its VNIC because OCI Core cannot create IPv6-only VNICs, and networkSecurityGroupIds are not applied to the gateway VNIC.
-- Not published (checked apigatewayoverview.htm, apigatewayusinghttpbackend.htm, apigatewaylimits.htm and the SDK doc comments): route precedence between overlapping paths, trailing-slash handling, 405 with Allow for a method mismatch, the 200 status of CORS preflight answers, the data plane error body shape, Retry-After on 429, 400 for failed request validations (Oracle says only 4xx), 401/403 for missing, unknown or unentitled usage-plan tokens, 401 for a mutualTls SAN mismatch, the 409 for operations on a locked resource, 404 for removing an absent lock, the order filter then rename then set for transformations, isRequired defaulting to true for verifyClaims, the Monday start of WEEK quota windows (all emulator choices)
-- Not published (checked authorizer function page apigatewayusingauthorizerfunction.htm and the SDK TokenAuthenticationPolicy/ApiSpecification comments): whether tokenHeader values reach the authorizer without the scheme, the OpenAPI-derived Api fields (specificationType text, validation check names) and the SDK language catalog
-- TLS is served on the shared emulator port, not on 443: deployment endpoints use the https://<hostname> form that does not resolve locally (clients must connect to the emulator port with SNI set to the gateway hostname), HTTP/2 is not offered, a gateway without a certificate cannot be reached over TLS, and PRIVATE gateways are served exactly like PUBLIC ones.
-- The external response cache server is never contacted (in-process cache instead), cache server outage and timeouts are not emulated, and cache entries and usage-plan counters are in memory only (not persisted, per process).
-- SDK resources are stored only: no client library is generated, so artifactUrl is never set. The Api resource never reaches FAILED for semantically bad content (validations report it instead).
-- OAuth2 login/logout backends, validationFailurePolicy OAUTH2, REMOTE_DISCOVERY with VALIDATION_BLOCK client or source details, body validationType other than NONE and JSON-schema body validation are rejected with 400; access and execution log policies are stored but nothing is written to OCI Logging.
+- Gateway addresses are not reachable at their own IPs (the emulator serves every gateway on its shared port, or on --oci-apigateway-tls-port); the hostname <id>.apigateway.<region>.oci.customer-oci.com resolves nowhere locally, so clients map it themselves or use /_apigw/<gatewayId>. An IPV6-only gateway still holds an IPv4 private IP on its VNIC because OCI Core cannot create IPv6-only VNICs (services/ocicore/network.go newVnic always allocates an IPv4 address via freeIPIn).
+- SDK resources are stored only: no client library is generated, so artifactUrl and timeArtifactUrlExpiresAt are never set (generation needs the OpenAPI Generator toolchain for five target languages).
+- OAuth2 login/logout backends, validationFailurePolicy OAUTH2, REMOTE_DISCOVERY with VALIDATION_BLOCK client or source details are rejected with 400 (they need an OAuth2 identity provider session flow); the SDK models only body validationType NONE, so JSON-schema body validation does not exist.
 - Cancelling a work request marks it CANCELED but does not stop the resource transition it describes.
-- No separate connect/send timeout enforcement, no retries, no streaming flush; request bodies are buffered up to 10 MiB.
+- No back end retries and no streaming flush; request bodies are buffered up to 10 MiB and the read timeout covers the wait for the response headers only, not the body.
 - IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified. systemTags are never set.
 - The dashboard has no OCI API Gateway page.
 

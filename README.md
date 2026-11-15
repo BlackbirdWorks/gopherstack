@@ -958,7 +958,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [API Gateway](services/gcpapigateway/README.md) | B | 25 | 2 gaps |
 | [Artifact Registry](services/gcpartifactregistry/README.md) | B | 52 | 3 gaps |
-| [BigQuery](services/gcpbigquery/README.md) | B | 28 | 7 gaps |
+| [BigQuery](services/gcpbigquery/README.md) | B | 28 | 9 gaps |
 | [Cloud Bigtable](services/gcpbigtable/README.md) | B | 43 | 6 gaps |
 | [Cloud Build](services/gcpcloudbuild/README.md) | B | 21 | 6 gaps |
 | [Cloud DNS](services/gcpdns/README.md) | B | — | 8 families; 3 gaps |
@@ -968,7 +968,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cloud Logging](services/gcplogging/README.md) | B | 43 | 6 gaps |
 | [Cloud Monitoring](services/gcpmonitoring/README.md) | B | 54 | 5 gaps |
 | [Cloud Run](services/gcprun/README.md) | B | 34 | 4 gaps |
-| [Cloud SQL](services/gcpsql/README.md) | B | 42 | 7 gaps |
+| [Cloud SQL](services/gcpsql/README.md) | B | 45 | 7 gaps |
 | [Cloud Scheduler](services/gcpscheduler/README.md) | B | 10 | 4 gaps |
 | [Cloud Spanner](services/gcpspanner/README.md) | B | 18 | 6 gaps |
 | [Cloud Tasks](services/gcpcloudtasks/README.md) | B | 20 | 1 gap |
@@ -983,14 +983,14 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Google Secret Manager](services/gcpsecretmanager/README.md) | B | 18 | 2 gaps |
 | [Identity Platform](services/gcpidentitytoolkit/README.md) | B | 1 | 3 gaps |
 | [Kubernetes Engine](services/gcpcontainer/README.md) | B | — | 5 families; 4 gaps |
-| [Memorystore for Redis](services/gcpredis/README.md) | B | 14 | 7 gaps |
+| [Memorystore for Redis](services/gcpredis/README.md) | B | 14 | 4 gaps |
 | [Workflows](services/gcpworkflows/README.md) | B | 13 | 7 gaps |
 
 ### OCI
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [OCI API Gateway](services/ociapigateway/README.md) | B | 52 | 11 gaps |
+| [OCI API Gateway](services/ociapigateway/README.md) | B | 52 | 7 gaps |
 | [OCI Artifacts and Container Registry](services/ociartifacts/README.md) | B | 37 | 7 gaps |
 | [OCI Autonomous Database](services/ocidatabase/README.md) | B | 21 | 7 gaps |
 | [OCI Container Engine for Kubernetes](services/ocicontainerengine/README.md) | B | 49 | 10 gaps |
@@ -1038,7 +1038,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [HealthOmics](services/omics/README.md) | A | — | 25 families; 5 structural gaps; 1 deferred |
 | [Kafkaconnect](services/kafkaconnect/README.md) | A | 19 | 3 gaps; 3 structural gaps |
 | [Kinesisvideo](services/kinesisvideo/README.md) | A | 32 | 3 structural gaps |
-| [Lambdaweb](services/lambdaweb/README.md) | B | 20 | 10 gaps; 1 structural gap |
+| [Lambdaweb](services/lambdaweb/README.md) | B | 20 | 4 gaps; 1 structural gap |
 | [Lightsail](services/lightsail/README.md) | A | — | 29 families; 1 gap; 6 structural gaps; 2 deferred |
 | [Managed Blockchain](services/managedblockchain/README.md) | A | 27 | 3 structural gaps |
 | [Marketplaceentitlementservice](services/marketplaceentitlementservice/README.md) | B | 1 | 3 gaps; 1 structural gap |

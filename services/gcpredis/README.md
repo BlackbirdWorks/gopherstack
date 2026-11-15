@@ -15,9 +15,9 @@
 
 ### Known gaps
 
-- STANDARD_HA and read replicas are metadata only: one server serves both the primary and read endpoint (read_endpoint equals host), and failover swaps zone labels.
+- STANDARD_HA and read replicas are metadata only: one server serves both the primary and read endpoint (read_endpoint equals host), and failover swaps zone labels. Real replicas need a replication path (miniredis registers no REPLICAOF or PSYNC), a second port per instance from the shared pool (engine.go bindEngine publishes one host and port) and READONLY enforcement on the replica.
 - RDB persistence_config is recorded but no periodic snapshots are taken (the emulator's own snapshot persistence covers restarts).
-- After a restore every instance starts on a new port and, for TLS, a new CA.
+- After a restore every instance starts on a new port and, for TLS, a new CA: pkgs/portalloc has no acquire-specific-port call (Reserve marks the port reserved for good) and pkgs/devtls.CA cannot serialise its private key.
 - Cross-region replication, customer-managed keys, maintenance_version and suspension reasons are stored or empty but not modelled.
 
 ## More
