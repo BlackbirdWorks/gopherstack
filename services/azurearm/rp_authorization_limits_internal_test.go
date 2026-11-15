@@ -122,3 +122,74 @@ func codeOf(err error) string {
 
 	return e.code
 }
+
+func TestRoleAssignmentCondition(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		condition string
+		version   string
+		wantVer   string
+		wantErr   bool
+	}{
+		{name: "none"},
+		{name: "defaults version", condition: "((!(ActionMatches{'x'})))", wantVer: "2.0"},
+		{name: "explicit version", condition: "(@Resource[a:b] StringEquals 'x')", version: "2.0", wantVer: "2.0"},
+		{name: "version without condition", version: "2.0", wantErr: true},
+		{name: "unsupported version", condition: "(a)", version: "1.0", wantErr: true},
+		{name: "unbalanced", condition: "((a)", wantErr: true},
+		{name: "unterminated string", condition: "(a 'b)", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cond, ver, err := checkAssignmentCondition(tc.condition, tc.version)
+			if tc.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.condition, cond)
+			assert.Equal(t, tc.wantVer, ver)
+		})
+	}
+}
+
+func TestAssignableScopesExist(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		scope   string
+		wantErr bool
+	}{
+		{name: "known subscription", scope: limitsSub},
+		{name: "unknown subscription", scope: "/subscriptions/22222222-2222-2222-2222-222222222222", wantErr: true},
+		{name: "existing group", scope: limitsSub + "/resourceGroups/rg1"},
+		{name: "missing group", scope: limitsSub + "/resourceGroups/nope", wantErr: true},
+		{name: "management group", scope: limitsMG},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := NewAuthorizationProvider("", nil)
+			p.SetScopeChecker("11111111-1111-1111-1111-111111111111", func(n string) bool { return n == "rg1" })
+
+			err := p.assignableScopesExist([]string{tc.scope})
+			if tc.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}

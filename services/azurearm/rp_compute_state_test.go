@@ -105,3 +105,54 @@ func TestComputeSDK_ResourceGroupCascade(t *testing.T) {
 	delPoller, err := s.net.NewInterfacesClient().BeginDelete(t.Context(), netRG, "nic1", nil)
 	require.NoError(t, waitPoller(t, delPoller, err))
 }
+
+func TestComputeSDK_ReapplyReimageSpot(t *testing.T) {
+	t.Parallel()
+
+	s := newCmpStack(t)
+	c := s.cf.NewVirtualMachinesClient()
+
+	s.mustVM(t, "reg", linuxVM(s.newNIC(t, "nic-reg")))
+
+	pl, perr := c.BeginReapply(t.Context(), netRG, "reg", nil)
+	require.NoError(t, waitPoller(t, pl, perr))
+
+	pd, perr := c.BeginDeallocate(t.Context(), netRG, "reg", nil)
+	require.NoError(t, waitPoller(t, pd, perr))
+
+	pi, perr := c.BeginReimage(t.Context(), netRG, "reg", nil)
+	err := waitPoller(t, pi, perr)
+	require.Error(t, err)
+	assert.Equal(t, "OperationNotAllowed", sdkErrCode(err), "a deallocated machine cannot be reimaged")
+
+	_, err = c.SimulateEviction(t.Context(), netRG, "reg", nil)
+	require.Error(t, err)
+	assert.Equal(t, "OperationNotAllowed", sdkErrCode(err), "only Spot machines can be evicted")
+
+	bad := linuxVM(s.newNIC(t, "nic-bad"))
+	bad.Properties.EvictionPolicy = new(armcompute.VirtualMachineEvictionPolicyTypesDelete)
+	_, err = s.putVM(t, netRG, "bad", bad)
+	require.Error(t, err, "evictionPolicy needs Spot priority")
+
+	for _, tc := range []struct {
+		name, policy, wantPower string
+	}{{"spot-dealloc", "Deallocate", "deallocated"}, {"spot-delete", "Delete", ""}} {
+		vm := linuxVM(s.newNIC(t, "nic-"+tc.name))
+		vm.Properties.Priority = new(armcompute.VirtualMachinePriorityTypesSpot)
+		vm.Properties.EvictionPolicy = new(armcompute.VirtualMachineEvictionPolicyTypes(tc.policy))
+		vm.Properties.BillingProfile = &armcompute.BillingProfile{MaxPrice: new(float64(-1))}
+		s.mustVM(t, tc.name, vm)
+
+		_, err = c.SimulateEviction(t.Context(), netRG, tc.name, nil)
+		require.NoError(t, err)
+
+		if tc.wantPower != "" {
+			assert.Equal(t, tc.wantPower, s.power(t, tc.name))
+
+			continue
+		}
+
+		_, err = c.Get(t.Context(), netRG, tc.name, nil)
+		require.Error(t, err, "Delete policy removes the machine")
+	}
+}

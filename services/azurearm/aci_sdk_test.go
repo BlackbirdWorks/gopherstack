@@ -692,22 +692,6 @@ func TestACISDK_Validation(t *testing.T) {
 	}
 }
 
-func TestACISDK_ExecIsNotSupported(t *testing.T) {
-	t.Parallel()
-
-	s := newACIStack(t)
-	_, err := s.create(t, "rg", "x", aciOpts{policy: armcontainerinstance.ContainerGroupRestartPolicyAlways})
-	require.NoError(t, err)
-
-	_, err = s.factory.NewContainersClient().ExecuteCommand(t.Context(), "rg", "x", "main",
-		armcontainerinstance.ContainerExecRequest{Command: new("sh")}, nil)
-
-	var re *azcore.ResponseError
-
-	require.ErrorAs(t, err, &re)
-	assert.Equal(t, http.StatusNotImplemented, re.StatusCode)
-}
-
 func TestACISDK_DeleteResourceGroupStopsContainers(t *testing.T) {
 	t.Parallel()
 

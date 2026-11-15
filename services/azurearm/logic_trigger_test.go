@@ -390,3 +390,29 @@ func TestLogicTriggerConditionsInvalid(t *testing.T) {
 		})
 	}
 }
+
+func TestLogicResubmitHistory(t *testing.T) {
+	t.Parallel()
+
+	s := newLogicStack(t)
+	s.create(t, "again", logicDef(la{"manual": la{"type": "Request", "kind": "Http"}},
+		la{"Mark": compose("@triggerBody()?['n']", nil)}))
+
+	code, _, _ := s.post(t, s.callback(t, "again"), `{"n":7}`)
+	require.Equal(t, http.StatusAccepted, code)
+	s.waitRuns(t)
+	require.Equal(t, 1, s.runCount(t, "again"))
+
+	hc := s.factory.NewWorkflowTriggerHistoriesClient()
+	page, err := hc.NewListPager(logicRG, "again", "manual", nil).NextPage(t.Context())
+	require.NoError(t, err)
+	require.Len(t, page.Value, 1)
+
+	_, err = hc.Resubmit(t.Context(), logicRG, "again", "manual", *page.Value[0].Name, nil)
+	require.NoError(t, err)
+	s.waitRuns(t)
+	assert.Equal(t, 2, s.runCount(t, "again"))
+
+	_, err = hc.Resubmit(t.Context(), logicRG, "again", "manual", "missing", nil)
+	require.Error(t, err)
+}

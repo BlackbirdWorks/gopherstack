@@ -12,6 +12,9 @@ const (
 	vmActionDeallocate = "deallocate"
 	vmActionRedeploy   = "redeploy"
 	vmActionGeneralize = "generalize"
+	vmActionReapply    = "reapply"
+	vmActionReimage    = "reimage"
+	vmActionSimEvict   = "simulateEviction"
 
 	statusLevelInfo = "Info"
 	auxPowerTime    = "powerTime"
@@ -22,6 +25,7 @@ const (
 //nolint:gochecknoglobals // static read-only table
 var vmActionNames = []string{
 	vmActionStart, "powerOff", vmActionRestart, vmActionDeallocate, vmActionRedeploy, vmActionGeneralize,
+	vmActionReapply, vmActionReimage, vmActionSimEvict,
 }
 
 func vmNotAllowed(action, vm, why string) error {
@@ -49,6 +53,13 @@ func (p *ComputeProvider) vmActionLocked(r *cmpRes, action string) error {
 
 	power := r.Aux[auxPower]
 	generalized := r.Aux[auxGeneralized] == cmpTrue
+
+	switch strings.ToLower(action) {
+	case strings.ToLower(vmActionSimEvict):
+		return p.simulateEviction(r)
+	case vmActionReapply, vmActionReimage:
+		return p.reapplyOrReimage(r, name, strings.ToLower(action) == vmActionReimage, generalized)
+	}
 
 	switch strings.ToLower(action) {
 	case vmActionStart, vmActionRedeploy, vmActionRestart:
@@ -189,4 +200,81 @@ func VMSizes() map[string]any { return map[string]any{fieldValue: vmSizesBody()}
 // ResourceSKUs returns the skus listing for location.
 func ResourceSKUs(location string) map[string]any {
 	return map[string]any{fieldValue: resourceSKUsBody(location)}
+}
+
+// reapplyOrReimage records the platform operation: reapply re-pushes the model, reimage resets the OS disk and
+// restarts the machine. Neither changes anything else the emulator models.
+func (p *ComputeProvider) reapplyOrReimage(r *cmpRes, name string, reimage, generalized bool) error {
+	if generalized {
+		return vmNotAllowed(name, r.Name, "generalized")
+	}
+
+	if reimage {
+		if r.Aux[auxPower] == powerDeallocated {
+			return vmNotAllowed(name, r.Name, "deallocated")
+		}
+
+		r.Aux[auxPower], r.Aux[auxPowerTime] = powerRunning, time.Now().UTC().Format(time.RFC3339Nano)
+	}
+
+	r.Etag = newEtag()
+
+	return nil
+}
+
+// simulateEviction evicts a Spot virtual machine at once according to its evictionPolicy (the service evicts
+// within 30 minutes of the call).
+func (p *ComputeProvider) simulateEviction(r *cmpRes) error {
+	if !strings.EqualFold(strOf(r.Props, "priority"), "Spot") {
+		return cmpNotAllowed(
+			"Operation 'simulateEviction' is not allowed on VM '%s' since it is not a Spot VM.",
+			r.Name,
+		)
+	}
+
+	if strings.EqualFold(strOf(r.Props, "evictionPolicy"), "Delete") {
+		p.deleteVM(r)
+		delete(p.items, cmpKey(cmpVMs, r.RG, r.Name))
+
+		return nil
+	}
+
+	r.Aux[auxPower], r.Aux[auxPowerTime] = powerDeallocated, time.Now().UTC().Format(time.RFC3339Nano)
+	r.Etag = newEtag()
+
+	return nil
+}
+
+// checkSpotProfile validates priority, evictionPolicy and billingProfile (armcompute v9 VirtualMachineProperties:
+// evictionPolicy and billingProfile apply to Spot and Low priority machines only).
+func checkSpotProfile(props map[string]any) error {
+	prio := strOf(props, "priority")
+	if prio != "" && !strings.EqualFold(prio, "Regular") && !strings.EqualFold(prio, "Low") &&
+		!strings.EqualFold(prio, "Spot") {
+		return cmpInvalid("The priority '%s' is not valid. Allowed values are Regular, Low and Spot.", prio)
+	}
+
+	spot := strings.EqualFold(prio, "Spot") || strings.EqualFold(prio, "Low")
+
+	if ev := strOf(props, "evictionPolicy"); ev != "" {
+		if !strings.EqualFold(ev, "Deallocate") && !strings.EqualFold(ev, "Delete") {
+			return cmpInvalid("The evictionPolicy '%s' is not valid. Allowed values are Deallocate and Delete.", ev)
+		}
+
+		if !spot {
+			return cmpInvalid("The evictionPolicy can only be specified for Spot virtual machines.")
+		}
+	}
+
+	if bp := mapOf(props["billingProfile"]); len(bp) > 0 {
+		if !spot {
+			return cmpInvalid("The billingProfile can only be specified for Spot virtual machines.")
+		}
+
+		if price, ok := bp["maxPrice"].(float64); ok && price != -1 && price <= 0 {
+			return cmpInvalid("The billingProfile.maxPrice must be -1 or greater than zero.")
+		}
+	}
+
+	return nil
 }

@@ -45,6 +45,8 @@ type ContainerInstanceProvider struct {
 	mu     *lockmetrics.RWMutex
 	groups map[string]*storedACIGroup
 	ids    *identityService
+
+	sessions aciSessions
 }
 
 // NewContainerInstanceProvider creates a provider over engine.

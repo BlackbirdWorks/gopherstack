@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 
@@ -222,4 +223,18 @@ func (f *fakeShares) tree(account, share string) azurearm.ACIShareTree {
 	defer f.mu.Unlock()
 
 	return f.trees[account+"/"+share]
+}
+
+func (f *fakeACIRuntime) ExecStream(_ context.Context, id string, cmd []string, out io.Writer) (int, error) {
+	f.mu.Lock()
+	b := f.boxes[id]
+	f.mu.Unlock()
+
+	if b == nil || b.removed {
+		return 0, errFakeBox
+	}
+
+	_, err := io.WriteString(out, "ran:"+strings.Join(cmd, " "))
+
+	return 0, err
 }

@@ -22,6 +22,7 @@ const (
 const (
 	assignLimitSubscription    = 5000
 	assignLimitManagementGroup = 500
+	assignCondVersion          = "2.0"
 )
 
 func principalTypes() []string {
@@ -213,17 +214,9 @@ func (p *AuthorizationProvider) putRoleAssignment(req authReq) (authResp, error)
 		return authResp{}, authBad("The properties 'roleDefinitionId' and 'principalId' are required.")
 	}
 
-	if !isGUID(principalID) {
-		return authResp{}, authErr(http.StatusBadRequest, assignCodePrincipal,
-			"Principal %s does not exist in the directory %s. Check that you have the correct principal ID.",
-			principalID, p.tenantID)
-	}
-
-	ptype := strOf(props, "principalType")
-	if ptype != "" &&
-		!slices.ContainsFunc(principalTypes(), func(t string) bool { return strings.EqualFold(t, ptype) }) {
-		return authResp{}, authBad("The principalType '%s' is not valid. Allowed values are: %s.", ptype,
-			strings.Join(principalTypes(), ", "))
+	ptype, condition, condVersion, err := p.checkAssignmentProps(props, principalID)
+	if err != nil {
+		return authResp{}, err
 	}
 
 	p.mu.Lock("putRoleAssignment")
@@ -249,13 +242,13 @@ func (p *AuthorizationProvider) putRoleAssignment(req authReq) (authResp, error)
 	key := authKey(req.Scope.id, req.Name)
 	cur, exists := p.roleAssigns[key]
 
-	if err := p.checkAssignmentUnique(req, key, role.guid, principalID, exists, cur); err != nil {
-		return authResp{}, err
+	if uerr := p.checkAssignmentUnique(req, key, role.guid, principalID, exists, cur); uerr != nil {
+		return authResp{}, uerr
 	}
 
 	if !exists {
-		if err := p.checkAssignmentLimit(req.Scope); err != nil {
-			return authResp{}, err
+		if lerr := p.checkAssignmentLimit(req.Scope); lerr != nil {
+			return authResp{}, lerr
 		}
 	}
 
@@ -263,8 +256,8 @@ func (p *AuthorizationProvider) putRoleAssignment(req authReq) (authResp, error)
 	rec := &storedRoleAssign{
 		Name: req.Name, Scope: req.Scope.id, RoleDefinitionID: p.canonicalRoleID(req.Scope, role.guid),
 		RoleGUID: role.guid, PrincipalID: strings.ToLower(principalID), CreatedOn: now, UpdatedOn: now,
-		PrincipalType: p.principalTypeFor(ptype, principalID), Condition: strOf(props, "condition"),
-		ConditionVersion: strOf(props, "conditionVersion"), Description: strOf(props, authFieldDescription),
+		PrincipalType: p.principalTypeFor(ptype, principalID), Condition: condition,
+		ConditionVersion: condVersion, Description: strOf(props, authFieldDescription),
 		DelegatedMI: strOf(props, "delegatedManagedIdentityResourceId"),
 	}
 
@@ -350,4 +343,78 @@ func (p *ManagedIdentityProvider) hasPrincipal(principalID string) bool {
 	}
 
 	return false
+}
+
+// checkAssignmentCondition validates an ABAC condition: conditionVersion is 2.0 (the only accepted value, defaulted
+// when a condition is set; learn.microsoft.com/rest/api/authorization/role-assignments/create) and parentheses and
+// brackets must balance. Conditions are stored, not evaluated.
+func checkAssignmentCondition(condition, version string) (string, string, error) {
+	if condition == "" {
+		if version != "" {
+			return "", "", authBad("The property 'conditionVersion' requires a 'condition'.")
+		}
+
+		return "", "", nil
+	}
+
+	if version == "" {
+		version = assignCondVersion
+	}
+
+	if version != assignCondVersion {
+		return "", "", authBad("The conditionVersion '%s' is not supported; the only accepted value is '2.0'.", version)
+	}
+
+	if !balancedCondition(condition) {
+		return "", "", authBad("The condition is not valid: parentheses and brackets must be balanced.")
+	}
+
+	return condition, version, nil
+}
+
+func balancedCondition(s string) bool {
+	var stack []rune
+
+	pairs := map[rune]rune{')': '(', ']': '[', '}': '{'}
+	quoted := false
+
+	for _, r := range s {
+		switch {
+		case r == '\'':
+			quoted = !quoted
+		case quoted:
+		case r == '(' || r == '[' || r == '{':
+			stack = append(stack, r)
+		case r == ')' || r == ']' || r == '}':
+			if len(stack) == 0 || stack[len(stack)-1] != pairs[r] {
+				return false
+			}
+
+			stack = stack[:len(stack)-1]
+		}
+	}
+
+	return len(stack) == 0 && !quoted
+}
+
+func (p *AuthorizationProvider) checkAssignmentProps(
+	props map[string]any,
+	principalID string,
+) (string, string, string, error) {
+	if !isGUID(principalID) {
+		return "", "", "", authErr(http.StatusBadRequest, assignCodePrincipal,
+			"Principal %s does not exist in the directory %s. Check that you have the correct principal ID.",
+			principalID, p.tenantID)
+	}
+
+	ptype := strOf(props, "principalType")
+	if ptype != "" &&
+		!slices.ContainsFunc(principalTypes(), func(t string) bool { return strings.EqualFold(t, ptype) }) {
+		return "", "", "", authBad("The principalType '%s' is not valid. Allowed values are: %s.", ptype,
+			strings.Join(principalTypes(), ", "))
+	}
+
+	condition, version, err := checkAssignmentCondition(strOf(props, "condition"), strOf(props, "conditionVersion"))
+
+	return ptype, condition, version, err
 }

@@ -148,6 +148,10 @@ func (p *ComputeProvider) putVM(id ResourceID, body map[string]any) (*cmpRes, er
 		return nil, err
 	}
 
+	if err = checkSpotProfile(props); err != nil {
+		return nil, err
+	}
+
 	newProps := cloneProps(props)
 	for _, k := range vmReadOnlyProps {
 		delete(newProps, k)

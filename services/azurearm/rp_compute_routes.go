@@ -218,16 +218,8 @@ func (h *Handler) computeAction(c *echo.Context, cp *ComputeProvider, segs []str
 
 	action := segs[cmpRGActionIdx]
 
-	if strings.EqualFold(firstType(id), cmpSSHKeys) && strings.EqualFold(action, sshActionGenerate) {
-		return h.computeSSHAction(c, cp, id)
-	}
-
-	if strings.EqualFold(firstType(id), cmpGalleries) && strings.EqualFold(action, galleryActionShare) {
-		return h.computeGalleryShare(c, cp, id)
-	}
-
-	if strings.EqualFold(firstType(id), cmpVMs) && strings.EqualFold(action, vmActionAttachDetach) {
-		return h.computeAttachDetach(c, cp, id)
+	if handled, serr := h.computeBodyAction(c, cp, id, action); handled {
+		return serr
 	}
 
 	var actErr error
@@ -247,6 +239,10 @@ func (h *Handler) computeAction(c *echo.Context, cp *ComputeProvider, segs []str
 
 	if strings.EqualFold(action, vmActionGeneralize) {
 		return c.NoContent(http.StatusOK)
+	}
+
+	if strings.EqualFold(action, vmActionSimEvict) && strings.EqualFold(firstType(id), cmpVMs) {
+		return c.NoContent(http.StatusNoContent)
 	}
 
 	h.setNSOperation(c, id, true)
@@ -310,4 +306,20 @@ func (h *Handler) computeAttachDetach(c *echo.Context, cp *ComputeProvider, id R
 	}
 
 	return h.writeJSON(c, http.StatusOK, out)
+}
+
+// computeBodyAction serves the actions whose reply is not the generic 202.
+func (h *Handler) computeBodyAction(c *echo.Context, cp *ComputeProvider, id ResourceID, action string) (bool, error) {
+	typ := firstType(id)
+
+	switch {
+	case strings.EqualFold(typ, cmpVMs) && strings.EqualFold(action, vmActionAttachDetach):
+		return true, h.computeAttachDetach(c, cp, id)
+	case strings.EqualFold(typ, cmpSSHKeys) && strings.EqualFold(action, sshActionGenerate):
+		return true, h.computeSSHAction(c, cp, id)
+	case strings.EqualFold(typ, cmpGalleries) && strings.EqualFold(action, galleryActionShare):
+		return true, h.computeGalleryShare(c, cp, id)
+	}
+
+	return false, nil
 }
