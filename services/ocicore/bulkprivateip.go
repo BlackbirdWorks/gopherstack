@@ -129,10 +129,6 @@ func (b *InMemoryBackend) BulkCreatePrivateIPs(token string, in bulkCreateIn) (s
 		if aerr := b.checkTags(it); aerr != nil {
 			return "", aerr
 		}
-
-		if it.CidrPrefixLength != nil || it.Ipv4SubnetCidr != "" {
-			return "", errParam("cidrPrefixLength and ipv4SubnetCidrAtCreation are not supported")
-		}
 	}
 
 	return b.bulkOnce("BulkCreatePrivateIps", token, func() (string, *APIError) {
@@ -148,6 +144,7 @@ func (b *InMemoryBackend) bulkCreateLocked(in bulkCreateIn) (string, *APIError) 
 		v, _, aerr := b.CreatePrivateIP(CreatePrivateIPIn{
 			TagsIn: it.TagsIn, DisplayName: it.DisplayName, HostnameLabel: it.HostnameLabel, IPAddress: it.IPAddress,
 			Lifetime: it.Lifetime, SubnetID: in.SubnetID, VnicID: in.VnicID, RouteTableID: it.RouteTableID,
+			CidrPrefixLength: it.CidrPrefixLength, Ipv4SubnetCidr: it.Ipv4SubnetCidr,
 		})
 		if aerr != nil {
 			for _, id := range ids {

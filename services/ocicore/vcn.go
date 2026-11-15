@@ -18,6 +18,10 @@ type CreateVcnIn struct {
 	DNSLabel         string   `json:"dnsLabel"`
 	CidrBlocks       []string `json:"cidrBlocks"`
 	Ipv6PrivateCidrs []string `json:"ipv6PrivateCidrBlocks"`
+	Byoipv6          []struct {
+		Byoipv6RangeID string `json:"byoipv6RangeId"`
+		Ipv6CidrBlock  string `json:"ipv6CidrBlock"`
+	} `json:"byoipv6CidrDetails"`
 }
 
 func vcnCidrs(in CreateVcnIn) ([]string, *APIError) {
@@ -75,24 +79,34 @@ func defaultIngress(vcnCidrs []string, v6 bool) []IngressRule {
 	f := false
 	three, four := 3, 4
 	rules := []IngressRule{
-		{Protocol: "6", Source: anyV4, SourceType: ctCIDR, IsStateless: &f,
-			TCPOptions: &PortOptions{DestinationPortRange: &PortRange{Min: sshPort, Max: sshPort}}},
-		{Protocol: "1", Source: anyV4, SourceType: ctCIDR, IsStateless: &f,
-			IcmpOptions: &IcmpOptions{Type: three, Code: &four}},
+		{
+			Protocol: "6", Source: anyV4, SourceType: ctCIDR, IsStateless: &f,
+			TCPOptions: &PortOptions{DestinationPortRange: &PortRange{Min: sshPort, Max: sshPort}},
+		},
+		{
+			Protocol: "1", Source: anyV4, SourceType: ctCIDR, IsStateless: &f,
+			IcmpOptions: &IcmpOptions{Type: three, Code: &four},
+		},
 	}
 
 	for _, c := range vcnCidrs {
-		rules = append(rules, IngressRule{Protocol: "1", Source: c, SourceType: ctCIDR, IsStateless: &f,
-			IcmpOptions: &IcmpOptions{Type: three}})
+		rules = append(rules, IngressRule{
+			Protocol: "1", Source: c, SourceType: ctCIDR, IsStateless: &f,
+			IcmpOptions: &IcmpOptions{Type: three},
+		})
 	}
 
 	if v6 {
 		zero, two := 0, 2
 		rules = append(rules,
-			IngressRule{Protocol: "6", Source: anyV6, SourceType: ctCIDR, IsStateless: &f,
-				TCPOptions: &PortOptions{DestinationPortRange: &PortRange{Min: sshPort, Max: sshPort}}},
-			IngressRule{Protocol: "58", Source: anyV6, SourceType: ctCIDR, IsStateless: &f,
-				IcmpOptions: &IcmpOptions{Type: two, Code: &zero}})
+			IngressRule{
+				Protocol: "6", Source: anyV6, SourceType: ctCIDR, IsStateless: &f,
+				TCPOptions: &PortOptions{DestinationPortRange: &PortRange{Min: sshPort, Max: sshPort}},
+			},
+			IngressRule{
+				Protocol: "58", Source: anyV6, SourceType: ctCIDR, IsStateless: &f,
+				IcmpOptions: &IcmpOptions{Type: two, Code: &zero},
+			})
 	}
 
 	return rules
@@ -127,18 +141,9 @@ func (b *InMemoryBackend) CreateVcn(in CreateVcnIn) (Resource, string, *APIError
 		return nil, "", aerr
 	}
 
-	if in.DNSLabel != "" {
-		if aerr = validDNSLabel(in.DNSLabel, "dnsLabel"); aerr != nil {
-			return nil, "", aerr
-		}
-	}
-
-	if aerr = validUlaBlocks(in.Ipv6PrivateCidrs); aerr != nil {
+	claims, aerr := b.createVcnChecks(in)
+	if aerr != nil {
 		return nil, "", aerr
-	}
-
-	if len(liveOf(b, func(*Vcn) bool { return true })) >= maxVcns {
-		return nil, "", errLimit("The region VCN limit (50) has been reached")
 	}
 
 	v := &Vcn{
@@ -146,10 +151,14 @@ func (b *InMemoryBackend) CreateVcn(in CreateVcnIn) (Resource, string, *APIError
 		DNSLabel: in.DNSLabel, Ipv6PrivateCidrs: in.Ipv6PrivateCidrs,
 	}
 
-	v6 := in.IsIpv6Enabled != nil && *in.IsIpv6Enabled
-	if v6 {
+	v6 := (in.IsIpv6Enabled != nil && *in.IsIpv6Enabled) || len(claims) > 0
+	if in.IsIpv6Enabled != nil && *in.IsIpv6Enabled {
 		b.ipv6Seq++
 		v.Ipv6CidrBlocks = []string{v6Block(b.ipv6Seq)}
+	}
+
+	for _, c := range claims {
+		b.claimByoipv6(v, c.r, c.cidr)
 	}
 
 	search := []DhcpOption{{Type: "DomainNameServer", ServerType: "VcnLocalPlusInternet"}}
@@ -221,4 +230,51 @@ func updateWith[T Resource](
 	b.updateCommon(r, in)
 
 	return r.view(), r.base().Internal.Etag, nil
+}
+
+type byoipClaim struct {
+	r    *ByoipRange
+	cidr string
+}
+
+func (b *InMemoryBackend) createByoipChecks(in CreateVcnIn) ([]byoipClaim, *APIError) {
+	var (
+		out     []byoipClaim
+		pending []string
+	)
+
+	for _, d := range in.Byoipv6 {
+		r, aerr := b.byoipv6Check(d.Byoipv6RangeID, d.Ipv6CidrBlock, pending)
+		if aerr != nil {
+			return nil, aerr
+		}
+
+		pending = append(pending, d.Ipv6CidrBlock)
+		out = append(out, byoipClaim{r, d.Ipv6CidrBlock})
+	}
+
+	return out, nil
+}
+
+func (b *InMemoryBackend) createVcnChecks(in CreateVcnIn) ([]byoipClaim, *APIError) {
+	if in.DNSLabel != "" {
+		if aerr := validDNSLabel(in.DNSLabel, "dnsLabel"); aerr != nil {
+			return nil, aerr
+		}
+	}
+
+	if aerr := validUlaBlocks(in.Ipv6PrivateCidrs); aerr != nil {
+		return nil, aerr
+	}
+
+	claims, aerr := b.createByoipChecks(in)
+	if aerr != nil {
+		return nil, aerr
+	}
+
+	if len(liveOf(b, func(*Vcn) bool { return true })) >= maxVcns {
+		return nil, errLimit("The region VCN limit (50) has been reached")
+	}
+
+	return claims, nil
 }

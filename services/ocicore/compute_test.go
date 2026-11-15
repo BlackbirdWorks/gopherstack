@@ -28,7 +28,8 @@ func (e *env) fixture(t *testing.T) netFix {
 	pub, err := e.client.CreateSubnet(
 		t.Context(),
 		core.CreateSubnetRequest{
-			CompartmentId: new(testComp), VcnId: v.Id, CidrBlock: new("10.0.1.0/24"), DnsLabel: new("pub")},
+			CompartmentId: new(testComp), VcnId: v.Id, CidrBlock: new("10.0.1.0/24"), DnsLabel: new("pub"),
+		},
 	)
 	require.NoError(t, err)
 
@@ -191,7 +192,8 @@ func TestLaunchInstanceValidation(t *testing.T) {
 			),
 			VcnId:              f.vcn.Id,
 			CidrBlock:          new("10.0.3.0/24"),
-			AvailabilityDomain: new(testAD2)},
+			AvailabilityDomain: new(testAD2),
+		},
 	)
 	require.NoError(t, err)
 
@@ -356,7 +358,8 @@ func TestLaunchInstanceState(t *testing.T) {
 	assert.True(t, *ips.Items[0].IsPrimary)
 
 	pub, err := e.client.GetPublicIpByIpAddress(ctx, core.GetPublicIpByIpAddressRequest{
-		IpAddress: vn.PublicIp})
+		IpAddress: vn.PublicIp,
+	})
 	require.NoError(t, err)
 	assert.Equal(t, core.PublicIpLifetimeEphemeral, pub.Lifetime)
 	assert.Equal(t, ips.Items[0].Id, pub.AssignedEntityId)
@@ -371,7 +374,8 @@ func TestLaunchInstanceState(t *testing.T) {
 	assert.EqualValues(t, 50, *bvs.Items[0].SizeInGBs)
 
 	bas, err := e.compute.ListBootVolumeAttachments(ctx, core.ListBootVolumeAttachmentsRequest{
-		CompartmentId: new(testComp), AvailabilityDomain: new(testAD), InstanceId: i.Id})
+		CompartmentId: new(testComp), AvailabilityDomain: new(testAD), InstanceId: i.Id,
+	})
 	require.NoError(t, err)
 	require.Len(t, bas.Items, 1)
 	assert.Equal(t, bvs.Items[0].Id, bas.Items[0].BootVolumeId)
@@ -393,7 +397,8 @@ func TestLaunchInstanceState(t *testing.T) {
 	assert.Len(t, n.Items, 2)
 
 	n, err = e.compute.ListInstances(ctx, core.ListInstancesRequest{
-		CompartmentId: new(testComp), AvailabilityDomain: new(testAD2)})
+		CompartmentId: new(testComp), AvailabilityDomain: new(testAD2),
+	})
 	require.NoError(t, err)
 	assert.Empty(t, n.Items)
 }
@@ -576,12 +581,19 @@ func TestUpdateInstance(t *testing.T) {
 	assert.Equal(t, "renamed", *r.DisplayName)
 	assert.Equal(t, "v", r.Metadata["k"])
 
-	_, err = e.compute.UpdateInstance(ctx, core.UpdateInstanceRequest{InstanceId: i.Id, IfMatch: new("bogus"),
-		DisplayName: new("x")})
+	_, err = e.compute.UpdateInstance(ctx, core.UpdateInstanceRequest{
+		InstanceId: i.Id, IfMatch: new("bogus"),
+		DisplayName: new("x"),
+	})
 	assert.Equal(t, http.StatusPreconditionFailed, svcErr(t, err).GetHTTPStatusCode())
 
-	resize := core.UpdateInstanceRequest{InstanceId: i.Id,
-		Shape: new("VM.Standard3.Flex"), ShapeConfig: &core.UpdateInstanceShapeConfigDetails{Ocpus: new(float32(4))}}
+	resize := core.UpdateInstanceRequest{
+		InstanceId: i.Id,
+		Shape: new(
+			"VM.Standard3.Flex",
+		),
+		ShapeConfig: &core.UpdateInstanceShapeConfigDetails{Ocpus: new(float32(4))},
+	}
 	_, err = e.compute.UpdateInstance(ctx, resize)
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode(), "running instance cannot change shape")
 
@@ -627,7 +639,8 @@ func TestTerminateInstance(t *testing.T) {
 
 			vn := e.vnicOf(t, i.Id)
 			bas, err := e.compute.ListBootVolumeAttachments(ctx, core.ListBootVolumeAttachmentsRequest{
-				CompartmentId: new(testComp), AvailabilityDomain: new(testAD), InstanceId: i.Id})
+				CompartmentId: new(testComp), AvailabilityDomain: new(testAD), InstanceId: i.Id,
+			})
 			require.NoError(t, err)
 
 			_, err = e.client.DeleteSubnet(ctx, core.DeleteSubnetRequest{SubnetId: f.pub.Id})
@@ -682,7 +695,8 @@ func TestLaunchFromPreservedBootVolume(t *testing.T) {
 	e.settle()
 
 	bas, err := e.compute.ListBootVolumeAttachments(ctx, core.ListBootVolumeAttachmentsRequest{
-		CompartmentId: new(testComp), AvailabilityDomain: new(testAD), InstanceId: i.Id})
+		CompartmentId: new(testComp), AvailabilityDomain: new(testAD), InstanceId: i.Id,
+	})
 	require.NoError(t, err)
 
 	bvID := bas.Items[0].BootVolumeId
@@ -717,7 +731,8 @@ func TestCreateImageFromInstance(t *testing.T) {
 	e.settle()
 
 	r, err := e.compute.CreateImage(ctx, core.CreateImageRequest{
-		CompartmentId: new(testComp), InstanceId: i.Id, DisplayName: new("golden")})
+		CompartmentId: new(testComp), InstanceId: i.Id, DisplayName: new("golden"),
+	})
 	require.NoError(t, err)
 	assert.Equal(t, "Oracle Linux", *r.OperatingSystem)
 	assert.Equal(t, core.ImageLifecycleStateProvisioning, r.LifecycleState)
@@ -749,7 +764,8 @@ func TestCreateImageFromInstance(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 
 	_, err = e.compute.CreateImage(ctx, core.CreateImageRequest{
-		CompartmentId: new(testComp), InstanceId: new("ocid1.instance.oc1.iad.nope")})
+		CompartmentId: new(testComp), InstanceId: new("ocid1.instance.oc1.iad.nope"),
+	})
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 }
 
@@ -770,7 +786,8 @@ func TestVnicsAndPrivateIps(t *testing.T) {
 
 	att, err := e.compute.AttachVnic(ctx, core.AttachVnicRequest{
 		InstanceId:        i.Id,
-		CreateVnicDetails: &core.CreateVnicDetails{SubnetId: f.private.Id, NsgIds: []string{*nsg.Id}}})
+		CreateVnicDetails: &core.CreateVnicDetails{SubnetId: f.private.Id, NsgIds: []string{*nsg.Id}},
+	})
 	require.NoError(t, err)
 	assert.Equal(t, core.VnicAttachmentLifecycleStateAttaching, att.LifecycleState)
 	assert.Equal(t, 1, *att.NicIndex)
@@ -794,8 +811,10 @@ func TestVnicsAndPrivateIps(t *testing.T) {
 
 	_, err = e.client.UpdateVnic(
 		ctx,
-		core.UpdateVnicRequest{VnicId: att.VnicId,
-			DisplayName: new("second"), NsgIds: []string{}, SkipSourceDestCheck: new(true)},
+		core.UpdateVnicRequest{
+			VnicId:      att.VnicId,
+			DisplayName: new("second"), NsgIds: []string{}, SkipSourceDestCheck: new(true),
+		},
 	)
 	require.NoError(t, err)
 
@@ -809,7 +828,8 @@ func TestVnicsAndPrivateIps(t *testing.T) {
 	sec, err := e.client.CreatePrivateIp(
 		ctx,
 		core.CreatePrivateIpRequest{
-			VnicId: att.VnicId, DisplayName: new("sec")},
+			VnicId: att.VnicId, DisplayName: new("sec"),
+		},
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "10.0.2.3", *sec.IpAddress)
@@ -818,7 +838,8 @@ func TestVnicsAndPrivateIps(t *testing.T) {
 	_, err = e.client.CreatePrivateIp(
 		ctx,
 		core.CreatePrivateIpRequest{
-			VnicId: att.VnicId, IpAddress: new("10.0.2.3")},
+			VnicId: att.VnicId, IpAddress: new("10.0.2.3"),
+		},
 	)
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode())
 
@@ -836,7 +857,8 @@ func TestVnicsAndPrivateIps(t *testing.T) {
 	rtReq := func(target *string, vcn *string) core.CreateRouteTableRequest {
 		return core.CreateRouteTableRequest{
 			CompartmentId: new(testComp), VcnId: vcn,
-			RouteRules: []core.RouteRule{{Destination: new("172.16.0.0/12"), NetworkEntityId: target}}}
+			RouteRules: []core.RouteRule{{Destination: new("172.16.0.0/12"), NetworkEntityId: target}},
+		}
 	}
 
 	_, err = e.client.CreateRouteTable(ctx, rtReq(sec.Id, f.vcn.Id))
@@ -903,15 +925,18 @@ func TestReservedPrivateIpMove(t *testing.T) {
 	r, err := e.client.CreatePrivateIp(
 		ctx,
 		core.CreatePrivateIpRequest{
-			SubnetId: f.pub.Id, Lifetime: core.CreatePrivateIpDetailsLifetimeReserved},
+			SubnetId: f.pub.Id, Lifetime: core.CreatePrivateIpDetailsLifetimeReserved,
+		},
 	)
 	require.NoError(t, err)
 	assert.Equal(t, core.PrivateIpIpStateAvailable, r.IpState)
 	assert.Nil(t, r.VnicId)
 
 	for _, vn := range []core.Vnic{va, vb} {
-		u, uerr := e.client.UpdatePrivateIp(ctx, core.UpdatePrivateIpRequest{PrivateIpId: r.Id,
-			VnicId: vn.Id})
+		u, uerr := e.client.UpdatePrivateIp(ctx, core.UpdatePrivateIpRequest{
+			PrivateIpId: r.Id,
+			VnicId:      vn.Id,
+		})
 		require.NoError(t, uerr)
 		assert.Equal(t, vn.Id, u.VnicId)
 	}
@@ -919,12 +944,15 @@ func TestReservedPrivateIpMove(t *testing.T) {
 	_, err = e.client.CreatePrivateIp(
 		ctx,
 		core.CreatePrivateIpRequest{
-			SubnetId: f.pub.Id, Lifetime: core.CreatePrivateIpDetailsLifetimeEphemeral},
+			SubnetId: f.pub.Id, Lifetime: core.CreatePrivateIpDetailsLifetimeEphemeral,
+		},
 	)
 	assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode())
 
-	_, err = e.client.UpdatePrivateIp(ctx, core.UpdatePrivateIpRequest{PrivateIpId: r.Id,
-		VnicId: new("ocid1.vnic.oc1.iad.nope")})
+	_, err = e.client.UpdatePrivateIp(ctx, core.UpdatePrivateIpRequest{
+		PrivateIpId: r.Id,
+		VnicId:      new("ocid1.vnic.oc1.iad.nope"),
+	})
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 
 	_, err = e.compute.TerminateInstance(ctx, core.TerminateInstanceRequest{InstanceId: b.Id})
@@ -957,12 +985,15 @@ func TestPublicIPAssignment(t *testing.T) {
 	res, err := e.client.CreatePublicIp(
 		ctx,
 		core.CreatePublicIpRequest{
-			CompartmentId: new(testComp), Lifetime: core.CreatePublicIpDetailsLifetimeReserved},
+			CompartmentId: new(testComp), Lifetime: core.CreatePublicIpDetailsLifetimeReserved,
+		},
 	)
 	require.NoError(t, err)
 
-	u, err := e.client.UpdatePublicIp(ctx, core.UpdatePublicIpRequest{PublicIpId: res.Id,
-		PrivateIpId: pid})
+	u, err := e.client.UpdatePublicIp(ctx, core.UpdatePublicIpRequest{
+		PublicIpId:  res.Id,
+		PrivateIpId: pid,
+	})
 	require.NoError(t, err)
 	assert.Equal(t, pid, u.AssignedEntityId)
 	assert.Equal(t, core.PublicIpAssignedEntityTypePrivateIp, u.AssignedEntityType)
@@ -974,13 +1005,16 @@ func TestPublicIPAssignment(t *testing.T) {
 	other, err := e.client.CreatePublicIp(
 		ctx,
 		core.CreatePublicIpRequest{
-			CompartmentId: new(testComp), Lifetime: core.CreatePublicIpDetailsLifetimeEphemeral, PrivateIpId: pid},
+			CompartmentId: new(testComp), Lifetime: core.CreatePublicIpDetailsLifetimeEphemeral, PrivateIpId: pid,
+		},
 	)
 	assert.Nil(t, other.Id)
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode())
 
-	_, err = e.client.UpdatePublicIp(ctx, core.UpdatePublicIpRequest{PublicIpId: res.Id,
-		PrivateIpId: new("")})
+	_, err = e.client.UpdatePublicIp(ctx, core.UpdatePublicIpRequest{
+		PublicIpId:  res.Id,
+		PrivateIpId: new(""),
+	})
 	require.NoError(t, err)
 
 	v, err = e.client.GetVnic(ctx, core.GetVnicRequest{VnicId: vn.Id})
@@ -990,12 +1024,15 @@ func TestPublicIPAssignment(t *testing.T) {
 	eph, err := e.client.CreatePublicIp(
 		ctx,
 		core.CreatePublicIpRequest{
-			CompartmentId: new(testComp), Lifetime: core.CreatePublicIpDetailsLifetimeEphemeral, PrivateIpId: pid},
+			CompartmentId: new(testComp), Lifetime: core.CreatePublicIpDetailsLifetimeEphemeral, PrivateIpId: pid,
+		},
 	)
 	require.NoError(t, err)
 
-	_, err = e.client.UpdatePublicIp(ctx, core.UpdatePublicIpRequest{PublicIpId: eph.Id,
-		PrivateIpId: new("")})
+	_, err = e.client.UpdatePublicIp(ctx, core.UpdatePublicIpRequest{
+		PublicIpId:  eph.Id,
+		PrivateIpId: new(""),
+	})
 	assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode())
 
 	_, err = e.client.DeletePublicIp(ctx, core.DeletePublicIpRequest{PublicIpId: eph.Id})
@@ -1119,8 +1156,10 @@ func TestVolumeLifecycle(t *testing.T) {
 
 	u, err := e.block.UpdateVolume(
 		ctx,
-		core.UpdateVolumeRequest{VolumeId: v.Id,
-			SizeInGBs: new(int64(80)), VpusPerGB: new(int64(30)), DisplayName: new("grown")},
+		core.UpdateVolumeRequest{
+			VolumeId:  v.Id,
+			SizeInGBs: new(int64(80)), VpusPerGB: new(int64(30)), DisplayName: new("grown"),
+		},
 	)
 	require.NoError(t, err)
 	assert.EqualValues(t, 80, *u.SizeInGBs)
@@ -1177,7 +1216,8 @@ func TestVolumeAttachments(t *testing.T) {
 
 	vol := func(ad string) core.Volume {
 		r, err := e.block.CreateVolume(ctx, core.CreateVolumeRequest{
-			CompartmentId: new(testComp), AvailabilityDomain: new(ad)})
+			CompartmentId: new(testComp), AvailabilityDomain: new(ad),
+		})
 		require.NoError(t, err)
 
 		return r.Volume
@@ -1189,7 +1229,8 @@ func TestVolumeAttachments(t *testing.T) {
 	iscsi, err := e.compute.AttachVolume(
 		ctx,
 		core.AttachVolumeRequest{AttachVolumeDetails: core.AttachIScsiVolumeDetails{
-			InstanceId: i.Id, VolumeId: v1.Id, UseChap: new(true), Device: new("/dev/oracleoci/oraclevdb")}},
+			InstanceId: i.Id, VolumeId: v1.Id, UseChap: new(true), Device: new("/dev/oracleoci/oraclevdb"),
+		}},
 	)
 	require.NoError(t, err)
 
@@ -1203,7 +1244,8 @@ func TestVolumeAttachments(t *testing.T) {
 	para, err := e.compute.AttachVolume(
 		ctx,
 		core.AttachVolumeRequest{AttachVolumeDetails: core.AttachParavirtualizedVolumeDetails{
-			InstanceId: i.Id, VolumeId: v2.Id, IsReadOnly: new(true)}},
+			InstanceId: i.Id, VolumeId: v2.Id, IsReadOnly: new(true),
+		}},
 	)
 	require.NoError(t, err)
 
@@ -1260,7 +1302,8 @@ func TestVolumeAttachments(t *testing.T) {
 	e.settle()
 
 	_, err = e.compute.AttachVolume(ctx, core.AttachVolumeRequest{AttachVolumeDetails: core.AttachIScsiVolumeDetails{
-		InstanceId: other.Id, VolumeId: v1.Id}})
+		InstanceId: other.Id, VolumeId: v1.Id,
+	}})
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode(), "not shareable")
 
 	_, err = e.compute.DetachVolume(ctx, core.DetachVolumeRequest{VolumeAttachmentId: ia.Id})
@@ -1296,7 +1339,8 @@ func TestVolumeBackupsAndPolicies(t *testing.T) {
 	ctx := t.Context()
 
 	vr, err := e.block.CreateVolume(ctx, core.CreateVolumeRequest{
-		CompartmentId: new(testComp), AvailabilityDomain: new(testAD), SizeInGBs: new(int64(75))})
+		CompartmentId: new(testComp), AvailabilityDomain: new(testAD), SizeInGBs: new(int64(75)),
+	})
 	require.NoError(t, err)
 
 	vol := vr.Volume
@@ -1312,7 +1356,8 @@ func TestVolumeBackupsAndPolicies(t *testing.T) {
 	first, err := e.block.CreateVolumeBackup(
 		ctx,
 		core.CreateVolumeBackupRequest{
-			VolumeId: vol.Id, DisplayName: new("b1")},
+			VolumeId: vol.Id, DisplayName: new("b1"),
+		},
 	)
 	require.NoError(t, err)
 	assert.Equal(t, core.VolumeBackupTypeFull, first.Type, "first backup is a full one")
@@ -1343,8 +1388,10 @@ func TestVolumeBackupsAndPolicies(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, l.Items, 2)
 
-	_, err = e.block.UpdateVolumeBackup(ctx, core.UpdateVolumeBackupRequest{VolumeBackupId: first.Id,
-		DisplayName: new("renamed")})
+	_, err = e.block.UpdateVolumeBackup(ctx, core.UpdateVolumeBackupRequest{
+		VolumeBackupId: first.Id,
+		DisplayName:    new("renamed"),
+	})
 	require.NoError(t, err)
 
 	restored, err := e.block.CreateVolume(ctx, core.CreateVolumeRequest{
@@ -1352,7 +1399,8 @@ func TestVolumeBackupsAndPolicies(t *testing.T) {
 			testComp,
 		),
 		AvailabilityDomain: new(testAD2),
-		SourceDetails:      core.VolumeSourceFromVolumeBackupDetails{Id: first.Id}})
+		SourceDetails:      core.VolumeSourceFromVolumeBackupDetails{Id: first.Id},
+	})
 	require.NoError(t, err)
 	assert.Equal(t, core.VolumeLifecycleStateRestoring, restored.LifecycleState)
 	assert.EqualValues(t, 75, *restored.SizeInGBs)
@@ -1384,7 +1432,9 @@ func TestVolumeBackupsAndPolicies(t *testing.T) {
 		core.CreateVolumeBackupPolicyRequest{
 			CompartmentId: new(testComp), DisplayName: new("nightly"), Schedules: []core.VolumeBackupSchedule{{
 				BackupType: core.VolumeBackupScheduleBackupTypeIncremental, Period: core.VolumeBackupSchedulePeriodDay,
-				RetentionSeconds: new(86400 * 7)}}},
+				RetentionSeconds: new(86400 * 7),
+			}},
+		},
 	)
 	require.NoError(t, err)
 
@@ -1396,7 +1446,8 @@ func TestVolumeBackupsAndPolicies(t *testing.T) {
 			),
 			Schedules: []core.VolumeBackupSchedule{
 				{BackupType: "NOPE", Period: core.VolumeBackupSchedulePeriodDay, RetentionSeconds: new(1)},
-			}},
+			},
+		},
 	)
 	assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode())
 
@@ -1452,7 +1503,8 @@ func TestVolumeBackupsAndPolicies(t *testing.T) {
 
 	// a policy given at volume creation is assigned
 	pv, err := e.block.CreateVolume(ctx, core.CreateVolumeRequest{
-		CompartmentId: new(testComp), AvailabilityDomain: new(testAD), BackupPolicyId: byName["silver"].Id})
+		CompartmentId: new(testComp), AvailabilityDomain: new(testAD), BackupPolicyId: byName["silver"].Id,
+	})
 	require.NoError(t, err)
 
 	ga, err = e.block.GetVolumeBackupPolicyAssetAssignment(
@@ -1473,7 +1525,8 @@ func TestComputePersistence(t *testing.T) {
 	e.settle()
 
 	_, err := e.block.CreateVolume(ctx, core.CreateVolumeRequest{
-		CompartmentId: new(testComp), AvailabilityDomain: new(testAD)})
+		CompartmentId: new(testComp), AvailabilityDomain: new(testAD),
+	})
 	require.NoError(t, err)
 
 	snap := e.backend.Snapshot(ctx)
@@ -1498,4 +1551,194 @@ func TestComputePersistence(t *testing.T) {
 	vols, err := e2.block.ListVolumes(ctx, core.ListVolumesRequest{CompartmentId: new(testComp)})
 	require.NoError(t, err)
 	assert.Len(t, vols.Items, 1)
+}
+
+func TestShapeCatalogueFamilies(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, false)
+
+	tests := []struct {
+		name    string
+		ocpus   float64
+		memGB   float64
+		band    float64
+		vnics   int
+		flex    bool
+		wantOpt bool
+	}{
+		{"BM.GPU.H100.8", 112, 2048, 100, 256, false, false},
+		{"BM.HPC2.36", 36, 384, 25, 50, false, false},
+		{"VM.GPU.A10.2", 30, 480, 48, 24, false, false},
+		{"VM.DenseIO.E4.Flex", 8, 128, 8, 8, true, true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			r, err := e.compute.ListShapes(t.Context(), core.ListShapesRequest{CompartmentId: new(testComp)})
+			require.NoError(t, err)
+
+			for _, s := range r.Items {
+				if *s.Shape != tc.name {
+					continue
+				}
+
+				assert.InDelta(t, tc.ocpus, *s.Ocpus, 0)
+				assert.InDelta(t, tc.memGB, *s.MemoryInGBs, 0)
+				assert.InDelta(t, tc.band, *s.NetworkingBandwidthInGbps, 0)
+				assert.Equal(t, tc.vnics, *s.MaxVnicAttachments)
+				assert.Equal(t, tc.flex, *s.IsFlexible)
+
+				return
+			}
+
+			require.FailNow(t, "shape missing from ListShapes")
+		})
+	}
+
+	_, err := e.launch(t, e.fixture(t).pub, func(d *core.LaunchInstanceDetails) {
+		d.Shape = new("VM.DenseIO.E4.Flex")
+		d.ShapeConfig = &core.LaunchInstanceShapeConfigDetails{Ocpus: new(float32(12))}
+	})
+	assert.Equal(t, "InvalidParameter", svcErr(t, err).GetCode(), "dense I/O flex shapes offer fixed OCPU counts")
+
+	inst, err := e.launch(t, e.fixture(t).pub, func(d *core.LaunchInstanceDetails) {
+		d.Shape = new("VM.DenseIO.E4.Flex")
+		d.ShapeConfig = &core.LaunchInstanceShapeConfigDetails{Ocpus: new(float32(16))}
+	})
+	require.NoError(t, err)
+	assert.InDelta(t, 256, *inst.ShapeConfig.MemoryInGBs, 0)
+}
+
+func TestPlatformConfigAndPreemptible(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, false)
+	pub := e.fixture(t).pub
+
+	tests := []struct {
+		name     string
+		shape    string
+		cfg      core.LaunchInstancePlatformConfig
+		wantCode string
+	}{
+		{
+			"amd vm", "VM.Standard.E4.Flex",
+			core.AmdVmLaunchInstancePlatformConfig{IsSecureBootEnabled: new(true), IsMeasuredBootEnabled: new(true)},
+			"",
+		},
+		{
+			"intel vm on amd shape",
+			"VM.Standard.E4.Flex",
+			core.IntelVmLaunchInstancePlatformConfig{},
+			"InvalidParameter",
+		},
+		{"ampere", "VM.Standard.A1.Flex", core.AmdVmLaunchInstancePlatformConfig{}, "InvalidParameter"},
+		{
+			"milan bm", "BM.Standard.E4.128",
+			core.AmdMilanBmLaunchInstancePlatformConfig{
+				NumaNodesPerSocket:       core.AmdMilanBmLaunchInstancePlatformConfigNumaNodesPerSocketNps2,
+				PercentageOfCoresEnabled: new(50),
+			},
+			"",
+		},
+		{
+			"bad percentage", "BM.Standard.E4.128",
+			core.AmdMilanBmLaunchInstancePlatformConfig{PercentageOfCoresEnabled: new(0)},
+			"InvalidParameter",
+		},
+		{"milan on gpu shape", "BM.GPU4.8", core.AmdMilanBmLaunchInstancePlatformConfig{}, "InvalidParameter"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			inst, err := e.launch(t, pub, func(d *core.LaunchInstanceDetails) {
+				d.Shape, d.PlatformConfig = new(tc.shape), tc.cfg
+				if tc.shape == "VM.Standard.E4.Flex" || tc.shape == "VM.Standard.A1.Flex" {
+					d.ShapeConfig = &core.LaunchInstanceShapeConfigDetails{Ocpus: new(float32(1))}
+				} else {
+					d.ShapeConfig = nil
+				}
+
+				if tc.shape == "VM.Standard.A1.Flex" {
+					d.SourceDetails = core.InstanceSourceViaImageDetails{
+						ImageId: e.imageID(t, "Oracle Linux", "9", true),
+					}
+				}
+			})
+			if tc.wantCode != "" {
+				assert.Equal(t, tc.wantCode, svcErr(t, err).GetCode())
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.NotNil(t, inst.PlatformConfig)
+		})
+	}
+
+	pre, err := e.launch(t, pub, func(d *core.LaunchInstanceDetails) {
+		d.PreemptibleInstanceConfig = &core.PreemptibleInstanceConfigDetails{
+			PreemptionAction: core.TerminatePreemptionAction{PreserveBootVolume: new(true)},
+		}
+	})
+	require.NoError(t, err)
+
+	action, ok := pre.PreemptibleInstanceConfig.PreemptionAction.(core.TerminatePreemptionAction)
+	require.True(t, ok)
+	assert.True(t, *action.PreserveBootVolume)
+}
+
+func TestTerminateWhileProvisioning(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, false)
+	inst := e.mustLaunch(t, e.fixture(t).pub)
+
+	_, err := e.compute.TerminateInstance(t.Context(), core.TerminateInstanceRequest{InstanceId: inst.Id})
+	require.NoError(t, err)
+	e.settle()
+
+	got := e.getInstance(t, inst.Id)
+	assert.Equal(t, core.InstanceLifecycleStateTerminated, got.LifecycleState, "a pending start must not revive it")
+}
+
+func TestWindowsInstanceInitialCredentials(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, false)
+	ctx := t.Context()
+	pub := e.fixture(t).pub
+
+	linux := e.mustLaunch(t, pub)
+	_, err := e.compute.GetWindowsInstanceInitialCredentials(ctx, core.GetWindowsInstanceInitialCredentialsRequest{
+		InstanceId: linux.Id})
+	assert.Equal(
+		t,
+		http.StatusNotFound,
+		svcErr(t, err).GetHTTPStatusCode(),
+		"only password-login images have credentials",
+	)
+
+	win, err := e.launch(t, pub, func(d *core.LaunchInstanceDetails) {
+		d.SourceDetails = core.InstanceSourceViaImageDetails{
+			ImageId: e.imageID(t, "Windows", "Server 2022 Standard", false),
+		}
+	})
+	require.NoError(t, err)
+
+	cred, err := e.compute.GetWindowsInstanceInitialCredentials(ctx, core.GetWindowsInstanceInitialCredentialsRequest{
+		InstanceId: win.Id})
+	require.NoError(t, err)
+	assert.Equal(t, "opc", *cred.Username)
+	assert.Len(t, *cred.Password, 20)
+
+	again, err := e.compute.GetWindowsInstanceInitialCredentials(ctx, core.GetWindowsInstanceInitialCredentialsRequest{
+		InstanceId: win.Id})
+	require.NoError(t, err)
+	assert.Equal(t, *cred.Password, *again.Password, "the credential is generated once")
 }

@@ -73,6 +73,7 @@ type env struct {
 	client  core.VirtualNetworkClient
 	compute core.ComputeClient
 	block   core.BlockstorageClient
+	mgmt    core.ComputeManagementClient
 	wr      workrequests.WorkRequestClient
 	kp      keyPair
 	base    string
@@ -109,6 +110,12 @@ func newEnv(t *testing.T, enforce bool) *env {
 
 	cc.Host = e.base
 	e.compute = cc
+
+	mc, err := core.NewComputeManagementClientWithConfigurationProvider(prov)
+	require.NoError(t, err)
+
+	mc.Host = e.base
+	e.mgmt = mc
 
 	bc, err := core.NewBlockstorageClientWithConfigurationProvider(prov)
 	require.NoError(t, err)
@@ -151,7 +158,8 @@ func (e *env) mkVcn(t *testing.T, cidr, name string) core.Vcn {
 	t.Helper()
 
 	r, err := e.client.CreateVcn(t.Context(), core.CreateVcnRequest{
-		CompartmentId: new(testComp), CidrBlocks: []string{cidr}, DisplayName: new(name), DnsLabel: new("lab" + name)})
+		CompartmentId: new(testComp), CidrBlocks: []string{cidr}, DisplayName: new(name), DnsLabel: new("lab" + name),
+	})
 	require.NoError(t, err)
 
 	return r.Vcn
@@ -161,7 +169,8 @@ func (e *env) mkSubnet(t *testing.T, vcn core.Vcn, cidr string) core.Subnet {
 	t.Helper()
 
 	r, err := e.client.CreateSubnet(t.Context(), core.CreateSubnetRequest{
-		CompartmentId: new(testComp), VcnId: vcn.Id, CidrBlock: new(cidr)})
+		CompartmentId: new(testComp), VcnId: vcn.Id, CidrBlock: new(cidr),
+	})
 	require.NoError(t, err)
 
 	return r.Subnet

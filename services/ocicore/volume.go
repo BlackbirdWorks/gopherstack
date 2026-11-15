@@ -587,6 +587,12 @@ func (b *InMemoryBackend) AttachVolume(in AttachVolumeIn) (Resource, string, *AP
 		return nil, "", aerr
 	}
 
+	a := b.newAttachment(inst, vol, in)
+
+	return a.view(), a.Internal.Etag, nil
+}
+
+func (b *InMemoryBackend) newAttachment(inst *Instance, vol *Volume, in AttachVolumeIn) *VolumeAttachment {
 	a := &VolumeAttachment{
 		Base:           b.newBase(kindVolumeAttach, inst.CompartmentID, in.DisplayName, TagsIn{}),
 		AttachmentType: in.Type, AvailabilityDomain: inst.AvailabilityDomain, InstanceID: inst.ID, VolumeID: vol.ID,
@@ -610,7 +616,7 @@ func (b *InMemoryBackend) AttachVolume(in AttachVolumeIn) (Resource, string, *AP
 	b.moveTo(a, statAttaching, statAttached)
 	b.add(a)
 
-	return a.view(), a.Internal.Etag, nil
+	return a
 }
 
 // DetachVolume detaches a volume from an instance.

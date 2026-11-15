@@ -119,6 +119,10 @@ func (b *InMemoryBackend) deleteNetworkCheck(r Resource) *APIError {
 	switch v := r.(type) {
 	case *Vcn:
 		return b.deleteVcnCheck(id)
+	case *Vlan:
+		return b.deleteVlanCheck(v)
+	case *CaptureFilter:
+		return usedBy("capture filter", id, firstID(liveOf(b, func(x *Vtap) bool { return x.CaptureFilterID == id })))
 	case *RouteTable:
 		if b.isDefault(v.VcnID, id) {
 			return defaultOf("route table")

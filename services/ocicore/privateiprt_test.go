@@ -110,3 +110,75 @@ func TestSecondaryPrivateIPLimit(t *testing.T) {
 	})
 	assert.Equal(t, "LimitExceeded", svcErr(t, err).GetCode(), "64 secondary private IPv4 addresses per VNIC")
 }
+
+func TestPrivateIPSecondaryCidr(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, false)
+	ctx := t.Context()
+	v := e.mkVcn(t, "10.0.0.0/16", "ipprefix")
+	s := e.mkSubnet(t, v, "10.0.1.0/24")
+
+	nic, err := e.backend.CreateServiceNic(oci.ServiceNicIn{CompartmentID: testComp, SubnetID: *s.Id})
+	require.NoError(t, err)
+
+	_, err = e.client.CreatePrivateIp(ctx, core.CreatePrivateIpRequest{
+		VnicId: &nic.VnicID, IpAddress: new("10.0.1.40"),
+	})
+	require.NoError(t, err)
+
+	ok, err := e.client.CreatePrivateIp(
+		ctx,
+		core.CreatePrivateIpRequest{
+			VnicId:                   &nic.VnicID,
+			IpAddress:                new("10.0.1.16"),
+			CidrPrefixLength:         new(28),
+			Ipv4SubnetCidrAtCreation: s.CidrBlock,
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, 28, *ok.CidrPrefixLength)
+
+	tests := []struct {
+		name     string
+		ip       string
+		block    string
+		bits     int
+		wantCode int
+	}{
+		{"collides with an address", "10.0.1.32", "", 27, http.StatusConflict},
+		{"collides with a prefix", "10.0.1.24", "", 29, http.StatusConflict},
+		{"not aligned", "10.0.1.65", "", 28, http.StatusBadRequest},
+		{"whole block", "10.0.1.50", "", 24, http.StatusBadRequest},
+		{"reserved address", "10.0.1.0", "", 28, http.StatusBadRequest},
+		{"unknown block", "10.0.1.96", "10.9.0.0/24", 28, http.StatusBadRequest},
+		{"plain address inside prefix", "10.0.1.20", "", 32, http.StatusConflict},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			d := core.CreatePrivateIpDetails{VnicId: &nic.VnicID, IpAddress: new(tc.ip), CidrPrefixLength: new(tc.bits)}
+			if tc.block != "" {
+				d.Ipv4SubnetCidrAtCreation = new(tc.block)
+			}
+
+			_, cerr := e.client.CreatePrivateIp(t.Context(), core.CreatePrivateIpRequest{CreatePrivateIpDetails: d})
+			assert.Equal(t, tc.wantCode, svcErr(t, cerr).GetHTTPStatusCode())
+		})
+	}
+
+	_, err = e.client.BulkCreatePrivateIps(ctx, core.BulkCreatePrivateIpsRequest{
+		VnicId: &nic.VnicID,
+		BulkCreatePrivateIpItem: []core.BulkCreatePrivateIpItem{
+			{IpAddress: new("10.0.1.128"), CidrPrefixLength: new(28)},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = e.client.CreatePrivateIp(ctx, core.CreatePrivateIpRequest{
+		VnicId: &nic.VnicID, IpAddress: new("10.0.1.200"),
+	})
+	require.NoError(t, err, "an address outside every prefix is still allocatable")
+}

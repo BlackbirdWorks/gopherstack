@@ -49,6 +49,18 @@ type backendSnapshot struct {
 	VolGroups     map[string]*VolumeGroup               `json:"volumeGroups"`
 	GroupBackups  map[string]*VolumeGroupBackup         `json:"volumeGroupBackups"`
 	Replicas      map[string]*BlockVolumeReplica        `json:"blockVolumeReplicas"`
+	Byoips        map[string]*ByoipRange                `json:"byoipRanges"`
+	PublicPools   map[string]*PublicIPPool              `json:"publicIpPools"`
+	Byoasns       map[string]*Byoasn                    `json:"byoasns"`
+	Vtaps         map[string]*Vtap                      `json:"vtaps"`
+	CaptureFlts   map[string]*CaptureFilter             `json:"captureFilters"`
+	DrgNatPols    map[string]*DrgNatPolicy              `json:"drgNatPolicies"`
+	Reservations  map[string]*CapacityReservation       `json:"computeCapacityReservations"`
+	Dvhs          map[string]*DedicatedVMHost           `json:"dedicatedVmHosts"`
+	Clusters      map[string]*ComputeCluster            `json:"computeClusters"`
+	Vlans         map[string]*Vlan                      `json:"vlans"`
+	InstanceCfgs  map[string]*InstanceConfiguration     `json:"instanceConfigurations"`
+	InstancePools map[string]*InstancePool              `json:"instancePools"`
 	ConsoleConns  map[string]*InstanceConsoleConnection `json:"instanceConsoleConnections"`
 	ConsoleHists  map[string]*ConsoleHistory            `json:"instanceConsoleHistories"`
 	BootReplicas  map[string]*BootVolumeReplica         `json:"bootVolumeReplicas"`
@@ -230,6 +242,18 @@ func mergeAll(dst map[string]Resource, s *backendSnapshot) error {
 		mergeKind("IPv6", dst, s.Ipv6s), mergeKind("boot volume backup", dst, s.BootBackups),
 		mergeKind("volume group", dst, s.VolGroups), mergeKind("volume group backup", dst, s.GroupBackups),
 		mergeKind("block volume replica", dst, s.Replicas),
+		mergeKind("BYOIP range", dst, s.Byoips),
+		mergeKind("public IP pool", dst, s.PublicPools),
+		mergeKind("BYOASN", dst, s.Byoasns),
+		mergeKind("VTAP", dst, s.Vtaps),
+		mergeKind("capture filter", dst, s.CaptureFlts),
+		mergeKind("DRG NAT policy", dst, s.DrgNatPols),
+		mergeKind("capacity reservation", dst, s.Reservations),
+		mergeKind("dedicated VM host", dst, s.Dvhs),
+		mergeKind("compute cluster", dst, s.Clusters),
+		mergeKind("VLAN", dst, s.Vlans),
+		mergeKind("instance configuration", dst, s.InstanceCfgs),
+		mergeKind("instance pool", dst, s.InstancePools),
 		mergeKind("console connection", dst, s.ConsoleConns),
 		mergeKind("console history", dst, s.ConsoleHists),
 		mergeKind("boot volume replica", dst, s.BootReplicas),

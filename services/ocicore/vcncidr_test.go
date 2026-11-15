@@ -311,7 +311,7 @@ func TestVcnIpv6Cidr(t *testing.T) {
 	assert.Equal(t, "InvalidParameter", svcErr(t, err).GetCode(), "not a ULA prefix")
 
 	_, err = add(core.AddVcnIpv6CidrDetails{Byoipv6CidrDetail: &core.Byoipv6CidrDetails{}})
-	assert.Equal(t, "InvalidParameter", svcErr(t, err).GetCode(), "no BYOIP")
+	assert.Equal(t, "NotAuthorizedOrNotFound", svcErr(t, err).GetCode(), "no BYOIP range")
 
 	r, err := add(core.AddVcnIpv6CidrDetails{})
 	require.NoError(t, err)

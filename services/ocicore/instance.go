@@ -2,7 +2,6 @@ package ocicore
 
 import (
 	"encoding/base64"
-	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"maps"
 	"regexp"
@@ -25,24 +24,27 @@ var faultDomainRe = regexp.MustCompile(`^FAULT-DOMAIN-[1-3]$`)
 // LaunchInstanceIn is the LaunchInstance request body.
 type LaunchInstanceIn struct {
 	TagsIn
-	CreateVnicDetails       *CreateVnicIn     `json:"createVnicDetails"`
-	ShapeConfig             *ShapeConfigIn    `json:"shapeConfig"`
-	SourceDetails           *SourceDetails    `json:"sourceDetails"`
-	Metadata                map[string]string `json:"metadata"`
-	ExtendedMetadata        map[string]any    `json:"extendedMetadata"`
-	AgentConfig             map[string]any    `json:"agentConfig"`
-	LaunchOptions           map[string]any    `json:"launchOptions"`
-	AvailabilityConfig      map[string]any    `json:"availabilityConfig"`
-	InstanceOptions         map[string]any    `json:"instanceOptions"`
-	AvailabilityDomain      string            `json:"availabilityDomain"`
-	CompartmentID           string            `json:"compartmentId"`
-	DisplayName             string            `json:"displayName"`
-	FaultDomain             string            `json:"faultDomain"`
-	HostnameLabel           string            `json:"hostnameLabel"`
-	ImageID                 string            `json:"imageId"`
-	Shape                   string            `json:"shape"`
-	SubnetID                string            `json:"subnetId"`
-	LaunchVolumeAttachments []jsontext.Value  `json:"launchVolumeAttachments"`
+	AgentConfig        map[string]any    `json:"agentConfig"`
+	ShapeConfig        *ShapeConfigIn    `json:"shapeConfig"`
+	SourceDetails      *SourceDetails    `json:"sourceDetails"`
+	Metadata           map[string]string `json:"metadata"`
+	ExtendedMetadata   map[string]any    `json:"extendedMetadata"`
+	PlatformConfig     *PlatformConfig   `json:"platformConfig"`
+	LaunchOptions      map[string]any    `json:"launchOptions"`
+	AvailabilityConfig map[string]any    `json:"availabilityConfig"`
+	InstanceOptions    map[string]any    `json:"instanceOptions"`
+	CreateVnicDetails  *CreateVnicIn     `json:"createVnicDetails"`
+	Preemptible        *PreemptibleIn    `json:"preemptibleInstanceConfig"`
+	PlacementIn
+	AvailabilityDomain      string           `json:"availabilityDomain"`
+	HostnameLabel           string           `json:"hostnameLabel"`
+	ImageID                 string           `json:"imageId"`
+	Shape                   string           `json:"shape"`
+	SubnetID                string           `json:"subnetId"`
+	FaultDomain             string           `json:"faultDomain"`
+	DisplayName             string           `json:"displayName"`
+	CompartmentID           string           `json:"compartmentId"`
+	LaunchVolumeAttachments []LaunchVolumeIn `json:"launchVolumeAttachments"`
 }
 
 func checkMetadata(md map[string]string, ext map[string]any) *APIError {
@@ -213,8 +215,8 @@ func (b *InMemoryBackend) launchChecks(in LaunchInstanceIn) (shapeDef, *Instance
 		return shapeDef{}, nil, errParam("faultDomain must be FAULT-DOMAIN-1, FAULT-DOMAIN-2 or FAULT-DOMAIN-3")
 	}
 
-	if len(in.LaunchVolumeAttachments) > 0 {
-		return shapeDef{}, nil, errParam("launchVolumeAttachments is not supported; attach volumes after launch")
+	if aerr := b.checkLaunchVolumes(in); aerr != nil {
+		return shapeDef{}, nil, aerr
 	}
 
 	if in.Shape == "" {
@@ -224,6 +226,14 @@ func (b *InMemoryBackend) launchChecks(in LaunchInstanceIn) (shapeDef, *Instance
 	sh, ok := shapeByName(in.Shape)
 	if !ok {
 		return shapeDef{}, nil, errParam("Shape " + in.Shape + " is not a valid shape")
+	}
+
+	if aerr := checkPlatform(sh, in.PlatformConfig); aerr != nil {
+		return shapeDef{}, nil, aerr
+	}
+
+	if aerr := checkPreemptible(in.Preemptible); aerr != nil {
+		return shapeDef{}, nil, aerr
 	}
 
 	cfg, aerr := sh.resolve(in.ShapeConfig)
@@ -262,13 +272,23 @@ func (b *InMemoryBackend) LaunchInstance(in LaunchInstanceIn) (Resource, string,
 	vd.HostnameLabel = cmpOrStr(vd.HostnameLabel, in.HostnameLabel)
 
 	inst := &Instance{
-		Base:               b.newBase(kindInstance, in.CompartmentID, in.DisplayName, in.TagsIn),
-		AvailabilityDomain: in.AvailabilityDomain, Region: regionName, Shape: sh.name, ShapeConfig: cfg,
-		LaunchMode: "PARAVIRTUALIZED", ImageID: src.imageID, SourceDetails: &src.details,
-		Metadata: nonNilStrings(in.Metadata), ExtendedMetadata: nonNilAny(in.ExtendedMetadata),
-		AgentConfig: agentConfig(in.AgentConfig), LaunchOptions: in.LaunchOptions,
-		AvailabilityConfig: in.AvailabilityConfig, InstanceOptions: in.InstanceOptions,
-		FaultDomain: in.FaultDomain,
+		Base:                      b.newBase(kindInstance, in.CompartmentID, in.DisplayName, in.TagsIn),
+		AvailabilityDomain:        in.AvailabilityDomain,
+		Region:                    regionName,
+		Shape:                     sh.name,
+		ShapeConfig:               cfg,
+		LaunchMode:                "PARAVIRTUALIZED",
+		ImageID:                   src.imageID,
+		SourceDetails:             &src.details,
+		Metadata:                  nonNilStrings(in.Metadata),
+		ExtendedMetadata:          nonNilAny(in.ExtendedMetadata),
+		AgentConfig:               agentConfig(in.AgentConfig),
+		LaunchOptions:             in.LaunchOptions,
+		AvailabilityConfig:        in.AvailabilityConfig,
+		InstanceOptions:           in.InstanceOptions,
+		PlatformConfig:            in.PlatformConfig,
+		PreemptibleInstanceConfig: in.Preemptible,
+		FaultDomain:               in.FaultDomain,
 	}
 
 	if inst.FaultDomain == "" {
@@ -279,15 +299,22 @@ func (b *InMemoryBackend) LaunchInstance(in LaunchInstanceIn) (Resource, string,
 		inst.DisplayName = "instance" + b.nowUTC().Format("20060102-1504")
 	}
 
+	if aerr = b.placeInstance(in, sh, cfg, inst); aerr != nil {
+		return nil, "", aerr
+	}
+
 	vnic, aerr := b.newVnic(vd, in.CompartmentID, in.AvailabilityDomain, true)
 	if aerr != nil {
 		return nil, "", aerr
 	}
 
+	b.stampCredentials(inst)
 	b.moveTo(inst, statProvisioning, statRunning)
 	b.add(inst)
+	b.syncCompute()
 	b.newVnicAttachment(inst, vnic, "", 0)
 	b.attachBootVolume(inst, src)
+	b.attachLaunchVolumes(inst, in.LaunchVolumeAttachments)
 
 	return inst.view(), inst.Internal.Etag, nil
 }
@@ -351,6 +378,10 @@ func (b *InMemoryBackend) InstanceAction(id, action, ifMatch string) (Resource, 
 	b.mu.Lock("InstanceAction")
 	defer b.mu.Unlock()
 
+	return b.instanceActionLocked(id, action, ifMatch)
+}
+
+func (b *InMemoryBackend) instanceActionLocked(id, action, ifMatch string) (Resource, string, *APIError) {
 	inst, aerr := getLive[*Instance](b, id)
 	if aerr != nil {
 		return nil, "", aerr
@@ -476,6 +507,10 @@ func (b *InMemoryBackend) resize(inst *Instance, in UpdateInstanceIn) (*Instance
 		return nil, "", errParam("Shape " + name + " is not compatible with the image of the instance")
 	}
 
+	if inst.PlatformConfig != nil && platformTypeFor(sh) != inst.PlatformConfig.Type {
+		return nil, "", errParam("Shape " + name + " is not compatible with the platformConfig of the instance")
+	}
+
 	cfg, aerr := sh.resolve(in.ShapeConfig)
 
 	return cfg, name, aerr
@@ -509,8 +544,25 @@ func mergeAny(base, add map[string]any) map[string]any {
 
 // TerminateInstance starts termination of an instance and releases everything attached to it.
 func (b *InMemoryBackend) TerminateInstance(id, ifMatch string, preserveBoot bool) *APIError {
+	return b.TerminateInstanceWith(id, ifMatch, TerminateOpts{PreserveBoot: preserveBoot, PreserveLaunchData: true})
+}
+
+// TerminateOpts are the query options of TerminateInstance.
+type TerminateOpts struct {
+	PreserveBoot       bool
+	PreserveLaunchData bool
+}
+
+// TerminateInstanceWith terminates an instance; data volumes created at launch survive unless told otherwise.
+func (b *InMemoryBackend) TerminateInstanceWith(id, ifMatch string, o TerminateOpts) *APIError {
 	b.mu.Lock("TerminateInstance")
 	defer b.mu.Unlock()
+
+	return b.terminateLocked(id, ifMatch, o)
+}
+
+func (b *InMemoryBackend) terminateLocked(id, ifMatch string, o TerminateOpts) *APIError {
+	preserveBoot := o.PreserveBoot
 
 	inst, aerr := get[*Instance](b, id)
 	if aerr != nil {
@@ -548,7 +600,12 @@ func (b *InMemoryBackend) TerminateInstance(id, ifMatch string, preserveBoot boo
 		b.moveTo(c, statDeleting, statDeleted)
 	}
 
+	if !o.PreserveLaunchData {
+		b.dropLaunchVolumes(id)
+	}
+
 	b.markTerminating(inst)
+	b.syncCompute()
 
 	return nil
 }

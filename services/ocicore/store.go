@@ -343,11 +343,19 @@ func (b *InMemoryBackend) Sweep() {
 
 	b.sweepBackupSchedules(now)
 	b.sweepAutotune(now)
+	b.syncCompute()
+	b.sweepPools()
 	b.sweepGroupReplicas()
 }
 
 func (b *InMemoryBackend) settle(r Resource, at time.Time) {
 	bs := r.base()
+
+	if br, ok := r.(*ByoipRange); ok && bs.Internal.DetailsNext != "" {
+		b.settleDetails(br, at)
+
+		return
+	}
 
 	switch bs.LifecycleState {
 	case statProvisioning:
@@ -544,6 +552,6 @@ func deleteRes[T Resource](b *InMemoryBackend, id, ifMatch string) *APIError {
 func (b *InMemoryBackend) markTerminating(r Resource) {
 	bs := r.base()
 	at := b.nowUTC().Add(transitionWindow)
-	bs.LifecycleState, bs.Internal.TransitionAt = statTerminating, &at
+	bs.LifecycleState, bs.Internal.TransitionAt, bs.Internal.NextState = statTerminating, &at, ""
 	b.bump(r)
 }

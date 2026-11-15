@@ -55,21 +55,26 @@ type SourceDetails struct {
 
 // Instance is a compute instance; only its control plane state exists.
 type Instance struct {
-	Metadata           map[string]string    `json:"metadata"`
-	InstanceOptions    map[string]any       `json:"instanceOptions,omitempty"`
-	AvailabilityConfig map[string]any       `json:"availabilityConfig,omitempty"`
-	LaunchOptions      map[string]any       `json:"launchOptions,omitempty"`
-	AgentConfig        map[string]any       `json:"agentConfig,omitempty"`
-	ExtendedMetadata   map[string]any       `json:"extendedMetadata"`
-	ShapeConfig        *InstanceShapeConfig `json:"shapeConfig,omitempty"`
-	SourceDetails      *SourceDetails       `json:"sourceDetails,omitempty"`
+	Metadata                  map[string]string    `json:"metadata"`
+	InstanceOptions           map[string]any       `json:"instanceOptions,omitempty"`
+	AvailabilityConfig        map[string]any       `json:"availabilityConfig,omitempty"`
+	LaunchOptions             map[string]any       `json:"launchOptions,omitempty"`
+	AgentConfig               map[string]any       `json:"agentConfig,omitempty"`
+	ExtendedMetadata          map[string]any       `json:"extendedMetadata"`
+	ShapeConfig               *InstanceShapeConfig `json:"shapeConfig,omitempty"`
+	SourceDetails             *SourceDetails       `json:"sourceDetails,omitempty"`
+	PlatformConfig            *PlatformConfig      `json:"platformConfig,omitempty"`
+	PreemptibleInstanceConfig *PreemptibleIn       `json:"preemptibleInstanceConfig,omitempty"`
 	Base
-	Region             string `json:"region"`
-	LaunchMode         string `json:"launchMode"`
-	ImageID            string `json:"imageId,omitempty"`
-	Shape              string `json:"shape"`
-	FaultDomain        string `json:"faultDomain"`
-	AvailabilityDomain string `json:"availabilityDomain"`
+	Region                string `json:"region"`
+	LaunchMode            string `json:"launchMode"`
+	ImageID               string `json:"imageId,omitempty"`
+	Shape                 string `json:"shape"`
+	FaultDomain           string `json:"faultDomain"`
+	AvailabilityDomain    string `json:"availabilityDomain"`
+	CapacityReservationID string `json:"capacityReservationId,omitempty"`
+	DedicatedVMHostID     string `json:"dedicatedVmHostId,omitempty"`
+	ComputeClusterID      string `json:"computeClusterId,omitempty"`
 }
 
 // Image is a platform or custom image.
@@ -93,8 +98,9 @@ type Vnic struct {
 	MacAddress          string   `json:"macAddress"`
 	PrivateIP           string   `json:"privateIp"`
 	PublicIP            string   `json:"publicIp,omitempty"`
-	SubnetID            string   `json:"subnetId"`
+	SubnetID            string   `json:"subnetId,omitempty"`
 	NsgIDs              []string `json:"nsgIds"`
+	VlanID              string   `json:"vlanId,omitempty"`
 	Ipv6Addresses       []string `json:"ipv6Addresses,omitempty"`
 	IsPrimary           bool     `json:"isPrimary"`
 	SkipSourceDestCheck bool     `json:"skipSourceDestCheck"`
@@ -102,15 +108,18 @@ type Vnic struct {
 
 // PrivateIP is a private IP address on a VNIC (or an unassigned reserved one).
 type PrivateIP struct {
+	CidrPrefixLength *int `json:"cidrPrefixLength,omitempty"`
 	Base
-	AvailabilityDomain string `json:"availabilityDomain,omitempty"`
-	HostnameLabel      string `json:"hostnameLabel,omitempty"`
+	SubnetID           string `json:"subnetId"`
 	IPAddress          string `json:"ipAddress"`
 	IPState            string `json:"ipState"`
 	Lifetime           string `json:"lifetime"`
-	SubnetID           string `json:"subnetId"`
+	HostnameLabel      string `json:"hostnameLabel,omitempty"`
 	VnicID             string `json:"vnicId,omitempty"`
 	RouteTableID       string `json:"routeTableId,omitempty"`
+	VlanID             string `json:"vlanId,omitempty"`
+	Ipv4SubnetCidr     string `json:"ipv4SubnetCidrAtCreation,omitempty"`
+	AvailabilityDomain string `json:"availabilityDomain,omitempty"`
 	IsPrimary          bool   `json:"isPrimary"`
 }
 
@@ -119,8 +128,9 @@ type VnicAttachment struct {
 	Base
 	AvailabilityDomain string `json:"availabilityDomain"`
 	InstanceID         string `json:"instanceId"`
-	SubnetID           string `json:"subnetId"`
+	SubnetID           string `json:"subnetId,omitempty"`
 	VnicID             string `json:"vnicId"`
+	VlanID             string `json:"vlanId,omitempty"`
 	NicIndex           int    `json:"nicIndex"`
 	VlanTag            int    `json:"vlanTag"`
 }

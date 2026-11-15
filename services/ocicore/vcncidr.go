@@ -247,9 +247,12 @@ func (b *InMemoryBackend) RemoveVcnCidr(id, ifMatch, cidr string) (string, *APIE
 
 // AddVcnIpv6In is the AddIpv6VcnCidr request body.
 type AddVcnIpv6In struct {
-	IsOracleGuaAllocationEnabled *bool          `json:"isOracleGuaAllocationEnabled"`
-	Byoipv6CidrDetail            map[string]any `json:"byoipv6CidrDetail"`
-	Ipv6PrivateCidrBlock         string         `json:"ipv6PrivateCidrBlock"`
+	IsOracleGuaAllocationEnabled *bool `json:"isOracleGuaAllocationEnabled"`
+	Byoipv6CidrDetail            *struct {
+		Byoipv6RangeID string `json:"byoipv6RangeId"`
+		Ipv6CidrBlock  string `json:"ipv6CidrBlock"`
+	} `json:"byoipv6CidrDetail"`
+	Ipv6PrivateCidrBlock string `json:"ipv6PrivateCidrBlock"`
 }
 
 // AddIpv6VcnCidr adds an Oracle-allocated /56 or a private ULA prefix to a VCN.
@@ -263,7 +266,7 @@ func (b *InMemoryBackend) AddIpv6VcnCidr(id, ifMatch string, in AddVcnIpv6In) (s
 	}
 
 	if in.Byoipv6CidrDetail != nil {
-		return "", errParam("byoipv6CidrDetail is not supported: BYOIP ranges are not modelled")
+		return b.addByoipv6(v, in.Byoipv6CidrDetail.Byoipv6RangeID, in.Byoipv6CidrDetail.Ipv6CidrBlock)
 	}
 
 	if in.Ipv6PrivateCidrBlock != "" {
@@ -284,7 +287,7 @@ func (b *InMemoryBackend) AddIpv6VcnCidr(id, ifMatch string, in AddVcnIpv6In) (s
 		return "", errParam("ipv6PrivateCidrBlock is required when isOracleGuaAllocationEnabled is false")
 	}
 
-	if len(v.Ipv6CidrBlocks) > 0 {
+	if len(v.Ipv6CidrBlocks) > len(b.byoipCidrsOf(v.ID)) {
 		return "", errLimit("A VCN can have at most 1 Oracle-allocated IPv6 prefix")
 	}
 
@@ -341,6 +344,7 @@ func (b *InMemoryBackend) RemoveIpv6VcnCidr(id, ifMatch, cidr string) (string, *
 	}
 
 	if gua >= 0 {
+		b.releaseByoipv6(v.ID, cidr)
 		v.Ipv6CidrBlocks = slices.Delete(slices.Clone(v.Ipv6CidrBlocks), gua, gua+1)
 	} else {
 		v.Ipv6PrivateCidrs = slices.Delete(slices.Clone(v.Ipv6PrivateCidrs), priv, priv+1)

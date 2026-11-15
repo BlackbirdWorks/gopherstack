@@ -84,7 +84,16 @@ func TestLookupCatalogue(t *testing.T) {
 		}},
 		{name: "shape list", check: func(t *testing.T) {
 			t.Helper()
-			assert.Len(t, oci.CatalogShapes(), 9)
+			names := map[string]bool{}
+			for _, s := range oci.CatalogShapes() {
+				names[s.Name] = true
+			}
+
+			wants := []string{"BM.GPU.H100.8", "VM.DenseIO.E4.Flex", "BM.HPC2.36", "VM.GPU.A10.2", "BM.DenseIO2.52"}
+
+			for _, want := range wants {
+				assert.True(t, names[want], want)
+			}
 		}},
 		{name: "platform image", check: func(t *testing.T) {
 			t.Helper()
