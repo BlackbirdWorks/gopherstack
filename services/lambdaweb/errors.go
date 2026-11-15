@@ -13,6 +13,9 @@ var ErrQuotaExceeded = errors.New("quota exceeded")
 // ErrAccessDenied maps to AccessDeniedException.
 var ErrAccessDenied = errors.New("access denied")
 
+// ErrRuntimeUnavailable is returned when the container runtime is unreachable or the sandbox image cannot be had.
+var ErrRuntimeUnavailable = errors.New("container runtime unavailable")
+
 // ErrCodeUnavailable is returned when a revision's code package cannot be read.
 var ErrCodeUnavailable = errors.New("code package unavailable")
 

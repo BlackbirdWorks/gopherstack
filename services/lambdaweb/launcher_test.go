@@ -24,19 +24,33 @@ import (
 
 // fakeRuntime starts an in-process listener on the published host port, standing in for the container's app.
 type fakeRuntime struct {
+	pingErr   error
+	pullErr   error
+	createErr error
 	listeners map[string]net.Listener
 	logLines  string
 	specs     []container.Spec
 	removed   []string
 	delay     time.Duration
 	mu        sync.Mutex
+	noImage   bool
 }
+
+func (r *fakeRuntime) Ping(context.Context) error { return r.pingErr }
+
+func (r *fakeRuntime) HasImage(context.Context, string) (bool, error) { return !r.noImage, nil }
+
+func (r *fakeRuntime) PullImage(context.Context, string) error { return r.pullErr }
 
 func (r *fakeRuntime) CreateAndStart(_ context.Context, spec container.Spec) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	r.specs = append(r.specs, spec)
+
+	if r.createErr != nil {
+		return "", r.createErr
+	}
 
 	if r.delay < 0 {
 		return "ctr-1", nil

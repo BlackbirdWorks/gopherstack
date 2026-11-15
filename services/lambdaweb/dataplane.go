@@ -450,7 +450,7 @@ func (b *InMemoryBackend) capacityFor(ep *Endpoint, rev *Revision, reqID, serve 
 
 func (b *InMemoryBackend) environmentFailed(ctx context.Context, w http.ResponseWriter, rev *Revision, err error) {
 	switch {
-	case errors.Is(err, errEngineUnavailable):
+	case errors.Is(err, errEngineUnavailable), errors.Is(err, ErrRuntimeUnavailable):
 		platformError(w, http.StatusServiceUnavailable, "", err.Error())
 	case errors.Is(err, errCannotAssumeRole):
 		platformError(w, http.StatusBadGateway, errCannotAssumeRoleType, err.Error())

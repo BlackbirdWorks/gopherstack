@@ -50,6 +50,9 @@ var (
 
 // Runtime is the slice of the container runtime the launcher uses.
 type Runtime interface {
+	Ping(ctx context.Context) error
+	HasImage(ctx context.Context, imageRef string) (bool, error)
+	PullImage(ctx context.Context, imageRef string) error
 	CreateAndStart(ctx context.Context, spec container.Spec) (string, error)
 	StopAndRemove(ctx context.Context, containerID string) error
 }
@@ -171,6 +174,10 @@ func (l *dockerLauncher) followLogs(ctx context.Context, out func(stderr bool, l
 
 // Launch implements Launcher.
 func (l *dockerLauncher) Launch(ctx context.Context, spec LaunchSpec) (Environment, error) {
+	if err := l.ensureRuntime(ctx); err != nil {
+		return nil, err
+	}
+
 	rev := spec.Revision
 	codes, _, creds, endpointURL := l.b.environmentServices()
 
@@ -231,6 +238,29 @@ func (l *dockerLauncher) Launch(ctx context.Context, spec LaunchSpec) (Environme
 	l.followLogs(lctx, spec.Output, id)
 
 	return de, nil
+}
+
+// ensureRuntime proves the daemon answers and the image is local (pulling it when absent) before any container is
+// created, so a host without a usable runtime fails the same way whether it has no socket or no registry.
+func (l *dockerLauncher) ensureRuntime(ctx context.Context) error {
+	if err := l.cfg.Runtime.Ping(ctx); err != nil {
+		return fmt.Errorf("%w: %w", ErrRuntimeUnavailable, err)
+	}
+
+	have, err := l.cfg.Runtime.HasImage(ctx, l.cfg.Image)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrRuntimeUnavailable, err)
+	}
+
+	if have {
+		return nil
+	}
+
+	if err = l.cfg.Runtime.PullImage(ctx, l.cfg.Image); err != nil {
+		return fmt.Errorf("%w: %w", ErrRuntimeUnavailable, err)
+	}
+
+	return nil
 }
 
 func (l *dockerLauncher) containerSpec(rev *Revision, dir string, env []string, port int) container.Spec {
