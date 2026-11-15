@@ -8,7 +8,12 @@ import (
 	"time"
 )
 
-const hoursPerMonth = 730.0
+const (
+	hoursPerMonth = 730.0
+	// ResourceRetentionDays is how long resource-level rows are kept, per GetCostAndUsageWithResources.
+	ResourceRetentionDays = 14
+	tagStatusActive       = "Active"
+)
 
 // Usage is one metered usage line. Cost is Quantity times the price list rate for PriceService/PriceMatch/Unit.
 type Usage struct {
@@ -85,12 +90,90 @@ func (b *InMemoryBackend) AddUsageSource(src UsageSource) {
 	b.usageSources = append(b.usageSources, src)
 }
 
+// SetResourceLevelData turns on resource-level ledger rows (resource ids and resource tags) for metered usage.
+func (b *InMemoryBackend) SetResourceLevelData(on bool) {
+	b.mu.Lock("SetResourceLevelData")
+	defer b.mu.Unlock()
+
+	b.resourceLevel = on
+}
+
+// ResourceLevelData reports whether resource-level ledger rows are enabled.
+func (b *InMemoryBackend) ResourceLevelData() bool {
+	b.mu.RLock("ResourceLevelData")
+	defer b.mu.RUnlock()
+
+	return b.resourceLevel
+}
+
+// MeteredEntries returns the metered ledger rows (not the seed catalogue) with start <= date < end.
+func (b *InMemoryBackend) MeteredEntries(start, end string) []CostEntry {
+	b.Accrue()
+
+	b.mu.RLock("MeteredEntries")
+	defer b.mu.RUnlock()
+
+	var out []CostEntry
+
+	for _, e := range b.meteredEntriesLocked() {
+		if e.Date >= start && e.Date < end {
+			out = append(out, e)
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) pruneResourceRowsLocked(now time.Time) {
+	cutoff := now.UTC().AddDate(0, 0, -ResourceRetentionDays).Format(dateLayout)
+	if b.lastPrune == cutoff {
+		return
+	}
+
+	b.lastPrune = cutoff
+
+	drop := map[int]struct{}{}
+
+	for _, i := range b.meterIdx {
+		if e := &b.costLedger[i]; e.ResourceID != "" && e.Date < cutoff {
+			drop[i] = struct{}{}
+		}
+	}
+
+	if len(drop) == 0 {
+		return
+	}
+
+	remap := make(map[int]int, len(b.meterIdx))
+	keep := make([]CostEntry, 0, len(b.costLedger)-len(drop))
+
+	for i := range b.costLedger {
+		if _, gone := drop[i]; gone {
+			continue
+		}
+
+		remap[i] = len(keep)
+		keep = append(keep, b.costLedger[i])
+	}
+
+	for k, i := range b.meterIdx {
+		if ni, ok := remap[i]; ok {
+			b.meterIdx[k] = ni
+		} else {
+			delete(b.meterIdx, k)
+		}
+	}
+
+	b.costLedger = keep
+}
+
 // Accrue books usage for every held resource over the time since the previous accrual.
 func (b *InMemoryBackend) Accrue() {
 	b.mu.Lock("Accrue")
 
 	now := b.clock()
 	since := b.lastAccrual
+	b.pruneResourceRowsLocked(now)
 	sources := slices.Clone(b.holdingSources)
 	drains := slices.Clone(b.usageSources)
 
@@ -185,8 +268,43 @@ func splitByDay(start, end time.Time, qty float64) []dayShare {
 }
 
 func meterKey(e *CostEntry) string {
-	return fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s", e.Date, e.Service, e.UsageType, e.Operation,
-		e.Region, e.AvailabilityZone, e.InstanceType, e.ResourceID, e.Account)
+	return fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s|%s", e.Date, e.Service, e.UsageType, e.Operation,
+		e.Region, e.AvailabilityZone, e.InstanceType, e.ResourceID, e.Account, tagsKey(e.Tags))
+}
+
+func tagsKey(tags map[string]string) string {
+	if len(tags) == 0 {
+		return ""
+	}
+
+	keys := slices.Sorted(maps.Keys(tags))
+
+	var sb strings.Builder
+
+	for _, k := range keys {
+		sb.WriteString(k)
+		sb.WriteByte('=')
+		sb.WriteString(tags[k])
+		sb.WriteByte(',')
+	}
+
+	return sb.String()
+}
+
+func (b *InMemoryBackend) aggregateTagsLocked(tags map[string]string) map[string]string {
+	var out map[string]string
+
+	for k, v := range tags {
+		if t, ok := b.costAllocationTags.Get(k); ok && t.Status == tagStatusActive {
+			if out == nil {
+				out = map[string]string{}
+			}
+
+			out[k] = v
+		}
+	}
+
+	return out
 }
 
 func (b *InMemoryBackend) addMeteredLocked(u Usage, region, day string, qty, cost float64) {
@@ -202,6 +320,10 @@ func (b *InMemoryBackend) addMeteredLocked(u Usage, region, day string, qty, cos
 		ResourceID: u.ResourceID, Tags: maps.Clone(u.Tags),
 		BlendedCost: cost, UnblendedCost: cost, UsageQuantity: qty,
 	}
+	if !b.resourceLevel {
+		row.ResourceID, row.Tags = "", b.aggregateTagsLocked(u.Tags)
+	}
+
 	key := meterKey(&row)
 
 	if i, ok := b.meterIdx[key]; ok {

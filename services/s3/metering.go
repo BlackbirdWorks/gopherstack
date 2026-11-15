@@ -19,9 +19,7 @@ type StorageHolding struct {
 
 // RequestEvent describes one served request against a bucket, for usage metering.
 type RequestEvent struct {
-	Tags      map[string]string
 	Bucket    string
-	Region    string
 	Method    string
 	Operation string
 	Status    int
@@ -32,10 +30,6 @@ type RequestEvent struct {
 type RequestObserver func(RequestEvent)
 
 type requestObserverHolder struct{ fn RequestObserver }
-
-type bucketMetaSource interface {
-	bucketMeta(name string) (string, map[string]string, bool)
-}
 
 // SetRequestObserver installs fn to observe every bucket request; nil removes it.
 func (h *S3Handler) SetRequestObserver(fn RequestObserver) {
@@ -48,8 +42,9 @@ func (h *S3Handler) SetRequestObserver(fn RequestObserver) {
 	h.observer.Store(&requestObserverHolder{fn: fn})
 }
 
-func (b *InMemoryBackend) bucketMeta(name string) (string, map[string]string, bool) {
-	b.mu.RLock("bucketMeta")
+// BucketMeta returns the region and tags of a bucket, and whether it exists.
+func (b *InMemoryBackend) BucketMeta(name string) (string, map[string]string, bool) {
+	b.mu.RLock("BucketMeta")
 	bucket, err := b.getBucket(name)
 	b.mu.RUnlock()
 
@@ -57,7 +52,7 @@ func (b *InMemoryBackend) bucketMeta(name string) (string, map[string]string, bo
 		return "", nil, false
 	}
 
-	bucket.mu.RLock("bucketMeta")
+	bucket.mu.RLock("BucketMeta")
 	defer bucket.mu.RUnlock()
 
 	return bucket.Region, bucketTagMap(bucket), true
@@ -87,16 +82,6 @@ func (h *S3Handler) observeRequest(c *echo.Context) {
 		return
 	}
 
-	src, ok := h.Backend.(bucketMetaSource)
-	if !ok {
-		return
-	}
-
-	region, tags, found := src.bucketMeta(m.bucket)
-	if !found {
-		return
-	}
-
 	key := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(c.Request().URL.Path, "/"), m.bucket), "/")
 	status := http.StatusOK
 	if resp, err := echo.UnwrapResponse(c.Response()); err == nil && resp.Status != 0 {
@@ -104,7 +89,7 @@ func (h *S3Handler) observeRequest(c *echo.Context) {
 	}
 
 	holder.fn(RequestEvent{
-		Bucket: m.bucket, Region: region, Tags: tags, Method: c.Request().Method,
+		Bucket: m.bucket, Method: c.Request().Method,
 		Operation: m.operation, Status: status, HasKey: key != "",
 	})
 }

@@ -449,6 +449,10 @@ func (b *InMemoryBackend) GetCostAndUsageWithResources(
 	groupBy []GroupBySpec,
 	filter *ceExpression,
 ) []ResultByTime {
+	if !b.ResourceLevelData() {
+		return []ResultByTime{}
+	}
+
 	return b.costAndUsage(start, end, granularity, metrics, groupBy, func(entries []CostEntry) []CostEntry {
 		return filterEntriesByExpression(
 			slices.DeleteFunc(slices.Clone(entries), func(e CostEntry) bool { return e.ResourceID == "" }), filter)

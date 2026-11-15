@@ -93,7 +93,7 @@ func newMeteringFixtureAt(t *testing.T, start time.Time) *meteringFixture {
 		"S3":       s3H,
 		"DynamoDB": ddbbackend.NewHandler(ddb),
 		"Lambda":   lambdabackend.NewHandler(lambdaBk),
-	})
+	}, true)
 
 	return &meteringFixture{
 		clock: clock, ce: ce, ec2: ec2Bk, s3: s3Bk, s3H: s3H, ddb: ddb, lambda: lambdaBk,

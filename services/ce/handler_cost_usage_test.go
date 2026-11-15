@@ -1049,6 +1049,7 @@ func TestHandler_GetCostAndUsageWithResources(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
+			h.Backend.SetResourceLevelData(true)
 			rec := doRequest(t, h, "GetCostAndUsageWithResources", tt.body)
 			assert.Equal(t, tt.wantStatusCode, rec.Code)
 

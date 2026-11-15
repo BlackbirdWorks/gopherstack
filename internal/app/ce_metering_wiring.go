@@ -1,11 +1,11 @@
 package app
 
 import (
-	"net/http"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	budgetsbackend "github.com/blackbirdworks/gopherstack/services/budgets"
 	cebackend "github.com/blackbirdworks/gopherstack/services/ce"
@@ -49,13 +49,14 @@ const (
 )
 
 // wireCostMetering connects the emulated services that have billing dimensions to the Cost Explorer ledger.
-func wireCostMetering(byName map[string]service.Registerable) {
+func wireCostMetering(byName map[string]service.Registerable, resourceLevel bool) {
 	ceH, ok := byName["Ce"].(*cebackend.Handler)
 	if !ok || ceH.Backend == nil {
 		return
 	}
 
 	ce := ceH.Backend
+	ce.SetResourceLevelData(resourceLevel)
 	ce.SetPriceLookup(pricingbackend.OnDemandRate)
 
 	if h, hok := byName["EC2"].(*ec2backend.Handler); hok {
@@ -215,9 +216,11 @@ func s3StorageBilling(class string) s3ClassBilling {
 func meterS3(ce *cebackend.InMemoryBackend, h *s3backend.S3Handler) {
 	if mem, ok := h.Backend.(*s3backend.InMemoryBackend); ok {
 		ce.AddHoldingSource(func() []cebackend.Holding { return s3Holdings(mem) })
-	}
 
-	h.SetRequestObserver(func(ev s3backend.RequestEvent) { recordS3Request(ce, ev) })
+		m := &s3RequestMeter{mem: mem, lock: lockmetrics.New("ce-s3-requests"), resourceLevel: ce.ResourceLevelData}
+		h.SetRequestObserver(m.observe)
+		ce.AddUsageSource(m.drain)
+	}
 }
 
 func s3Holdings(mem *s3backend.InMemoryBackend) []cebackend.Holding {
@@ -236,28 +239,6 @@ func s3Holdings(mem *s3backend.InMemoryBackend) []cebackend.Holding {
 	}
 
 	return out
-}
-
-func recordS3Request(ce *cebackend.InMemoryBackend, ev s3backend.RequestEvent) {
-	if ev.Method == http.MethodDelete || ev.Status >= 500 {
-		return
-	}
-
-	usage, group := s3Tier2UsageType, "S3: Requests - Tier 2"
-	if ev.Method == http.MethodPut || ev.Method == http.MethodPost || (ev.Method == http.MethodGet && !ev.HasKey) {
-		usage, group = s3Tier1UsageType, "S3: Requests - Tier 1"
-	}
-
-	op := ev.Operation
-	if op == "" || op == "Unknown" {
-		op = ev.Method
-	}
-
-	ce.RecordUsage(cebackend.Usage{
-		Service: ceServiceS3, PriceService: priceS3, UsageType: usage, Operation: op, Region: ev.Region,
-		ResourceID: ev.Bucket, ProductFamily: "API Request", UsageTypeGroup: group, Unit: unitRequests,
-		PriceMatch: map[string]string{attrUsageType: usage}, Tags: ev.Tags, Quantity: 1,
-	})
 }
 
 func recordLambda(ce *cebackend.InMemoryBackend, u lambdabackend.InvocationUsage) {
@@ -376,8 +357,8 @@ func (s budgetsRICommitments) usedHours(
 	pool := map[riPoolKey]float64{}
 	total := 0.0
 
-	for _, e := range s.ce.LedgerEntries(start.Format(dateLayout), end.AddDate(0, 0, 1).Format(dateLayout)) {
-		if e.ResourceID == "" || e.Service != ceServiceEC2 || !strings.HasPrefix(e.UsageType, "BoxUsage:") {
+	for _, e := range s.ce.MeteredEntries(start.Format(dateLayout), end.AddDate(0, 0, 1).Format(dateLayout)) {
+		if e.Service != ceServiceEC2 || !strings.HasPrefix(e.UsageType, "BoxUsage:") {
 			continue
 		}
 

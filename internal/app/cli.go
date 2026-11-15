@@ -749,6 +749,7 @@ type CLI struct {
 	EC2DockerEBSVolumes           bool                                `                                       name:"ec2-docker-ebs-volumes"  env:"GOPHERSTACK_EC2_DOCKER_EBS_VOLUMES"  default:"false"         help:"Map EC2 EBS volumes to Docker named volumes mounted at /mnt/ebs/<device> in EC2 docker-provider containers."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
 	EnforceSecurityGroups         bool                                `                                       name:"enforce-security-groups" env:"GOPHERSTACK_ENFORCE_SECURITY_GROUPS" default:"false"         help:"Enforce EC2 security-group ingress on container-backed endpoints (RDS, EC2, DocDB, MSK, caches, MQ, Neptune, ECS); ingress only. Default off."`                                                //nolint:lll // config struct tags are intentionally verbose
 	EnforceServiceQuotas          bool                                `                                       name:"enforce-service-quotas"  env:"GOPHERSTACK_ENFORCE_SERVICE_QUOTAS"  default:"false"         help:"Make S3, EC2, IAM and DynamoDB reject creates beyond the Service Quotas applied limit. Default off."`                                                                                          //nolint:lll // config struct tags are intentionally verbose
+	CostResourceLevelData         bool                                `                                       name:"ce-resource-level"       env:"GOPHERSTACK_CE_RESOURCE_LEVEL"       default:"false"         help:"Keep resource ids and tags on metered Cost Explorer rows for 14 days (resource-level data). Default off."`                                                                                     //nolint:lll // config struct tags are intentionally verbose
 	IAMAudit                      bool                                `                                       name:"iam-audit"               env:"GOPHERSTACK_IAM_AUDIT,IAM_SOFT_MODE" default:"false"         help:"IAM audit (soft) mode: evaluate and record every request in the IAM Policy Stream but never deny."`                                                                                            //nolint:lll // config struct tags are intentionally verbose
 	IAMEnforceSCPs                bool                                `                                       name:"iam-enforce-scps"        env:"GOPHERSTACK_IAM_ENFORCE_SCPS"        default:"true"          help:"With IAM enforcement on, also evaluate Organizations service control policies for member-account principals. Set false to skip SCPs."`                                                         //nolint:lll // config struct tags are intentionally verbose
 	LocalstackCompat              bool                                `                                       name:"localstack-compat"       env:"GOPHERSTACK_LOCALSTACK_COMPAT"       default:"false"         help:"LocalStack drop-in mode: also listen on 4566 (auto-enabled when LOCALSTACK_*, GATEWAY_LISTEN, LS_LOG or PERSISTENCE is set)."`                                                                 //nolint:lll // config struct tags are intentionally verbose
@@ -3849,6 +3850,10 @@ func wireCrossServiceDependencies(
 	byName map[string]service.Registerable,
 ) {
 	wireMessagingAndEventingIntegrations(byName)
+
+	cli, _ := appCtx.Config.(*CLI)
+	wireCostMetering(byName, cli != nil && cli.CostResourceLevelData)
+
 	wireStepFunctionsIntegrations(byName)
 	wireParameterAndKeyIntegrations(byName)
 	wireAPIGatewayIntegrations(byName)
@@ -4036,7 +4041,6 @@ func wireMessagingAndEventingIntegrations(byName map[string]service.Registerable
 	wireCognitoMessageDelivery(byName["CognitoIDP"], byName["SES"], byName["SNS"], byName["STS"])
 	wireCognitoCodeEncryption(byName["CognitoIDP"], byName["KMS"])
 	wireBudgets(byName)
-	wireCostMetering(byName)
 	wireSignin(byName)
 	wireS3VectorsKMS(byName)
 	wireGCPCMEK(byName)

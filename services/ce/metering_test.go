@@ -1,6 +1,7 @@
 package ce_test
 
 import (
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -43,6 +44,7 @@ func newMeteredBackend(clock *testClock) *ce.InMemoryBackend {
 	b := ce.NewInMemoryBackend(acct, "us-east-1")
 	b.SetClock(clock.Now)
 	b.SetPriceLookup(pricing.OnDemandRate)
+	b.SetResourceLevelData(true)
 
 	return b
 }
@@ -283,6 +285,7 @@ func TestGetCostAndUsageWithResourcesExcludesResourceLessRows(t *testing.T) {
 	t.Parallel()
 
 	b := ce.NewInMemoryBackend(acct, "us-east-1")
+	b.SetResourceLevelData(true)
 	client := newTestCEClient(t, ce.NewHandler(b))
 	end := time.Now().UTC().AddDate(0, 0, 1).Format("2006-01-02")
 	start := time.Now().UTC().AddDate(0, 0, -3).Format("2006-01-02")
@@ -321,4 +324,138 @@ func TestGetCostAndUsageIncludesMeteredCost(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, out.ResultsByTime, 1)
 	assert.Equal(t, "0.0832", aws.ToString(out.ResultsByTime[0].Total["UnblendedCost"].Amount))
+}
+
+func TestMeteredRowsAggregateWithoutResourceLevelData(t *testing.T) {
+	t.Parallel()
+
+	day := time.Date(2031, 5, 1, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name        string
+		wantID      string
+		wantTagTeam string
+		wantRows    int
+		resource    bool
+		activeTag   bool
+	}{
+		{name: "default", wantRows: 1},
+		{name: "active tag kept", activeTag: true, wantRows: 1, wantTagTeam: "core"},
+		{name: "resource level", resource: true, wantRows: 2, wantID: "i-0abc", wantTagTeam: "core"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newMeteredBackend(newTestClock(day))
+			b.SetResourceLevelData(tc.resource)
+
+			if tc.activeTag {
+				b.UpdateCostAllocationTagsStatus([]ce.CostAllocationTagStatusEntry{{TagKey: "Team", Status: "Active"}})
+			}
+
+			b.RecordUsage(ec2Usage(day, day.Add(time.Hour), "i-0abc", 1))
+			b.RecordUsage(ec2Usage(day, day.Add(time.Hour), "i-0def", 1))
+
+			rows := b.MeteredEntries(meterDay, "2031-05-02")
+			require.Len(t, rows, tc.wantRows)
+			assert.Equal(t, tc.wantID, rows[0].ResourceID)
+			assert.Equal(t, tc.wantTagTeam, rows[0].Tags["Team"])
+
+			total := 0.0
+			for _, r := range rows {
+				total += r.UsageQuantity
+			}
+
+			assert.InDelta(t, 2, total, 1e-9)
+		})
+	}
+}
+
+func TestGetCostAndUsageWithResourcesNeedsResourceLevelData(t *testing.T) {
+	t.Parallel()
+
+	day := time.Date(2031, 5, 1, 0, 0, 0, 0, time.UTC)
+	b := newMeteredBackend(newTestClock(day))
+	b.SetResourceLevelData(false)
+	b.RecordUsage(ec2Usage(day, day.Add(time.Hour), "i-0abc", 1))
+
+	got := b.GetCostAndUsageWithResources(meterDay, "2031-05-02", "DAILY", []string{"UnblendedCost"}, nil, nil)
+	assert.Empty(t, got)
+
+	b.SetResourceLevelData(true)
+	b.RecordUsage(ec2Usage(day, day.Add(time.Hour), "i-0abc", 1))
+
+	got = b.GetCostAndUsageWithResources(meterDay, "2031-05-02", "DAILY", []string{"UnblendedCost"}, nil, nil)
+	assert.NotEmpty(t, got)
+}
+
+func TestMeterStateStaysBoundedAcrossResourceChurn(t *testing.T) {
+	t.Parallel()
+
+	day := time.Date(2031, 5, 1, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name     string
+		resource bool
+		maxRows  int
+	}{
+		{name: "aggregated", maxRows: 1},
+		{name: "resource level", resource: true, maxRows: 400},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			clock := newTestClock(day)
+			b := newMeteredBackend(clock)
+			b.SetResourceLevelData(tc.resource)
+			seeds := len(b.LedgerEntries("0000", "9999"))
+
+			for i := range 400 {
+				u := ec2Usage(clock.Now(), clock.Now().Add(time.Minute), "i-"+strconv.Itoa(i), 1)
+				u.Tags = map[string]string{"Name": "n" + strconv.Itoa(i)}
+				b.RecordUsage(u)
+			}
+
+			assert.LessOrEqual(t, len(b.MeteredEntries("2031-01-01", "2032-01-01")), tc.maxRows)
+			assert.LessOrEqual(t, len(b.LedgerEntries("0000", "9999"))-seeds, tc.maxRows)
+		})
+	}
+}
+
+func TestResourceRowsPrunedAfterRetention(t *testing.T) {
+	t.Parallel()
+
+	day := time.Date(2031, 5, 1, 12, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name     string
+		resource bool
+		advance  time.Duration
+		wantRows int
+	}{
+		{name: "within retention", resource: true, advance: 13 * 24 * time.Hour, wantRows: 1},
+		{name: "past retention", resource: true, advance: 16 * 24 * time.Hour, wantRows: 0},
+		{name: "aggregated row survives", advance: 16 * 24 * time.Hour, wantRows: 1},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			clock := newTestClock(day)
+			b := newMeteredBackend(clock)
+			b.SetResourceLevelData(tc.resource)
+			b.RecordUsage(ec2Usage(day, day.Add(time.Hour), "i-0abc", 1))
+			require.Len(t, b.MeteredEntries(meterDay, "2031-05-02"), 1)
+
+			clock.Advance(tc.advance)
+			b.Accrue()
+
+			assert.Len(t, b.MeteredEntries(meterDay, "2031-05-02"), tc.wantRows)
+		})
+	}
 }

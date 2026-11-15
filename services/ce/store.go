@@ -119,8 +119,10 @@ type InMemoryBackend struct {
 	prices                  PriceLookup
 	clock                   func() time.Time
 	lastAccrual             time.Time
+	lastPrune               string
 	backfillJobs            []*BackfillJob
 	anomalyTTL              time.Duration
+	resourceLevel           bool
 }
 
 // NewInMemoryBackend creates a new backend for the given account and region.

@@ -70,8 +70,12 @@ func TestRequestObserverAndStorageHoldings(t *testing.T) {
 	require.Len(t, events, 3)
 	assert.Equal(t, "PutObject", events[2].Operation)
 	assert.True(t, events[2].HasKey)
-	assert.Equal(t, "core", events[2].Tags["Team"])
-	assert.Equal(t, "us-east-1", events[2].Region)
+	assert.Equal(t, "obs", events[2].Bucket)
+
+	region, tags, ok := bk.BucketMeta("obs")
+	require.True(t, ok)
+	assert.Equal(t, "us-east-1", region)
+	assert.Equal(t, map[string]string{"Team": "core"}, tags)
 
 	held := bk.StorageHoldings()
 	require.Len(t, held, 1)

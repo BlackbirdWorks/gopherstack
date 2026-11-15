@@ -233,7 +233,7 @@ type InMemoryDB struct {
 	iteratorStore        *ShardIteratorStore
 	mu                   *lockmetrics.RWMutex
 	meterMu              *lockmetrics.RWMutex
-	meterUsage           map[string]*CapacityUsage
+	meterCounters        atomic.Pointer[map[capacityKey]*capacityCounter]
 	deletingTables       *store.Table[Table]
 	defaultRegion        string
 	accountID            string
