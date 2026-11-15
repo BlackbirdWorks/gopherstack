@@ -197,6 +197,10 @@ func (b *InMemoryBackend) CreateFunction(in fnIn, endpoint string) (fnWire, stri
 		return fnWire{}, "", "", errExists("A function named " + in.Name + " already exists in the application")
 	}
 
+	if aerr = b.checkNewFunction(app, &in); aerr != nil {
+		return fnWire{}, "", "", aerr
+	}
+
 	now := b.nowUTC()
 	f := &Function{
 		ID: newOCID("fnfunc"), AppID: app.ID, CompartmentID: app.CompartmentID, Name: in.Name, State: stateCreating,
@@ -294,6 +298,10 @@ func (b *InMemoryBackend) UpdateFunction(id, ifMatch string, in fnIn) (string, e
 		aerr = b.checkTags(in.Tags)
 	}
 
+	if aerr == nil {
+		aerr = b.checkFunctionUpdate(f, &in)
+	}
+
 	if aerr != nil {
 		b.mu.Unlock()
 
@@ -309,6 +317,52 @@ func (b *InMemoryBackend) UpdateFunction(id, ifMatch string, in fnIn) (string, e
 	b.exec.dropFunction(id)
 
 	return wr, nil
+}
+
+// checkNewFunction must be called with the lock held.
+func (b *InMemoryBackend) checkNewFunction(app *Application, in *fnIn) *APIError {
+	if b.limits.funcs > 0 && b.liveFuncCount() >= b.limits.funcs {
+		return errLimit("function-count", int64(b.limits.funcs))
+	}
+
+	if aerr := b.checkImage(app, in.Source); aerr != nil {
+		return aerr
+	}
+
+	if aerr := b.checkDestinations(in.Success, in.Failure); aerr != nil {
+		return aerr
+	}
+
+	probe := Function{Memory: *in.Memory, Provisioned: Concurrency{Strategy: concNone}}
+	if in.Provisioned != nil {
+		probe.Provisioned = *in.Provisioned
+	}
+
+	return b.checkProvisioned("", provisionedMB(&probe))
+}
+
+// checkFunctionUpdate must be called with the lock held.
+func (b *InMemoryBackend) checkFunctionUpdate(f *Function, in *fnIn) *APIError {
+	if in.Source != nil {
+		if aerr := b.checkImage(b.apps[f.AppID], in.Source); aerr != nil {
+			return aerr
+		}
+	}
+
+	if aerr := b.checkDestinations(in.Success, in.Failure); aerr != nil {
+		return aerr
+	}
+
+	probe := *f
+	if in.Memory != nil {
+		probe.Memory = *in.Memory
+	}
+
+	if in.Provisioned != nil {
+		probe.Provisioned = *in.Provisioned
+	}
+
+	return b.checkProvisioned(f.ID, provisionedMB(&probe))
 }
 
 func applyFnUpdate(f *Function, in fnIn) {

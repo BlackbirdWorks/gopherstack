@@ -3886,6 +3886,7 @@ func wireCrossServiceDependencies(
 	wireOCIObjectStoragePrivateEndpoints(byName)
 	wireOCICoreVault(byName)
 	wireOCIKeyLookups(byName)
+	wireOCIFunctionsLinks(byName)
 }
 
 // wireOCIStreamingVault lets OCI Streaming validate customEncryptionKey references against OCI Vault keys.

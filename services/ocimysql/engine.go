@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
@@ -54,6 +55,7 @@ type LaunchSpec struct {
 	NetworkID  string
 	ServerID   uint32
 	Fresh      bool
+	PublishX   bool
 }
 
 // Recoverer is implemented by servers that keep a binary log base for point-in-time recovery.
@@ -63,6 +65,11 @@ type Recoverer interface {
 	DisablePITR(ctx context.Context) error
 	PrepareRecovery(ctx context.Context, at time.Time) (mysqlengine.Recovery, error)
 	ApplyRecovery(ctx context.Context, rec mysqlengine.Recovery) error
+}
+
+// XEndpointer is implemented by servers that publish the X protocol port.
+type XEndpointer interface {
+	XEndpoint() (string, int)
 }
 
 // Querier is implemented by servers that answer SQL queries; the first row holds the column names.
@@ -105,7 +112,7 @@ type dockerLauncher struct{ e *mysqlengine.Engine }
 func (l dockerLauncher) Launch(ctx context.Context, spec LaunchSpec) (Instance, error) {
 	return l.e.Launch(ctx, mysqlengine.Spec{
 		ID: spec.ID, Image: spec.Image, RootPassword: spec.RootSecret, Persist: true, Fresh: spec.Fresh,
-		ServerID: spec.ServerID, Network: spec.Network, NetworkID: spec.NetworkID,
+		ServerID: spec.ServerID, Network: spec.Network, NetworkID: spec.NetworkID, PublishX: spec.PublishX,
 	})
 }
 
@@ -136,6 +143,10 @@ func (b *InMemoryBackend) SetLauncher(l Launcher, image string) {
 func (e *dbEngine) imageFor(version string) string {
 	if e.image != "" {
 		return e.image
+	}
+
+	if strings.HasPrefix(version, "9.7.") {
+		return "mysql:9.7"
 	}
 
 	f, _ := familyOf(version)
@@ -202,8 +213,9 @@ func (b *InMemoryBackend) launchWork(id string, in launchIn) func(ctx context.Co
 
 		spec := LaunchSpec{
 			ID: id, Image: b.eng.imageFor(s.Version), RootSecret: s.RootSecret, Fresh: in.fresh, ServerID: s.ServerID,
+			PublishX: true,
 		}
-		cfgID, vars := s.ConfigID, b.configOverrides(s.ConfigID)
+		cfgID, vars, set := s.ConfigID, b.configOverrides(s.ConfigID), settingsOf(s)
 		b.mu.Unlock()
 
 		if in.rec != nil && in.rec.Source != nil {
@@ -215,37 +227,70 @@ func (b *InMemoryBackend) launchWork(id string, in launchIn) func(ctx context.Co
 			return err //nolint:wrapcheck // launcher errors carry the cause
 		}
 
-		base, err := prepareInstance(ctx, inst, in)
-		if err == nil && len(vars) > 0 {
-			err = configureInstance(ctx, inst, vars, false)
-		}
-
+		base, err := setupInstance(ctx, inst, in, vars, set)
 		if err != nil {
 			inst.Close(ctx, in.fresh)
 
 			return err
 		}
 
-		host, port := inst.Endpoint()
-
-		b.mu.Lock("launchWork")
-		defer b.mu.Unlock()
-
-		cur, found := b.systems[id]
-		if !found || ctx.Err() != nil {
-			go inst.Close(context.WithoutCancel(ctx), in.fresh)
-
-			return nil
-		}
-
-		cur.EngineHost, cur.EnginePort, cur.AppliedConfig = host, port, cfgID
-		b.eng.live[id] = inst
-
-		if base != nil {
-			cur.PitrBase = base
-		}
+		b.adoptInstance(ctx, id, inst, in.fresh, cfgID, base)
 
 		return nil
+	}
+}
+
+// setupInstance loads a new server's data and administrator, then applies its configuration and server settings.
+func setupInstance(
+	ctx context.Context, inst Instance, in launchIn, vars map[string]any, set serverSettings,
+) (*time.Time, error) {
+	base, err := prepareInstance(ctx, inst, in)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(vars) > 0 {
+		if err = configureInstance(ctx, inst, vars, false); err != nil {
+			return nil, err
+		}
+	}
+
+	if !set.isDefault() {
+		if err = applyServerSettings(ctx, inst, set); err != nil {
+			return nil, err
+		}
+	}
+
+	return base, nil
+}
+
+// adoptInstance records a launched server's endpoints on its DB system.
+func (b *InMemoryBackend) adoptInstance(
+	ctx context.Context, id string, inst Instance, purge bool, cfgID string, base *time.Time,
+) {
+	host, port := inst.Endpoint()
+
+	xport := 0
+	if xe, isX := inst.(XEndpointer); isX {
+		_, xport = xe.XEndpoint()
+	}
+
+	b.mu.Lock("launchWork")
+	defer b.mu.Unlock()
+
+	cur, found := b.systems[id]
+	if !found || ctx.Err() != nil {
+		go inst.Close(context.WithoutCancel(ctx), purge)
+
+		return
+	}
+
+	cur.EngineHost, cur.EnginePort, cur.EngineXPort, cur.AppliedConfig = host, port, xport, cfgID
+	logRecordedFeatures(ctx, id, cur.Extra)
+	b.eng.live[id] = inst
+
+	if base != nil {
+		cur.PitrBase = base
 	}
 }
 
@@ -418,6 +463,8 @@ func (b *InMemoryBackend) relaunchLocked() {
 			bk.State, bk.Details = stateFailed, "Backup interrupted by an emulator restart"
 		}
 	}
+
+	b.interruptChannels()
 
 	for _, s := range b.systems {
 		if s.State != stateActive && s.State != stateUpdating && s.State != stateCreating {

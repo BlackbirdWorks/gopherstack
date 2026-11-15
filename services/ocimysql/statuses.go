@@ -98,6 +98,10 @@ func (b *InMemoryBackend) channelStatusResult(c *Channel) map[string]any {
 	healthy := c.State == stateActive
 	errs := []string{}
 
+	if c.Live != nil {
+		healthy, errs = c.Live.Healthy && c.State == stateActive, append(errs, c.Live.Errors...)
+	}
+
 	if c.State == stateNeedsAttention && c.Details != "" {
 		errs = append(errs, c.Details)
 	}
@@ -324,6 +328,8 @@ func (b *InMemoryBackend) GetDBSystemStatus(id string) (Doc, error) {
 
 // GenerateChannelStatus collects the status of a channel and returns it with its work request.
 func (b *InMemoryBackend) GenerateChannelStatus(id, token string) (Doc, string, error) {
+	b.refreshChannelLive(b.runCtx, id)
+
 	b.mu.Lock("GenerateChannelStatus")
 	defer b.mu.Unlock()
 

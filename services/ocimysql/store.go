@@ -69,6 +69,7 @@ type InMemoryBackend struct {
 	now         func() time.Time
 	defaultList []*Configuration
 	transition  time.Duration
+	limits      limits
 	seq         int64
 }
 
@@ -77,7 +78,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 	ctx, stop := context.WithCancel(context.Background())
 	b := &InMemoryBackend{
 		mu: lockmetrics.New("ocimysql"), now: time.Now, transition: defaultTransition,
-		wg: &sync.WaitGroup{}, runCtx: ctx, stop: stop, defaults: map[string]*Configuration{},
+		wg: &sync.WaitGroup{}, runCtx: ctx, stop: stop, defaults: map[string]*Configuration{}, limits: defaultLimits(),
 	}
 	b.resetMaps()
 	b.Auth = ociauth.NewRegistry()

@@ -197,6 +197,7 @@ type UpdateDBSystemIn struct {
 }
 
 type updateEffect struct {
+	settings   bool
 	config     bool
 	structural bool
 	pitr       bool
@@ -506,7 +507,7 @@ func (b *InMemoryBackend) updateLocked(id, ifMatch string, in UpdateDBSystemIn) 
 		return wr, nil
 	}
 
-	engineJob := b.eng != nil && (fx.admin || fx.version || fx.pitr || fx.config)
+	engineJob := b.eng != nil && (fx.admin || fx.version || fx.pitr || fx.config || fx.settings)
 	wr := b.begin(s, wrUpdateDBSystem, prev, engineJob)
 
 	if !engineJob {
@@ -541,6 +542,10 @@ func (b *InMemoryBackend) engineEffects(s, n *DBSystem, fx *updateEffect) *APIEr
 		fx.config, fx.structural = true, true
 	}
 
+	if b.eng != nil && s.State == stateActive && settingsOf(s) != settingsOf(n) {
+		fx.settings, fx.structural = true, true
+	}
+
 	if (fx.admin || fx.version || fx.pitr) && b.eng != nil && s.State != stateActive {
 		return errState("DB system " + s.ID +
 			" must be ACTIVE to change the administrator, the MySQL version or point-in-time recovery")
@@ -562,6 +567,12 @@ func (b *InMemoryBackend) updateWork(s *DBSystem, fx updateEffect, replicas []st
 
 		if fx.config && !fx.version {
 			if err := b.reapplyConfigs(ctx, id, replicas); err != nil {
+				return err
+			}
+		}
+
+		if fx.settings {
+			if err := b.syncSettings(ctx, id, true); err != nil {
 				return err
 			}
 		}
@@ -612,28 +623,28 @@ func (b *InMemoryBackend) reconfigure(
 	return oldInst.EnsureAdmin(ctx, user, pass) //nolint:wrapcheck // engine errors carry the cause
 }
 
-func parseShutdown(q *req) error {
+func parseShutdown(q *req) (string, error) {
 	var in struct {
 		ShutdownType string `json:"shutdownType"`
 	}
 
 	if err := q.decode(&in); err != nil {
-		return err
+		return "", err
 	}
 
 	if in.ShutdownType == "" {
-		return errMissing("shutdownType is required")
+		return "", errMissing("shutdownType is required")
 	}
 
-	if aerr := validEnum("shutdownType", in.ShutdownType, shutdownImmediate, "FAST", "SLOW"); aerr != nil {
-		return aerr
+	if aerr := validEnum("shutdownType", in.ShutdownType, shutdownImmediate, shutdownFast, shutdownSlow); aerr != nil {
+		return "", aerr
 	}
 
-	return nil
+	return strings.ToUpper(in.ShutdownType), nil
 }
 
 // StopDBSystem stops an ACTIVE DB system; data is kept.
-func (b *InMemoryBackend) StopDBSystem(id, ifMatch, token string) (string, error) {
+func (b *InMemoryBackend) StopDBSystem(id, ifMatch, token, shutdown string) (string, error) {
 	b.mu.Lock("StopDbSystem")
 	defer b.mu.Unlock()
 
@@ -657,7 +668,7 @@ func (b *InMemoryBackend) StopDBSystem(id, ifMatch, token string) (string, error
 			}
 
 			if inst := b.instance(id); inst != nil {
-				return inst.Stop(ctx) //nolint:wrapcheck // engine errors carry the cause
+				return stopInstance(ctx, inst, shutdown)
 			}
 
 			return nil
@@ -720,7 +731,11 @@ func (b *InMemoryBackend) startWork(s *DBSystem) func(ctx context.Context) error
 				return err //nolint:wrapcheck // engine errors carry the cause
 			}
 
-			return b.syncConfig(ctx, id)
+			if err := b.syncConfig(ctx, id); err != nil {
+				return err
+			}
+
+			return b.syncSettings(ctx, id, false)
 		}
 
 		return b.launchWork(id, launchIn{admin: user, password: pass})(ctx)
@@ -728,7 +743,7 @@ func (b *InMemoryBackend) startWork(s *DBSystem) func(ctx context.Context) error
 }
 
 // RestartDBSystem restarts an ACTIVE DB system.
-func (b *InMemoryBackend) RestartDBSystem(id, ifMatch, token string) (string, error) {
+func (b *InMemoryBackend) RestartDBSystem(id, ifMatch, token, shutdown string) (string, error) {
 	b.mu.Lock("RestartDbSystem")
 	defer b.mu.Unlock()
 
@@ -748,8 +763,8 @@ func (b *InMemoryBackend) RestartDBSystem(id, ifMatch, token string) (string, er
 
 		b.spawn(id, wr, func(ctx context.Context) error {
 			if inst := b.instance(id); inst != nil {
-				if err := inst.Stop(ctx); err != nil {
-					return err //nolint:wrapcheck // engine errors carry the cause
+				if err := stopInstance(ctx, inst, shutdown); err != nil {
+					return err
 				}
 			}
 
@@ -889,21 +904,23 @@ func (h *Handler) startDBSystem(q *req) error {
 }
 
 func (h *Handler) stopDBSystem(q *req) error {
-	if err := parseShutdown(q); err != nil {
+	mode, err := parseShutdown(q)
+	if err != nil {
 		return err
 	}
 
-	wr, err := h.Backend.StopDBSystem(q.param(paramDBSystem), q.ifMatch(), q.r.Header.Get(headerRetry))
+	wr, err := h.Backend.StopDBSystem(q.param(paramDBSystem), q.ifMatch(), q.r.Header.Get(headerRetry), mode)
 
 	return acceptedWR(q, wr, err)
 }
 
 func (h *Handler) restartDBSystem(q *req) error {
-	if err := parseShutdown(q); err != nil {
+	mode, err := parseShutdown(q)
+	if err != nil {
 		return err
 	}
 
-	wr, err := h.Backend.RestartDBSystem(q.param(paramDBSystem), q.ifMatch(), q.r.Header.Get(headerRetry))
+	wr, err := h.Backend.RestartDBSystem(q.param(paramDBSystem), q.ifMatch(), q.r.Header.Get(headerRetry), mode)
 
 	return acceptedWR(q, wr, err)
 }

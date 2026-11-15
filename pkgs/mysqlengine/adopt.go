@@ -17,7 +17,16 @@ func (e *Engine) dumpDirLabel() string { return "gopherstack." + e.cfg.Service +
 func (e *Engine) shapeLabel() string   { return "gopherstack." + e.cfg.Service + ".shape" }
 
 func (s *Server) shape() string {
-	return s.spec.Image + "|" + strconv.FormatInt(s.spec.MemoryBytes, 10) + "|" + strconv.FormatInt(s.spec.NanoCPUs, 10)
+	return s.spec.Image + "|" + strconv.FormatInt(
+		s.spec.MemoryBytes,
+		10,
+	) + "|" + strconv.FormatInt(
+		s.spec.NanoCPUs,
+		10,
+	) +
+		"|" + strconv.FormatBool(
+		s.spec.PublishX,
+	)
 }
 
 func (s *Server) ownerLabels() map[string]string {
@@ -52,14 +61,15 @@ func (s *Server) adoptFrom(
 		return false
 	}
 
-	dir, port := oc.Labels[s.e.dumpDirLabel()], oc.Ports[mysqlPort]
-	if !s.adoptable(oc, dir, port) {
+	dir, port, xport := oc.Labels[s.e.dumpDirLabel()], oc.Ports[mysqlPort], oc.Ports[mysqlXPort]
+	if !s.adoptable(oc, dir, port) || (s.spec.PublishX && xport == 0) {
 		s.discard(ctx, oc.ID)
 
 		return false
 	}
 
-	if pool := s.e.cfg.Ports; pool != nil && pool.Reserve(port, s.e.cfg.Service) != nil {
+	if pool := s.e.cfg.Ports; pool != nil && (pool.Reserve(port, s.e.cfg.Service) != nil ||
+		(s.spec.PublishX && pool.Reserve(xport, s.e.cfg.Service) != nil)) {
 		s.discard(ctx, oc.ID)
 
 		return false
@@ -68,7 +78,7 @@ func (s *Server) adoptFrom(
 	old := s.dir
 
 	s.mu.Lock()
-	s.dir, s.port, s.ctrNm, s.ctrID = dir, port, oc.Name, oc.ID
+	s.dir, s.port, s.xport, s.ctrNm, s.ctrID = dir, port, xport, oc.Name, oc.ID
 	s.mu.Unlock()
 
 	wctx, cancel := context.WithTimeout(ctx, adoptReadyWait)
@@ -80,10 +90,11 @@ func (s *Server) adoptFrom(
 		s.discard(ctx, oc.ID)
 
 		s.mu.Lock()
-		s.dir, s.ctrID, s.port = old, "", 0
+		s.dir, s.ctrID, s.port, s.xport = old, "", 0, 0
 		s.mu.Unlock()
 
 		portalloc.ReleaseTo(s.e.cfg.Ports, port)
+		portalloc.ReleaseTo(s.e.cfg.Ports, xport)
 
 		return false
 	}

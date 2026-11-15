@@ -317,13 +317,20 @@ type fakeInst struct {
 	seed    []byte
 	queries []string
 	tables  []string
-	pitrOff int
-	port    int
-	starts  int
-	pitrOn  bool
-	stopped bool
-	closed  bool
-	purged  bool
+
+	channels  map[string]mysqlengine.ChannelSpec
+	started   map[string]bool
+	joined    []string
+	chRemoved []string
+	chErr     error
+	chState   mysqlengine.ChannelState
+	pitrOff   int
+	port      int
+	starts    int
+	pitrOn    bool
+	stopped   bool
+	closed    bool
+	purged    bool
 }
 
 func newFakeLauncher() *fakeLauncher { return &fakeLauncher{insts: map[string]*fakeInst{}} }
@@ -338,7 +345,10 @@ func (l *fakeLauncher) Launch(_ context.Context, spec ocimysql.LaunchSpec) (ocim
 		return nil, l.failLaunch
 	}
 
-	in := &fakeInst{admins: map[string]string{}, port: 40000 + len(l.specs)}
+	in := &fakeInst{
+		admins: map[string]string{}, port: 40000 + len(l.specs),
+		channels: map[string]mysqlengine.ChannelSpec{}, started: map[string]bool{},
+	}
 	l.insts[spec.ID] = in
 
 	return &fakeHandle{l: l, in: in}, nil
@@ -550,4 +560,54 @@ func (e *env) waitFor() time.Duration {
 	}
 
 	return 30 * time.Second
+}
+
+func (h *fakeHandle) XEndpoint() (string, int) { return "127.0.0.1", h.in.port + 10000 }
+
+func (h *fakeHandle) JoinNetwork(_ context.Context, src mysqlengine.ReplSource) error {
+	h.l.mu.Lock()
+	defer h.l.mu.Unlock()
+
+	h.in.joined = append(h.in.joined, src.Network)
+
+	return nil
+}
+
+func (h *fakeHandle) AddChannel(_ context.Context, c mysqlengine.ChannelSpec, start bool) error {
+	h.l.mu.Lock()
+	defer h.l.mu.Unlock()
+
+	if h.in.chErr != nil {
+		return h.in.chErr
+	}
+
+	h.in.channels[c.Name], h.in.started[c.Name] = c, start
+
+	return nil
+}
+
+func (h *fakeHandle) SetChannel(_ context.Context, name string, on bool) error {
+	h.l.mu.Lock()
+	h.in.started[name] = on
+	h.l.mu.Unlock()
+
+	return nil
+}
+
+func (h *fakeHandle) RemoveChannel(_ context.Context, name string) error {
+	h.l.mu.Lock()
+	defer h.l.mu.Unlock()
+
+	delete(h.in.channels, name)
+	delete(h.in.started, name)
+	h.in.chRemoved = append(h.in.chRemoved, name)
+
+	return nil
+}
+
+func (h *fakeHandle) ChannelStatus(context.Context, string) (mysqlengine.ChannelState, error) {
+	h.l.mu.Lock()
+	defer h.l.mu.Unlock()
+
+	return h.in.chState, nil
 }

@@ -65,7 +65,7 @@ var (
 	}
 	hostLabelRe = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$`)
 	extraKeys   = []string{
-		"rest", "databaseConsole", "secureConnections", "encryptData", "customerContacts", "readEndpoint",
+		"rest", "databaseConsole", featureSecure, "encryptData", "customerContacts", featureReadEndpoint,
 		"telemetryConfiguration", "securityAttributes", "nsgIds", "ipv6AddressIpv6SubnetCidrPairDetails",
 		"isIpv6Enabled",
 	}
@@ -715,6 +715,11 @@ func (b *InMemoryBackend) CreateDBSystem(in CreateDBSystemIn) (Doc, string, stri
 	}
 
 	s := plan.sys
+
+	if aerr = b.checkSystemLimits(s); aerr != nil {
+		return nil, "", "", aerr
+	}
+
 	s.TransitionAt = b.transitionAt()
 
 	if b.eng != nil {
@@ -746,6 +751,15 @@ type Doc = map[string]any
 
 func newSecret() string { return newEtag() + newEtag() }
 
+// portXFor is the X protocol port clients reach: the published port under the engine, else the configured one.
+func portXFor(s *DBSystem) int {
+	if s.EngineXPort != 0 {
+		return s.EngineXPort
+	}
+
+	return s.PortX
+}
+
 func (b *InMemoryBackend) endpointFor(s *DBSystem) (string, int) {
 	if s.EngineHost != "" && s.EnginePort != 0 {
 		return s.EngineHost, s.EnginePort
@@ -766,7 +780,7 @@ func (b *InMemoryBackend) endpointDoc(s *DBSystem) Doc {
 	}
 
 	d := Doc{
-		keyIPAddress: ip, keyPort: port, keyPortX: s.PortX, keyIPVersion: ipv4,
+		keyIPAddress: ip, keyPort: port, keyPortX: portXFor(s), keyIPVersion: ipv4,
 		keyModes: []string{modeRead, "WRITE"}, keyStatus: status, keyResourceType: "DBSYSTEM", "resourceId": s.ID,
 	}
 	if s.Hostname != "" {
@@ -884,7 +898,7 @@ func (b *InMemoryBackend) systemDoc(s *DBSystem) Doc {
 	}
 	d["maintenance"], d["source"] = s.Maintenance, b.sourceDoc(s.Source)
 	d["endpoints"] = append([]Doc{b.endpointDoc(s)}, b.replicaEndpoints(s)...)
-	d["configurationId"], d[keyIPAddress], d[keyPort], d["portX"] = s.ConfigID, ip, port, s.PortX
+	d["configurationId"], d[keyIPAddress], d[keyPort], d["portX"] = s.ConfigID, ip, port, portXFor(s)
 	d["channels"] = b.channelsOf(s.ID)
 
 	if s.Controlled != nil {

@@ -275,6 +275,8 @@ func TestPitrEngine(t *testing.T) {
 
 	assert.NotNil(t, src.PointInTimeRecoveryDetails)
 
+	e.clock.Advance(2 * time.Second)
+
 	at := e.clock.Now()
 	e.clock.Advance(time.Hour)
 

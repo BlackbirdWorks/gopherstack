@@ -15,7 +15,11 @@ const shapeReplica = "MySQL.8"
 func (e *env) mkReplicaDB(t *testing.T, name string) my.DbSystem {
 	t.Helper()
 
-	return e.mkDB(t, name, func(d *my.CreateDbSystemDetails) { d.ShapeName = new(shapeReplica) })
+	return e.mkDB(
+		t,
+		name,
+		func(d *my.CreateDbSystemDetails) { d.ShapeName, d.MysqlVersion = new(shapeReplica), new("8.4.6") },
+	)
 }
 
 func (e *env) mkReplica(t *testing.T, db *string, name string) my.CreateReplicaResponse {

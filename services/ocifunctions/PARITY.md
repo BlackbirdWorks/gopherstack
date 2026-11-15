@@ -5,13 +5,13 @@ last_audit_commit: bfe657153
 last_audit_date: 2026-10-25
 overall: B
 ops:
-  CreateApplication: {wire: ok, errors: partial, state: ok, persist: ok, note: "No opc-retry-token: no functions request struct in the pinned SDK carries OpcRetryToken. Free-form and defined tags are validated against the documented limits and the OCI Identity tag definitions. compartmentId, displayName and non-empty subnetIds required; shape GENERIC_X86 (default), GENERIC_ARM or GENERIC_X86_ARM; config (4096 bytes in total), networkSecurityGroupIds, syslogUrl (tcp, udp or https), traceConfig, logging, imagePolicyConfig and tags are stored and echoed. Names are unique per compartment among live applications (409 Conflict). CREATING then ACTIVE after the transition window on the injectable clock; returns etag and opc-work-request-id."}
+  CreateApplication: {wire: ok, errors: partial, state: ok, persist: ok, note: "No opc-retry-token: no functions request struct in the pinned SDK carries OpcRetryToken. Free-form and defined tags are validated against the documented limits and the OCI Identity tag definitions. compartmentId, displayName and non-empty subnetIds required (subnets and network security groups resolved against OCI Core, security groups in the subnets' VCN); shape GENERIC_X86 (default), GENERIC_ARM or GENERIC_X86_ARM; config (4096 bytes in total), networkSecurityGroupIds, syslogUrl (tcp, udp or tcp+tls), traceConfig, logging, imagePolicyConfig and tags are stored and echoed. Names are unique per compartment among live applications (409 Conflict). CREATING then ACTIVE after the transition window on the injectable clock; returns etag and opc-work-request-id."}
   GetApplication: {wire: ok, errors: ok, state: ok, persist: n/a, note: "etag header; DELETED applications answer 404."}
   ListApplications: {wire: ok, errors: ok, state: ok, persist: n/a, note: "compartmentId required; id, displayName, lifecycleState filters; sortBy timeCreated (default, newest first), displayName or id; sortOrder; paged with opc-next-page. Summaries omit config and syslogUrl as in the SDK."}
   UpdateApplication: {wire: ok, errors: partial, state: ok, persist: ok, note: "202 with opc-work-request-id and no body, as the SDK response declares. config, networkSecurityGroupIds, syslogUrl, traceConfig, logging, imagePolicyConfig and tags replace the stored value when supplied; If-Match gives 412 NoEtagMatch. Applies immediately (no UPDATING state). A config change makes the next invocation start fresh containers."}
   DeleteApplication: {wire: ok, errors: partial, state: ok, persist: ok, note: "202 with opc-work-request-id; DELETING then DELETED. An application that still has live functions answers 409 IncorrectState."}
   ChangeApplicationCompartment: {wire: ok, errors: partial, state: ok, persist: ok, note: "Moves the application and its functions; refuses a name collision in the target compartment."}
-  CreateFunction: {wire: ok, errors: partial, state: ok, persist: ok, note: "sourceDetails CONTAINER_IMAGE with image (any pullable reference) and optional sha256 imageDigest. memoryInMBs 128 to 3072, timeoutInSeconds 5 to 300 (default 30), detachedModeTimeoutInSeconds 5 to 3600, provisionedConcurrencyConfig NONE (default) or CONSTANT with count, config (4096 bytes), traceConfig, failure and success destinations (stored verbatim) and tags. shape comes from the application, invokeEndpoint is the base URL the client addressed. Needs an ACTIVE application; names unique per application."}
+  CreateFunction: {wire: ok, errors: partial, state: ok, persist: ok, note: "sourceDetails CONTAINER_IMAGE with image (any pullable reference) and optional sha256 imageDigest. memoryInMBs 128 to 3072, timeoutInSeconds 5 to 300 (default 30), detachedModeTimeoutInSeconds 5 to 3600, provisionedConcurrencyConfig NONE (default) or CONSTANT with count, config (4096 bytes), traceConfig, failure and success destinations (NONE, STREAM, QUEUE or NOTIFICATION, checked against the emulated target services) and tags. shape comes from the application, invokeEndpoint is the base URL the client addressed. Needs an ACTIVE application; names unique per application."}
   GetFunction: {wire: ok, errors: ok, state: ok, persist: n/a, note: "etag header; sourceDetails and provisionedConcurrencyConfig use the SDK discriminators."}
   ListFunctions: {wire: ok, errors: ok, state: ok, persist: n/a, note: "applicationId required; id, displayName, lifecycleState filters; sortBy timeCreated, displayName or id; paged. Summaries omit config."}
   UpdateFunction: {wire: ok, errors: partial, state: ok, persist: ok, note: "202 with opc-work-request-id and no body. memory, timeouts, config (replaced), image, concurrency, destinations, trace config and tags; the function's warm containers are removed so the next call runs the new definition."}
@@ -32,14 +32,8 @@ families:
   routing_isolation: {status: ok, note: "Own http.Server bound in StartWorker to --oci-functions-port / OCI_FUNCTIONS_PORT (default 8154); never on the shared AWS router; cli.go reserves the port in the shared pool."}
   observability: {status: ok, note: "telemetry.WrapEchoHandler feeds ExtractOperation/ExtractResource; one lockmetrics.RWMutex guards the resource maps and a separate one the container pool."}
 items_still_open:
-  - "Pre-built function sources (PRE_BUILT_FUNCTIONS), archive sources, the pbfListings, functionsRuntimes and triggers APIs are not implemented; CreateFunction accepts only CONTAINER_IMAGE."
-  - "Provisioned concurrency, failure and success destinations, syslogUrl, traceConfig, logging and imagePolicyConfig are stored and returned but have no effect: containers are not pre-warmed, detached results are not delivered to streams, queues or notifications, function output is not forwarded to syslog and image signatures are not verified."
-  - "memoryInMBs is passed to the function as FN_MEMORY and FN_TMPSIZE is always 0; neither is enforced as a container memory or tmp limit, and shape (CPU architecture) does not select a platform."
-  - "What the live invoke endpoint does with the function's Fn-Http-Status and Fn-Http-H-* response headers (emulator: passed through, status stays 200) is not published (checked functionsinvokingfunctions.htm, functionsconcepts.htm and functionsusingapigateway.htm; the FDK source only shows the function side)"
-  - "The FDK socket is shared through a bind mount, so the container runtime must run on the same host as the emulator (not Docker Desktop VMs or a remote daemon)."
-  - "Function stdout and stderr are not captured or exposed; there is no Fn-Fdk-Version/Fn-Fdk-Runtime handling and no cloudevent-specific request shaping for fn-intent."
-  - "Subnet, network security group and image registry references are stored without being resolved against other emulated services; an image is whatever the container runtime can pull."
-  - "Application and function name syntax, per-tenancy limits, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
+  - "Pre-built function sources (PRE_BUILT_FUNCTIONS), archive sources (ARCHIVE with runtimeConfig), the pbfListings, functionsRuntimes and triggers APIs are not implemented and CreateFunction accepts only CONTAINER_IMAGE: they need Oracle-published content the emulator has no source for (the PBF catalog and its Oracle-hosted images, the runtime catalog and Oracle's function build service); the pinned SDK types are functions/create_pre_built_function_source_details.go, create_archive_function_source_details.go, pbf_listing.go and functions_runtime.go."
+  - "IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
 ---
 
 ## Verified against Oracle documentation
@@ -48,7 +42,32 @@ items_still_open:
 
 - Invoke errors 502 FunctionInvokeExecutionFailed, 502 FunctionInvokeResponseBodyTooLarge, 504 FunctionInvokeTimeout, 429 TooManyRequests, 503 FunctionInvokeServiceUnavailable and 413 FunctionInvokeRequestContentTooLarge: https://docs.oracle.com/en-us/iaas/Content/Functions/Tasks/functionstroubleshooting.htm.
 
-Pass 2026-11-13: imagePolicyConfig.keyDetails[].kmsKeyId is validated against OCI Vault when wired (404 NotAuthorizedOrNotFound for an unknown key, 409 IncorrectState when it is not ENABLED).
+- imagePolicyConfig.keyDetails[].kmsKeyId is validated against OCI Vault when wired (404 NotAuthorizedOrNotFound for an unknown key, 409 IncorrectState when it is not ENABLED).
 
-## Primary-source checks (2026-11-13)
-- ocifunctions: fnproject/fdk-go handler.go confirms a function reports its status as Fn-Http-Status and its headers as Fn-Http-H-*.
+- Function config keys must be ASCII letters, digits and `_` without a leading digit (functions/create_function_details.go, Config); syslogUrl supports tcp, udp and tcp+tls and is ignored when OCI Logging is enabled for the application (functions/create_application_details.go, SyslogUrl).
+
+- Destinations apply to detached invocations: stream, queue (queueId, channelId) and notification (topicId) kinds (functions/stream_failure_destination_details.go, queue_failure_destination_details.go, notification_failure_destination_details.go).
+
+- Service limits application-count (20), function-count (500), total-concurrency-mb (60 GB) and provisioned-concurrency-mb (40 GB): https://docs.oracle.com/en-us/iaas/Content/General/Concepts/servicelimits.htm (Universal Credits column; --oci-functions-max-applications, --oci-functions-max-functions, --oci-functions-concurrency-mb and --oci-functions-provisioned-mb change them).
+
+- fnproject/fdk-go handler.go confirms a function reports its status as Fn-Http-Status and its headers as Fn-Http-H-*.
+
+## Emulator choices where the vendor is silent
+
+- A function's Fn-Http-Status and Fn-Http-H-* response headers are passed through to the caller and the status stays 200; the invoke endpoint's handling is not published (checked functionsinvokingfunctions.htm, functionsconcepts.htm, functionsusingapigateway.htm).
+- Fn-Fdk-Version and Fn-Fdk-Runtime are set by the FDK and travel back as ordinary Fn-* response headers; fn-intent is validated and forwarded to nothing, because the platform's cloudevent request shaping is not published.
+- FN_TMPSIZE stays 0 and no tmp size limit is applied; the tmp quota of a function is not published.
+- Application and function display names are accepted up to 255 characters of any kind; the name syntax is not published (functionscreatingapps.htm gives only the uniqueness and confidentiality guidance).
+- The FDK socket directory is a host bind mount, so the container runtime must run on the emulator's host (not a Docker Desktop VM or a remote daemon).
+- A reference to an image of the emulated tenancy namespace on an `*.ocir.io` host must exist in OCI Artifacts (400 InvalidParameter otherwise) and an imageDigest must match it; references to other namespaces or hosts are not checked.
+- With an enabled imagePolicyConfig an image must carry a signature from one of the policy's keys that OCI Vault verifies (400 InvalidParameter otherwise), at function create, update and invoke; images the emulated registry does not hold are rejected.
+- The application shape selects the container platform: GENERIC_X86 linux/amd64, GENERIC_ARM linux/arm64, GENERIC_X86_ARM unconstrained.
+- Provisioned concurrency CONSTANT keeps count containers started and exempt from the idle timeout, re-created by the sweeper; reserved containers do not count against total-concurrency-mb, and a call that would exceed it answers 429.
+- Detached results go to the success or failure destination as the response body or, on failure, a JSON object with functionId, callId, errorCode and errorMessage; a notification gets a title naming the function.
+- Function stdout and stderr lines are written to the SERVICE log (category invoke) of the application as `message` (lineFormat PLAIN_TEXT) or as a JSON object with stream, applicationId, functionId and callId (lineFormat JSON); lines no log takes go to syslogUrl as RFC 5424 messages (stdout severity info, stderr severity error).
+- Limit errors answer 400 LimitExceeded.
+
+## External effects that are recorded, not performed
+
+- traceConfig: the settings are stored and echoed; no APM service is emulated, so each invocation of a tracing-enabled function logs through pkgs/logger that spans would be exported to the domain.
+- Destinations whose target service is not enabled log that delivery was not performed.

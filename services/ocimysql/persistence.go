@@ -71,7 +71,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.retry.Load(snap.Retry)
 
 	for _, s := range b.systems {
-		s.EngineHost, s.EnginePort = "", 0
+		s.EngineHost, s.EnginePort, s.EngineXPort = "", 0, 0
 	}
 
 	for _, r := range b.replicas {

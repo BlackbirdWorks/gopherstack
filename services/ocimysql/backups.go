@@ -270,6 +270,10 @@ func (b *InMemoryBackend) CreateBackup(in CreateBackupIn) (Doc, string, string, 
 		retention = *in.Retention
 	}
 
+	if aerr := b.checkManualBackupLimit(); aerr != nil {
+		return nil, "", "", aerr
+	}
+
 	bk, wr, aerr := b.startBackup(s, creationManual, name, retention, wrCreateBackup)
 	if aerr != nil {
 		return nil, "", "", aerr

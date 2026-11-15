@@ -30,6 +30,8 @@ const (
 	dataDir        = "/var/lib/mysql"
 	dumpMount      = "/gopherstack-dump"
 	servicePort    = "3306"
+	xServicePort   = "33060"
+	mysqlXPort     = 33060
 	mysqlPort      = 3306
 	readyInterval  = 500 * time.Millisecond
 	connectTimeout = 5 * time.Second
@@ -134,6 +136,8 @@ type Spec struct {
 	NanoCPUs    int64
 	// ServerID, when non-zero, starts the server replication-ready (GTID mode).
 	ServerID uint32
+	// PublishX also publishes the X protocol port (see Server.XEndpoint).
+	PublishX bool
 	// Persist keeps data in a named volume; Fresh discards an existing one first.
 	Persist bool
 	Fresh   bool
@@ -212,6 +216,7 @@ type Server struct {
 	replPass string
 	spec     Spec
 	port     int
+	xport    int
 	mu       sync.Mutex
 
 	promoted bool
@@ -274,6 +279,21 @@ func (s *Server) prepare() (container.Spec, error) {
 		NanoCPUs:    s.spec.NanoCPUs,
 	}
 
+	if s.spec.PublishX {
+		xp, xerr := portalloc.AcquireFrom(s.e.cfg.Ports, s.e.cfg.Service)
+		if xerr != nil {
+			s.releasePort()
+
+			return container.Spec{}, fmt.Errorf("host port for the X protocol: %w", xerr)
+		}
+
+		s.mu.Lock()
+		s.xport = xp
+		s.mu.Unlock()
+
+		spec.Ports = append(spec.Ports, container.PortSpec(container.LoopbackHost, strconv.Itoa(xp), xServicePort))
+	}
+
 	if s.spec.ServerID > 0 {
 		spec.Cmd = replicationFlags(s.spec.ServerID)
 	}
@@ -301,11 +321,12 @@ func containerName(prefix, id string, port int) string {
 
 func (s *Server) releasePort() {
 	s.mu.Lock()
-	port := s.port
-	s.port = 0
+	port, xport := s.port, s.xport
+	s.port, s.xport = 0, 0
 	s.mu.Unlock()
 
 	portalloc.ReleaseTo(s.e.cfg.Ports, port)
+	portalloc.ReleaseTo(s.e.cfg.Ports, xport)
 }
 
 func (s *Server) container() string {
@@ -313,6 +334,14 @@ func (s *Server) container() string {
 	defer s.mu.Unlock()
 
 	return s.ctrID
+}
+
+// XEndpoint is the host and published port of the X protocol; the port is 0 unless Spec.PublishX is set.
+func (s *Server) XEndpoint() (string, int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return container.LoopbackHost, s.xport
 }
 
 // Endpoint is the host and published port clients connect to.

@@ -221,6 +221,10 @@ func (b *InMemoryBackend) CopyBackup(in CopyBackupIn) (Doc, string, string, erro
 		return nil, "", "", aerr
 	}
 
+	if aerr = b.checkCopyLimit(); aerr != nil {
+		return nil, "", "", aerr
+	}
+
 	now := b.nowUTC()
 	cp := *src
 	cp.ID, cp.State, cp.Etag, cp.Seq = newOCID("mysqlbackup"), stateCreating, newEtag(), b.nextSeq()

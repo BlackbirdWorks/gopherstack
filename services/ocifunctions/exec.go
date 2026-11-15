@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"io"
@@ -43,6 +44,7 @@ const (
 	hdrHTTPURL    = "Fn-Http-Request-Url"
 	hdrHTTPPrefix = "Fn-Http-H-"
 	callIDLen     = 26
+	mibShift      = 20
 	nameSuffixLen = 8
 )
 
@@ -70,9 +72,14 @@ var dropForward = map[string]bool{
 
 // execPlan is everything needed to run one function, captured under the backend lock.
 type execPlan struct {
+	trace                                    *TraceConfig
 	fnID, fnName, appID, appName, image, sig string
+	platform, syslog, lineFormat             string
 	env                                      []string
+	success, failure                         jsontext.Value
 	timeout, detached                        time.Duration
+	mem                                      int64
+	provisioned                              int
 }
 
 // InvokeIn is one invocation request.
@@ -93,11 +100,15 @@ type InvokeOut struct {
 }
 
 type warm struct {
-	last   time.Time
-	client *http.Client
-	id     string
-	dir    string
-	sig    string
+	last    time.Time
+	client  *http.Client
+	id      string
+	dir     string
+	sig     string
+	fn      string
+	outSeen int
+	errSeen int
+	pinned  bool
 }
 
 type executor struct {
@@ -108,13 +119,18 @@ type executor struct {
 	now      func() time.Time
 	cancel   context.CancelFunc
 	mu       *lockmetrics.RWMutex
-	noEngine bool
+	pinned   map[string]int
+	warming  map[string]bool
+	logs     func(p execPlan, callID, stream string, lines []string)
 	wg       sync.WaitGroup
 	startup  time.Duration
 	idleTTL  time.Duration
+	unit     time.Duration
+	maxMB    int64
+	busyMB   int64
 	maxLive  int
 	busy     int
-	unit     time.Duration
+	noEngine bool
 }
 
 func newExecutor(now func() time.Time) *executor {
@@ -123,6 +139,7 @@ func newExecutor(now func() time.Time) *executor {
 
 	return &executor{
 		mu: lockmetrics.New("ocifunctions.exec"), now: now, runCtx: ctx, cancel: cancel, idle: map[string][]*warm{},
+		pinned: map[string]int{}, warming: map[string]bool{}, maxMB: d.ConcurrencyMB,
 		startup: d.StartupTimeout, idleTTL: d.IdleTimeout, maxLive: d.MaxContainers,
 		unit: time.Second,
 	}
@@ -130,6 +147,21 @@ func newExecutor(now func() time.Time) *executor {
 
 // Configure applies the engine, timeout and capacity settings.
 func (b *InMemoryBackend) Configure(s Settings) {
+	b.mu.Lock("Configure")
+
+	if s.MaxApplications > 0 {
+		b.limits.apps = s.MaxApplications
+	}
+
+	if s.MaxFunctions > 0 {
+		b.limits.funcs = s.MaxFunctions
+	}
+
+	if s.ProvisionedMB > 0 {
+		b.limits.provisionedMB = s.ProvisionedMB
+	}
+	b.mu.Unlock()
+
 	e := b.exec
 	e.mu.Lock("Configure")
 	defer e.mu.Unlock()
@@ -145,6 +177,10 @@ func (b *InMemoryBackend) Configure(s Settings) {
 
 	if s.MaxContainers > 0 {
 		e.maxLive = s.MaxContainers
+	}
+
+	if s.ConcurrencyMB > 0 {
+		e.maxMB = s.ConcurrencyMB
 	}
 }
 
@@ -228,6 +264,12 @@ func (e *executor) teardown(w *warm) {
 		return
 	}
 
+	if w.pinned {
+		e.mu.Lock("unpin")
+		e.pinned[w.fn]--
+		e.mu.Unlock()
+	}
+
 	if w.client != nil {
 		w.client.CloseIdleConnections()
 	}
@@ -284,7 +326,7 @@ func (e *executor) reap() {
 		keep := ws[:0:0]
 
 		for _, w := range ws {
-			if now.Sub(w.last) > ttl {
+			if !w.pinned && now.Sub(w.last) > ttl {
 				stale = append(stale, w)
 			} else {
 				keep = append(keep, w)
@@ -308,6 +350,12 @@ func (e *executor) reap() {
 // ok is false when the container cap is reached and nothing idle can be evicted.
 func (e *executor) acquire(p execPlan) (*warm, bool) {
 	e.mu.Lock("acquire")
+
+	if e.maxMB > 0 && e.busyMB+p.mem > e.maxMB {
+		e.mu.Unlock()
+
+		return nil, false
+	}
 
 	var w *warm
 
@@ -338,6 +386,7 @@ func (e *executor) acquire(p execPlan) (*warm, bool) {
 
 	if ok {
 		e.busy++
+		e.busyMB += p.mem
 	}
 	e.mu.Unlock()
 
@@ -370,7 +419,7 @@ func (e *executor) makeRoomLocked() []*warm {
 
 	for k, ws := range e.idle {
 		for _, w := range ws {
-			if oldest == nil || w.last.Before(oldest.last) {
+			if !w.pinned && (oldest == nil || w.last.Before(oldest.last)) {
 				oldest, key = w, k
 			}
 		}
@@ -388,6 +437,12 @@ func (e *executor) makeRoomLocked() []*warm {
 func (e *executor) abandon() {
 	e.mu.Lock("abandon")
 	e.busy--
+	e.mu.Unlock()
+}
+
+func (e *executor) releaseMem(mem int64) {
+	e.mu.Lock("releaseMem")
+	e.busyMB -= mem
 	e.mu.Unlock()
 }
 
@@ -480,7 +535,7 @@ func (e *executor) start(ctx context.Context, rt Runner, p execPlan) (*warm, err
 		return nil, err
 	}
 
-	w := &warm{dir: dir, sig: p.sig}
+	w := &warm{dir: dir, sig: p.sig, fn: p.fnID}
 
 	if st, ok := rt.(imageStore); ok {
 		if has, herr := st.HasImage(ctx, p.image); herr != nil || !has {
@@ -493,10 +548,12 @@ func (e *executor) start(ctx context.Context, rt Runner, p execPlan) (*warm, err
 	}
 
 	w.id, err = rt.CreateAndStart(ctx, container.Spec{
-		Image:  p.image,
-		Name:   "gopherstack-ocifn-" + awsid.NewN("", nameSuffixLen),
-		Env:    p.env,
-		Mounts: []string{dir + ":" + fdkSocketDir},
+		Image:       p.image,
+		Name:        "gopherstack-ocifn-" + awsid.NewN("", nameSuffixLen),
+		Env:         p.env,
+		Mounts:      []string{dir + ":" + fdkSocketDir},
+		MemoryBytes: p.mem << mibShift,
+		Platform:    p.platform,
 	})
 	if err != nil {
 		e.teardown(w)
@@ -549,11 +606,10 @@ func (e *executor) call(
 	w *warm,
 	p execPlan,
 	in InvokeIn,
+	callID string,
 ) (InvokeOut, bool, *APIError) {
 	callCtx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
-
-	callID := newCallID()
 
 	r, err := http.NewRequestWithContext(callCtx, http.MethodPost, "http://fn"+fdkCallPath, bytes.NewReader(in.Body))
 	if err != nil {
@@ -604,26 +660,32 @@ func callError(callCtx, parent context.Context, p execPlan, err error) *APIError
 }
 
 // run executes one invocation on a warm container, starting one when none is available.
-func (e *executor) run(ctx context.Context, p execPlan, in InvokeIn) (InvokeOut, *APIError) {
+func (e *executor) run(ctx context.Context, p execPlan, in InvokeIn, callID string) (InvokeOut, *APIError) {
 	rt, err := e.runner()
 	if err != nil {
-		return InvokeOut{}, errUnavailable("function engine unavailable: " + err.Error())
+		return InvokeOut{CallID: callID}, errUnavailable("function engine unavailable: " + err.Error())
 	}
 
 	w, ok := e.acquire(p)
 	if !ok {
-		return InvokeOut{}, errThrottled("too many concurrent function containers")
+		return InvokeOut{CallID: callID}, errThrottled("too many concurrent function containers")
 	}
+
+	defer e.releaseMem(p.mem)
 
 	if w == nil {
 		if w, err = e.start(ctx, rt, p); err != nil {
 			e.abandon()
 
-			return InvokeOut{}, errExecFailed("function container failed to start: " + err.Error())
+			return InvokeOut{CallID: callID}, errExecFailed("function container failed to start: " + err.Error())
 		}
 	}
 
-	out, keep, aerr := e.call(ctx, w, p, in)
+	out, keep, aerr := e.call(ctx, w, p, in, callID)
+	out.CallID = callID
+
+	e.captureLogs(rt, w, p, callID)
+
 	if keep {
 		e.release(p.fnID, w)
 	} else {
@@ -633,8 +695,9 @@ func (e *executor) run(ctx context.Context, p execPlan, in InvokeIn) (InvokeOut,
 	return out, aerr
 }
 
-func execSig(image string, env []string) string {
-	sum := sha256.Sum256([]byte(image + "\x00" + strings.Join(env, "\x00")))
+func execSig(image string, env []string, mem int64, platform string) string {
+	sum := sha256.Sum256([]byte(image + "\x00" + strings.Join(env, "\x00") + "\x00" +
+		strconv.FormatInt(mem, 10) + "\x00" + platform))
 
 	return hex.EncodeToString(sum[:])
 }
@@ -668,6 +731,10 @@ func (b *InMemoryBackend) plan(fnID string) (execPlan, *APIError) {
 	cfg["FN_FORMAT"], cfg["FN_LISTENER"] = fdkFormat, "unix:"+fdkSocketDir+"/"+fdkSocketName
 	cfg["FN_MEMORY"], cfg["FN_TMPSIZE"] = strconv.FormatInt(f.Memory, 10), "0"
 
+	if aerr := b.checkRunnableImage(app, f); aerr != nil {
+		return execPlan{}, aerr
+	}
+
 	keys := slices.Sorted(maps.Keys(cfg))
 	env := make([]string, 0, len(keys))
 
@@ -677,9 +744,20 @@ func (b *InMemoryBackend) plan(fnID string) (execPlan, *APIError) {
 
 	unit := b.exec.timeoutUnit()
 	ref := imageRef(f.Image, f.ImageDigest)
+	platform := shapePlatform(app.Shape)
 	p := execPlan{
-		fnID: f.ID, fnName: f.Name, appID: app.ID, appName: app.Name, image: ref, env: env, sig: execSig(ref, env),
-		timeout: time.Duration(f.Timeout) * unit,
+		fnID: f.ID, fnName: f.Name, appID: app.ID, appName: app.Name, image: ref, env: env,
+		sig: execSig(ref, env, f.Memory, platform), timeout: time.Duration(f.Timeout) * unit,
+		mem: f.Memory, platform: platform, syslog: app.SyslogURL, success: f.Success, failure: f.Failure,
+		trace: cmpPtr(f.TraceConfig, app.TraceConfig),
+	}
+
+	if app.Logging != nil {
+		p.lineFormat = app.Logging.LineFormat
+	}
+
+	if f.Provisioned.Strategy == concConstant && f.Provisioned.Count != nil {
+		p.provisioned = *f.Provisioned.Count
 	}
 
 	p.detached = p.timeout
@@ -706,8 +784,10 @@ func (b *InMemoryBackend) Invoke(ctx context.Context, fnID string, in InvokeIn) 
 		return b.invokeDetached(p, in)
 	}
 
+	b.logTrace(ctx, p)
+
 	start := b.nowUTC()
-	out, aerr := b.exec.run(ctx, p, in)
+	out, aerr := b.exec.run(ctx, p, in, newCallID())
 	b.observe(p, start, out.CallID, out.Status, aerr)
 
 	if aerr != nil {
@@ -730,15 +810,20 @@ func (b *InMemoryBackend) invokeDetached(p execPlan, in InvokeIn) (InvokeOut, er
 	in.Body = bytes.Clone(in.Body)
 	in.Header = in.Header.Clone()
 
+	callID := newCallID()
+
 	e.wg.Go(func() {
 		ctx, cancel := context.WithTimeout(e.runCtx, p.detached+e.startupTimeout())
 		defer cancel()
 
 		p.timeout = p.detached
 
+		b.logTrace(ctx, p)
+
 		start := b.nowUTC()
-		res, aerr := e.run(ctx, p, in)
+		res, aerr := e.run(ctx, p, in, callID)
 		b.observe(p, start, res.CallID, res.Status, aerr)
+		b.deliverResult(ctx, p, res, aerr)
 
 		if aerr != nil {
 			logger.Load(ctx).WarnContext(ctx, "ocifunctions: detached invocation failed",
@@ -746,7 +831,7 @@ func (b *InMemoryBackend) invokeDetached(p execPlan, in InvokeIn) (InvokeOut, er
 		}
 	})
 
-	return InvokeOut{Status: http.StatusAccepted, Header: http.Header{}, CallID: newCallID()}, nil
+	return InvokeOut{Status: http.StatusAccepted, Header: http.Header{}, CallID: callID}, nil
 }
 
 func (e *executor) timeoutUnit() time.Duration {

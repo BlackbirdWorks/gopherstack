@@ -28,6 +28,8 @@ type fnCall struct {
 
 type fakeBox struct {
 	srv  *http.Server
+	out  strings.Builder
+	err  strings.Builder
 	spec container.Spec
 }
 
@@ -82,6 +84,11 @@ func (f *fakeRuntime) handler(id string, spec container.Spec) http.Handler {
 
 		f.mu.Lock()
 		f.calls = append(f.calls, fnCall{Header: r.Header.Clone(), Body: string(body), Box: id})
+
+		if b := f.boxes[id]; b != nil && string(body) != "hang" && string(body) != "block" {
+			b.out.WriteString("out:" + string(body) + "\n")
+			b.err.WriteString("err:" + string(body) + "\n")
+		}
 		f.mu.Unlock()
 
 		switch string(body) {
@@ -184,4 +191,19 @@ func (f *fakeRuntime) running() int {
 	defer f.mu.Unlock()
 
 	return len(f.boxes)
+}
+
+func (f *fakeRuntime) ReadLogs(_ context.Context, id, _ string, _ bool, stdout, stderr io.Writer) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	b := f.boxes[id]
+	if b == nil {
+		return container.ErrContainerNotFound
+	}
+
+	_, _ = io.WriteString(stdout, b.out.String())
+	_, _ = io.WriteString(stderr, b.err.String())
+
+	return nil
 }

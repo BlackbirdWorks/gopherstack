@@ -42,6 +42,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	}
 
 	backend := NewInMemoryBackend()
+	backend.Configure(settings)
 	if ec, ok := ctx.Config.(EngineConfigProvider); ok && ec.GetOCIMySQLEngine() == EngineDocker {
 		enableDockerEngine(ctx, backend)
 	}

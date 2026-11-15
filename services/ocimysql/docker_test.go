@@ -457,3 +457,58 @@ func (e *env) mkConfigForDocker(t *testing.T) *string {
 
 	return e.mkConfig(t, "plain", &my.ConfigurationVariables{MaxConnections: new(55)})
 }
+
+func TestDockerChannelFromEmulatedSource(t *testing.T) {
+	t.Parallel()
+
+	e := dockerEnv(t)
+	ctx := t.Context()
+
+	src := e.awaitState(t, e.createDB(t, dbDetails("chsrc")).Id, my.DbSystemLifecycleStateActive)
+	srcConn := e.connect(t, src, adminPass)
+
+	for _, stmt := range []string{
+		"CREATE DATABASE shop",
+		"CREATE TABLE shop.orders (id INT PRIMARY KEY, item VARCHAR(40))",
+		"INSERT INTO shop.orders VALUES (1, 'widget')",
+		"CREATE USER 'repl'@'%' IDENTIFIED BY 'Repl#Pass1'",
+		"GRANT REPLICATION SLAVE ON *.* TO 'repl'@'%'",
+	} {
+		_, err := srcConn.ExecContext(ctx, stmt)
+		require.NoError(t, err, stmt)
+	}
+
+	tgt := e.awaitState(t, e.createDB(t, dbDetails("chtgt")).Id, my.DbSystemLifecycleStateActive)
+
+	created, err := e.ch.CreateChannel(ctx, my.CreateChannelRequest{DisplayName: new("live"),
+		Source: my.CreateChannelSourceFromMysqlDetails{
+			Hostname: src.IpAddress, Port: src.Port, Username: new("repl"), Password: new("Repl#Pass1"),
+			SslMode: my.ChannelSourceMysqlSslModeRequired,
+		},
+		Target: my.CreateChannelTargetFromDbSystemDetails{DbSystemId: tgt.Id, ChannelName: new("live")}})
+	require.NoError(t, err)
+
+	got := e.awaitChannel(t, created.Id, my.ChannelLifecycleStateActive)
+	require.NotNil(t, got.Id)
+
+	tgtConn := e.connect(t, tgt, adminPass)
+
+	require.Eventually(t, func() bool {
+		var n int
+
+		return tgtConn.QueryRowContext(ctx, "SELECT COUNT(*) FROM shop.orders").Scan(&n) == nil && n == 1
+	}, time.Minute, 500*time.Millisecond, "the source's rows replicate into the target")
+
+	_, err = srcConn.ExecContext(ctx, "INSERT INTO shop.orders VALUES (2, 'gadget')")
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		var n int
+
+		return tgtConn.QueryRowContext(ctx, "SELECT COUNT(*) FROM shop.orders").Scan(&n) == nil && n == 2
+	}, time.Minute, 500*time.Millisecond, "later writes replicate")
+
+	st, err := e.ch.GenerateChannelStatus(ctx, my.GenerateChannelStatusRequest{ChannelId: created.Id})
+	require.NoError(t, err)
+	assert.True(t, *st.ChannelStatusResult.IsHealthy)
+}

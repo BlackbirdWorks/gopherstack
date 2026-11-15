@@ -114,6 +114,7 @@ type DBSystem struct {
 	Port           int                       `json:"port"`
 	PortX          int                       `json:"portX"`
 	EnginePort     int                       `json:"enginePort,omitempty"`
+	EngineXPort    int                       `json:"engineXPort,omitempty"`
 	Seq            int64                     `json:"seq"`
 	ServerID       uint32                    `json:"serverID,omitempty"`
 	AutoExpand     bool                      `json:"isAutoExpandStorageEnabled"`
@@ -157,6 +158,7 @@ type ChannelSource struct {
 	Hostname    string                    `json:"hostname"`
 	Username    string                    `json:"username"`
 	SslMode     string                    `json:"sslMode"`
+	Password    string                    `json:"-"`
 	Port        int                       `json:"port"`
 	HasPassword bool                      `json:"hasPassword"`
 }
@@ -172,12 +174,13 @@ type ChannelTarget struct {
 	DelayInSeconds                  int            `json:"delayInSeconds"`
 }
 
-// Channel is a replication channel. It records configuration and lifecycle only; no data is replicated.
+// Channel is a replication channel; under the docker engine its target server replicates from the source.
 type Channel struct {
 	TimeCreated   time.Time     `json:"timeCreated"`
 	TimeUpdated   time.Time     `json:"timeUpdated"`
 	Tags          Tags          `json:"tags"`
 	TransitionAt  *time.Time    `json:"transitionAt,omitempty"`
+	Live          *ChannelLive  `json:"-"`
 	Details       string        `json:"details,omitempty"`
 	ID            string        `json:"id"`
 	CompartmentID string        `json:"compartmentId"`
@@ -191,6 +194,12 @@ type Channel struct {
 	Source        ChannelSource `json:"source"`
 	Seq           int64         `json:"seq"`
 	Enabled       bool          `json:"isEnabled"`
+}
+
+// ChannelLive is the replication health last read from the target server.
+type ChannelLive struct {
+	Errors  []string
+	Healthy bool
 }
 
 // Configuration is a DEFAULT or CUSTOM set of MySQL variables for a shape.

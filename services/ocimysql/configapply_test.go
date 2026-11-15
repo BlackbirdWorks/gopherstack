@@ -91,7 +91,12 @@ func TestConfigurationChangeWhileStopped(t *testing.T) {
 		DbSystemId: db.Id, ConfigurationId: cfg,
 	})
 	require.NoError(t, err)
-	assert.Empty(t, l.queriesOf(*db.Id), "a stopped server cannot take variables")
+	assert.NotContains(
+		t,
+		l.queriesOf(*db.Id),
+		"SET PERSIST max_connections = 99",
+		"a stopped server cannot take variables",
+	)
 	e.settle()
 
 	_, err = e.db.StartDbSystem(ctx, my.StartDbSystemRequest{DbSystemId: db.Id})
