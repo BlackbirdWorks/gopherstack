@@ -47,6 +47,8 @@ const (
 	shapeFixed  = "VM.Standard2.1"
 	shapeArm    = "VM.Standard.A1.Flex"
 	testVersion = "v1.34.2"
+	nsgA        = "ocid1.networksecuritygroup.oc1.iad.nsg"
+	nsgB        = "ocid1.networksecuritygroup.oc1.iad.nsgb"
 	keyOK       = "ocid1.key.oc1.iad.keyok"
 	keyOff      = "ocid1.key.oc1.iad.keyoff"
 )
@@ -95,6 +97,17 @@ func (fakeNet) Subnet(id string) (oke.SubnetInfo, bool) {
 	s, ok := fakeSubnets()[id]
 
 	return s, ok
+}
+
+func (fakeNet) NSG(id string) (string, bool) {
+	switch id {
+	case nsgA:
+		return vcnA, true
+	case nsgB:
+		return vcnB, true
+	}
+
+	return "", false
 }
 
 func (fakeNet) VCNExists(id string) bool { return id == vcnA || id == vcnB }

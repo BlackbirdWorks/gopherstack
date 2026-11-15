@@ -383,8 +383,27 @@ type AddonOptionWire struct {
 }
 
 type addonVersionWire struct {
-	Status        string `json:"status"`
-	VersionNumber string `json:"versionNumber"`
+	Status         string         `json:"status"`
+	VersionNumber  string         `json:"versionNumber"`
+	Configurations []addonCfgWire `json:"configurations,omitempty"`
+}
+
+type addonCfgWire struct {
+	Key         string `json:"key"`
+	Value       string `json:"value,omitempty"`
+	Description string `json:"description"`
+	IsRequired  bool   `json:"isRequired"`
+}
+
+func addonCfgWires(name string) []addonCfgWire {
+	cfgs := addonConfigs(name)
+	out := make([]addonCfgWire, 0, len(cfgs))
+
+	for _, c := range cfgs {
+		out = append(out, addonCfgWire{IsRequired: c.required, Key: c.key, Value: c.def, Description: c.desc})
+	}
+
+	return out
 }
 
 // ListAddonOptions lists the add-ons available for a Kubernetes version.
@@ -413,7 +432,9 @@ func (b *InMemoryBackend) ListAddonOptions(k8s, name string, o ListOpts) (page.P
 
 		w := AddonOptionWire{Name: opt.name, LifecycleState: "ACTIVE", IsEssential: opt.essential}
 		for _, v := range opt.versions[minor] {
-			w.Versions = append(w.Versions, addonVersionWire{Status: "ACTIVE", VersionNumber: v})
+			w.Versions = append(w.Versions, addonVersionWire{
+				Status: "ACTIVE", VersionNumber: v, Configurations: addonCfgWires(opt.name),
+			})
 		}
 
 		all = append(all, w)

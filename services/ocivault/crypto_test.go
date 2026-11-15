@@ -249,6 +249,7 @@ func TestDecryptAfterRotation(t *testing.T) {
 
 			v2, err := ce.m.CreateKeyVersion(t.Context(), keymanagement.CreateKeyVersionRequest{KeyId: key.Id})
 			require.NoError(t, err)
+			ce.e.settle()
 
 			fresh, err := ce.encrypt(t, key, "after rotation", nil, "")
 			require.NoError(t, err)
@@ -575,6 +576,7 @@ func TestSignOldVersionAfterRotation(t *testing.T) {
 
 	_, err = ce.m.CreateKeyVersion(t.Context(), keymanagement.CreateKeyVersionRequest{KeyId: key.Id})
 	require.NoError(t, err)
+	ce.e.settle()
 
 	assert.True(
 		t,

@@ -59,6 +59,10 @@ func (f *fakeRuntime) StopAndRemove(_ context.Context, id string) error {
 	return nil
 }
 
+func (f *fakeRuntime) Exec(context.Context, string, []string) (container.ExecResult, error) {
+	return container.ExecResult{Stdout: "172.17.0.9\n"}, nil
+}
+
 func (f *fakeRuntime) created() []container.Spec {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -307,4 +311,79 @@ func TestEngineConfigValidation(t *testing.T) {
 			require.ErrorIs(t, err, tt.want)
 		})
 	}
+}
+
+func (f *fakeRuntime) agentSpecs() []container.Spec {
+	var out []container.Spec
+
+	for _, sp := range f.created() {
+		if len(sp.Entrypoint) > 1 && sp.Entrypoint[1] == "agent" {
+			out = append(out, sp)
+		}
+	}
+
+	return out
+}
+
+func TestEngineWorkerNodesJoinAsAgents(t *testing.T) {
+	t.Parallel()
+
+	e := newEngineEnv(t, nil)
+	ctx := t.Context()
+	id, _ := e.create(t, "agents")
+
+	close(e.gate.open)
+	require.Eventually(t, func() bool {
+		return e.cluster(t, id).LifecycleState == ke.ClusterLifecycleStateActive
+	}, engineMax, engineGap)
+
+	d := poolDetails(id, "agent-pool")
+	d.NodeConfigDetails.Size = new(2)
+	d.InitialNodeLabels = []ke.KeyValue{{Key: new("tier"), Value: new("web")}}
+
+	_, err := e.ce.CreateNodePool(ctx, ke.CreateNodePoolRequest{CreateNodePoolDetails: d})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool { return len(e.rt.agentSpecs()) == 2 }, engineMax, engineGap)
+
+	server := e.rt.created()[0]
+	agent := e.rt.agentSpecs()[0]
+	assert.Equal(t, server.Image, agent.Image)
+	assert.True(t, agent.Privileged)
+	assert.Contains(t, agent.Env, "K3S_URL=https://172.17.0.9:6443")
+	assert.Contains(t, agent.Entrypoint, "tier=web")
+
+	var joinTok string
+
+	for _, kv := range server.Env {
+		if v, ok := strings.CutPrefix(kv, "K3S_TOKEN="); ok {
+			joinTok = v
+		}
+	}
+
+	require.NotEmpty(t, joinTok)
+	assert.Contains(t, agent.Env, "K3S_TOKEN="+joinTok)
+
+	list, err := e.ce.ListNodePools(ctx, ke.ListNodePoolsRequest{CompartmentId: new(testCompartment), Name: d.Name})
+	require.NoError(t, err)
+
+	pool, err := e.ce.GetNodePool(ctx, ke.GetNodePoolRequest{NodePoolId: list.Items[0].Id})
+	require.NoError(t, err)
+
+	names := []string{*pool.Nodes[0].Name, *pool.Nodes[1].Name}
+	for _, sp := range e.rt.agentSpecs() {
+		assert.Contains(t, names, sp.Entrypoint[3])
+	}
+
+	e.settle()
+
+	_, err = e.ce.DeleteNode(ctx, ke.DeleteNodeRequest{
+		NodePoolId: pool.Id, NodeId: pool.Nodes[0].Id, IsDecrementSize: new(true),
+	})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return len(e.rt.removedIDs()) == 1 }, engineMax, engineGap)
+
+	_, err = e.ce.DeleteCluster(ctx, ke.DeleteClusterRequest{ClusterId: id})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return len(e.rt.removedIDs()) == 3 }, engineMax, engineGap)
 }

@@ -64,7 +64,7 @@ func (b *InMemoryBackend) CreateVault(in CreateVaultIn, hostPort string) (VaultW
 		return VaultWire{}, "", aerr
 	}
 
-	if in.VaultType != "DEFAULT" && in.VaultType != vaultTypePrivate {
+	if in.VaultType != vaultTypeDefault && in.VaultType != vaultTypePrivate {
 		return VaultWire{}, "", errParam("vaultType must be DEFAULT or VIRTUAL_PRIVATE")
 	}
 
@@ -81,6 +81,10 @@ func (b *InMemoryBackend) CreateVault(in CreateVaultIn, hostPort string) (VaultW
 	}
 
 	if aerr := b.checkTags(in.FreeformTags, in.DefinedTags); aerr != nil {
+		return VaultWire{}, "", aerr
+	}
+
+	if aerr := b.checkVaultLimit(in.VaultType); aerr != nil {
 		return VaultWire{}, "", aerr
 	}
 

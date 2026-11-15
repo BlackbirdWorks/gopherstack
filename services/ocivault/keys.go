@@ -47,6 +47,7 @@ type KeyFilter struct {
 	Algorithm      string
 	CurveID        string
 	Length         int
+	Replica        bool
 }
 
 func validateCreateKey(in *CreateKeyIn) *APIError {
@@ -97,6 +98,24 @@ func (b *InMemoryBackend) addVersion(k *Key, vaultPrefix, origin string, materia
 	return kv
 }
 
+// rotateVersion adds a version that is ENABLING for the transition delay and becomes current once it is ENABLED.
+func (b *InMemoryBackend) rotateVersion(k *Key, vaultPrefix, origin string, material []byte) *KeyVersion {
+	prev := k.CurrentVersion
+	kv := b.addVersion(k, vaultPrefix, origin, material)
+	k.CurrentVersion = prev
+	kv.Promote = true
+	b.begin(&kv.State, &kv.transition, stateEnabling, stateEnabled)
+	promoteVersion(k, kv)
+
+	return kv
+}
+
+func promoteVersion(k *Key, kv *KeyVersion) {
+	if kv.Promote && kv.State == stateEnabled {
+		k.CurrentVersion, kv.Promote = kv.ID, false
+	}
+}
+
 func (b *InMemoryBackend) storeKey(v *Vault, in CreateKeyIn, material []byte, origin string) (*Key, *APIError) {
 	k := &Key{
 		ID: newOCID("key", v.Prefix), VaultID: v.ID, CompartmentID: in.CompartmentID, DisplayName: in.DisplayName,
@@ -117,6 +136,7 @@ func (b *InMemoryBackend) storeKey(v *Vault, in CreateKeyIn, material []byte, or
 	b.begin(&k.State, &k.transition, stateEnabling, stateEnabled)
 	b.keys[k.ID] = k
 	b.stampKey(k)
+	k.CreatedRepl = k.ReplicationID
 
 	return k, nil
 }
@@ -150,6 +170,10 @@ func (b *InMemoryBackend) CreateKey(vaultID string, in CreateKeyIn) (KeyWire, st
 	}
 
 	if aerr = b.checkTags(in.FreeformTags, in.DefinedTags); aerr != nil {
+		return KeyWire{}, "", aerr
+	}
+
+	if aerr = b.checkVersionLimit(v, in.ProtectionMode, in.KeyShape, true); aerr != nil {
 		return KeyWire{}, "", aerr
 	}
 
@@ -231,7 +255,7 @@ func (b *InMemoryBackend) ListKeys(
 	var all []*Key
 
 	for _, k := range b.keys {
-		if k.VaultID == vaultID && k.CompartmentID == compartment && f.match(k) {
+		if k.VaultID == vaultID && k.CompartmentID == compartment && f.match(k) && (!f.Replica || b.keyReplicated(k)) {
 			all = append(all, k)
 		}
 	}
@@ -494,11 +518,15 @@ func (b *InMemoryBackend) CreateKeyVersion(vaultID, keyID, token string) (keyVer
 		return keyVersionWire{}, "", errState("Key " + keyID + " must be ENABLED to create a version")
 	}
 
-	kv := b.addVersion(k, v.Prefix, originInternal, material)
+	if aerr = b.checkVersionLimit(v, k.ProtectionMode, k.Shape, false); aerr != nil {
+		return keyVersionWire{}, "", aerr
+	}
+
+	kv := b.rotateVersion(k, v.Prefix, originInternal, material)
 	b.touchKey(k)
 	b.retryNote(scope, token, kv.ID)
 
-	return keyVersionFull(k, kv, stateEnabling), k.Etag, nil
+	return keyVersionFull(k, kv), k.Etag, nil
 }
 
 // GetKeyVersion returns one key version including its public key.
@@ -516,7 +544,7 @@ func (b *InMemoryBackend) GetKeyVersion(vaultID, keyID, versionID string) (keyVe
 		return keyVersionWire{}, "", aerr
 	}
 
-	return keyVersionFull(k, kv, ""), k.Etag, nil
+	return keyVersionFull(k, kv), k.Etag, nil
 }
 
 // ListKeyVersions lists a key's versions.

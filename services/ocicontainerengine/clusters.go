@@ -135,6 +135,30 @@ func (b *InMemoryBackend) checkSubnet(field, id, vcnID string) (SubnetInfo, *API
 	return s, nil
 }
 
+func (b *InMemoryBackend) checkNsgs(field string, ids []string, vcnID string) *APIError {
+	for _, id := range ids {
+		if !strings.HasPrefix(id, "ocid1.networksecuritygroup.") {
+			return errParam(field + " must hold network security group OCIDs")
+		}
+
+		nn, ok := b.net.(NSGNetwork)
+		if !ok {
+			continue
+		}
+
+		nsgVcn, found := nn.NSG(id)
+		if !found {
+			return errParam(field + " " + id + " does not reference an existing network security group")
+		}
+
+		if vcnID != "" && nsgVcn != vcnID {
+			return errParam(field + " " + id + " is not in VCN " + vcnID)
+		}
+	}
+
+	return nil
+}
+
 func (b *InMemoryBackend) checkKey(field, keyID string) *APIError {
 	if !strings.HasPrefix(keyID, "ocid1.key.") {
 		return errParam(field + " must be the OCID of a Vault key")
@@ -194,8 +218,8 @@ func (b *InMemoryBackend) checkOptions(in *ClusterOptions, vcnID string) (Cluste
 		return out, nil
 	}
 
-	if len(in.OIDCAuth) > 0 || len(in.OIDCDiscovery) > 0 {
-		return out, errParam("OpenID Connect authentication and discovery are not supported by this emulator")
+	if aerr := checkOIDC(in.OIDCAuth); aerr != nil {
+		return out, aerr
 	}
 
 	for _, id := range in.ServiceLbSubnetID {
@@ -257,6 +281,14 @@ func applyUpdatable(out, in *ClusterOptions) {
 		out.Admission = &Admission{IsPodSecurityPolicyEnabled: def(in.Admission.IsPodSecurityPolicyEnabled, new(false))}
 	}
 
+	if in.OIDCAuth != nil {
+		out.OIDCAuth = in.OIDCAuth
+	}
+
+	if in.OIDCDiscovery != nil {
+		out.OIDCDiscovery = in.OIDCDiscovery
+	}
+
 	if in.PersistentVolume != nil {
 		out.PersistentVolume = in.PersistentVolume
 	}
@@ -275,7 +307,12 @@ func (b *InMemoryBackend) checkEndpointConfig(ec *EndpointConfig, vcnID string) 
 		return SubnetInfo{}, errMissing("endpointConfig.subnetId is required")
 	}
 
-	return b.checkSubnet("endpointConfig.subnetId", ec.SubnetID, vcnID)
+	sub, aerr := b.checkSubnet("endpointConfig.subnetId", ec.SubnetID, vcnID)
+	if aerr != nil {
+		return SubnetInfo{}, aerr
+	}
+
+	return sub, b.checkNsgs("endpointConfig.nsgIds", ec.NsgIDs, sub.VcnID)
 }
 
 func (b *InMemoryBackend) checkImagePolicy(in *ImagePolicy) (ImagePolicy, *APIError) {
@@ -463,6 +500,10 @@ func (b *InMemoryBackend) buildCluster(in CreateClusterIn) (*Cluster, SubnetInfo
 		}
 	}
 
+	if aerr = b.checkClusterLimit(def(in.Type, typeBasic)); aerr != nil {
+		return nil, sub, aerr
+	}
+
 	now := b.nowUTC()
 	c := &Cluster{
 		ID: newOCID("cluster"), Name: in.Name, CompartmentID: in.Compartment, VcnID: vcnID, Version: in.Version,
@@ -619,8 +660,10 @@ func (b *InMemoryBackend) checkClusterUpdate(c *Cluster, in UpdateClusterIn) *AP
 		}
 	}
 
-	if in.Options != nil && (len(in.Options.OIDCAuth) > 0 || len(in.Options.OIDCDiscovery) > 0) {
-		return errParam("OpenID Connect authentication and discovery are not supported by this emulator")
+	if in.Options != nil {
+		if aerr := checkOIDC(in.Options.OIDCAuth); aerr != nil {
+			return aerr
+		}
 	}
 
 	if in.ImagePolicy != nil {
@@ -630,7 +673,13 @@ func (b *InMemoryBackend) checkClusterUpdate(c *Cluster, in UpdateClusterIn) *AP
 	}
 
 	return firstErr(
-		checkTypeChange(c.Type, in.Type), checkUpgrade(c.Version, in.Version), b.checkUpgradeNodes(c, in.Version),
+		checkTypeChange(
+			c.Type,
+			in.Type,
+		),
+		b.checkTypeLimit(c.Type, in.Type),
+		checkUpgrade(c.Version, in.Version),
+		b.checkUpgradeNodes(c, in.Version),
 	)
 }
 
@@ -672,6 +721,14 @@ func skewed(have, target string) bool {
 	tv, tok := parseVersion(target)
 
 	return ok && tok && tv.minor-hv.minor > maxMinorSkew
+}
+
+func (b *InMemoryBackend) checkTypeLimit(cur, want string) *APIError {
+	if want == typeEnhanced && cur != typeEnhanced {
+		return b.checkClusterLimit(typeEnhanced)
+	}
+
+	return nil
 }
 
 func checkTypeChange(cur, want string) *APIError {

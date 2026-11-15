@@ -1,7 +1,9 @@
 package ocicontainerengine_test
 
 import (
+	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -192,6 +194,7 @@ func TestWorkloadMappingLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ke.WorkloadMappingLifecycleStateCreating, created.LifecycleState)
 	assert.NotEmpty(t, *created.Etag)
+	assert.Equal(t, testTenancy, *created.MappedTenancyId)
 
 	id := created.Id
 	e.settle()
@@ -200,6 +203,7 @@ func TestWorkloadMappingLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ke.WorkloadMappingLifecycleStateActive, got.LifecycleState)
 	assert.Equal(t, "payments", *got.Namespace)
+	assert.Equal(t, testTenancy, *got.MappedTenancyId)
 	assert.Equal(t, "a", got.FreeformTags["team"])
 
 	list, err := e.ce.ListWorkloadMappings(ctx, ke.ListWorkloadMappingsRequest{ClusterId: c.Id})
@@ -642,4 +646,220 @@ func TestDeleteWorkRequest(t *testing.T) {
 		svcErr(t, err).GetHTTPStatusCode(),
 		"finished work requests cannot be canceled",
 	)
+}
+
+func TestNetworkSecurityGroupReferences(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	ctx := t.Context()
+	tests := []struct {
+		call   func(clusterID *string, nsgs []string) error
+		name   string
+		nsgs   []string
+		status int
+	}{
+		{
+			name: "endpoint ok", nsgs: []string{nsgA},
+			call: func(id *string, n []string) error {
+				_, err := e.ce.UpdateClusterEndpointConfig(ctx, ke.UpdateClusterEndpointConfigRequest{
+					ClusterId: id, NsgIds: n,
+				})
+
+				return err
+			},
+		},
+		{
+			name: "endpoint foreign vcn", nsgs: []string{nsgB}, status: http.StatusBadRequest,
+			call: func(id *string, n []string) error {
+				_, err := e.ce.UpdateClusterEndpointConfig(ctx, ke.UpdateClusterEndpointConfigRequest{
+					ClusterId: id, NsgIds: n,
+				})
+
+				return err
+			},
+		},
+		{
+			name:   "node pool unknown",
+			nsgs:   []string{"ocid1.networksecuritygroup.oc1.iad.nope"},
+			status: http.StatusBadRequest,
+			call: func(id *string, n []string) error {
+				d := poolDetails(id, "nsg-pool")
+				d.NodeConfigDetails.NsgIds = n
+				_, err := e.ce.CreateNodePool(ctx, ke.CreateNodePoolRequest{CreateNodePoolDetails: d})
+
+				return err
+			},
+		},
+		{
+			name: "virtual pool foreign vcn", nsgs: []string{nsgB}, status: http.StatusBadRequest,
+			call: func(id *string, n []string) error {
+				d := vnpDetails(id, "nsg-vnp", 1)
+				d.NsgIds = n
+				_, err := e.ce.CreateVirtualNodePool(
+					ctx,
+					ke.CreateVirtualNodePoolRequest{CreateVirtualNodePoolDetails: d},
+				)
+
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := e.mkCluster(t, "nsg-"+strings.ReplaceAll(tt.name, " ", "-"), nil)
+
+			err := tt.call(c.Id, tt.nsgs)
+			if tt.status == 0 {
+				require.NoError(t, err)
+
+				return
+			}
+
+			assert.Equal(t, tt.status, svcErr(t, err).GetHTTPStatusCode())
+		})
+	}
+}
+
+func TestAddonOptionConfigurations(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+
+	opts, err := e.ce.ListAddonOptions(t.Context(), ke.ListAddonOptionsRequest{KubernetesVersion: new(testVersion)})
+	require.NoError(t, err)
+
+	byName := map[string]ke.AddonOptionSummary{}
+	for _, o := range opts.Items {
+		byName[*o.Name] = o
+	}
+
+	cfgKeys := func(name string) map[string]ke.AddonVersionConfiguration {
+		out := map[string]ke.AddonVersionConfiguration{}
+
+		for _, c := range byName[name].Versions[0].Configurations {
+			out[*c.Key] = c
+		}
+
+		return out
+	}
+
+	tests := []struct {
+		name    string
+		present []string
+		absent  []string
+	}{
+		{
+			name:    "CoreDNS",
+			present: []string{"minReplica", "nodesPerReplica", "customizeCoreDNSConfigMap", "numOfReplicas"},
+		},
+		{name: "Cluster Autoscaler", present: []string{"scaleDownUtilizationThreshold", "authType", "affinity"}},
+		{name: "CSI Driver SMB", present: []string{"controller.affinity"}, absent: []string{"numOfReplicas"}},
+		{
+			name:    "NVIDIA GPU Operator",
+			present: []string{"cdi.enabled", "tolerations"},
+			absent:  []string{"numOfReplicas"},
+		},
+		{name: "GPU Health Monitoring", present: []string{"numOfReplicas"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := cfgKeys(tt.name)
+			for _, k := range tt.present {
+				assert.Contains(t, got, k)
+			}
+
+			for _, k := range tt.absent {
+				assert.NotContains(t, got, k)
+			}
+		})
+	}
+
+	for name, o := range byName {
+		assert.NotEmpty(t, o.Versions[0].Configurations, name)
+	}
+
+	minReplica := cfgKeys("CoreDNS")["minReplica"]
+	assert.True(t, *minReplica.IsRequired)
+	assert.Equal(t, "1", *minReplica.Value)
+	assert.NotEmpty(t, *minReplica.Description)
+}
+
+func TestServiceLimits(t *testing.T) {
+	t.Parallel()
+
+	limit := func(t *testing.T, err error) {
+		t.Helper()
+
+		se := svcErr(t, err)
+		assert.Equal(t, http.StatusBadRequest, se.GetHTTPStatusCode())
+		assert.Equal(t, "LimitExceeded", se.GetCode())
+	}
+
+	t.Run("basic clusters", func(t *testing.T) {
+		t.Parallel()
+
+		e := newEnv(t, envOpts{})
+
+		for i := range 15 {
+			e.mkCluster(t, fmt.Sprintf("lim-%d", i), nil)
+		}
+
+		_, err := e.ce.CreateCluster(
+			t.Context(),
+			ke.CreateClusterRequest{CreateClusterDetails: clusterDetails("lim-over")},
+		)
+		limit(t, err)
+
+		d := clusterDetails("lim-enh")
+		d.Type = ke.ClusterTypeEnhancedCluster
+		_, err = e.ce.CreateCluster(t.Context(), ke.CreateClusterRequest{CreateClusterDetails: d})
+		require.NoError(t, err, "enhanced clusters are counted separately")
+	})
+
+	t.Run("nodes per basic cluster", func(t *testing.T) {
+		t.Parallel()
+
+		e := newEnv(t, envOpts{})
+		c := e.mkCluster(t, "lim-nodes", nil)
+
+		d := poolDetails(c.Id, "p1")
+		d.NodeConfigDetails.Size = new(600)
+		_, err := e.ce.CreateNodePool(t.Context(), ke.CreateNodePoolRequest{CreateNodePoolDetails: d})
+		require.NoError(t, err)
+
+		d = poolDetails(c.Id, "p2")
+		d.NodeConfigDetails.Size = new(401)
+		_, err = e.ce.CreateNodePool(t.Context(), ke.CreateNodePoolRequest{CreateNodePoolDetails: d})
+		limit(t, err)
+
+		d.NodeConfigDetails.Size = new(400)
+		_, err = e.ce.CreateNodePool(t.Context(), ke.CreateNodePoolRequest{CreateNodePoolDetails: d})
+		require.NoError(t, err)
+	})
+
+	t.Run("virtual nodes per region", func(t *testing.T) {
+		t.Parallel()
+
+		e := newEnv(t, envOpts{})
+		c := e.mkEnhanced(t, "lim-virtual")
+
+		_, err := e.ce.CreateVirtualNodePool(t.Context(), ke.CreateVirtualNodePoolRequest{
+			CreateVirtualNodePoolDetails: vnpDetails(c.Id, "v1", 10),
+		})
+		limit(t, err)
+
+		e.mkVNP(t, c.Id, "v2", 6)
+
+		_, err = e.ce.CreateVirtualNodePool(t.Context(), ke.CreateVirtualNodePoolRequest{
+			CreateVirtualNodePoolDetails: vnpDetails(c.Id, "v3", 4),
+		})
+		limit(t, err)
+	})
 }

@@ -60,6 +60,32 @@ func (b *InMemoryBackend) LookupSubnet(id string) (SubnetRef, bool) {
 	return ref, true
 }
 
+// InstanceState returns the lifecycle state of an instance.
+func (b *InMemoryBackend) InstanceState(id string) (string, bool) {
+	b.mu.RLock("InstanceState")
+	defer b.mu.RUnlock()
+
+	i, ok := b.res[id].(*Instance)
+	if !ok {
+		return "", false
+	}
+
+	return i.LifecycleState, true
+}
+
+// LookupNSG returns the VCN of a live network security group.
+func (b *InMemoryBackend) LookupNSG(id string) (string, bool) {
+	b.mu.RLock("LookupNSG")
+	defer b.mu.RUnlock()
+
+	g, ok := b.res[id].(*NetworkSecurityGroup)
+	if !ok || !live(g) {
+		return "", false
+	}
+
+	return g.VcnID, true
+}
+
 // VcnExists reports whether a live VCN has the id.
 func (b *InMemoryBackend) VcnExists(id string) bool {
 	b.mu.RLock("VcnExists")

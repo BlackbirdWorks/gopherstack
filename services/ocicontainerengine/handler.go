@@ -36,10 +36,11 @@ const (
 
 // req is the per-request state handed to every operation.
 type req struct {
-	w    http.ResponseWriter
-	r    *http.Request
-	rt   route
-	body []byte
+	w       http.ResponseWriter
+	r       *http.Request
+	rt      route
+	tenancy string
+	body    []byte
 }
 
 type opFunc func(h *Handler, q *req) error
@@ -235,11 +236,14 @@ func (h *Handler) serve(q *req, verify bool) error {
 	q.body = body
 
 	if verify {
-		if _, err = ociauth.Verify(q.r, q.body, ociauth.Options{
+		p, verr := ociauth.Verify(q.r, q.body, ociauth.Options{
 			Registry: h.Backend.Auth, Now: h.Backend.nowUTC, Enforce: h.EnforceAuth,
-		}); err != nil {
+		})
+		if verr != nil {
 			return errAuth("The required information to complete authentication was not provided or was incorrect.")
 		}
+
+		q.tenancy = p.KeyID.Tenancy
 	}
 
 	return fn(h, q)

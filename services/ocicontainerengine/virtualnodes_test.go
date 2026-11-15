@@ -171,6 +171,14 @@ func TestVirtualNodePoolErrors(t *testing.T) {
 		{name: "no pod config", status: 400, code: "MissingParameter", mod: func(d *ke.CreateVirtualNodePoolDetails) {
 			d.PodConfiguration = &ke.PodConfiguration{SubnetId: new(subRegional), Shape: new("")}
 		}},
+		{
+			name:   "unknown pod shape",
+			status: 400,
+			code:   "InvalidParameter",
+			mod: func(d *ke.CreateVirtualNodePoolDetails) {
+				d.PodConfiguration.Shape = new("VM.Standard.E4.Flex")
+			},
+		},
 		{name: "negative size", status: 400, code: "InvalidParameter", mod: func(d *ke.CreateVirtualNodePoolDetails) {
 			d.Size = new(-1)
 		}},
@@ -268,4 +276,64 @@ func TestVirtualNodePoolConflicts(t *testing.T) {
 	cascaded, err := e.ce.GetVirtualNodePool(ctx, ke.GetVirtualNodePoolRequest{VirtualNodePoolId: p.Id})
 	require.NoError(t, err)
 	assert.Equal(t, ke.VirtualNodePoolLifecycleStateDeleted, cascaded.LifecycleState)
+}
+
+func TestListPodShapes(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+
+	tests := []struct {
+		req  ke.ListPodShapesRequest
+		name string
+		want []string
+		code int
+	}{
+		{
+			name: "all",
+			req:  ke.ListPodShapesRequest{CompartmentId: new(testCompartment)},
+			want: []string{
+				"Pod.Standard.A1.Flex",
+				"Pod.Standard.E3.Flex",
+				"Pod.Standard.E4.Flex",
+				"Pod.Standard.E5.Flex",
+			},
+		},
+		{
+			name: "by name",
+			req:  ke.ListPodShapesRequest{CompartmentId: new(testCompartment), Name: new("Pod.Standard.E4.Flex")},
+			want: []string{"Pod.Standard.E4.Flex"},
+		},
+		{
+			name: "descending",
+			req: ke.ListPodShapesRequest{
+				CompartmentId: new(testCompartment), SortBy: ke.ListPodShapesSortByName,
+				SortOrder: ke.ListPodShapesSortOrderDesc, Limit: new(2),
+			},
+			want: []string{"Pod.Standard.E5.Flex", "Pod.Standard.E4.Flex"},
+		},
+		{name: "no compartment", req: ke.ListPodShapesRequest{CompartmentId: new("")}, code: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			resp, err := e.ce.ListPodShapes(t.Context(), tt.req)
+			if tt.code != 0 {
+				assert.Equal(t, tt.code, svcErr(t, err).GetHTTPStatusCode())
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			got := make([]string, 0, len(resp.Items))
+			for _, s := range resp.Items {
+				got = append(got, *s.Name)
+			}
+
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }

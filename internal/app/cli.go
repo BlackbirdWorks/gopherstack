@@ -3902,6 +3902,18 @@ func wireOCIStreamingVault(byName map[string]service.Registerable) {
 		vaultH.Backend.SetBlobStore(osH.Backend)
 	}
 
+	if dbH, dok := byName["OCIDatabase"].(*ocidatabase.Handler); dok && vok {
+		vaultH.Backend.SetAdbTarget(dbH.Backend)
+	}
+
+	if coreH, cok := byName["OCICore"].(*ocicorebackend.Handler); cok && vok {
+		vaultH.Backend.SetSubnetResolver(func(id string) (string, bool) {
+			ref, found := coreH.Backend.LookupSubnet(id)
+
+			return ref.CidrBlock, found
+		})
+	}
+
 	if fnH, fok := byName["OCIFunctions"].(*ocifunctionsbackend.Handler); fok && vok {
 		vaultH.Backend.SetFunctionInvoker(func(ctx context.Context, fnID string, body []byte) error {
 			out, err := fnH.Backend.Invoke(ctx, fnID, ocifunctionsbackend.InvokeIn{Body: body})

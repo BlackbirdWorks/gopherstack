@@ -242,6 +242,7 @@ func TestImportKeyVersion(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, keymanagement.KeyVersionOriginExternal, v2.Origin)
+	ce.e.settle()
 
 	enc, err := ce.encrypt(t, key, "v2", nil, "")
 	require.NoError(t, err)

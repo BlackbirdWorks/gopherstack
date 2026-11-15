@@ -3,6 +3,8 @@ package ocicontainerengine
 import (
 	"encoding/binary"
 	"encoding/json/jsontext"
+	"encoding/json/v2"
+	"maps"
 	"math"
 	"net/netip"
 	"regexp"
@@ -11,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -50,8 +54,8 @@ type CreateNodePoolIn struct {
 	NodeMetadata   map[string]string `json:"nodeMetadata"`
 	Eviction       jsontext.Value    `json:"nodeEvictionNodePoolSettings"`
 	Cycling        jsontext.Value    `json:"nodePoolCyclingDetails"`
-	SecondaryVnics jsontext.Value    `json:"secondaryVnics"`
-	PrimaryVnic    jsontext.Value    `json:"primaryVnic"`
+	SecondaryVnics []SecondaryVnic   `json:"secondaryVnics"`
+	PrimaryVnic    map[string]any    `json:"primaryVnic"`
 	Compartment    string            `json:"compartmentId"`
 	ClusterID      string            `json:"clusterId"`
 	Name           string            `json:"name"`
@@ -75,8 +79,8 @@ type UpdateNodePoolIn struct {
 	NodeMetadata   map[string]string `json:"nodeMetadata"`
 	Eviction       jsontext.Value    `json:"nodeEvictionNodePoolSettings"`
 	Cycling        jsontext.Value    `json:"nodePoolCyclingDetails"`
-	SecondaryVnics jsontext.Value    `json:"secondaryVnics"`
-	PrimaryVnic    jsontext.Value    `json:"primaryVnic"`
+	SecondaryVnics []SecondaryVnic   `json:"secondaryVnics"`
+	PrimaryVnic    map[string]any    `json:"primaryVnic"`
 	LaunchType     string            `json:"networkLaunchType"`
 	Labels         []KeyValue        `json:"initialNodeLabels"`
 	SubnetIDs      []string          `json:"subnetIds"`
@@ -109,6 +113,9 @@ type NodePoolWire struct {
 	NodeConfigDetails *NodeConfig               `json:"nodeConfigDetails,omitempty"`
 	Eviction          jsontext.Value            `json:"nodeEvictionNodePoolSettings,omitempty"`
 	Cycling           jsontext.Value            `json:"nodePoolCyclingDetails,omitempty"`
+	SecondaryVnics    []SecondaryVnic           `json:"secondaryVnics,omitempty"`
+	PrimaryVnic       map[string]any            `json:"primaryVnic,omitempty"`
+	NetworkLaunchType string                    `json:"networkLaunchType,omitempty"`
 	Nodes             []NodeWire                `json:"nodes,omitempty"`
 	ID                string                    `json:"id"`
 	ClusterID         string                    `json:"clusterId"`
@@ -131,6 +138,7 @@ func nodePoolView(np *NodePool, summary bool) NodePoolWire {
 		NodeSourceDetails: np.NodeSource, NodeImageName: np.ImageName, SSHPublicKey: np.SSHKey,
 		LifecycleState: np.State, InitialNodeLabels: np.Labels, NodeMetadata: np.NodeMetadata,
 		QuantityPerSubnet: np.QuantityPerSub, SubnetIDs: np.SubnetIDs, Eviction: np.Eviction, Cycling: np.Cycling,
+		SecondaryVnics: np.SecondaryVnics, PrimaryVnic: np.PrimaryVnic, NetworkLaunchType: np.LaunchType,
 		FreeformTags: np.Tags.FreeformTags, DefinedTags: np.Tags.DefinedTags,
 	}
 	if w.InitialNodeLabels == nil {
@@ -171,22 +179,6 @@ func nodePoolView(np *NodePool, summary bool) NodePoolWire {
 	}
 
 	return w
-}
-
-func rejectUnsupported(secondary, primary jsontext.Value, launch string) *APIError {
-	if len(secondary) > 0 && string(secondary) != "null" && string(secondary) != "[]" {
-		return errParam("secondaryVnics are not supported by this emulator")
-	}
-
-	if len(primary) > 0 && string(primary) != "null" {
-		return errParam("primaryVnic is not supported by this emulator")
-	}
-
-	if launch != "" {
-		return errParam("networkLaunchType is not supported by this emulator")
-	}
-
-	return nil
 }
 
 // checkShape validates a node shape and its shapeConfig and returns the resolved config.
@@ -343,8 +335,8 @@ func (b *InMemoryBackend) checkPlacements(ps []Placement, vcnID string) *APIErro
 
 // buildNodeConfig validates nodeConfigDetails and merges it over the current one.
 func (b *InMemoryBackend) buildNodeConfig(in *NodeConfigIn, cur *NodeConfig, c *Cluster) (*NodeConfig, *APIError) {
-	if in.ComputeClusterID != nil {
-		return nil, errParam("computeClusterId is not supported by this emulator")
+	if aerr := checkComputeCluster(in.ComputeClusterID); aerr != nil {
+		return nil, aerr
 	}
 
 	out := NodeConfig{Placements: []Placement{}}
@@ -378,8 +370,8 @@ func (b *InMemoryBackend) buildNodeConfig(in *NodeConfigIn, cur *NodeConfig, c *
 		out.KmsKeyID = *in.KmsKeyID
 	}
 
-	if in.NsgIDs != nil {
-		out.NsgIDs = in.NsgIDs
+	if aerr := b.applyNodeConfigRefs(&out, in, c.VcnID); aerr != nil {
+		return nil, aerr
 	}
 
 	if in.IsPvEncryption != nil {
@@ -389,6 +381,22 @@ func (b *InMemoryBackend) buildNodeConfig(in *NodeConfigIn, cur *NodeConfig, c *
 	out.Tags.merge(in.Tags)
 
 	return b.applyPodNet(&out, in.PodNet, c)
+}
+
+func (b *InMemoryBackend) applyNodeConfigRefs(out *NodeConfig, in *NodeConfigIn, vcnID string) *APIError {
+	if in.NsgIDs != nil {
+		if aerr := b.checkNsgs("nodeConfigDetails.nsgIds", in.NsgIDs, vcnID); aerr != nil {
+			return aerr
+		}
+
+		out.NsgIDs = in.NsgIDs
+	}
+
+	if in.ComputeClusterID != nil {
+		out.ComputeClusterID = *in.ComputeClusterID
+	}
+
+	return nil
 }
 
 func (b *InMemoryBackend) applyPodNet(out *NodeConfig, in *PodNet, c *Cluster) (*NodeConfig, *APIError) {
@@ -422,6 +430,10 @@ func (b *InMemoryBackend) applyPodNet(out *NodeConfig, in *PodNet, c *Cluster) (
 				return nil, aerr
 			}
 		}
+	}
+
+	if aerr := b.checkNsgs("nodePoolPodNetworkOptionDetails.podNsgIds", in.PodNsgIDs, c.VcnID); aerr != nil {
+		return nil, aerr
 	}
 
 	out.PodNet = in
@@ -496,7 +508,7 @@ func (b *InMemoryBackend) CreateNodePool(in CreateNodePoolIn) (string, error) {
 	}
 
 	if aerr := firstErr(b.checkCompartment(in.Compartment), validateName(in.Name), b.checkTags(in.Tags),
-		rejectUnsupported(in.SecondaryVnics, in.PrimaryVnic, in.LaunchType), checkLabels(in.Labels)); aerr != nil {
+		checkLabels(in.Labels)); aerr != nil {
 		return "", aerr
 	}
 
@@ -507,6 +519,10 @@ func (b *InMemoryBackend) CreateNodePool(in CreateNodePoolIn) (string, error) {
 
 	np, aerr := b.buildPool(in, c)
 	if aerr != nil {
+		return "", aerr
+	}
+
+	if aerr = b.checkNodeLimit(c, np.ID, b.targetSize(np)); aerr != nil {
 		return "", aerr
 	}
 
@@ -542,6 +558,19 @@ func (b *InMemoryBackend) buildPool(in CreateNodePoolIn, c *Cluster) (*NodePool,
 		Shape: in.Shape, ShapeConfig: scfg, NodeSource: src, ImageName: imgName, State: stateCreating,
 		TimeCreated: b.nowUTC(), Labels: in.Labels, NodeMetadata: in.NodeMetadata, Tags: in.Tags,
 		Eviction: in.Eviction, Cycling: in.Cycling, SSHKey: ptrStr(in.SSHKey),
+		SecondaryVnics: in.SecondaryVnics, PrimaryVnic: in.PrimaryVnic, LaunchType: in.LaunchType,
+	}
+
+	if aerr = b.checkNodeNet(in.SecondaryVnics, in.LaunchType, c.VcnID); aerr != nil {
+		return nil, aerr
+	}
+
+	if aerr = checkNodePoolSettings(
+		in.Eviction,
+		in.Cycling,
+		poolSizeOf(in.NodeConfig, in.Quantity, len(in.SubnetIDs)),
+	); aerr != nil {
+		return nil, aerr
 	}
 
 	switch {
@@ -621,6 +650,8 @@ func (b *InMemoryBackend) growPool(np *NodePool, c *Cluster, size int) {
 	for len(liveNodes(np)) < size {
 		np.Nodes = append(np.Nodes, b.newNode(np, c, b.leastLoaded(np, slots)))
 	}
+
+	b.syncAgentsLocked(c.ID)
 }
 
 func (b *InMemoryBackend) leastLoaded(np *NodePool, slots []slot) slot {
@@ -656,30 +687,103 @@ func (b *InMemoryBackend) newNode(np *NodePool, c *Cluster, s slot) *Node {
 		}
 	}
 
-	return &Node{
-		ID: id,
-		Name: "oke-c" + ocidTail(
-			c.ID,
-			longTail,
-		) + "-n" + ocidTail(
-			np.ID,
-			longTail,
-		) + "-s" + ocidTail(
-			s.subnet,
-			longTail,
-		) +
-			"-" + ocidTail(
-			id,
-			shortTail,
-		),
-		Version:      np.Version,
-		AD:           s.ad,
-		SubnetID:     s.subnet,
-		FaultDomain:  fd,
-		PrivateIP:    b.allocIP(s.subnet),
-		State:        stateCreating,
-		TransitionAt: np.TransitionAt,
-		Tags:         np.Tags,
+	n := &Node{
+		ID: id, Name: nodeName(c, np, s, id), Version: np.Version, AD: s.ad, SubnetID: s.subnet, FaultDomain: fd,
+		State: stateCreating, TransitionAt: np.TransitionAt, Tags: np.Tags, Spec: nodeSpec(np),
+	}
+
+	if nc, ok := b.net.(NodeCompute); ok {
+		b.launchNode(nc, np, c, n)
+	} else {
+		n.PrivateIP = b.allocIP(s.subnet)
+	}
+
+	return n
+}
+
+func nodeName(c *Cluster, np *NodePool, s slot, id string) string {
+	return "oke-c" + ocidTail(c.ID, longTail) + "-n" + ocidTail(np.ID, longTail) + "-s" + ocidTail(s.subnet, longTail) +
+		"-" + ocidTail(id, shortTail)
+}
+
+// launchNode backs a node with an OCI Core instance; a refused launch leaves the node FAILING.
+func (b *InMemoryBackend) launchNode(nc NodeCompute, np *NodePool, c *Cluster, n *Node) {
+	l := NodeLaunch{
+		Compartment: np.CompartmentID, Name: n.Name, AD: n.AD, FaultDomain: n.FaultDomain, SubnetID: n.SubnetID,
+		Shape: np.Shape, Metadata: maps.Clone(np.NodeMetadata), SecondaryVnics: np.SecondaryVnics,
+		NetworkType: np.LaunchType,
+	}
+
+	if np.NodeSource != nil {
+		l.ImageID, l.BootVolumeGBs = np.NodeSource.ImageID, np.NodeSource.BootVolumeGBs
+	}
+
+	if np.ShapeConfig != nil {
+		l.Ocpus, l.MemoryGBs = np.ShapeConfig.Ocpus, np.ShapeConfig.MemoryInGBs
+	}
+
+	if np.NodeConfig != nil {
+		l.NsgIDs, l.ComputeClusterID = np.NodeConfig.NsgIDs, np.NodeConfig.ComputeClusterID
+
+		for _, p := range np.NodeConfig.Placements {
+			if p.AvailabilityDom == n.AD && p.SubnetID == n.SubnetID {
+				applyPlacement(&l, p)
+			}
+		}
+	}
+
+	if np.SSHKey != "" {
+		if l.Metadata == nil {
+			l.Metadata = map[string]string{}
+		}
+
+		l.Metadata["ssh_authorized_keys"] = np.SSHKey
+	}
+
+	inst, err := nc.LaunchNode(l)
+	if err != nil {
+		logger.Load(b.runCtx).WarnContext(b.runCtx, "ocicontainerengine: worker instance launch failed",
+			"cluster", c.ID, "pool", np.ID, "error", err)
+
+		n.State, n.TransitionAt = stateFailing, nil
+
+		return
+	}
+
+	n.ID, n.PrivateIP, n.FaultDomain = inst.ID, inst.PrivateIP, inst.FaultDomain
+}
+
+func applyPlacement(l *NodeLaunch, p Placement) {
+	l.CapacityReservationID = p.CapacityReserveID
+
+	if len(p.PreemptibleConfig) == 0 || string(p.PreemptibleConfig) == "null" {
+		return
+	}
+
+	var pc struct {
+		PreemptionAction struct {
+			IsPreserveBootVolume *bool `json:"isPreserveBootVolume"`
+		} `json:"preemptionAction"`
+	}
+
+	if json.Unmarshal(p.PreemptibleConfig, &pc, jsonx.V1()) == nil {
+		l.Preemptible, l.PreserveBootVolume = true, pc.PreemptionAction.IsPreserveBootVolume
+	}
+}
+
+// releaseNode terminates the instance behind a node that is being deleted.
+func (b *InMemoryBackend) releaseNode(np *NodePool, n *Node) {
+	b.dropAgentLocked(n.ID)
+	b.logEviction(np, n)
+
+	nc, ok := b.net.(NodeCompute)
+	if !ok || n.State == stateFailing {
+		return
+	}
+
+	if err := nc.TerminateNode(n.ID); err != nil {
+		logger.Load(b.runCtx).WarnContext(b.runCtx, "ocicontainerengine: worker instance termination failed",
+			"node", n.ID, "error", err)
 	}
 }
 
@@ -843,9 +947,14 @@ func (b *InMemoryBackend) UpdateNodePool(id, ifMatch string, in UpdateNodePoolIn
 	}
 
 	next := *np
-	if aerr = firstErr(rejectUnsupported(in.SecondaryVnics, in.PrimaryVnic, in.LaunchType), checkLabels(in.Labels),
-		b.checkTags(in.Tags), b.applyPoolUpdate(&next, in, c)); aerr != nil {
+	if aerr = firstErr(checkLabels(in.Labels), b.checkTags(in.Tags), b.applyPoolUpdate(&next, in, c)); aerr != nil {
 		return "", aerr
+	}
+
+	if c != nil {
+		if aerr = b.checkNodeLimit(c, np.ID, b.targetSize(&next)); aerr != nil {
+			return "", aerr
+		}
 	}
 
 	*np = next
@@ -854,6 +963,7 @@ func (b *InMemoryBackend) UpdateNodePool(id, ifMatch string, in UpdateNodePoolIn
 	if c != nil {
 		b.shrinkPool(np, b.targetSize(np))
 		b.growPool(np, c, b.targetSize(np))
+		b.cycleNodes(np, c)
 	}
 
 	return wr, nil
@@ -888,6 +998,18 @@ func (b *InMemoryBackend) applyPoolUpdate(np *NodePool, in UpdateNodePoolIn, c *
 	np.NodeMetadata = orMap(in.NodeMetadata, np.NodeMetadata)
 	np.Eviction = orSlice(in.Eviction, np.Eviction)
 	np.Cycling = orSlice(in.Cycling, np.Cycling)
+
+	if aerr := checkNodePoolSettings(np.Eviction, np.Cycling, maxPoolSize); aerr != nil {
+		return aerr
+	}
+
+	if aerr := b.checkNodeNet(in.SecondaryVnics, in.LaunchType, c.VcnID); aerr != nil {
+		return aerr
+	}
+
+	np.SecondaryVnics = orSlice(in.SecondaryVnics, np.SecondaryVnics)
+	np.PrimaryVnic = orMap(in.PrimaryVnic, np.PrimaryVnic)
+	np.LaunchType = def(in.LaunchType, np.LaunchType)
 
 	if in.SSHKey != nil {
 		np.SSHKey = *in.SSHKey
@@ -974,6 +1096,7 @@ func (b *InMemoryBackend) applyPoolPlacement(np *NodePool, in UpdateNodePoolIn, 
 func (b *InMemoryBackend) shrinkPool(np *NodePool, size int) {
 	live := liveNodes(np)
 	for i := len(live) - 1; i >= size && i >= 0; i-- {
+		b.releaseNode(np, live[i])
 		live[i].State, live[i].TransitionAt = stateDeleting, np.TransitionAt
 	}
 }
@@ -982,6 +1105,10 @@ func (b *InMemoryBackend) markPoolDeleting(np *NodePool, at *time.Time) {
 	np.State, np.TransitionAt, np.Etag = stateDeleting, at, newEtag()
 
 	for _, n := range np.Nodes {
+		if n.State != stateDeleting {
+			b.releaseNode(np, n)
+		}
+
 		n.State, n.TransitionAt = stateDeleting, at
 	}
 }
@@ -1021,6 +1148,8 @@ func (b *InMemoryBackend) DeleteNode(poolID, nodeID, ifMatch string, decrement b
 	}
 
 	victim := np.Nodes[i]
+	b.releaseNode(np, victim)
+
 	wr := b.touchPool(np, wrNodePoolUpdate)
 	victim.State, victim.TransitionAt = stateDeleting, np.TransitionAt
 
@@ -1095,4 +1224,15 @@ func (h *Handler) getNodePoolOptions(q *req) error {
 	})
 
 	return reply(q, w, "", err)
+}
+
+func poolSizeOf(nc *NodeConfigIn, qty *int, subnets int) int {
+	switch {
+	case nc != nil && nc.Size != nil:
+		return *nc.Size
+	case qty != nil:
+		return *qty * max(subnets, 1)
+	}
+
+	return maxPoolSize
 }

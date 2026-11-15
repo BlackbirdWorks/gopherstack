@@ -73,14 +73,6 @@ type expiryRule struct {
 	Interval  string     `json:"secretVersionExpiryInterval"`
 }
 
-func rejectReplication(repl jsontext.Value) *APIError {
-	if t := bytes.TrimSpace(repl); len(t) > 0 && string(t) != jsonNull {
-		return errParam("replicationConfig is not supported by this emulator")
-	}
-
-	return nil
-}
-
 func validateRules(rules []jsontext.Value) *APIError {
 	for _, r := range rules {
 		var head struct {
@@ -233,6 +225,10 @@ func (b *InMemoryBackend) addSecretVersion(s *Secret, c *SecretContent) *APIErro
 		return aerr
 	}
 
+	if aerr = checkSecretVersionLimit(s); aerr != nil {
+		return aerr
+	}
+
 	if b.reuseViolation(s, plain) {
 		return errParam("The secret content duplicates an existing version, which the secret reuse rule forbids")
 	}
@@ -291,10 +287,6 @@ func validateCreateSecret(in *CreateSecretIn) *APIError {
 		return errParam("secretName must be 1-255 characters of letters, digits, hyphens, underscores and periods")
 	}
 
-	if aerr := rejectReplication(in.ReplicationConfig); aerr != nil {
-		return aerr
-	}
-
 	return validateRules(in.SecretRules)
 }
 
@@ -332,6 +324,11 @@ func (b *InMemoryBackend) CreateSecret(in CreateSecretIn) (secretWire, string, e
 		return secretWire{}, "", aerr
 	}
 
+	repl, aerr := parseReplication(in.ReplicationConfig)
+	if aerr != nil {
+		return secretWire{}, "", aerr
+	}
+
 	rot, gen, auto, aerr := prepareCreate(&in)
 	if aerr != nil {
 		return secretWire{}, "", aerr
@@ -362,7 +359,11 @@ func (b *InMemoryBackend) CreateSecret(in CreateSecretIn) (secretWire, string, e
 	}
 
 	if b.nameTaken(in.VaultID, in.SecretName) {
-		return secretWire{}, "", errExists("A secret named " + in.SecretName + " already exists in this vault")
+		return secretWire{}, "", errAlreadyExists("A secret named " + in.SecretName + " already exists in this vault")
+	}
+
+	if lerr := firstErr(b.checkSecretLimit(), b.checkOptionalReplication(repl, in.VaultID)); lerr != nil {
+		return secretWire{}, "", lerr
 	}
 
 	s := &Secret{
@@ -372,7 +373,7 @@ func (b *InMemoryBackend) CreateSecret(in CreateSecretIn) (secretWire, string, e
 		Etag: newEtag(), Seq: b.nextSeq(),
 	}
 
-	s.GenContext, s.AutoGen = gen, auto
+	s.GenContext, s.AutoGen, s.Replication = gen, auto, repl
 	b.setRotation(s, rot)
 
 	if in.SecretContent != nil {
@@ -403,11 +404,28 @@ func (b *InMemoryBackend) writableSecret(id, ifMatch string) (*Secret, *APIError
 		return nil, aerr
 	}
 
+	if s.isReplica() {
+		src, ok := b.secrets[s.SourceID]
+		if !ok || src.Replication == nil || src.Replication.WriteForward == nil || !*src.Replication.WriteForward {
+			return nil, errParam("Secret " + id + " is a replica; make this change in the source region")
+		}
+
+		s = src
+	}
+
 	if s.State != stateActive {
 		return nil, errState("Secret " + id + " is in state " + s.State + "; the operation requires ACTIVE")
 	}
 
 	return s, checkEtag(s.Etag, ifMatch)
+}
+
+func (b *InMemoryBackend) checkOptionalReplication(r *SecretReplication, vaultID string) *APIError {
+	if r == nil {
+		return nil
+	}
+
+	return b.checkReplication(r, vaultID)
 }
 
 // GetSecret returns secret metadata.
@@ -462,11 +480,12 @@ func (b *InMemoryBackend) ListSecrets(f SecretFilter, o ListOpts) (page.Page[sec
 
 // UpdateSecret edits metadata, adds a version on content change, or promotes a version.
 func (b *InMemoryBackend) UpdateSecret(id, ifMatch string, in UpdateSecretIn) (secretWire, string, error) {
-	if aerr := rejectReplication(in.ReplicationConfig); aerr != nil {
+	repl, aerr := parseReplication(in.ReplicationConfig)
+	if aerr != nil {
 		return secretWire{}, "", aerr
 	}
 
-	if aerr := validateRules(in.SecretRules); aerr != nil {
+	if aerr = validateRules(in.SecretRules); aerr != nil {
 		return secretWire{}, "", aerr
 	}
 
@@ -488,8 +507,15 @@ func (b *InMemoryBackend) UpdateSecret(id, ifMatch string, in UpdateSecretIn) (s
 		return secretWire{}, "", aerr
 	}
 
-	if aerr = b.checkTags(in.FreeformTags, in.DefinedTags); aerr != nil {
+	if aerr = firstErr(
+		b.checkTags(in.FreeformTags, in.DefinedTags),
+		b.checkOptionalReplication(repl, s.VaultID),
+	); aerr != nil {
 		return secretWire{}, "", aerr
+	}
+
+	if repl != nil {
+		s.Replication = repl
 	}
 
 	if aerr = b.setGeneration(s, gen, in.EnableAutoGeneration); aerr != nil {

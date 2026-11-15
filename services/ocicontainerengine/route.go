@@ -31,6 +31,7 @@ const (
 	opUpdateVNP          = "UpdateVirtualNodePool"
 	opDeleteVNP          = "DeleteVirtualNodePool"
 	opListVirtualNodes   = "ListVirtualNodes"
+	opListPodShapes      = "ListPodShapes"
 	opGetVirtualNode     = "GetVirtualNode"
 	opInstallAddon       = "InstallAddon"
 	opGetAddon           = "GetAddon"
@@ -91,6 +92,7 @@ var router = restroute.New([]restroute.Route{
 	{Method: http.MethodGet, Path: vnpPath, Op: opGetVNP},
 	{Method: http.MethodPut, Path: vnpPath, Op: opUpdateVNP},
 	{Method: http.MethodDelete, Path: vnpPath, Op: opDeleteVNP},
+	{Method: http.MethodGet, Path: base + "/podShapes", Op: opListPodShapes},
 	{Method: http.MethodGet, Path: vnpPath + "/virtualNodes", Op: opListVirtualNodes},
 	{Method: http.MethodGet, Path: vnpPath + "/virtualNodes/{virtualNodeId}", Op: opGetVirtualNode},
 	{Method: http.MethodPost, Path: clusterPath + "/addons", Op: opInstallAddon},

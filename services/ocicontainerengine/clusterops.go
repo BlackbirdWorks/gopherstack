@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
@@ -107,6 +108,7 @@ func (b *InMemoryBackend) stepRotation(c *Cluster, now time.Time) bool {
 		at := *r.PhaseAt
 		auto := at.Add(time.Duration(r.DelayDays) * hoursPerDay * time.Hour)
 		r.PhaseAt, r.Status, r.Details, r.AutoCompleteAt = nil, rotWaiting, rotIssued, &auto
+		b.issueCredentials(c)
 	case due(r.PhaseAt, now) && r.Details == rotRetiring:
 		r.PhaseAt, r.Status, r.Details, r.AutoCompleteAt = nil, rotCompleted, rotCompleted, nil
 	case r.Status == rotWaiting && due(r.AutoCompleteAt, now):
@@ -117,6 +119,23 @@ func (b *InMemoryBackend) stepRotation(c *Cluster, now time.Time) bool {
 	}
 
 	return true
+}
+
+// issueCredentials replaces the kubeconfig CA and token. The k3s engine keeps its launch-time credentials,
+// so engine clusters only log the rotation.
+func (b *InMemoryBackend) issueCredentials(c *Cluster) {
+	log := logger.Load(b.runCtx)
+
+	if b.engine != nil {
+		log.InfoContext(b.runCtx, "ocicontainerengine: would rotate k3s serving certificates and admin token",
+			"cluster", c.ID)
+
+		return
+	}
+
+	if aerr := b.newIdentity(c); aerr != nil {
+		log.ErrorContext(b.runCtx, "ocicontainerengine: credential rotation could not issue a CA", "cluster", c.ID)
+	}
 }
 
 func (b *InMemoryBackend) stepDecommission(c *Cluster, now time.Time) bool {
@@ -169,6 +188,7 @@ type WorkloadMapping struct {
 	ClusterID    string     `json:"clusterId"`
 	Namespace    string     `json:"namespace"`
 	Compartment  string     `json:"mappedCompartmentId"`
+	Tenancy      string     `json:"mappedTenancyId,omitempty"`
 	State        string     `json:"state"`
 	Etag         string     `json:"etag"`
 	Seq          int64      `json:"seq"`
@@ -183,14 +203,21 @@ type MappingWire struct {
 	ClusterID           string                    `json:"clusterId"`
 	Namespace           string                    `json:"namespace"`
 	MappedCompartmentID string                    `json:"mappedCompartmentId"`
+	MappedTenancyID     string                    `json:"mappedTenancyId,omitempty"`
 	LifecycleState      string                    `json:"lifecycleState"`
 }
 
 func mappingView(m *WorkloadMapping) MappingWire {
 	return MappingWire{
-		ID: m.ID, ClusterID: m.ClusterID, Namespace: m.Namespace, MappedCompartmentID: m.Compartment,
-		LifecycleState: m.State, TimeCreated: m.TimeCreated, FreeformTags: m.Tags.FreeformTags,
-		DefinedTags: m.Tags.DefinedTags,
+		ID:                  m.ID,
+		ClusterID:           m.ClusterID,
+		Namespace:           m.Namespace,
+		MappedCompartmentID: m.Compartment,
+		MappedTenancyID:     m.Tenancy,
+		LifecycleState:      m.State,
+		TimeCreated:         m.TimeCreated,
+		FreeformTags:        m.Tags.FreeformTags,
+		DefinedTags:         m.Tags.DefinedTags,
 	}
 }
 
@@ -198,6 +225,7 @@ func mappingView(m *WorkloadMapping) MappingWire {
 type CreateMappingIn struct {
 	Tags
 	RetryToken  string `json:"-"`
+	Tenancy     string `json:"-"`
 	Namespace   string `json:"namespace"`
 	Compartment string `json:"mappedCompartmentId"`
 }
@@ -255,7 +283,7 @@ func (b *InMemoryBackend) CreateWorkloadMapping(clusterID string, in CreateMappi
 	now := b.nowUTC()
 	m := &WorkloadMapping{
 		ID: newOCID("workloadmapping"), ClusterID: c.ID, Namespace: in.Namespace, Compartment: in.Compartment,
-		State: stateCreating, Etag: newEtag(), Tags: in.Tags, TimeCreated: now, Seq: b.nextSeq(),
+		Tenancy: in.Tenancy, State: stateCreating, Etag: newEtag(), Tags: in.Tags, TimeCreated: now, Seq: b.nextSeq(),
 		TransitionAt: b.transitionAt(),
 	}
 	b.mappings[m.ID] = m
@@ -648,6 +676,10 @@ func (b *InMemoryBackend) UpdateClusterEndpointConfig(id, ifMatch string, in Upd
 		return "", errParam("Cluster " + id + " does not use a VCN-native endpoint")
 	}
 
+	if aerr = b.checkNsgs("nsgIds", in.NsgIDs, c.VcnID); aerr != nil {
+		return "", aerr
+	}
+
 	cfg := *c.EndpointConfig
 	cfg.NsgIDs = in.NsgIDs
 	cfg.IsPublicIPEnabled = in.IsPublicIPEnabled
@@ -743,7 +775,7 @@ func (h *Handler) createMapping(q *req) error {
 		return err
 	}
 
-	in.RetryToken = q.r.Header.Get(headerRetry)
+	in.RetryToken, in.Tenancy = q.r.Header.Get(headerRetry), q.tenancy
 
 	w, etag, err := h.Backend.CreateWorkloadMapping(q.param("clusterId"), in)
 

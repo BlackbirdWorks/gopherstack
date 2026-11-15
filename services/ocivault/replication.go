@@ -278,6 +278,24 @@ func (b *InMemoryBackend) GetReplicationStatus(replicationID string) (Replicatio
 	return out, nil
 }
 
+// keyReplicated reports whether the replication operation that created the key has been applied in every replica
+// region; a replica endpoint serves the key only from then on.
+func (b *InMemoryBackend) keyReplicated(k *Key) bool {
+	op, ok := b.repl[k.CreatedRepl]
+
+	return !ok || !b.nowUTC().Before(op.ReadyAt)
+}
+
+// KeyVisibleOnReplica reports whether the key exists in the replica region yet.
+func (b *InMemoryBackend) KeyVisibleOnReplica(keyID string) bool {
+	b.mu.RLock("KeyVisibleOnReplica")
+	defer b.mu.RUnlock()
+
+	k, ok := b.keys[keyID]
+
+	return !ok || b.keyReplicated(k)
+}
+
 func (b *InMemoryBackend) pruneRepl(now time.Time) {
 	for id, op := range b.repl {
 		if now.Sub(op.ReadyAt) > replOpRetention {

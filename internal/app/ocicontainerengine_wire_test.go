@@ -110,6 +110,29 @@ func TestWireOCIContainerEngineAgainstCore(t *testing.T) {
 	_, err = okeH.Backend.CreateNodePool(pool("VM.Standard2.1"))
 	require.NoError(t, err)
 
+	pools, err := okeH.Backend.ListNodePools(ocioke.PoolListIn{Compartment: okeTestCompartment})
+	require.NoError(t, err)
+	require.Len(t, pools.Data, 1)
+
+	np, _, err := okeH.Backend.GetNodePool(pools.Data[0].ID)
+	require.NoError(t, err)
+	require.Len(t, np.Nodes, 1)
+
+	node := np.Nodes[0]
+	assert.Contains(t, node.ID, "ocid1.instance.", "a worker node is an OCI Core instance")
+	assert.Regexp(t, `^10\.0\.1\.\d+$`, node.PrivateIP)
+
+	state, found := coreH.Backend.InstanceState(node.ID)
+	require.True(t, found)
+	assert.NotEqual(t, "TERMINATED", state)
+
+	_, err = okeH.Backend.DeleteNodePool(pools.Data[0].ID, "")
+	require.NoError(t, err)
+
+	state, found = coreH.Backend.InstanceState(node.ID)
+	require.True(t, found)
+	assert.Contains(t, []string{"TERMINATING", "TERMINATED"}, state, "deleting the node terminates its instance")
+
 	got, _, err := okeH.Backend.GetCluster(list.Data[0].ID)
 	require.NoError(t, err)
 	assert.Equal(t, "ACTIVE", got.LifecycleState)

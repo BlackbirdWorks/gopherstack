@@ -2,6 +2,7 @@ package ocicontainerengine_test
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -723,6 +724,98 @@ func TestUpgradeControlPlaneChecksWorkerNodes(t *testing.T) {
 			}
 
 			assert.Equal(t, tt.wantStatus, svcErr(t, err).GetHTTPStatusCode())
+		})
+	}
+}
+
+func TestClusterOpenIDConnect(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	ctx := t.Context()
+
+	oidc := func(issuer string) *ke.OpenIdConnectTokenAuthenticationConfig {
+		return &ke.OpenIdConnectTokenAuthenticationConfig{
+			IsOpenIdConnectAuthEnabled: new(true), IssuerUrl: new(issuer), ClientId: new("client"),
+			UsernameClaim: new("email"), RequiredClaims: []ke.KeyValue{{Key: new("aud"), Value: new("x")}},
+			SigningAlgorithms: []string{"RS256"},
+		}
+	}
+
+	tests := []struct {
+		auth   *ke.OpenIdConnectTokenAuthenticationConfig
+		name   string
+		status int
+	}{
+		{name: "valid", auth: oidc("https://issuer.example.com")},
+		{name: "http issuer", auth: oidc("http://issuer.example.com"), status: http.StatusBadRequest},
+		{
+			name: "missing enabled flag", status: http.StatusBadRequest,
+			auth: &ke.OpenIdConnectTokenAuthenticationConfig{ClientId: new("c")},
+		},
+		{
+			name:   "bad ca",
+			status: http.StatusBadRequest,
+			auth: &ke.OpenIdConnectTokenAuthenticationConfig{
+				IsOpenIdConnectAuthEnabled: new(true),
+				CaCertificate:              new("%%"),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			d := clusterDetails("oidc-" + strings.ReplaceAll(tt.name, " ", "-"))
+			d.Options = &ke.ClusterCreateOptions{
+				OpenIdConnectTokenAuthenticationConfig: tt.auth,
+				OpenIdConnectDiscovery: &ke.OpenIdConnectDiscovery{
+					IsOpenIdConnectDiscoveryEnabled: new(true),
+				},
+			}
+
+			_, err := e.ce.CreateCluster(ctx, ke.CreateClusterRequest{CreateClusterDetails: d})
+			if tt.status != 0 {
+				assert.Equal(t, tt.status, svcErr(t, err).GetHTTPStatusCode())
+
+				return
+			}
+
+			require.NoError(t, err)
+			e.settle()
+
+			list, err := e.ce.ListClusters(
+				ctx,
+				ke.ListClustersRequest{CompartmentId: new(testCompartment), Name: d.Name},
+			)
+			require.NoError(t, err)
+			require.Len(t, list.Items, 1)
+
+			got, err := e.ce.GetCluster(ctx, ke.GetClusterRequest{ClusterId: list.Items[0].Id})
+			require.NoError(t, err)
+
+			cfg := got.Options.OpenIdConnectTokenAuthenticationConfig
+			require.NotNil(t, cfg)
+			assert.Equal(t, "https://issuer.example.com", *cfg.IssuerUrl)
+			assert.Equal(t, "email", *cfg.UsernameClaim)
+			assert.Equal(t, []string{"RS256"}, cfg.SigningAlgorithms)
+			assert.True(t, *got.Options.OpenIdConnectDiscovery.IsOpenIdConnectDiscoveryEnabled)
+
+			_, err = e.ce.UpdateCluster(ctx, ke.UpdateClusterRequest{
+				ClusterId: got.Id,
+				Options: &ke.UpdateClusterOptionsDetails{
+					OpenIdConnectTokenAuthenticationConfig: &ke.OpenIdConnectTokenAuthenticationConfig{
+						IsOpenIdConnectAuthEnabled: new(false),
+					},
+				},
+			})
+			require.NoError(t, err)
+			e.settle()
+
+			upd, err := e.ce.GetCluster(ctx, ke.GetClusterRequest{ClusterId: got.Id})
+			require.NoError(t, err)
+			assert.False(t, *upd.Options.OpenIdConnectTokenAuthenticationConfig.IsOpenIdConnectAuthEnabled)
 		})
 	}
 }

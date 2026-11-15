@@ -431,3 +431,87 @@ func TestGeneratedSecrets(t *testing.T) {
 		})
 	}
 }
+
+type fakeAdb struct {
+	verifyErr error
+	passwords map[string]string
+	mu        sync.Mutex
+}
+
+func (f *fakeAdb) VerifyAdb(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.verifyErr != nil {
+		return f.verifyErr
+	}
+
+	if _, ok := f.passwords[id]; !ok {
+		return errTargetUnreachable
+	}
+
+	return nil
+}
+
+func (f *fakeAdb) SetAdbAdminPassword(_ context.Context, id, password string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.passwords[id] = password
+
+	return nil
+}
+
+func (f *fakeAdb) password(id string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.passwords[id]
+}
+
+func TestRotationChangesAdbPassword(t *testing.T) {
+	t.Parallel()
+
+	const adbID = "ocid1.autonomousdatabase.oc1..adb"
+
+	tests := []struct {
+		verifyErr  error
+		name       string
+		wantNumber int64
+		wantChange bool
+	}{
+		{name: "reachable", wantNumber: 2, wantChange: true},
+		{name: "unreachable", verifyErr: errTargetUnreachable, wantNumber: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			se := newSecretEnv(t)
+			adb := &fakeAdb{passwords: map[string]string{adbID: "initial"}, verifyErr: tt.verifyErr}
+			se.e.backend.SetAdbTarget(adb)
+
+			s := se.rotating(t, "adb-rot", vault.RotationConfig{
+				TargetSystemDetails: vault.AdbTargetSystemDetails{AdbId: new(adbID)}, RotationInterval: new("P30D"),
+			}, true)
+
+			_, err := se.e.vsecret.RotateSecret(t.Context(), vault.RotateSecretRequest{SecretId: s.Id})
+			require.NoError(t, err)
+
+			got := se.get(t, s.Id)
+			assert.Equal(t, tt.wantNumber, *got.CurrentVersionNumber)
+
+			if !tt.wantChange {
+				assert.Equal(t, "initial", adb.password(adbID))
+
+				return
+			}
+
+			b, berr := se.bundle(t, s.Id, nil)
+			require.NoError(t, berr)
+			assert.Equal(t, bundleText(t, b), adb.password(adbID), "the database holds the promoted secret content")
+			assert.NotEqual(t, "initial", adb.password(adbID))
+		})
+	}
+}

@@ -359,7 +359,7 @@ func TestHandlerMetadata(t *testing.T) {
 
 	h := oci.NewHandler(oci.NewInMemoryBackend())
 	assert.Equal(t, "OCIVault", h.Name())
-	assert.Len(t, h.GetSupportedOperations(), 57)
+	assert.Len(t, h.GetSupportedOperations(), 62)
 	assert.Zero(t, h.MatchPriority())
 	assert.False(t, h.RouteMatcher()(nil))
 

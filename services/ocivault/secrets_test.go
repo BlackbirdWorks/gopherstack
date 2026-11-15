@@ -309,7 +309,7 @@ func TestSecretCreateValidation(t *testing.T) {
 		{
 			func(d *vault.CreateSecretDetails) { d.SecretName = new("taken") },
 			"duplicate name",
-			"Conflict",
+			"NotAuthorizedOrResourceAlreadyExists",
 			http.StatusConflict,
 		},
 		{

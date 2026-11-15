@@ -13,6 +13,8 @@ type secretWire struct {
 	NextRotation     *time.Time                `json:"nextRotationTime,omitempty"`
 	RotationConfig   *RotationConfig           `json:"rotationConfig,omitempty"`
 	Metadata         map[string]any            `json:"metadata,omitempty"`
+	ReplicationCfg   *SecretReplication        `json:"replicationConfig,omitempty"`
+	SourceRegion     *sourceRegionWire         `json:"sourceRegionInformation,omitempty"`
 	TimeOfDeletion   *time.Time                `json:"timeOfDeletion,omitempty"`
 	TimeOfCurrentExp *time.Time                `json:"timeOfCurrentVersionExpiry,omitempty"`
 	CurrentVersion   *int64                    `json:"currentVersionNumber,omitempty"`
@@ -27,6 +29,7 @@ type secretWire struct {
 	Description      string                    `json:"description,omitempty"`
 	SecretRules      []jsontext.Value          `json:"secretRules,omitempty"`
 	AutoGeneration   bool                      `json:"isAutoGenerationEnabled"`
+	IsReplica        bool                      `json:"isReplica"`
 }
 
 type secretSummaryWire struct {
@@ -37,6 +40,8 @@ type secretSummaryWire struct {
 	NextRotation     *time.Time                `json:"nextRotationTime,omitempty"`
 	RotationConfig   *RotationConfig           `json:"rotationConfig,omitempty"`
 	DefinedTags      map[string]map[string]any `json:"definedTags,omitempty"`
+	ReplicationCfg   *SecretReplication        `json:"replicationConfig,omitempty"`
+	SourceRegion     *sourceRegionWire         `json:"sourceRegionInformation,omitempty"`
 	TimeOfDeletion   *time.Time                `json:"timeOfDeletion,omitempty"`
 	TimeOfCurrentExp *time.Time                `json:"timeOfCurrentVersionExpiry,omitempty"`
 	RotationStatus   string                    `json:"rotationStatus,omitempty"`
@@ -48,6 +53,7 @@ type secretSummaryWire struct {
 	KeyID            string                    `json:"keyId"`
 	Description      string                    `json:"description,omitempty"`
 	AutoGeneration   bool                      `json:"isAutoGenerationEnabled"`
+	IsReplica        bool                      `json:"isReplica"`
 }
 
 type secretVersionWire struct {
@@ -166,7 +172,8 @@ func secretView(s *Secret) secretWire {
 		TimeCreated: s.TimeCreated, TimeOfDeletion: s.TimeOfDeletion, TimeOfCurrentExp: s.currentExpiry(),
 		FreeformTags: s.FreeformTags, DefinedTags: s.DefinedTags, Metadata: s.Metadata,
 		CompartmentID: s.CompartmentID, ID: s.ID, LifecycleState: s.State, SecretName: s.Name, VaultID: s.VaultID,
-		KeyID: s.KeyID, Description: s.Description, SecretRules: s.Rules,
+		KeyID: s.KeyID, Description: s.Description, SecretRules: s.Rules, ReplicationCfg: s.Replication,
+		SourceRegion: s.sourceRegion(), IsReplica: s.isReplica(),
 	}
 
 	if s.Current != 0 {
@@ -208,6 +215,7 @@ func secretSummary(s *Secret) secretSummaryWire {
 		FreeformTags: s.FreeformTags, DefinedTags: s.DefinedTags, CompartmentID: s.CompartmentID, ID: s.ID,
 		LifecycleState: s.State, SecretName: s.Name, VaultID: s.VaultID, KeyID: s.KeyID, Description: s.Description,
 		RotationConfig: s.rotationConfig(), GenerationCtx: s.GenContext, AutoGeneration: s.AutoGen,
+		ReplicationCfg: s.Replication, SourceRegion: s.sourceRegion(), IsReplica: s.isReplica(),
 	}
 	w.LastRotation, w.NextRotation, w.RotationStatus = s.rotationTimes()
 

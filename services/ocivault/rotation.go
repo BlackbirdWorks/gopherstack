@@ -42,6 +42,19 @@ func (b *InMemoryBackend) SetFunctionInvoker(fn FunctionInvoker) {
 	b.mu.Unlock()
 }
 
+// AdbTarget reaches Autonomous Databases for ADB rotation targets.
+type AdbTarget interface {
+	VerifyAdb(ctx context.Context, adbID string) error
+	SetAdbAdminPassword(ctx context.Context, adbID, password string) error
+}
+
+// SetAdbTarget wires Autonomous Database for ADB rotation targets.
+func (b *InMemoryBackend) SetAdbTarget(t AdbTarget) {
+	b.mu.Lock("SetAdbTarget")
+	b.adb = t
+	b.mu.Unlock()
+}
+
 // TargetSystemDetails is the polymorphic targetSystemDetails body.
 type TargetSystemDetails struct {
 	TargetSystemType string `json:"targetSystemType"`
@@ -206,6 +219,7 @@ func (b *InMemoryBackend) CancelSecretRotation(id, ifMatch string) error {
 
 type rotationRun struct {
 	invoke  FunctionInvoker
+	adb     AdbTarget
 	target  TargetSystemDetails
 	current int64
 }
@@ -221,7 +235,9 @@ func (b *InMemoryBackend) startRotation(id string) (rotationRun, bool) {
 
 	s.Rotation.Status, s.Rotation.SettleTo, s.Rotation.SettleAt = rotInProgress, "", nil
 
-	return rotationRun{target: s.Rotation.Config.TargetSystemDetails, invoke: b.invoke, current: s.Current}, true
+	return rotationRun{
+		target: s.Rotation.Config.TargetSystemDetails, invoke: b.invoke, adb: b.adb, current: s.Current,
+	}, true
 }
 
 func (b *InMemoryBackend) rotate(id string) {
@@ -263,25 +279,11 @@ func (b *InMemoryBackend) rotate(id string) {
 }
 
 func (b *InMemoryBackend) runSteps(ctx context.Context, id string, run rotationRun) error {
-	isFn := run.target.TargetSystemType == targetFunction
-
-	call := func(step string) error {
-		if !isFn {
-			return nil
-		}
-
-		body, _ := json.Marshal(map[string]any{
-			"secretId": id, "step": step, "versionNo": run.current,
-		}, jsonx.V1())
-
-		return run.invoke(ctx, run.target.FunctionID, body)
-	}
-
-	if err := call(stepVerify); err != nil {
+	if err := b.callTarget(ctx, id, run, stepVerify); err != nil {
 		return err
 	}
 
-	if err := call(stepCreate); err != nil {
+	if err := b.callTarget(ctx, id, run, stepCreate); err != nil {
 		return err
 	}
 
@@ -289,15 +291,75 @@ func (b *InMemoryBackend) runSteps(ctx context.Context, id string, run rotationR
 		return err
 	}
 
-	if err := call(stepUpdate); err != nil {
+	if err := b.callTarget(ctx, id, run, stepUpdate); err != nil {
 		return err
 	}
 
-	if err := call(stepPromote); err != nil {
+	if err := b.callTarget(ctx, id, run, stepPromote); err != nil {
 		return err
 	}
 
 	return b.promotePending(id)
+}
+
+func (b *InMemoryBackend) callTarget(ctx context.Context, id string, run rotationRun, step string) error {
+	switch run.target.TargetSystemType {
+	case targetFunction:
+		body, _ := json.Marshal(map[string]any{
+			"secretId": id, "step": step, "versionNo": run.current,
+		}, jsonx.V1())
+
+		return run.invoke(ctx, run.target.FunctionID, body)
+	case targetADB:
+		return b.callAdb(ctx, id, run, step)
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) callAdb(ctx context.Context, id string, run rotationRun, step string) error {
+	if run.adb == nil {
+		logger.Load(ctx).InfoContext(ctx, "ocivault: would run the rotation step on the Autonomous Database",
+			"secretId", id, "adbId", run.target.AdbID, "step", step)
+
+		return nil
+	}
+
+	switch step {
+	case stepVerify:
+		return run.adb.VerifyAdb(ctx, run.target.AdbID)
+	case stepUpdate:
+		pw, err := b.pendingContent(id)
+		if err != nil {
+			return err
+		}
+
+		return run.adb.SetAdbAdminPassword(ctx, run.target.AdbID, string(pw))
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) pendingContent(id string) ([]byte, error) {
+	b.mu.RLock("pendingContent")
+	defer b.mu.RUnlock()
+
+	s, ok := b.secrets[id]
+	if !ok {
+		return nil, rotationError("the secret no longer exists")
+	}
+
+	v, aerr := s.version(s.Pending)
+	if aerr != nil {
+		return nil, rotationError("the secret has no pending version")
+	}
+
+	plain, aerr := b.openVersion(s, v)
+	if aerr != nil {
+		return nil, aerr
+	}
+
+	return plain, nil
 }
 
 // ErrFunctionFailed marks a rotation function call that did not succeed.

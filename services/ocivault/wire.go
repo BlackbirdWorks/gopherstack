@@ -150,8 +150,8 @@ func keyVersionView(k *Key, kv *KeyVersion, state string) keyVersionWire {
 	}
 }
 
-func keyVersionFull(k *Key, kv *KeyVersion, state string) keyVersionWire {
-	w := keyVersionView(k, kv, state)
+func keyVersionFull(k *Key, kv *KeyVersion) keyVersionWire {
+	w := keyVersionView(k, kv, "")
 	if k.Shape.Algorithm != algAES {
 		w.PublicKey = publicKeyPEM(kv.Material)
 	}
