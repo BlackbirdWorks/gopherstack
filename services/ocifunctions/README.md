@@ -9,20 +9,14 @@
 | --- | --- |
 | PARITY entries audited | 16 (9 ok, 7 partial) |
 | Feature families | 9 (7 ok, 2 partial) |
-| Known gaps | 8 |
+| Known gaps | 2 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- Pre-built function sources (PRE_BUILT_FUNCTIONS), archive sources, the pbfListings, functionsRuntimes and triggers APIs are not implemented; CreateFunction accepts only CONTAINER_IMAGE.
-- Provisioned concurrency, failure and success destinations, syslogUrl, traceConfig, logging and imagePolicyConfig are stored and returned but have no effect: containers are not pre-warmed, detached results are not delivered to streams, queues or notifications, function output is not forwarded to syslog and image signatures are not verified.
-- memoryInMBs is passed to the function as FN_MEMORY and FN_TMPSIZE is always 0; neither is enforced as a container memory or tmp limit, and shape (CPU architecture) does not select a platform.
-- What the live invoke endpoint does with the function's Fn-Http-Status and Fn-Http-H-* response headers (emulator: passed through, status stays 200) is not published (checked functionsinvokingfunctions.htm, functionsconcepts.htm and functionsusingapigateway.htm; the FDK source only shows the function side)
-- The FDK socket is shared through a bind mount, so the container runtime must run on the same host as the emulator (not Docker Desktop VMs or a remote daemon).
-- Function stdout and stderr are not captured or exposed; there is no Fn-Fdk-Version/Fn-Fdk-Runtime handling and no cloudevent-specific request shaping for fn-intent.
-- Subnet, network security group and image registry references are stored without being resolved against other emulated services; an image is whatever the container runtime can pull.
-- Application and function name syntax, per-tenancy limits, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified.
+- Pre-built function sources (PRE_BUILT_FUNCTIONS), archive sources (ARCHIVE with runtimeConfig), the pbfListings, functionsRuntimes and triggers APIs are not implemented and CreateFunction accepts only CONTAINER_IMAGE: they need Oracle-published content the emulator has no source for (the PBF catalog and its Oracle-hosted images, the runtime catalog and Oracle's function build service); the pinned SDK types are functions/create_pre_built_function_source_details.go, create_archive_function_source_details.go, pbf_listing.go and functions_runtime.go.
+- IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified.
 
 ## More
 

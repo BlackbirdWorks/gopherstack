@@ -993,24 +993,24 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [OCI API Gateway](services/ociapigateway/README.md) | B | 52 | 7 gaps |
 | [OCI Artifacts and Container Registry](services/ociartifacts/README.md) | B | 37 | 7 gaps |
 | [OCI Autonomous Database](services/ocidatabase/README.md) | B | 21 | 7 gaps |
-| [OCI Container Engine for Kubernetes](services/ocicontainerengine/README.md) | B | 49 | 10 gaps |
+| [OCI Container Engine for Kubernetes](services/ocicontainerengine/README.md) | B | 50 | 2 gaps |
 | [OCI Container Instances](services/ocicontainerinstances/README.md) | B | 18 | 6 gaps |
 | [OCI Core Services](services/ocicore/README.md) | B | 355 | 3 gaps |
 | [OCI DNS](services/ocidns/README.md) | B | 52 | 7 gaps |
 | [OCI Events](services/ocievents/README.md) | B | 6 | 4 gaps |
 | [OCI File Storage](services/ocifilestorage/README.md) | B | 74 | 7 gaps |
-| [OCI Functions](services/ocifunctions/README.md) | B | 16 | 8 gaps |
+| [OCI Functions](services/ocifunctions/README.md) | B | 16 | 2 gaps |
 | [OCI Identity](services/ociidentity/README.md) | B | 76 | 7 gaps |
 | [OCI Load Balancer](services/ociloadbalancer/README.md) | B | 61 | 8 gaps |
 | [OCI Logging](services/ocilogging/README.md) | B | 32 | 7 gaps |
 | [OCI Monitoring](services/ocimonitoring/README.md) | B | 18 | 7 gaps |
-| [OCI MySQL HeatWave Database Service](services/ocimysql/README.md) | B | 55 | 8 gaps |
+| [OCI MySQL HeatWave Database Service](services/ocimysql/README.md) | B | 63 | 3 gaps |
 | [OCI NoSQL Database Cloud Service](services/ocinosql/README.md) | B | 27 | 8 gaps |
 | [OCI Notifications](services/ocinotifications/README.md) | B | 16 | 2 gaps |
 | [OCI Object Storage](services/ociobjectstorage/README.md) | B | 57 | 5 gaps |
 | [OCI Queue](services/ociqueue/README.md) | B | 19 | 3 gaps |
 | [OCI Streaming](services/ocistreaming/README.md) | B | 30 | 5 gaps |
-| [OCI Vault](services/ocivault/README.md) | B | 57 | 8 gaps |
+| [OCI Vault](services/ocivault/README.md) | B | 62 | 2 gaps |
 
 ### Other
 
@@ -1019,7 +1019,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Amp](services/amp/README.md) | B | 44 | 5 gaps; 2 structural gaps |
 | [AppStream 2.0](services/appstream/README.md) | A | 44 | 5 structural gaps |
 | [Appintegrations](services/appintegrations/README.md) | B | 23 | 1 gap; 1 structural gap |
-| [Azurearm](services/azurearm/README.md) | B | 21 | 68 gaps; 3 deferred |
+| [Azurearm](services/azurearm/README.md) | B | 21 | 52 gaps; 3 deferred |
 | [Azurestoragevhost](services/azurestoragevhost/README.md) | B | 2 | 2 gaps; 1 deferred |
 | [Bcmdataexports](services/bcmdataexports/README.md) | B | 12 | 3 gaps |
 | [Bedrockagentcore](services/bedrockagentcore/README.md) | B | 30 | 9 gaps; 2 structural gaps |

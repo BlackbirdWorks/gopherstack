@@ -7,22 +7,17 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 55 (47 ok, 8 partial) |
+| PARITY entries audited | 63 (55 ok, 8 partial) |
 | Feature families | 7 (5 ok, 2 partial) |
-| Known gaps | 8 |
+| Known gaps | 3 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- Blue/green deployments (CreateBlueGreenDeployment, GetBlueGreenDeployment, ListBlueGreenDeployments, UpdateBlueGreenDeployment, DeleteBlueGreenDeployment, ChangeBlueGreenDeploymentCompartment, SwitchoverBlueGreenDeployment), ExportBackup (data must be written to Object Storage in MySQL Shell dump format, oci-go-sdk mysql/export_backup_details.go) and CancelWorkRequest (neither the SDK nor the reachable documentation says which work requests can be canceled or what happens to the resource) are not routed; blue/green is the largest remaining piece: two live DB systems kept in sync by a channel and a switchover.
-- Source type IMPORTURL for CreateDbSystem is rejected 400: it imports an Object Storage dump written by MySQL Shell, the same format ExportBackup would write.
-- Channels are state only: no replication is configured on the target server, the source is never contacted and the status results follow the lifecycle state.
-- shutdownType, crashRecovery, databaseMode, accessMode, isHighlyAvailable (a single container), secureConnections, rest, databaseConsole, readEndpoint and maintenance schedules are stored and echoed only; configuration variables are applied only for a CUSTOM configuration's differences from the shape default.
-- Backups are logical dumps (mysqldump of user schemas, no accounts) held in the service state and in persistence snapshots, not in Object Storage; INCREMENTAL backups are full dumps; a backup taken before the docker engine was enabled restores to an empty server.
-- Under the docker engine the endpoint is 127.0.0.1 with a random published port; portX (X protocol) is not published, the configured port/portX only apply to the state-only endpoint, and read replicas have their own endpoints but no read load balancer. A deleted DB system's data is removed with it, so PITR from a deleted source is refused under the engine.
-- MySQL versions are a static representative set (8.0.39-8.0.42, 8.4.3-8.4.6, 9.1.0-9.4.0, default 8.4.6) while the documentation lists availability by date (8.0 closed to new systems, 8.4.9 and 9.7.0 LTS current); dataStorageSizeInGBs is accepted from 50 to 131072 inclusive.
-- Service limits, IAM policy checks, resource principals and instance principals are not applied and only API-key signatures are verified.
+- ExportBackup (data must be written to Object Storage in MySQL Shell dump format, oci-go-sdk mysql/export_backup_details.go) and CreateDbSystem source type IMPORTURL (the same dump read back) are not implemented: the MySQL Shell dump pages (dev.mysql.com mysql-shell-utilities-dump-instance-schema.html) list the file names (@.json, @.sql, @.post.sql, @.done.json, schema.json, schema@table.sql, schema@table@@0.tsv.zst and .idx) but not the content of the JSON, .idx or chunk files, and pkgs/mysqlengine produces and reads mysqldump SQL only.
+- isHighlyAvailable is stored and echoed but a DB system is one container, so currentPlacement stays the primary's and there are no secondaries. Chosen design: three containers per DB system running single-primary Group Replication (the stock image ships the plugin), a front endpoint that follows group_replication_primary_member, automatic election as failover and group_replication_set_as_primary for switchover. Not built: stop, start, restart, delete, backup, PITR, version update and replicas all assume one server per DB system (services/ocimysql/engine.go launchWork, lifecycle.go StopDBSystem and DeleteDBSystem, replicas_engine.go) and need a member list first.
+- IAM policy checks, resource principals and instance principals are not applied and only API-key signatures are verified.
 
 ## More
 
