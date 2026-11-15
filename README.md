@@ -1004,7 +1004,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [OCI Load Balancer](services/ociloadbalancer/README.md) | B | 61 | 8 gaps |
 | [OCI Logging](services/ocilogging/README.md) | B | 32 | 7 gaps |
 | [OCI Monitoring](services/ocimonitoring/README.md) | B | 18 | 7 gaps |
-| [OCI MySQL HeatWave Database Service](services/ocimysql/README.md) | B | 40 | 9 gaps |
+| [OCI MySQL HeatWave Database Service](services/ocimysql/README.md) | B | 55 | 8 gaps |
 | [OCI NoSQL Database Cloud Service](services/ocinosql/README.md) | B | 27 | 8 gaps |
 | [OCI Notifications](services/ocinotifications/README.md) | B | 16 | 2 gaps |
 | [OCI Object Storage](services/ociobjectstorage/README.md) | B | 57 | 5 gaps |
@@ -1029,7 +1029,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cloudhsmv2](services/cloudhsmv2/README.md) | B | 18 | 2 gaps; 3 structural gaps |
 | [Codegurureviewer](services/codegurureviewer/README.md) | B | 14 | 2 gaps; 2 structural gaps |
 | [Connect](services/connect/README.md) | B | 392 | 11 gaps; 2 structural gaps |
-| [Cur](services/cur/README.md) | B | 7 | 4 gaps |
+| [Cur](services/cur/README.md) | B | 7 | 3 gaps |
 | [Directconnect](services/directconnect/README.md) | A | 73 | 1 gap; 8 structural gaps; 1 deferred |
 | [Dsql](services/dsql/README.md) | A | 16 | 8 gaps; 2 structural gaps |
 | [Ecrpublic](services/ecrpublic/README.md) | A | 23 | 3 structural gaps |
