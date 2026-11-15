@@ -25,6 +25,8 @@ const (
 )
 
 type logicRetryPolicy struct {
+	minimum  time.Duration
+	maximum  time.Duration
 	interval time.Duration
 	count    int
 	expo     bool
@@ -64,13 +66,17 @@ func parseRetryPolicy(in map[string]any) (logicRetryPolicy, error) {
 		rp.count = clampRetryCount(n)
 	}
 
-	if iv := stringOf(pol["interval"]); iv != "" {
-		d, err := parseISODuration(iv)
-		if err != nil {
-			return rp, err
-		}
+	for key, dst := range map[string]*time.Duration{
+		"interval": &rp.interval, "minimumInterval": &rp.minimum, "maximumInterval": &rp.maximum,
+	} {
+		if iv := stringOf(pol[key]); iv != "" {
+			d, err := parseISODuration(iv)
+			if err != nil {
+				return rp, err
+			}
 
-		rp.interval = d
+			*dst = d
+		}
 	}
 
 	return rp, nil
@@ -105,7 +111,7 @@ func (rs *logicRunState) runHTTP(env *logicEnv, name string, def map[string]any)
 		return failOutcome(logicCodeInvalidTmpl, err.Error())
 	}
 
-	resp, err := rs.doHTTP(req, policy, timeout)
+	resp, history, err := rs.doHTTP(req, policy, timeout)
 	out := logicOutcome{inputs: httpInputs(in), hasIn: true}
 
 	if err != nil {
@@ -123,7 +129,12 @@ func (rs *logicRunState) runHTTP(env *logicEnv, name string, def map[string]any)
 		return out
 	}
 
-	out.outputs, out.hasOut = resp.outputs(), true
+	outputs := resp.outputs()
+	if len(history) > 0 {
+		outputs["retryHistory"] = history
+	}
+
+	out.outputs, out.hasOut = outputs, true
 	out.status = logicStSucceeded
 
 	if resp.status >= logicHTTPErrorFloor {
@@ -234,29 +245,65 @@ func (r *logicHTTPResponse) outputs() map[string]any {
 	return out
 }
 
+// doHTTP sends req, retrying 408, 429, 5xx and transport failures per the policy: fixed waits interval between
+// attempts, exponential doubles it, both clamped to minimumInterval and maximumInterval when set. The failed
+// attempts are returned as retryHistory entries.
 func (rs *logicRunState) doHTTP(req *logicHTTPRequest, pol logicRetryPolicy, timeout time.Duration,
-) (*logicHTTPResponse, error) {
+) (*logicHTTPResponse, []any, error) {
 	ctx, cancel := context.WithTimeout(rs.ctx, timeout)
 	defer cancel()
 
 	delay := pol.interval
 
+	var history []any
+
 	for attempt := 0; ; attempt++ {
+		started := rs.clock()
 		resp, err := rs.p.sendHTTP(ctx, req)
 		retryable := err != nil && ctx.Err() == nil || resp != nil && retryableStatus(resp.status)
 
 		if !retryable || attempt >= pol.count {
-			return resp, err
+			return resp, history, err
 		}
 
-		if !rs.sleep(delay) {
-			return nil, context.Canceled
+		history = append(history, retryEntry(started, rs.clock(), resp, err))
+
+		if !rs.sleep(pol.clamp(delay)) {
+			return nil, history, context.Canceled
 		}
 
 		if pol.expo {
 			delay *= 2
 		}
 	}
+}
+
+func (pol logicRetryPolicy) clamp(d time.Duration) time.Duration {
+	if pol.minimum > 0 && d < pol.minimum {
+		d = pol.minimum
+	}
+
+	if pol.maximum > 0 && d > pol.maximum {
+		d = pol.maximum
+	}
+
+	return d
+}
+
+func retryEntry(start, end time.Time, resp *logicHTTPResponse, err error) map[string]any {
+	e := map[string]any{logicKStartTime: logicTime(start), logicKEndTime: logicTime(end)}
+
+	if resp != nil {
+		e[logicKCode] = http.StatusText(resp.status)
+		e["statusCode"] = int64(resp.status)
+
+		return e
+	}
+
+	e[logicKCode] = "ClientError"
+	e["error"] = map[string]any{logicKCode: "ClientError", fieldMessage: err.Error()}
+
+	return e
 }
 
 func retryableStatus(s int) bool {

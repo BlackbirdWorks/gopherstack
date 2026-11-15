@@ -3,6 +3,7 @@ package azurearm_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -129,6 +130,7 @@ func (s *acaStack) mustEnv(t *testing.T, rg, name string) *armappcontainers.Mana
 type acaApp struct {
 	ident   *armappcontainers.ManagedServiceIdentity
 	scale   *armappcontainers.Scale
+	cors    *armappcontainers.CorsPolicy
 	image   string
 	suffix  string
 	profile string
@@ -139,6 +141,8 @@ type acaApp struct {
 	env     []*armappcontainers.EnvironmentVar
 	command []*string
 	args    []*string
+	ipRules []*armappcontainers.IPSecurityRestrictionRule
+	inits   []string
 	cpu     float64
 	port    int32
 	noIng   bool
@@ -168,7 +172,15 @@ func (o acaApp) model(envID string) armappcontainers.ContainerApp {
 
 	cfg := &armappcontainers.Configuration{ActiveRevisionsMode: &mode, Secrets: o.secrets}
 	if !o.noIng {
-		cfg.Ingress = &armappcontainers.Ingress{External: new(o.extIng), TargetPort: &port, Traffic: o.traffic}
+		cfg.Ingress = &armappcontainers.Ingress{
+			External: new(
+				o.extIng,
+			),
+			TargetPort:             &port,
+			Traffic:                o.traffic,
+			IPSecurityRestrictions: o.ipRules,
+			CorsPolicy:             o.cors,
+		}
 	}
 
 	tmpl := &armappcontainers.Template{
@@ -178,6 +190,12 @@ func (o acaApp) model(envID string) armappcontainers.ContainerApp {
 		}},
 		Scale: o.scale,
 	}
+	for i, img := range o.inits {
+		tmpl.InitContainers = append(tmpl.InitContainers, &armappcontainers.InitContainer{
+			Name: new(fmt.Sprintf("init%d", i)), Image: new(img), Command: []*string{new("/bin/prepare")},
+		})
+	}
+
 	if o.suffix != "" {
 		tmpl.RevisionSuffix = &o.suffix
 	}

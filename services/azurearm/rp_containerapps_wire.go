@@ -526,6 +526,10 @@ func acaCheckIPRules(rules []any) error {
 			)
 		}
 
+		if _, ok := acaParseRange(strOf(r, "ipAddressRange")); !ok {
+			return acaBad("The ipAddressRange '%s' must be an IP address or a CIDR block.", strOf(r, "ipAddressRange"))
+		}
+
 		if action != "" && action != a {
 			return acaBad("ipSecurityRestrictions cannot mix Allow and Deny rules.")
 		}

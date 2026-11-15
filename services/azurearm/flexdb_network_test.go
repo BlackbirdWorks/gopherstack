@@ -86,7 +86,7 @@ func TestFlexPrivateAccessValidation(t *testing.T) {
 		status int
 	}{
 		{"pg delegated", pgNS, "pgpriv", flexPrivateBody(vnet, "pgsub", "privateDnsZoneArmResourceId", pgZone, ""),
-			flexAPIPG, http.StatusCreated},
+			flexAPIPG, http.StatusAccepted},
 		{
 			"pg wrong delegation",
 			pgNS,
@@ -109,7 +109,7 @@ func TestFlexPrivateAccessValidation(t *testing.T) {
 			flexPrivateBody(vnet, "pgsub", "privateDnsZoneArmResourceId", pgZone, `,"publicNetworkAccess":"Enabled"`),
 			flexAPIPG, http.StatusBadRequest},
 		{"mysql delegated", myNS, "mypriv", flexPrivateBody(vnet, "mysub", "privateDnsZoneResourceId", myZone, ""),
-			flexAPIMy, http.StatusCreated},
+			flexAPIMy, http.StatusAccepted},
 		{
 			"pg /29 too small",
 			pgNS,
@@ -119,9 +119,9 @@ func TestFlexPrivateAccessValidation(t *testing.T) {
 			http.StatusBadRequest,
 		},
 		{"pg /28 ok", pgNS, "pg28", flexPrivateBody(vnet, "pg28", "privateDnsZoneArmResourceId", pgZone, ""),
-			flexAPIPG, http.StatusCreated},
+			flexAPIPG, http.StatusAccepted},
 		{"mysql /29 ok", myNS, "mysmall", flexPrivateBody(vnet, "mysmall", "privateDnsZoneResourceId", myZone, ""),
-			flexAPIMy, http.StatusCreated},
+			flexAPIMy, http.StatusAccepted},
 		{"pg wrong zone suffix", pgNS, "pgbadzone",
 			flexPrivateBody(
 				vnet,
@@ -154,7 +154,7 @@ func TestFlexPrivateAccessEffects(t *testing.T) {
 
 	status, resp := s.raw(t, http.MethodPut, path,
 		flexPrivateBody(vnet, "pgsub", "privateDnsZoneArmResourceId", zone, ""), flexAPIPG)
-	require.Equal(t, http.StatusCreated, status, resp)
+	require.Equal(t, http.StatusAccepted, status, resp)
 
 	props, _ := resp["properties"].(map[string]any)
 	net, _ := props["network"].(map[string]any)

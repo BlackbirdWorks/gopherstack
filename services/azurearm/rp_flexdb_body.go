@@ -97,7 +97,13 @@ func (p *FlexDBProvider) serverBody(id ResourceID, rec *flexServer) map[string]a
 	}
 
 	if len(rec.Identity) > 0 {
-		out["identity"] = redisIdentity(id, rec.Identity)
+		ident := redisIdentity(id, rec.Identity)
+
+		if ua, _ := ident["userAssignedIdentities"].(map[string]any); ua == nil && p.flavor.kind == flexKindMySQL {
+			ident["userAssignedIdentities"] = map[string]any{}
+		}
+
+		out["identity"] = ident
 	}
 
 	return out
@@ -253,6 +259,10 @@ func (p *FlexDBProvider) ListChildren(id ResourceID, collection string) ([]map[s
 	case strings.ToLower(flexAdminType):
 		for _, a := range rec.Admins {
 			out = append(out, p.adminBody(id, a))
+		}
+	case strings.ToLower(flexBackupsType), strings.ToLower(flexBackupsV2Type):
+		for _, b := range p.liveBackups(rec) {
+			out = append(out, p.backupItemBody(id, b, strings.EqualFold(collection, flexBackupsV2Type)))
 		}
 	case strings.ToLower(flexConfigsType):
 		for _, c := range p.flavor.configs {

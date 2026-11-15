@@ -434,3 +434,95 @@ func TestACA_EngineDisabledFailsRevisions(t *testing.T) {
 	assert.Equal(t, armappcontainers.RevisionRunningStateFailed, *revs[0].Properties.RunningState)
 	assert.Contains(t, *revs[0].Properties.ProvisioningError, "disabled")
 }
+
+func TestACA_InitContainersRunBeforeTheApp(t *testing.T) {
+	t.Parallel()
+
+	s := newACAStack(t)
+	env := s.mustEnv(t, "rg", "env1")
+
+	s.rt.mu.Lock()
+	s.rt.scripts["init-img-a"], s.rt.scripts["init-img-b"] = []int{0}, []int{0}
+	s.rt.mu.Unlock()
+
+	s.mustApp(t, "rg", "withinit", *env.ID, acaApp{inits: []string{"init-img-a", "init-img-b"}, noIng: true})
+
+	s.rt.mu.Lock()
+	defer s.rt.mu.Unlock()
+
+	order := make([]string, 0, len(s.rt.specs))
+	for _, sp := range s.rt.specs {
+		order = append(order, sp.Image)
+	}
+
+	assert.Equal(t, []string{"init-img-a", "init-img-b", "busybox:1"}, order, "init containers run one at a time first")
+}
+
+func TestACA_IngressIPRestrictionsAndCORS(t *testing.T) {
+	t.Parallel()
+
+	rule := func(action, cidr string) []*armappcontainers.IPSecurityRestrictionRule {
+		return []*armappcontainers.IPSecurityRestrictionRule{{
+			Name: new("r"), IPAddressRange: new(cidr), Action: new(armappcontainers.Action(action)),
+		}}
+	}
+
+	tests := []struct {
+		name string
+		rule []*armappcontainers.IPSecurityRestrictionRule
+		want int
+	}{
+		{name: "allow list containing the caller", rule: rule("Allow", "127.0.0.0/8"), want: http.StatusOK},
+		{name: "allow list without the caller", rule: rule("Allow", "10.0.0.0/8"), want: http.StatusForbidden},
+		{name: "deny list with the caller", rule: rule("Deny", "127.0.0.1"), want: http.StatusForbidden},
+		{name: "deny list without the caller", rule: rule("Deny", "10.1.2.3"), want: http.StatusOK},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := newACAStack(t)
+			backends := newReplicaBackends(t)
+			s.rt.onStart = backends.hook
+
+			env := s.mustEnv(t, "rg", "env1")
+			s.mustApp(t, "rg", "guarded", *env.ID, acaApp{extIng: true, ipRules: tc.rule})
+
+			status, body := s.raw(t, http.MethodGet, "guarded."+*env.Properties.DefaultDomain, "/")
+			assert.Equal(t, tc.want, status, body)
+		})
+	}
+
+	_, err := newACAStack(t).putApp(t, "rg", "bad", "/x", acaApp{extIng: true, ipRules: rule("Allow", "not-an-ip")})
+	require.Error(t, err)
+}
+
+func TestACA_IngressCORSPreflight(t *testing.T) {
+	t.Parallel()
+
+	s := newACAStack(t)
+	env := s.mustEnv(t, "rg", "env1")
+
+	s.mustApp(t, "rg", "cors", *env.ID, acaApp{extIng: true, cors: &armappcontainers.CorsPolicy{
+		AllowedOrigins: []*string{new("https://app.example.com")}, AllowedMethods: []*string{new("GET"), new("POST")},
+		AllowedHeaders: []*string{new("x-key")}, MaxAge: new(int32(60)),
+	}})
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodOptions, s.url+"/", http.NoBody)
+	require.NoError(t, err)
+
+	req.Host = "cors." + *env.Properties.DefaultDomain
+	req.Header.Set("Origin", "https://app.example.com")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+
+	resp, err := s.client.Do(req)
+	require.NoError(t, err)
+
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+	assert.Equal(t, "https://app.example.com", resp.Header.Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, "GET, POST", resp.Header.Get("Access-Control-Allow-Methods"))
+	assert.Equal(t, "60", resp.Header.Get("Access-Control-Max-Age"))
+}

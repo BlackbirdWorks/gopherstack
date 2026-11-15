@@ -180,6 +180,7 @@ func (p *NetworkProvider) ResourceTypes() []ResourceTypeDef {
 		netAGWs, netWAFs, netFWs, netFWPols, netFWPols + "/" + fpRCGs, netIPGroups,
 		netPLS, netRFs, netRFs + "/" + rfRules, netSEPs, netSEPs + "/" + sepDefs, netWatchers,
 		netWatchers + "/" + wFlowLogs, netTaps, netNICs + "/" + nicTapCfgs,
+		netLNGs, netVNGs, netConns, netERCs, netERCs + "/" + ercPeerings, netERCs + "/" + ercAuths,
 	} {
 		defs = append(defs, ResourceTypeDef{Type: t, APIVersions: v, HasChildren: !strings.Contains(t, "/")})
 	}
@@ -394,7 +395,8 @@ func (p *NetworkProvider) modeled(typ string) bool {
 		strings.ToLower(netPrefixes), strings.ToLower(netASGs), strings.ToLower(netPEs), strings.ToLower(netAGWs),
 		strings.ToLower(netWAFs), strings.ToLower(netFWs), strings.ToLower(netFWPols), strings.ToLower(netIPGroups),
 		strings.ToLower(netDDoS), strings.ToLower(netPLS), strings.ToLower(netRFs), strings.ToLower(netSEPs),
-		strings.ToLower(netWatchers), strings.ToLower(netTaps):
+		strings.ToLower(netWatchers), strings.ToLower(netTaps), strings.ToLower(netLNGs), strings.ToLower(netVNGs),
+		strings.ToLower(netConns), strings.ToLower(netERCs):
 		return true
 	}
 
@@ -405,6 +407,7 @@ func canonicalTop(typ string) string {
 	for _, t := range []string{
 		netVNets, netNSGs, netPIPs, netNICs, netRTs, netZones, netLBs, netNATs, netPrefixes, netASGs, netPEs,
 		netAGWs, netWAFs, netFWs, netFWPols, netIPGroups, netDDoS, netPLS, netRFs, netSEPs, netWatchers, netTaps,
+		netLNGs, netVNGs, netConns, netERCs,
 	} {
 		if strings.EqualFold(t, typ) {
 			return t
@@ -416,10 +419,22 @@ func canonicalTop(typ string) string {
 
 func canonicalKid(parent, typ string) string {
 	cands := map[string][]string{
-		netVNets: {netSubnets, netPeerings}, netNSGs: {netRules, netDefRules},
-		netNICs: {netIPConfigs, nicLBs, nicTapCfgs}, netRFs: {rfRules}, netSEPs: {sepDefs}, netWatchers: {wFlowLogs},
-		netLBs: append(append([]string{}, lbKidTypes...), lbNICs), netPEs: {peZoneGroups},
-		netRTs: {netRoutes}, netFWPols: {fpRCGs}, netZones: append([]string{netLinks}, dnsRecordTypes...),
+		netVNets: {netSubnets, netPeerings},
+		netNSGs:  {netRules, netDefRules},
+		netNICs: {
+			netIPConfigs,
+			nicLBs,
+			nicTapCfgs,
+		},
+		netRFs:      {rfRules},
+		netSEPs:     {sepDefs},
+		netWatchers: {wFlowLogs},
+		netERCs:     {ercPeerings, ercAuths},
+		netLBs:      append(append([]string{}, lbKidTypes...), lbNICs),
+		netPEs:      {peZoneGroups},
+		netRTs:      {netRoutes},
+		netFWPols:   {fpRCGs},
+		netZones:    append([]string{netLinks}, dnsRecordTypes...),
 	}
 
 	for _, t := range cands[parent] {
@@ -601,7 +616,7 @@ func (p *NetworkProvider) putTop(top string, id ResourceID, body map[string]any)
 		return p.putPE(id, body)
 	case netAGWs, netWAFs, netFWs, netFWPols, netIPGroups:
 		return p.putGatewayTop(top, id, body)
-	case netPLS, netRFs, netSEPs, netWatchers, netTaps:
+	case netPLS, netRFs, netSEPs, netWatchers, netTaps, netLNGs, netVNGs, netConns, netERCs:
 		return p.putLinkTop(top, id, body)
 	default:
 		return p.putZone(id, body)
@@ -698,7 +713,7 @@ func (p *NetworkProvider) bodyTop(id ResourceID, it *netParent) map[string]any {
 		return p.bodyPE(id, it)
 	case netAGWs, netWAFs, netFWs, netFWPols, netIPGroups:
 		return p.bodyGatewayTop(id, it)
-	case netPLS, netRFs, netSEPs, netWatchers, netTaps:
+	case netPLS, netRFs, netSEPs, netWatchers, netTaps, netLNGs, netVNGs, netConns, netERCs:
 		return p.bodyLinkTop(id, it)
 	default:
 		return p.bodyZone(id, it)
@@ -763,6 +778,8 @@ func (p *NetworkProvider) writeKidClassic(
 		created, err = p.writeRFRule(parent, id.Names[1], body)
 	case sepDefs:
 		created, err = p.writeSEPDef(parent, id.Names[1], body)
+	case ercPeerings, ercAuths:
+		created, err = p.writeERCKid(parent, kt, id.Names[1], body)
 	case wFlowLogs:
 		created, err = p.writeFlowLog(parent, id.Names[1], body)
 	case nicTapCfgs:
@@ -871,6 +888,8 @@ func (p *NetworkProvider) bodyKid(parent *netParent, kt string, id ResourceID, k
 		return p.bodyRFRule(parent, id, k)
 	case sepDefs:
 		return p.bodySEPDef(id, k)
+	case ercPeerings, ercAuths:
+		return p.bodyERCKid(parentID(id), kt, k)
 	case wFlowLogs:
 		return p.bodyFlowLog(id, k)
 	case nicTapCfgs:

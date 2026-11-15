@@ -150,7 +150,7 @@ func (p *FlexDBProvider) configValue(rec *flexServer, c flexConfigDef) (string, 
 		return v, "user-override"
 	}
 
-	return p.configDefault(rec, c), "system-default"
+	return p.configDefault(rec, c), flexSourceDefault
 }
 
 func (p *FlexDBProvider) configDefault(rec *flexServer, c flexConfigDef) string {
@@ -265,7 +265,7 @@ func (p *FlexDBProvider) writeConfig(id ResourceID, body map[string]any) (flexRe
 		return flexResult{}, flexInvalid("The server parameter '%s' is read-only.", c.name)
 	}
 
-	reset := source == "system-default"
+	reset := source == flexSourceDefault
 
 	if !reset {
 		if !hasValue {
@@ -285,8 +285,20 @@ func (p *FlexDBProvider) writeConfig(id ResourceID, body map[string]any) (flexRe
 		return flexResult{}, err
 	}
 
-	if err = p.checkConnRange(rec, c, value, reset); err != nil {
+	if err = p.applyConfigLocked(rec, c, value, reset); err != nil {
 		return flexResult{}, err
+	}
+
+	id.Names = []string{id.Names[0], c.name}
+
+	return flexResult{body: p.configEnvelope(id, rec, c), opID: p.newOp(id.ARMID(), true, "", nil)}, nil
+}
+
+const flexSourceDefault = "system-default"
+
+func (p *FlexDBProvider) applyConfigLocked(rec *flexServer, c flexConfigDef, value string, reset bool) error {
+	if err := p.checkConnRange(rec, c, value, reset); err != nil {
+		return err
 	}
 
 	if rec.Config == nil {
@@ -307,9 +319,105 @@ func (p *FlexDBProvider) writeConfig(id ResourceID, body map[string]any) (flexRe
 		rec.Pending[c.name] = true
 	}
 
-	id.Names = []string{id.Names[0], c.name}
+	return nil
+}
 
-	return flexResult{body: p.configEnvelope(id, rec, c), opID: p.newOp(id.ARMID(), true, "", nil)}, nil
+type flexConfigChange struct {
+	value string
+	c     flexConfigDef
+	reset bool
+}
+
+// parseConfigBatch validates every entry of a MySQL updateConfigurations request.
+func (p *FlexDBProvider) parseConfigBatch(body map[string]any) ([]flexConfigChange, error) {
+	changes := make([]flexConfigChange, 0)
+
+	for _, raw := range anyList(body[fieldValue]) {
+		e := mapOf(raw)
+
+		c, ok := p.flavor.config(strOf(e, fieldName))
+		if !ok {
+			return nil, flexInvalid("The server parameter '%s' does not exist.", strOf(e, fieldName))
+		}
+
+		if c.readOnly {
+			return nil, flexInvalid("The server parameter '%s' is read-only.", c.name)
+		}
+
+		props := flexMap(e, fieldProperties)
+		value, hasValue := flexStr(props, fieldValue)
+		source, _ := flexStr(props, "source")
+		reset := source == flexSourceDefault
+
+		if !reset {
+			if !hasValue {
+				return nil, flexInvalid("A value is required for the server parameter '%s'.", c.name)
+			}
+
+			if why := configValueProblem(c, value); why != "" {
+				return nil, flexInvalid("The value for '%s' is not valid: %s.", c.name, why)
+			}
+		}
+
+		changes = append(changes, flexConfigChange{c: c, value: value, reset: reset})
+	}
+
+	return changes, nil
+}
+
+// BatchUpdateConfigs applies MySQL updateConfigurations: every entry is validated first and the batch is applied
+// as a whole or not at all; resetAllToDefault True resets every writable parameter before the entries apply.
+func (p *FlexDBProvider) BatchUpdateConfigs(id ResourceID, body map[string]any) ([]map[string]any, error) {
+	if p.flavor.kind != flexKindMySQL {
+		return nil, errUnsupportedFlexType(id)
+	}
+
+	resetAll := strings.EqualFold(strOf(body, "resetAllToDefault"), "True")
+
+	changes, err := p.parseConfigBatch(body)
+	if err != nil {
+		return nil, err
+	}
+
+	if !resetAll && len(changes) == 0 {
+		return nil, flexInvalid("At least one server parameter or resetAllToDefault is required.")
+	}
+
+	p.mu.Lock("BatchUpdateConfigs")
+	defer p.mu.Unlock()
+
+	rec, err := p.server(id)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, ch := range changes {
+		if err = p.checkConnRange(rec, ch.c, ch.value, ch.reset); err != nil {
+			return nil, err
+		}
+	}
+
+	if resetAll {
+		for _, c := range p.flavor.configs {
+			if !c.readOnly {
+				_ = p.applyConfigLocked(rec, c, "", true)
+			}
+		}
+	}
+
+	out := make([]map[string]any, 0, len(changes))
+
+	for _, ch := range changes {
+		if err = p.applyConfigLocked(rec, ch.c, ch.value, ch.reset); err != nil {
+			return nil, err
+		}
+
+		cid := id
+		cid.Types, cid.Names = []string{flexServersType, flexConfigsType}, []string{id.Names[0], ch.c.name}
+		out = append(out, p.configEnvelope(cid, rec, ch.c))
+	}
+
+	return out, nil
 }
 
 // CheckName answers checkNameAvailability for a server name. Names are unique across the subscription.

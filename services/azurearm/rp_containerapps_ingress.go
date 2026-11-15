@@ -124,6 +124,18 @@ func (p *ContainerAppsProvider) ServeIngress(w http.ResponseWriter, r *http.Requ
 		return false
 	}
 
+	ing := p.appByKey(t.AppKey).ingress()
+
+	if !acaIPAllowed(acaList(ing["ipSecurityRestrictions"]), r) {
+		http.Error(w, acaForbiddenBody, http.StatusForbidden)
+
+		return true
+	}
+
+	if acaCORS(w, r, mapOf(ing["corsPolicy"])) {
+		return true
+	}
+
 	rev, status, msg := p.pickRevision(t)
 	if rev == "" {
 		http.Error(w, msg, status)

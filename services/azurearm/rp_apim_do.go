@@ -211,6 +211,10 @@ func (p *APIMProvider) route(s *apimService, req apimReq) (apimResp, error) {
 		return p.collection(s, req, backendKind(), "", 0)
 	}
 
+	if k, ok := apimGenericKind(r[0]); ok {
+		return p.collection(s, req, k, "", 0)
+	}
+
 	return apimResp{}, apimNotFound(cosmosFieldResource)
 }
 
@@ -402,11 +406,6 @@ func (p *APIMProvider) deleteItem(s *apimService, req apimReq, k apimKind, paren
 		return apimResp{Status: http.StatusNoContent}, nil
 	}
 
-	if req.IfMatch == "" {
-		return apimResp{}, apimErr(http.StatusPreconditionFailed, apimCodePrecondition,
-			"The If-Match header is required to delete this entity; use If-Match: * to match any ETag.")
-	}
-
 	if err := checkIfMatch(apimEtag(prev.Etag), req.IfMatch); err != nil {
 		return apimResp{}, err
 	}
@@ -481,17 +480,19 @@ func (p *APIMProvider) action(s *apimService, req apimReq, k apimKind, id, verb 
 	}
 
 	switch {
+	case isAPIMSettingsSecrets(k, id, verb):
+		return apimSettingsSecrets(k, ent), nil
 	case k.typ == sbSubscriptionsType && strings.EqualFold(verb, "listSecrets"):
 		return apimResp{Status: http.StatusOK, Etag: apimEtag(ent.Etag), Body: map[string]any{
 			redisPropPrimaryKey:   ent.Props[redisPropPrimaryKey],
 			redisPropSecondaryKey: ent.Props[redisPropSecondaryKey],
 		}}, nil
-	case k.typ == sbSubscriptionsType && strings.EqualFold(verb, "regeneratePrimaryKey"):
+	case (k.typ == sbSubscriptionsType || k.typ == apimTenantType) && strings.EqualFold(verb, "regeneratePrimaryKey"):
 		ent.Props = withProp(ent.Props, redisPropPrimaryKey, newAPIMKey())
 		s.bump()
 
 		return apimResp{Status: http.StatusNoContent}, nil
-	case k.typ == sbSubscriptionsType && strings.EqualFold(verb, "regenerateSecondaryKey"):
+	case (k.typ == sbSubscriptionsType || k.typ == apimTenantType) && strings.EqualFold(verb, "regenerateSecondaryKey"):
 		ent.Props = withProp(ent.Props, redisPropSecondaryKey, newAPIMKey())
 		s.bump()
 

@@ -34,16 +34,16 @@ func TestFlexDocumentedRules(t *testing.T) {
 	}{
 		{"pg underscore login", pgNS, flexAPIPG, flexSKUBody("Standard_B1ms", "Burstable", loginPW("a_b")), 400},
 		{"pg 64 char login", pgNS, flexAPIPG, flexSKUBody("Standard_B1ms", "Burstable", loginPW(pgLogin63+"a")), 400},
-		{"pg 63 char login", pgNS, flexAPIPG, flexSKUBody("Standard_B1ms", "Burstable", loginPW(pgLogin63)), 201},
-		{"pg d2ds_v6", pgNS, flexAPIPG, flexSKUBody("Standard_D2ds_v6", "GeneralPurpose", loginPW("a1")), 201},
-		{"pg d192ds_v6", pgNS, flexAPIPG, flexSKUBody("Standard_D192ds_v6", "GeneralPurpose", loginPW("a1")), 201},
-		{"pg e96ds_v6", pgNS, flexAPIPG, flexSKUBody("Standard_E96ds_v6", "MemoryOptimized", loginPW("a1")), 201},
+		{"pg 63 char login", pgNS, flexAPIPG, flexSKUBody("Standard_B1ms", "Burstable", loginPW(pgLogin63)), 202},
+		{"pg d2ds_v6", pgNS, flexAPIPG, flexSKUBody("Standard_D2ds_v6", "GeneralPurpose", loginPW("a1")), 202},
+		{"pg d192ds_v6", pgNS, flexAPIPG, flexSKUBody("Standard_D192ds_v6", "GeneralPurpose", loginPW("a1")), 202},
+		{"pg e96ds_v6", pgNS, flexAPIPG, flexSKUBody("Standard_E96ds_v6", "MemoryOptimized", loginPW("a1")), 202},
 		{"pg d96 v3 absent", pgNS, flexAPIPG, flexSKUBody("Standard_D96s_v3", "GeneralPurpose", loginPW("a1")), 400},
 		{"pg e20 v3 absent", pgNS, flexAPIPG, flexSKUBody("Standard_E20s_v3", "MemoryOptimized", loginPW("a1")), 400},
 		{"my reserved sa", myNS, flexAPIMy, flexSKUBody("Standard_B1ms", "Burstable", loginPW("sa")), 400},
-		{"my e80ids_v4", myNS, flexAPIMy, flexSKUBody("Standard_E80ids_v4", "MemoryOptimized", loginPW("a1")), 201},
-		{"my e96ds_v5", myNS, flexAPIMy, flexSKUBody("Standard_E96ds_v5", "MemoryOptimized", loginPW("a1")), 201},
-		{"my e64ds_v5", myNS, flexAPIMy, flexSKUBody("Standard_E64ds_v5", "MemoryOptimized", loginPW("a1")), 201},
+		{"my e80ids_v4", myNS, flexAPIMy, flexSKUBody("Standard_E80ids_v4", "MemoryOptimized", loginPW("a1")), 202},
+		{"my e96ds_v5", myNS, flexAPIMy, flexSKUBody("Standard_E96ds_v5", "MemoryOptimized", loginPW("a1")), 202},
+		{"my e64ds_v5", myNS, flexAPIMy, flexSKUBody("Standard_E64ds_v5", "MemoryOptimized", loginPW("a1")), 202},
 		{"my d96ds_v4 absent", myNS, flexAPIMy, flexSKUBody("Standard_D96ds_v4", "GeneralPurpose", loginPW("a1")), 400},
 		{
 			"my e80ads_v5 absent",
@@ -54,7 +54,7 @@ func TestFlexDocumentedRules(t *testing.T) {
 		},
 		{
 			"my gp storage 16384", myNS, flexAPIMy,
-			flexSKUBody("Standard_D2ds_v4", "GeneralPurpose", loginPW("a1")+`,"storage":{"storageSizeGB":16384}`), 201,
+			flexSKUBody("Standard_D2ds_v4", "GeneralPurpose", loginPW("a1")+`,"storage":{"storageSizeGB":16384}`), 202,
 		},
 		{
 			"my gp storage 16385", myNS, flexAPIMy,
@@ -62,7 +62,7 @@ func TestFlexDocumentedRules(t *testing.T) {
 		},
 		{
 			"my mo storage 32768", myNS, flexAPIMy,
-			flexSKUBody("Standard_E2ds_v4", "MemoryOptimized", loginPW("a1")+`,"storage":{"storageSizeGB":32768}`), 201,
+			flexSKUBody("Standard_E2ds_v4", "MemoryOptimized", loginPW("a1")+`,"storage":{"storageSizeGB":32768}`), 202,
 		},
 		{
 			"my mo storage 32769", myNS, flexAPIMy,
@@ -70,7 +70,7 @@ func TestFlexDocumentedRules(t *testing.T) {
 		},
 		{
 			"my b1ms iops 640", myNS, flexAPIMy,
-			flexSKUBody("Standard_B1ms", "Burstable", loginPW("a1")+`,"storage":{"storageSizeGB":20,"iops":640}`), 201,
+			flexSKUBody("Standard_B1ms", "Burstable", loginPW("a1")+`,"storage":{"storageSizeGB":20,"iops":640}`), 202,
 		},
 		{
 			"my b1ms iops 641", myNS, flexAPIMy,
@@ -83,7 +83,7 @@ func TestFlexDocumentedRules(t *testing.T) {
 				"GeneralPurpose",
 				loginPW("a1")+`,"storage":{"storageSizeGB":20,"iops":3200}`,
 			),
-			201,
+			202,
 		},
 		{
 			"my d2ds_v4 iops 3201", myNS, flexAPIMy,
@@ -114,7 +114,7 @@ func TestFlexDocumentedRules(t *testing.T) {
 					"a1",
 				)+`,"highAvailability":{"mode":"SameZone"},"storage":{"storageSizeGB":20,"autoGrow":"Enabled"}`,
 			),
-			201,
+			202,
 		},
 	}
 
@@ -147,12 +147,12 @@ func TestFlexDocumentedChildNames(t *testing.T) {
 		body   string
 		status int
 	}{
-		{"fw 80 chars", pgNS, "docs-pg-child", flexAPIPG, "/firewallRules/" + strings.Repeat("a", 80), fw, 201},
+		{"fw 80 chars", pgNS, "docs-pg-child", flexAPIPG, "/firewallRules/" + strings.Repeat("a", 80), fw, 202},
 		{"fw 81 chars", pgNS, "docs-pg-child", flexAPIPG, "/firewallRules/" + strings.Repeat("a", 81), fw, 400},
 		{"fw leading hyphen", pgNS, "docs-pg-child", flexAPIPG, "/firewallRules/-a", fw, 400},
 		{"fw trailing hyphen", pgNS, "docs-pg-child", flexAPIPG, "/firewallRules/a-", fw, 400},
 		{"my fw 81 chars", myNS, "docs-my-child", flexAPIMy, "/firewallRules/" + strings.Repeat("a", 81), fw, 400},
-		{"pg db hyphen", pgNS, "docs-pg-child", flexAPIPG, "/databases/app-db", `{"properties":{}}`, 201},
+		{"pg db hyphen", pgNS, "docs-pg-child", flexAPIPG, "/databases/app-db", `{"properties":{}}`, 202},
 		{"pg db dollar", pgNS, "docs-pg-child", flexAPIPG, "/databases/app$db", `{"properties":{}}`, 400},
 		{
 			"pg charset pattern", pgNS, "docs-pg-child", flexAPIPG, "/databases/cs",
@@ -192,7 +192,7 @@ func TestFlexMySQLConnectionLimits(t *testing.T) {
 
 			status, body := s.raw(t, http.MethodPut, flexServerPath(myNS, tt.server),
 				flexSKUBody(tt.sku, tt.tier, loginPW("a1")), flexAPIMy)
-			require.Equal(t, http.StatusCreated, status, body)
+			require.Equal(t, http.StatusAccepted, status, body)
 
 			status, body = s.raw(
 				t,
@@ -215,7 +215,7 @@ func TestFlexMySQLConnectionLimits(t *testing.T) {
 
 		status, body := s.raw(t, http.MethodPut, flexServerPath(myNS, "conn-range"),
 			flexSKUBody("Standard_D2ds_v4", "GeneralPurpose", loginPW("a1")), flexAPIMy)
-		require.Equal(t, http.StatusCreated, status, body)
+		require.Equal(t, http.StatusAccepted, status, body)
 
 		path := flexServerPath(myNS, "conn-range") + "/configurations/max_connections"
 		over, _ := s.raw(t, http.MethodPut, path, `{"properties":{"value":"1366"}}`, flexAPIMy)
@@ -232,7 +232,7 @@ func TestFlexMySQLConnectionLimits(t *testing.T) {
 
 		status, body := s.raw(t, http.MethodPut, flexServerPath(myNS, "conn-logbin"),
 			flexSKUBody("Standard_B1ms", "Burstable", loginPW("a1")), flexAPIMy)
-		require.Equal(t, http.StatusCreated, status, body)
+		require.Equal(t, http.StatusAccepted, status, body)
 
 		_, body = s.raw(t, http.MethodGet,
 			flexServerPath(myNS, "conn-logbin")+"/configurations/log_bin_trust_function_creators", "", flexAPIMy)
@@ -334,7 +334,7 @@ func TestFlexStopRestartErrorCodes(t *testing.T) {
 			path := flexServerPath(tt.ns, "errs")
 
 			status, body := s.raw(t, http.MethodPut, path, tt.create, tt.api)
-			require.Equal(t, http.StatusCreated, status, body)
+			require.Equal(t, http.StatusAccepted, status, body)
 
 			frozen := time.Now().UTC().Add(time.Hour)
 			s.pg.SetClock(func() time.Time { return frozen })
@@ -391,8 +391,8 @@ func TestFlexReplicaRules(t *testing.T) {
 		{"pg burstable source", pgNS, flexAPIPG, "rr-1", replica(burstable.ID, ""), 400},
 		{"my burstable source", myNS, flexAPIMy, "rr-2", replica(myBurst.ID, ""), 400},
 		{"pg ha replica", pgNS, flexAPIPG, "rr-3", replica(gp.ID, `,"highAvailability":{"mode":"SameZone"}`), 400},
-		{"pg valid", pgNS, flexAPIPG, "rr-4", replica(gp.ID, ""), 201},
-		{"my valid", myNS, flexAPIMy, "rr-5", replica(myGP.ID, ""), 201},
+		{"pg valid", pgNS, flexAPIPG, "rr-4", replica(gp.ID, ""), 202},
+		{"my valid", myNS, flexAPIMy, "rr-5", replica(myGP.ID, ""), 202},
 	}
 
 	for _, tt := range tests {
@@ -413,7 +413,7 @@ func TestFlexMySQLNoCascadeAndStopRules(t *testing.T) {
 
 	status, body := s.raw(t, http.MethodPut, flexServerPath(myNS, "mc-rep"),
 		`{"location":"x","properties":{"createMode":"Replica","sourceServerResourceId":"`+*src.ID+`"}}`, flexAPIMy)
-	require.Equal(t, http.StatusCreated, status, body)
+	require.Equal(t, http.StatusAccepted, status, body)
 
 	nested := `{"location":"x","properties":{"createMode":"Replica","sourceServerResourceId":"` +
 		flexServerPath(myNS, "mc-rep") + `"}}`

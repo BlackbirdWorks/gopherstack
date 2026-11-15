@@ -210,9 +210,9 @@ func TestAPIMEntities_SpecConstraints(t *testing.T) {
 	}
 }
 
-// Learn manage-mcp-servers-rest-api: "412 Precondition Failed - If-Match is required for deletions"; the
-// specification marks If-Match required on every child delete.
-func TestAPIMEntities_DeleteRequiresIfMatch(t *testing.T) {
+// The specification marks If-Match required on every child delete, but terraform-provider-azurerm deletes without
+// it against the real service, so a missing header is accepted and only a stale ETag is refused.
+func TestAPIMEntities_DeleteIfMatch(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -222,22 +222,22 @@ func TestAPIMEntities_DeleteRequiresIfMatch(t *testing.T) {
 		ifMatch string
 		status  int
 	}{
-		{name: "product none", path: "/products/p", body: `{"properties":{"displayName":"P"}}`, status: 412},
+		{name: "product none", path: "/products/p", body: `{"properties":{"displayName":"P"}}`, status: 200},
 		{
 			name: "product star", path: "/products/p", body: `{"properties":{"displayName":"P"}}`, ifMatch: "*",
 			status: 200,
 		},
 		{
 			name: "backend none", path: "/backends/b", body: `{"properties":{"url":"http://a","protocol":"http"}}`,
-			status: 412,
+			status: 200,
 		},
 		{
 			name: "named value none", path: "/namedValues/n", body: `{"properties":{"displayName":"n","value":"v"}}`,
-			status: 412,
+			status: 200,
 		},
 		{
 			name: "api policy none", path: "/apis/echo/policies/policy",
-			body: `{"properties":{"format":"xml","value":"<policies><inbound /></policies>"}}`, status: 412,
+			body: `{"properties":{"format":"xml","value":"<policies><inbound /></policies>"}}`, status: 200,
 		},
 		{name: "missing entity", path: "/products/ghost", status: 204},
 	}

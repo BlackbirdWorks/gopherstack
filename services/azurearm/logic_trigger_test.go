@@ -416,3 +416,44 @@ func TestLogicResubmitHistory(t *testing.T) {
 	_, err = hc.Resubmit(t.Context(), logicRG, "again", "manual", "missing", nil)
 	require.Error(t, err)
 }
+
+func TestLogicTriggerSplitOn(t *testing.T) {
+	t.Parallel()
+
+	s := newLogicStack(t)
+	s.create(t, "splitter", logicDef(la{"manual": la{
+		"type": "Request", "kind": "Http", "splitOn": "@triggerBody()?['items']",
+	}}, la{"Mark": compose("@triggerBody()", nil)}))
+
+	tests := []struct {
+		name     string
+		body     string
+		wantRuns int
+	}{
+		{name: "three items", body: `{"items":[1,2,3]}`, wantRuns: 3},
+		{name: "empty array", body: `{"items":[]}`, wantRuns: 3},
+		{name: "not an array", body: `{"items":"x"}`, wantRuns: 3},
+	}
+
+	for _, tc := range tests {
+		code, _, _ := s.post(t, s.callback(t, "splitter"), tc.body)
+		assert.Equal(t, http.StatusAccepted, code, tc.name)
+		s.waitRuns(t)
+		assert.Equal(t, tc.wantRuns, s.runCount(t, "splitter"), tc.name)
+	}
+
+	failed := 0
+
+	for p := s.factory.NewWorkflowTriggerHistoriesClient().NewListPager(logicRG, "splitter", "manual", nil); p.More(); {
+		page, err := p.NextPage(t.Context())
+		require.NoError(t, err)
+
+		for _, h := range page.Value {
+			if *h.Properties.Status == armlogic.WorkflowStatusFailed {
+				failed++
+			}
+		}
+	}
+
+	assert.Equal(t, 1, failed, "a splitOn that is not an array records a failed trigger history entry")
+}

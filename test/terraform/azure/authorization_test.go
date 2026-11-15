@@ -77,3 +77,63 @@ func TestTerraform_Azure_Authorization(t *testing.T) {
 
 	applyAzureTofuNoDrift(t, t.TempDir(), azurermProviderBlock(endpoint)+azureAuthorizationFixture)
 }
+
+const azureAuthorizationScopedFixture = `
+data "azurerm_subscription" "current" {}
+
+resource "azurerm_role_definition" "custom" {
+  name        = "gopherstack-custom-reader"
+  scope       = data.azurerm_subscription.current.id
+  description = "reads resource groups"
+
+  permissions {
+    actions     = ["Microsoft.Resources/subscriptions/resourceGroups/read"]
+    not_actions = []
+  }
+
+  assignable_scopes = [data.azurerm_subscription.current.id]
+}
+
+resource "azurerm_policy_definition" "tagged" {
+  name         = "gopherstack-require-env-tag"
+  policy_type  = "Custom"
+  mode         = "All"
+  display_name = "Require the env tag"
+
+  policy_rule = <<RULE
+{
+  "if": {"field": "tags['env']", "exists": "false"},
+  "then": {"effect": "audit"}
+}
+RULE
+}
+
+resource "azurerm_policy_set_definition" "set" {
+  name         = "gopherstack-initiative"
+  policy_type  = "Custom"
+  display_name = "Initiative"
+
+  policy_definition_reference {
+    policy_definition_id = azurerm_policy_definition.tagged.id
+  }
+}
+
+resource "azurerm_subscription_policy_assignment" "set" {
+  name                 = "gopherstack-sub-assignment"
+  subscription_id      = data.azurerm_subscription.current.id
+  policy_definition_id = azurerm_policy_set_definition.set.id
+  enforce              = false
+}
+`
+
+// TestTerraform_Azure_AuthorizationScoped applies a custom role definition, a policy set definition and a
+// subscription-scope policy assignment, then requires an empty second plan and a clean destroy.
+func TestTerraform_Azure_AuthorizationScoped(t *testing.T) {
+	t.Parallel()
+
+	if sharedContainer == nil {
+		t.Skip("azure terraform suite was skipped in TestMain (see its logged reason)")
+	}
+
+	applyAzureTofuNoDrift(t, t.TempDir(), azurermProviderBlock(endpoint)+azureAuthorizationScopedFixture)
+}

@@ -35,6 +35,8 @@ const (
 	flexKindDatabase
 	flexKindConfig
 	flexKindAdmin
+	flexKindBackup
+	flexKindBackupV2
 )
 
 type flexFirewall struct {
@@ -62,6 +64,7 @@ type flexServer struct {
 	Firewall    map[string]flexFirewall `json:"firewall,omitempty"`
 	Databases   map[string]flexDatabase `json:"databases,omitempty"`
 	Admins      map[string]flexAdmin    `json:"admins,omitempty"`
+	Backups     map[string]flexBackup   `json:"backups,omitempty"`
 	Config      map[string]string       `json:"config,omitempty"`
 	Pending     map[string]bool         `json:"pendingRestart,omitempty"`
 	Name        string                  `json:"name"`
@@ -192,6 +195,10 @@ func classifyFlexPath(id ResourceID) flexKind {
 		return flexKindConfig
 	case strings.ToLower(flexServersType + "/" + flexAdminType):
 		return flexKindAdmin
+	case strings.ToLower(flexServersType + "/" + flexBackupsType):
+		return flexKindBackup
+	case strings.ToLower(flexServersType + "/" + flexBackupsV2Type):
+		return flexKindBackupV2
 	}
 
 	return flexKindUnsupported
@@ -297,6 +304,10 @@ func (p *FlexDBProvider) Write(id ResourceID, method string, body map[string]any
 		return p.writeConfig(id, body)
 	case flexKindAdmin:
 		return p.writeAdmin(id, body)
+	case flexKindBackup:
+		return p.writeBackup(id)
+	case flexKindBackupV2:
+		return flexResult{}, flexInvalid("Backups V2 are read-only.")
 	case flexKindUnsupported:
 	}
 
@@ -342,6 +353,8 @@ func (p *FlexDBProvider) Get(_ context.Context, id ResourceID) (map[string]any, 
 		}
 
 		return p.adminBody(id, a), nil
+	case flexKindBackup, flexKindBackupV2:
+		return p.getBackup(id, rec, kind == flexKindBackupV2)
 	case flexKindServer, flexKindUnsupported:
 	}
 
@@ -368,6 +381,8 @@ func (p *FlexDBProvider) Remove(id ResourceID) (string, error) {
 		return "", flexInvalid("Server parameters cannot be deleted; set source to system-default to reset one.")
 	case flexKindAdmin:
 		return p.deleteAdmin(id)
+	case flexKindBackup, flexKindBackupV2:
+		return "", flexInvalid("Backups cannot be deleted; they expire with the backup retention period.")
 	case flexKindUnsupported:
 	}
 
@@ -547,6 +562,7 @@ func cloneFlexServer(r *flexServer) *flexServer {
 	c.Tags, c.Identity, c.Maintenance = maps.Clone(r.Tags), maps.Clone(r.Identity), maps.Clone(r.Maintenance)
 	c.Encryption, c.AuthConfig = maps.Clone(r.Encryption), maps.Clone(r.AuthConfig)
 	c.Firewall, c.Databases, c.Admins = maps.Clone(r.Firewall), maps.Clone(r.Databases), maps.Clone(r.Admins)
+	c.Backups = maps.Clone(r.Backups)
 	c.Config, c.Pending = maps.Clone(r.Config), maps.Clone(r.Pending)
 
 	return &c

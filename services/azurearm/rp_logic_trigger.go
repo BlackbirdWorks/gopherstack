@@ -285,6 +285,14 @@ func (p *LogicProvider) serveInvoke(rw http.ResponseWriter, r *http.Request, seg
 		return
 	}
 
+	if items, split, serr := p.splitItems(cur, fire, p.clock.Now().UTC()); split {
+		p.startSplitLocked(cur, fire, items, serr)
+		p.mu.Unlock()
+		rw.WriteHeader(http.StatusAccepted)
+
+		return
+	}
+
 	started, err := p.startRunLocked(cur, fire)
 	name, version := cur.Name, cur.Version
 	p.mu.Unlock()

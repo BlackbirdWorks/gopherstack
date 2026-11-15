@@ -140,17 +140,17 @@ func (c *logicClock) pending(timersOnly bool) int {
 }
 
 // waitTimers blocks until n run timers (Wait, retries) are armed.
-func (c *logicClock) waitTimers(t *testing.T, n int) {
+func (c *logicClock) waitTimer(t *testing.T) {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
-	for c.pending(true) < n {
+	for c.pending(true) < 1 {
 		select {
 		case <-c.changed:
 		case <-ctx.Done():
-			require.Failf(t, "timers", "waiting for %d armed timers, have %d", n, c.pending(true))
+			require.Failf(t, "timers", "waiting for an armed timer, have %d", c.pending(true))
 		}
 	}
 }
