@@ -106,11 +106,17 @@ func TestRuntimeShim_TagsConsoleOutputWithTheRequest(t *testing.T) {
 
 	<-done
 	<-done
-	close(lines)
 
 	byReq := map[string][]shimLine{}
-	for l := range lines {
+
+	for tagged := 0; tagged < 4; {
+		l := <-lines
+		if l.RequestID == "" {
+			continue
+		}
+
 		byReq[l.RequestID] = append(byReq[l.RequestID], l)
+		tagged++
 	}
 
 	for _, who := range []string{"a", "b"} {

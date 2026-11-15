@@ -13,9 +13,10 @@ import (
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 )
 
-func TestS3RequestMeterObserveAllocatesNothing(t *testing.T) {
-	t.Parallel()
+const meterAllocRuns = 1000
 
+//nolint:paralleltest // testing.AllocsPerRun panics under t.Parallel
+func TestS3RequestMeterObserveAllocatesNothing(t *testing.T) {
 	tests := []struct {
 		name string
 		ev   s3backend.RequestEvent
@@ -30,8 +31,6 @@ func TestS3RequestMeterObserveAllocatesNothing(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
 			mem := s3backend.NewInMemoryBackend(nil)
 			_, err := mem.CreateBucket(t.Context(), &sdks3.CreateBucketInput{Bucket: aws.String("b")})
 			require.NoError(t, err)
@@ -39,19 +38,12 @@ func TestS3RequestMeterObserveAllocatesNothing(t *testing.T) {
 			m := &s3RequestMeter{mem: mem, lock: lockmetrics.New("test")}
 			m.observe(tc.ev)
 
-			res := testing.Benchmark(func(b *testing.B) {
-				b.Helper()
-				b.ReportAllocs()
-
-				for b.Loop() {
-					m.observe(tc.ev)
-				}
-			})
-			assert.Less(t, res.MemAllocs, uint64(res.N)/10)
+			allocs := testing.AllocsPerRun(meterAllocRuns, func() { m.observe(tc.ev) })
+			assert.Zero(t, allocs)
 
 			got := m.drain()
 			require.Len(t, got, 1)
-			assert.InDelta(t, float64(res.N+1), got[0].Quantity, 0)
+			assert.InDelta(t, float64(meterAllocRuns+2), got[0].Quantity, 0)
 			assert.Empty(t, m.drain())
 		})
 	}
