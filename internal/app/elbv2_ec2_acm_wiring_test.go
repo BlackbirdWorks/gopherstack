@@ -109,7 +109,7 @@ func TestInitializeServices_ELBv2EC2ACMWiring(t *testing.T) {
 	_, err = client.CreateLoadBalancer(ctx, &elbv2sdk.CreateLoadBalancerInput{
 		Name:           aws.String("wired-elbv2-lb"),
 		Type:           elbv2types.LoadBalancerTypeEnumApplication,
-		Subnets:        []string{subnet.ID},
+		Subnets:        []string{subnet.ID, subnet2.ID},
 		SecurityGroups: []string{"sg-does-not-exist"},
 	})
 	require.Error(t, err,

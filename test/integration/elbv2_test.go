@@ -14,7 +14,7 @@ import (
 )
 
 // mustCreateELBv2NetworkPrereqs creates n real EC2 subnets (in a fresh VPC
-// rooted at cidrBase, e.g. "10.91") plus one security group, for ELBv2 test
+// rooted at cidrBase, e.g. "10.91", one per us-east-1 AZ in turn) plus one security group, for ELBv2 test
 // fixtures. Now that ELBv2 validates SecurityGroups/Subnets against the real
 // EC2 backend (gopherstack-t74c), fabricated IDs like "subnet-aaaaaaaa" are
 // rejected by CreateLoadBalancer once cli.go's composition root wires the two
@@ -39,12 +39,14 @@ func mustCreateELBv2NetworkPrereqs(t *testing.T, cidrBase string, n int) ([]stri
 		_, _ = ec2Client.DeleteVpc(cleanupCtx, &ec2sdk.DeleteVpcInput{VpcId: aws.String(vpcID)})
 	})
 
+	zones := []string{"us-east-1a", "us-east-1b", "us-east-1c"}
 	subnetIDs := make([]string, 0, n)
 
 	for i := range n {
 		subnetOut, subnetErr := ec2Client.CreateSubnet(ctx, &ec2sdk.CreateSubnetInput{
-			VpcId:     aws.String(vpcID),
-			CidrBlock: aws.String(fmt.Sprintf("%s.%d.0/24", cidrBase, i+1)),
+			VpcId:            aws.String(vpcID),
+			CidrBlock:        aws.String(fmt.Sprintf("%s.%d.0/24", cidrBase, i+1)),
+			AvailabilityZone: aws.String(zones[i%len(zones)]),
 		})
 		require.NoError(t, subnetErr, "CreateSubnet should succeed")
 		subnetID := aws.ToString(subnetOut.Subnet.SubnetId)

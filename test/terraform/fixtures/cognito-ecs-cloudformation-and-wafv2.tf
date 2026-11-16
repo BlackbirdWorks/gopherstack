@@ -430,8 +430,9 @@ resource "aws_vpc" "cecw" {
 }
 
 resource "aws_subnet" "cecw_a" {
-  vpc_id     = aws_vpc.cecw.id
-  cidr_block = "{{.SubnetCidrA}}"
+  vpc_id            = aws_vpc.cecw.id
+  cidr_block        = "{{.SubnetCidrA}}"
+  availability_zone = "us-east-1a"
 
   tags = {
     Name = "cecw-subnet-a"
@@ -439,8 +440,9 @@ resource "aws_subnet" "cecw_a" {
 }
 
 resource "aws_subnet" "cecw_b" {
-  vpc_id     = aws_vpc.cecw.id
-  cidr_block = "{{.SubnetCidrB}}"
+  vpc_id            = aws_vpc.cecw.id
+  cidr_block        = "{{.SubnetCidrB}}"
+  availability_zone = "us-east-1b"
 
   tags = {
     Name = "cecw-subnet-b"

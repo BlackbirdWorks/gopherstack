@@ -11,8 +11,9 @@ resource "aws_vpc" "elbv2b" {
 }
 
 resource "aws_subnet" "elbv2b_a" {
-  vpc_id     = aws_vpc.elbv2b.id
-  cidr_block = "10.115.1.0/24"
+  vpc_id            = aws_vpc.elbv2b.id
+  cidr_block        = "10.115.1.0/24"
+  availability_zone = "us-east-1a"
 
   tags = {
     Name = "elae-subnet-a"
@@ -20,8 +21,9 @@ resource "aws_subnet" "elbv2b_a" {
 }
 
 resource "aws_subnet" "elbv2b_b" {
-  vpc_id     = aws_vpc.elbv2b.id
-  cidr_block = "10.115.2.0/24"
+  vpc_id            = aws_vpc.elbv2b.id
+  cidr_block        = "10.115.2.0/24"
+  availability_zone = "us-east-1b"
 
   tags = {
     Name = "elae-subnet-b"
