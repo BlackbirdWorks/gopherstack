@@ -17,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	mskaws "github.com/twmb/franz-go/pkg/sasl/aws"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
@@ -208,6 +209,104 @@ func TestKafkaSecurityOptsIAMAndClientCert(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Len(t, opts, tt.wantLen)
+		})
+	}
+}
+
+func TestMSKIAMWorkerNotRestartedByReconcile(t *testing.T) {
+	t.Parallel()
+
+	b := newKafkaTestBackend(t)
+	b.SetRoleCredentialIssuer(&countingIssuer{})
+	require.NoError(t, b.CreateFunction(&FunctionConfiguration{
+		FunctionName: "fn", PackageType: PackageTypeZip, Runtime: "python3.12", Handler: "index.handler",
+		ZipData: []byte("x"), Timeout: 30, Role: mskTestRoleARN,
+	}))
+
+	tracker := &consumerTracker{created: make(chan *fakeKafkaConsumer, 8)}
+	p := NewEventSourcePoller(b, nil)
+	p.SetMSKBrokerResolver(&fakeMSKConnResolver{conn: MSKConnection{
+		Brokers: []string{"127.0.0.1:19098"}, RootCAPEM: []byte("pem"), IAM: true, IAMRegion: "eu-west-1",
+	}})
+	p.kafkaFactory = func(kafkaConsumerConfig) (kafkaConsumer, error) {
+		f := newFakeKafkaConsumer(kafkaOffsets(1))
+		tracker.created <- f
+
+		return f, nil
+	}
+	p.kafkaInvoker = func(context.Context, string, []byte) error { return nil }
+
+	t.Cleanup(p.stopAllKafka)
+
+	m, err := b.CreateEventSourceMapping(&CreateEventSourceMappingInput{
+		FunctionName: "fn", EventSourceARN: mskTestARN, Enabled: true, Topics: []string{"orders"},
+	})
+	require.NoError(t, err)
+
+	p.poll(t.Context())
+	awaitConsumer(t, tracker.created)
+
+	p.mu.RLock("test")
+	before := p.kafkaWorkers[m.UUID]
+	p.mu.RUnlock()
+
+	require.NotNil(t, before)
+
+	p.poll(t.Context())
+
+	p.mu.RLock("test")
+	after := p.kafkaWorkers[m.UUID]
+	p.mu.RUnlock()
+
+	assert.Same(t, before, after, "reconcile restarted an unchanged IAM worker")
+}
+
+func TestMSKMutualTLSFailureSurfacesOnMapping(t *testing.T) {
+	t.Parallel()
+
+	b := newKafkaTestBackend(t)
+	require.NoError(t, b.CreateFunction(&FunctionConfiguration{
+		FunctionName: "fn", PackageType: PackageTypeZip, Runtime: "python3.12", Handler: "index.handler",
+		ZipData: []byte("x"), Timeout: 30, Role: mskTestRoleARN,
+	}))
+
+	p := NewEventSourcePoller(b, nil)
+	p.SetMSKBrokerResolver(&fakeMSKConnResolver{conn: MSKConnection{
+		Brokers: []string{"127.0.0.1:19094"}, RootCAPEM: []byte("pem"), MutualTLS: true,
+	}})
+
+	m, err := b.CreateEventSourceMapping(&CreateEventSourceMappingInput{
+		FunctionName: "fn", EventSourceARN: mskTestARN, Enabled: true, Topics: []string{"orders"},
+	})
+	require.NoError(t, err)
+
+	p.poll(t.Context())
+
+	got, err := b.GetEventSourceMapping(m.UUID)
+	require.NoError(t, err)
+	assert.Contains(t, got.LastProcessingResult, "PROBLEM")
+}
+
+func TestKafkaSecurityOptsRequiresTLSForCredentials(t *testing.T) {
+	t.Parallel()
+
+	certPEM, keyPEM := selfSignedPair(t)
+	iam := func(context.Context) (mskaws.Auth, error) { return mskaws.Auth{}, nil }
+
+	tests := []struct {
+		name string
+		cfg  kafkaConsumerConfig
+	}{
+		{name: "iam", cfg: kafkaConsumerConfig{IAMCredentials: iam}},
+		{name: "client_cert", cfg: kafkaConsumerConfig{ClientCertPEM: []byte(certPEM), ClientKeyPEM: []byte(keyPEM)}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := kafkaSecurityOpts(tt.cfg)
+			require.ErrorIs(t, err, errKafkaTLSRequired)
 		})
 	}
 }

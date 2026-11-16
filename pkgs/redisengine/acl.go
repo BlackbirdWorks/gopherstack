@@ -1,6 +1,8 @@
 package redisengine
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
 	"fmt"
 	"slices"
 	"strings"
@@ -352,7 +354,7 @@ func (g *aclGuard) authenticate(p *server.Peer, user, pass string) bool {
 		return false
 	}
 
-	if !r.on || r.password == "" || r.password != pass {
+	if !r.on || r.password == "" || !passwordMatch(r.password, pass) {
 		p.WriteError(wrongPass)
 
 		return true
@@ -370,8 +372,15 @@ func (r *userRules) denial(user, cmd string, args []string) string {
 		return fmt.Sprintf("User %s has no permissions to run the '%s' command", user, strings.ToLower(cmd))
 	}
 
-	for _, k := range keysOf(info, cmd, args) {
-		if !r.keyAllowed(k, info.write) {
+	if isScripting(cmd) && !r.scriptSafe() {
+		return fmt.Sprintf("User %s has no permissions to run the '%s' command: scripts run unchecked", user,
+			strings.ToLower(cmd))
+	}
+
+	keys, write := aclKeys(info, cmd, args)
+
+	for _, k := range keys {
+		if !r.keyAllowed(k, write) {
 			return fmt.Sprintf("No permissions to access a key (%s)", user)
 		}
 	}
@@ -383,6 +392,32 @@ func (r *userRules) denial(user, cmd string, args []string) string {
 	}
 
 	return ""
+}
+
+func passwordMatch(want, got string) bool {
+	a, b := sha256.Sum256([]byte(want)), sha256.Sum256([]byte(got))
+
+	return subtle.ConstantTimeCompare(a[:], b[:]) == 1
+}
+
+// scriptSafe reports whether the user may run scripts: commands a script issues bypass the access checks,
+// so only users with unrestricted keys, channels and commands qualify.
+func (r *userRules) scriptSafe() bool {
+	if !r.allKeys || !r.allChans {
+		return false
+	}
+
+	all := false
+
+	for _, rule := range r.rules {
+		if !rule.allow {
+			return false
+		}
+
+		all = all || rule.cat == categoryAll
+	}
+
+	return all
 }
 
 type channelRef struct {

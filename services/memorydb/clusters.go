@@ -690,9 +690,10 @@ func (b *InMemoryBackend) FailoverShard(ctx context.Context, clusterName, shardN
 	}
 
 	d, idx := c.dock, shardIndex(c, shardName)
+	running := d != nil && d.group != nil
 	b.mu.Unlock()
 
-	if d != nil && d.group != nil {
+	if running {
 		if idx < 0 {
 			return nil, fmt.Errorf("shard %q: %w", shardName, ErrShardNotFound)
 		}

@@ -24,6 +24,20 @@ var (
 	ErrGroupClosed = errors.New("redis group is closed")
 )
 
+// beginOp serialises topology changes (failover, resize); the returned func ends the operation.
+func (g *Group) beginOp(ctx context.Context) (func(), error) {
+	if g.ops == nil {
+		return func() {}, nil
+	}
+
+	select {
+	case g.ops <- struct{}{}:
+		return func() { <-g.ops }, nil
+	case <-ctx.Done():
+		return nil, fmt.Errorf("wait for topology change: %w", ctx.Err())
+	}
+}
+
 // shardOrdered returns the shard's nodes, primary first.
 func (g *Group) shardOrdered(shard int) ([]*node, error) {
 	g.mu.Lock()
@@ -62,6 +76,13 @@ func (g *Group) Primary(shard int) (Endpoint, error) {
 
 // Failover promotes the shard's first replica to primary and makes the old primary follow it.
 func (g *Group) Failover(ctx context.Context, shard int) error {
+	end, err := g.beginOp(ctx)
+	if err != nil {
+		return err
+	}
+
+	defer end()
+
 	nodes, err := g.shardOrdered(shard)
 	if err != nil {
 		return err
@@ -159,6 +180,13 @@ func (g *Group) SetReplicas(ctx context.Context, shard, replicas int) error {
 	if replicas < 0 || replicas > maxReplicas {
 		return fmt.Errorf("%w: replicas must be 0-%d", ErrSpec, maxReplicas)
 	}
+
+	end, err := g.beginOp(ctx)
+	if err != nil {
+		return err
+	}
+
+	defer end()
 
 	nodes, err := g.shardOrdered(shard)
 	if err != nil {

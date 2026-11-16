@@ -29,12 +29,14 @@ type Cmd struct {
 
 // Fake is a runtime and control plane that records everything and answers like a healthy cluster.
 type Fake struct {
-	tlsSeen map[string]bool
-	roles   map[string]string
-	specs   []container.Spec
-	removed []string
-	cmds    []Cmd
-	mu      sync.Mutex
+	// BeforeCreate, when set, runs before each container start; tests block it to hold an operation mid-flight.
+	BeforeCreate func()
+	tlsSeen      map[string]bool
+	roles        map[string]string
+	specs        []container.Spec
+	removed      []string
+	cmds         []Cmd
+	mu           sync.Mutex
 }
 
 // New returns a Fake and an Engine wired to it.
@@ -67,6 +69,10 @@ func Ports(start, end int) PortRange { return PortRange{Start: start, End: end} 
 
 // CreateAndStart implements redisdocker.Runtime.
 func (f *Fake) CreateAndStart(_ context.Context, spec container.Spec) (string, error) {
+	if hook := f.BeforeCreate; hook != nil {
+		hook()
+	}
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 

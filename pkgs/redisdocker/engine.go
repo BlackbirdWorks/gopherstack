@@ -118,6 +118,7 @@ type Group struct {
 	dir      string
 	aclUsers []string
 	nodes    []*node
+	ops      chan struct{}
 	spec     Spec
 	mu       sync.Mutex
 	closed   bool
@@ -184,7 +185,7 @@ func (e *Engine) Launch(ctx context.Context, spec Spec) (*Group, error) {
 		return nil, ErrNoCA
 	}
 
-	g := &Group{engine: e, spec: spec, admin: randomHex(adminPasswordBytes)}
+	g := &Group{engine: e, spec: spec, admin: randomHex(adminPasswordBytes), ops: make(chan struct{}, 1)}
 
 	lctx, cancel := context.WithTimeout(ctx, e.cfg.StartTimeout)
 	defer cancel()

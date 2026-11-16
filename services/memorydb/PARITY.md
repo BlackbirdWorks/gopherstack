@@ -636,3 +636,4 @@ DeleteCluster returns `Status: deleting`. Node `CreateTime` is the cluster's cre
 
 - ServiceUpdate.NodesUpdated is always empty: the SDK documents it only as a string 'list of nodes updated' with no format, and nodes are synthesised per request, so the wire value is not determinable.
 - Embedded access strings: @read is a command that takes keys and does not write, @write follows the server's write flag, and @fast/@slow match no command; denials answer NOPERM (Redis ACL documentation, redis.io/docs/latest/operate/oss_and_stack/management/security/acl).
+- Embedded engine: `EVAL`/`EVALSHA`/`FCALL` are refused with NOPERM unless the user has all keys, all channels and `+@all`; calls made inside a script cannot be attributed to the calling user, so restricted users may not run scripts.

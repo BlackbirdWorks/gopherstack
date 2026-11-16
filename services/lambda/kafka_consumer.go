@@ -57,11 +57,17 @@ func kafkaResetOffset(cfg kafkaConsumerConfig) kgo.Offset {
 	}
 }
 
+var errKafkaTLSRequired = errors.New("kafka: IAM and client certificate authentication require TLS")
+
 var errKafkaRootCA = errors.New("kafka: no certificate in broker CA PEM")
 
 // kafkaSecurityOpts adds TLS (trusting RootCAPEM) and SASL/SCRAM-SHA-512 when the config asks for them.
 func kafkaSecurityOpts(cfg kafkaConsumerConfig) ([]kgo.Opt, error) {
 	var opts []kgo.Opt
+
+	if len(cfg.RootCAPEM) == 0 && (cfg.IAMCredentials != nil || len(cfg.ClientCertPEM) > 0) {
+		return nil, errKafkaTLSRequired
+	}
 
 	if len(cfg.RootCAPEM) > 0 {
 		pool := x509.NewCertPool()

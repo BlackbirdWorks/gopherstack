@@ -32,6 +32,7 @@ const (
 	deltaDayLayout       = "2006-01-02"
 	deltaTimeLayout      = "15:04:05"
 	deltaPartitionSpan   = 24 * time.Hour
+	maxDeltaTTLMinutes   = 366 * 24 * 60
 
 	nameVersion = "#__sv"
 	nameChanged = "#__sl"
@@ -70,6 +71,12 @@ func (vs versionedSource) delta() (string, bool) {
 	}
 
 	return vs.cfg.DeltaSyncConfig.DeltaSyncTableName, true
+}
+
+// deltaTTLMinutes is the delta table retention, bounded so a huge configured value cannot overflow the time
+// arithmetic or make a sync walk an unbounded number of day partitions.
+func (vs versionedSource) deltaTTLMinutes() int64 {
+	return min(max(vs.cfg.DeltaSyncConfig.DeltaSyncTableTTL, 0), maxDeltaTTLMinutes)
 }
 
 func numAttr(n int64) map[string]any { return map[string]any{"N": strconv.FormatInt(n, 10)} }
@@ -172,7 +179,7 @@ func (vs versionedSource) logDelta(ctx context.Context, key, item map[string]any
 	rec := maps.Clone(item)
 	rec[attrDeltaPK] = strAttr(vs.dsName + ":" + at.Format(deltaDayLayout))
 	rec[attrDeltaSK] = strAttr(at.Format(deltaTimeLayout) + ":" + keyString(key) + ":" + strconv.FormatInt(ver, 10))
-	rec[attrTTL] = numAttr(at.Add(time.Duration(vs.cfg.DeltaSyncConfig.DeltaSyncTableTTL) * time.Minute).Unix())
+	rec[attrTTL] = numAttr(at.Add(time.Duration(vs.deltaTTLMinutes()) * time.Minute).Unix())
 
 	if err := vs.ddb.PutItemRaw(ctx, table, rec, nil); err != nil {
 		return &DynamoDBError{

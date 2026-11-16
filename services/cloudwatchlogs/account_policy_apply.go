@@ -41,14 +41,14 @@ func parseSelection(s string) groupSelector {
 	sel := groupSelector{field: m[1], not: strings.HasPrefix(m[2], "NOT"), valid: true}
 
 	var list []string
-	if json.Unmarshal([]byte(m[3]), &list, jsonx.V1()) == nil {
+	if json.Unmarshal([]byte(m[3]), &list, jsonx.V1()) == nil && list != nil {
 		sel.values = list
 
 		return sel
 	}
 
 	var one string
-	if json.Unmarshal([]byte(m[3]), &one, jsonx.V1()) == nil {
+	if strings.HasPrefix(m[3], `"`) && json.Unmarshal([]byte(m[3]), &one, jsonx.V1()) == nil {
 		sel.values = []string{one}
 
 		return sel

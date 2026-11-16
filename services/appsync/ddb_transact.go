@@ -220,7 +220,7 @@ func (vs versionedSource) deltaReadable(lastSync, now int64) bool {
 		return false
 	}
 
-	return lastSync >= now-vs.cfg.DeltaSyncConfig.DeltaSyncTableTTL*millisPerMinute
+	return now-lastSync <= vs.deltaTTLMinutes()*millisPerMinute
 }
 
 func ddbSyncBase(

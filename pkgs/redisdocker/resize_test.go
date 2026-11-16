@@ -1,6 +1,7 @@
 package redisdocker_test
 
 import (
+	"context"
 	"strconv"
 	"testing"
 
@@ -142,4 +143,39 @@ func TestSetReplicasRejectsBadInput(t *testing.T) {
 
 	require.ErrorIs(t, g.SetReplicas(t.Context(), 0, 9), redisdocker.ErrSpec)
 	require.ErrorIs(t, g.SetReplicas(t.Context(), 5, 1), redisdocker.ErrShardRange)
+}
+
+func TestTopologyChangesAreSerialised(t *testing.T) {
+	t.Parallel()
+
+	eng, fk := newTestEngine(t)
+
+	g, err := eng.Launch(t.Context(), redisdocker.Spec{Shards: []redisdocker.ShardSpec{{}}})
+	require.NoError(t, err)
+
+	t.Cleanup(g.Close)
+
+	entered, release := make(chan struct{}), make(chan struct{})
+	fk.BeforeCreate = func() {
+		entered <- struct{}{}
+		<-release
+	}
+
+	done := make(chan error, 1)
+
+	go func() { done <- g.SetReplicas(t.Context(), 0, 1) }()
+
+	<-entered
+
+	fk.BeforeCreate = nil
+
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	err = g.SetReplicas(cancelled, 0, 1)
+	require.ErrorIs(t, err, context.Canceled, "a second change must wait for the first")
+
+	close(release)
+	require.NoError(t, <-done)
+	assert.Len(t, g.Endpoints()[0], 2)
 }
