@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -52,7 +51,7 @@ func TestUpdateSecurity_RelaunchesBroker(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			rt := &fakeBrokerRuntime{}
+			rt := &fakeBrokerRuntime{removedC: make(chan string, 8)}
 			f := newBrokerFixture(t, rt, 0)
 			f.ready.Store(true)
 
@@ -94,10 +93,7 @@ func TestUpdateSecurity_RelaunchesBroker(t *testing.T) {
 			assert.Equal(t, tt.wantOp, done.OperationState)
 			assert.NotEmpty(t, done.EndTime)
 
-			require.Eventually(t, func() bool {
-				return len(rt.removedIDs()) >= 1
-			}, 10*time.Second, 5*time.Millisecond)
-			assert.Equal(t, "ctr-1", rt.removedIDs()[0])
+			assert.Equal(t, "ctr-1", <-rt.removedC)
 
 			if tt.startErr != nil {
 				return
@@ -309,11 +305,8 @@ func TestClientEndpointFor(t *testing.T) {
 			f.awaitState(t, c.ClusterArn, kafka.ClusterStateActive)
 
 			if tt.wantIAM {
-				require.Eventually(t, func() bool {
-					managed, _ := f.backend.ManagedEndpointsFor(c.ClusterArn)
-
-					return managed.SaslIam != ""
-				}, 10*time.Second, 5*time.Millisecond)
+				managed, _ := f.backend.ManagedEndpointsFor(c.ClusterArn)
+				require.NotEmpty(t, managed.SaslIam)
 			}
 
 			ep, ok := f.backend.ClientEndpointFor(t.Context(), c.ClusterArn, tt.secret)

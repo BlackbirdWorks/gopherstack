@@ -24,6 +24,7 @@ var errBrokerDown = errors.New("broker down")
 type fakeBrokerRuntime struct {
 	startErr error
 	gate     chan struct{}
+	removedC chan string
 	started  []container.Spec
 	removed  []string
 	mu       sync.Mutex
@@ -51,6 +52,10 @@ func (f *fakeBrokerRuntime) StopAndRemove(_ context.Context, id string) error {
 	defer f.mu.Unlock()
 
 	f.removed = append(f.removed, id)
+
+	if f.removedC != nil {
+		f.removedC <- id
+	}
 
 	return nil
 }

@@ -2,7 +2,6 @@ package sagemaker_test
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,15 +12,10 @@ import (
 func waitComponent(t *testing.T, b *sagemaker.InMemoryBackend, name string) *sagemaker.InferenceComponent {
 	t.Helper()
 
-	var c *sagemaker.InferenceComponent
+	b.WaitIdle()
 
-	require.Eventually(t, func() bool {
-		var err error
-
-		c, err = b.DescribeInferenceComponent(t.Context(), name)
-
-		return err == nil && c.InferenceComponentStatus != "Creating" && c.InferenceComponentStatus != "Updating"
-	}, 10*time.Second, 5*time.Millisecond)
+	c, err := b.DescribeInferenceComponent(t.Context(), name)
+	require.NoError(t, err)
 
 	return c
 }
@@ -105,13 +99,12 @@ func TestEngineInferenceComponent_Invoke(t *testing.T) {
 			assert.Equal(t, "AllTraffic", res.InvokedVariant)
 
 			require.NoError(t, rig.b.DeleteInferenceComponent(ctx, "ic"))
-			require.Eventually(t, func() bool {
-				_, ierr := rig.b.InvokeEndpoint(ctx, sagemaker.InvokeRequest{
-					EndpointName: "ep", InferenceComponentName: "ic", Body: []byte("x"),
-				})
+			rig.b.WaitIdle()
 
-				return ierr != nil
-			}, 10*time.Second, 5*time.Millisecond)
+			_, err = rig.b.InvokeEndpoint(ctx, sagemaker.InvokeRequest{
+				EndpointName: "ep", InferenceComponentName: "ic", Body: []byte("x"),
+			})
+			require.Error(t, err)
 		})
 	}
 }

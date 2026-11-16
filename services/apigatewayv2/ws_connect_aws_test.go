@@ -122,12 +122,7 @@ func TestWebSocket_DisconnectContext(t *testing.T) {
 	require.NoError(t, conn.WriteControl(websocket.CloseMessage,
 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, "bye"), time.Now().Add(5*time.Second)))
 
-	select {
-	case got := <-bodies:
-		assert.Equal(t, "DISCONNECT:1000:$disconnect", got)
-	case <-time.After(10 * time.Second):
-		require.FailNow(t, "no $disconnect upstream call")
-	}
+	assert.Equal(t, "DISCONNECT:1000:$disconnect", <-bodies)
 }
 
 func TestWebSocket_AWSIntegrationService(t *testing.T) {
@@ -227,6 +222,51 @@ func TestWebSocket_AWSIntegrationBounds(t *testing.T) {
 				assert.Positive(t, remaining)
 				assert.LessOrEqual(t, remaining, tc.wantWithin)
 			}
+		})
+	}
+}
+
+func TestWebSocket_AWSIntegrationResponseCap(t *testing.T) {
+	t.Parallel()
+
+	const maxMessage = 128 << 10
+
+	tests := []struct {
+		name      string
+		bodyLen   int
+		wantError bool
+	}{
+		{name: "at limit", bodyLen: maxMessage},
+		{name: "over limit", bodyLen: maxMessage + 1, wantError: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			fake := &wsFakeAWS{
+				reqs: make(chan apigateway.AWSServiceRequest, 2),
+				body: strings.Repeat("x", tc.bodyLen), status: 200,
+			}
+
+			env := wsIntegrationAPI(t, "arn:aws:apigateway:us-east-1:dynamodb:action/PutItem", wsIntegrationSpec{
+				integrationType: apigatewayv2types.IntegrationTypeAws,
+				routeResponse:   true,
+				responses:       []wsIntegrationResponse{{key: "/2\\d\\d/"}},
+			}, func(h *apigatewayv2.Handler) { h.SetAWSServiceInvoker(fake) })
+
+			conn, _, err := env.dial(t, "", nil)
+			require.NoError(t, err)
+			require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(`{"action":"echo"}`)))
+
+			got := readText(t, conn)
+			if tc.wantError {
+				assert.Contains(t, got, "Internal server error")
+
+				return
+			}
+
+			assert.Len(t, got, tc.bodyLen)
 		})
 	}
 }

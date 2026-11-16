@@ -625,4 +625,5 @@ Restore and Close reconcile sockets; policy and certificate changes apply on the
 ## Emulator choices where the vendor is silent
 
 - Target group health-check defaults (3/3/5 healthy/unhealthy/timeout) are kept: the API docs and observed AWS values disagree and the docs give no per-type table.
-- Target health: a target group no listener or rule routes to reports unused/Target.NotInUse (API_TargetHealth.html Reason). An ALB whose resolved subnets cover fewer than two Availability Zones is rejected with InvalidConfigurationRequest (API_CreateLoadBalancer.html Subnets); the check applies only when an EC2 resolver reports real placement.
+- Target health: a target group no listener or rule routes to reports unused/Target.NotInUse (API_TargetHealth.html Reason). An ALB whose resolved subnets cover fewer than two Availability Zones is rejected (API_CreateLoadBalancer.html Subnets requires two AZs); the check applies only when an EC2 resolver reports real placement.
+- The two-AZ rejection returns `ValidationError` "At least two subnets in two different Availability Zones must be specified": the API reference lists no error for it and the SDK has no matching type, but Terraform users report that exact CreateLoadBalancer message with the `ValidationError` code (discuss.hashicorp.com thread 43860). SetSubnets uses the same code by analogy; no source shows it.

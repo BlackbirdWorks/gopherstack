@@ -157,3 +157,6 @@ func AssociationTagCount(b *InMemoryBackend, region, sourceArn, destinationArn s
 
 	return len(a.Tags)
 }
+
+// WaitIdle blocks until every engine and lifecycle goroutine has finished.
+func (b *InMemoryBackend) WaitIdle() { b.wg.Wait() }

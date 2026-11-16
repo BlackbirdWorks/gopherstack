@@ -24,6 +24,7 @@ import (
 
 const (
 	wsMaxBackendBody       = 10 << 20
+	wsMaxMessageBytes      = 128 << 10
 	maxHTTPStatus          = 599
 	wsMillisPerSecond      = int32(1000)
 	passthroughNever       = "NEVER"
@@ -382,7 +383,13 @@ func (s *wsSession) invokeIntegration(ctx context.Context, call wsCall) ([]byte,
 		return nil, &connectRejectedError{status: res.status}
 	}
 
-	return s.mapResponse(call, res)
+	out, err := s.mapResponse(call, res)
+	if err == nil && integ.IntegrationType == IntegrationTypeAWS && len(out) > wsMaxMessageBytes {
+		return nil, fmt.Errorf("%w: response of %d bytes exceeds the %d-byte message payload quota",
+			ErrIntegrationInvoke, len(out), wsMaxMessageBytes)
+	}
+
+	return out, err
 }
 
 func (s *wsSession) sendIntegrationError() {

@@ -5,6 +5,7 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -141,11 +142,11 @@ func (e *ec2Engine) restore(_ context.Context, data jsontext.Value, md map[strin
 		return "", fmt.Errorf("decode EC2 snapshot: %w", err)
 	}
 
-	if v := md["instanceType"]; v != "" {
+	if v := mdValue(md, "InstanceType"); v != "" {
 		info.InstanceType = v
 	}
 
-	if v := md["subnetId"]; v != "" {
+	if v := mdValue(md, "SubnetId"); v != "" {
 		info.SubnetID = v
 	}
 
@@ -186,6 +187,10 @@ func (e *efsEngine) restore(ctx context.Context, data jsontext.Value, md map[str
 		info.ThroughputMode = v
 	}
 
+	if v, err := strconv.ParseBool(mdValue(md, "Encrypted")); err == nil && v {
+		info.Encrypted = true
+	}
+
 	if v := mdValue(md, "KmsKeyId"); v != "" {
 		info.KmsKeyID, info.Encrypted = v, true
 	}
@@ -198,7 +203,7 @@ func (e *efsEngine) restore(ctx context.Context, data jsontext.Value, md map[str
 	return arn.Build("elasticfilesystem", e.region, e.accountID, "file-system/"+id), nil
 }
 
-// mdValue reads a restore metadata key case-insensitively; EFS documents PascalCase keys.
+// mdValue reads a restore metadata key case-insensitively; the Backup guide documents PascalCase keys.
 func mdValue(md map[string]string, key string) string {
 	for k, v := range md {
 		if strings.EqualFold(k, key) {
@@ -226,11 +231,11 @@ func (e *rdsEngine) restore(_ context.Context, data jsontext.Value, md map[strin
 		return "", fmt.Errorf("decode RDS snapshot: %w", err)
 	}
 
-	if v := md["DBInstanceIdentifier"]; v != "" {
+	if v := mdValue(md, "DBInstanceIdentifier"); v != "" {
 		info.Identifier = v
 	}
 
-	if v := md["DBInstanceClass"]; v != "" {
+	if v := mdValue(md, "DBInstanceClass"); v != "" {
 		info.InstanceClass = v
 	}
 
@@ -280,7 +285,7 @@ func (e *stackEngine) restore(ctx context.Context, data jsontext.Value, md map[s
 	}
 
 	info.Name += "-restored"
-	if v := md["stackName"]; v != "" {
+	if v := mdValue(md, "StackName"); v != "" {
 		info.Name = v
 	}
 
@@ -315,8 +320,12 @@ func (e *tableEngine) restore(_ context.Context, data jsontext.Value, md map[str
 	}
 
 	info.Table += "-restored"
-	if v := md["tableName"]; v != "" {
+	if v := mdValue(md, "TableName"); v != "" {
 		info.Table = v
+	}
+
+	if v := mdValue(md, "DatabaseName"); v != "" {
+		info.Database = v
 	}
 
 	tableArn, err := e.svc.CreateTable(info)
