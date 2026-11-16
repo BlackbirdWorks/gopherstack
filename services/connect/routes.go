@@ -377,6 +377,7 @@ func contactsRoutes() []restroute.Route {
 		{Method: http.MethodPost, Path: "/search-contacts", Op: "SearchContacts"},
 		{Method: http.MethodPut, Path: "/contact/chat", Op: "StartChatContact"},
 		{Method: http.MethodPut, Path: "/contact/outbound-voice", Op: "StartOutboundVoiceContact"},
+		{Method: http.MethodPut, Path: "/contact/outbound-chat", Op: "StartOutboundChatContact"},
 		{Method: http.MethodPut, Path: "/contact/task", Op: "StartTaskContact"},
 		{Method: http.MethodPost, Path: "/contact/stop", Op: "StopContact"},
 		{Method: http.MethodPost, Path: "/contact/tags", Op: "TagContact"},

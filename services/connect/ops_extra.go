@@ -34,10 +34,10 @@ func (h *Handler) extraOps(ops map[string]restroute.OpFunc) {
 func (h *Handler) analyticsOps(ops map[string]restroute.OpFunc) {
 	b := h.Backend
 
-	ops["AssociateAnalyticsDataSet"] = typed(b.AssociateAnalyticsDataSet)
-	ops["DisassociateAnalyticsDataSet"] = typed(b.DisassociateAnalyticsDataSet)
-	ops["BatchAssociateAnalyticsDataSet"] = typed(b.BatchAssociateAnalyticsDataSet)
-	ops["BatchDisassociateAnalyticsDataSet"] = typed(b.BatchDisassociateAnalyticsDataSet)
+	ops["AssociateAnalyticsDataSet"] = typedCtx(b.AssociateAnalyticsDataSet)
+	ops["DisassociateAnalyticsDataSet"] = typedCtx(b.DisassociateAnalyticsDataSet)
+	ops["BatchAssociateAnalyticsDataSet"] = typedCtx(b.BatchAssociateAnalyticsDataSet)
+	ops["BatchDisassociateAnalyticsDataSet"] = typedCtx(b.BatchDisassociateAnalyticsDataSet)
 	ops["ListAnalyticsDataAssociations"] = typed(b.ListAnalyticsDataAssociations)
 	ops["ListAnalyticsDataLakeDataSets"] = typed(b.ListAnalyticsDataLakeDataSets)
 	ops["GetPromptFile"] = typedCtx(b.GetPromptFile)

@@ -91,6 +91,7 @@ type promptRec struct {
 
 type contactRec struct {
 	PausedAt          *awstime.EpochTime   `json:"pausedAt,omitempty"`
+	ExpiresAt         *awstime.EpochTime   `json:"expiresAt,omitempty"`
 	MediaProcessor    *mediaProcessor      `json:"mediaProcessor,omitempty"`
 	AnalyticsJobs     []analyticsJobRec    `json:"analyticsJobs,omitempty"`
 	Recording         map[string]*recState `json:"recording,omitempty"`

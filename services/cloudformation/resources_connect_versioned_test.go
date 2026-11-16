@@ -250,6 +250,9 @@ func connectContentTemplate(t *testing.T, ver string, withAll bool) string {
 			"CaseRegion": cfnGetAtt("Case", "LastModifiedRegion"),
 			"MetricRef":  cfnRef("Metric"), "MetricArn": cfnGetAtt("Metric", "MetricArn"),
 			"MetricType": cfnGetAtt("Metric", "Type"), "MetricCategory": cfnGetAtt("Metric", "Category"),
+			"MetricCreationMethod": cfnGetAtt("Metric", "CreationMethod"),
+			"MetricEffective":      cfnGetAtt("Metric", "EffectiveTime"),
+			"MetricCreated":        cfnGetAtt("Metric", "CreatedTime"),
 			"LevelsRef": cfnRef("Levels"), "LevelsArn": cfnGetAtt("Levels", "UserHierarchyStructureArn"),
 		}
 	}
@@ -272,6 +275,9 @@ func TestCreateStack_ConnectNotificationTestCaseMetricLevels(t *testing.T) {
 	assert.Equal(t, out["MetricArn"], out["MetricRef"])
 	assert.Equal(t, "CUSTOMER_MANAGED", out["MetricType"])
 	assert.Equal(t, "CUSTOM", out["MetricCategory"])
+	assert.Equal(t, "METRIC_BUILDER", out["MetricCreationMethod"])
+	assert.NotEmpty(t, out["MetricEffective"])
+	assert.Equal(t, out["MetricCreated"], out["MetricEffective"])
 	assert.Equal(t, out["InstanceArn"], out["LevelsArn"])
 
 	note, err := cn.DescribeNotification(t.Context(), &connectsdk.DescribeNotificationInput{

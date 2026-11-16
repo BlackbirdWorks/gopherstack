@@ -16,6 +16,7 @@ const (
 	metricSaved     = "SAVED"
 	metricPublished = "PUBLISHED"
 	metricCategory  = "CUSTOM"
+	metricBuilder   = "METRIC_BUILDER"
 	labelMetric     = "Metric"
 	maxMetricName   = 128
 	maxMetricDesc   = 500
@@ -45,12 +46,14 @@ type MetricCalculation struct {
 // MetricDefinition is a metric definition.
 type MetricDefinition struct {
 	CreatedTime       *awstime.EpochTime `json:"CreatedTime,omitempty"`
+	EffectiveTime     *awstime.EpochTime `json:"EffectiveTime,omitempty"`
 	MetricCalculation *MetricCalculation `json:"MetricCalculation,omitempty"`
 	Tags              map[string]string  `json:"Tags,omitempty"`
 	Stamp
 	Status                 string   `json:"Status,omitempty"`
 	Arn                    string   `json:"Arn"`
 	Category               string   `json:"Category"`
+	CreationMethod         string   `json:"CreationMethod,omitempty"`
 	Description            string   `json:"Description,omitempty"`
 	ID                     string   `json:"Id"`
 	Name                   string   `json:"Name"`
@@ -252,7 +255,8 @@ func (b *Backend) CreateMetric(ctx context.Context, in *CreateMetricInput) (*Met
 			Tags: cloneTags(in.Tags), Filters: []any{}, Groupings: []string{},
 		}}
 		t := awstime.NewEpochTime(b.now())
-		rec.Metric.CreatedTime = &t
+		rec.Metric.CreatedTime, rec.Metric.EffectiveTime = &t, &t
+		rec.Metric.CreationMethod = metricBuilder
 		b.touchMetric(ctx, rec)
 		b.metricDefs.put(rec)
 

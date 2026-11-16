@@ -187,6 +187,7 @@ func (b *Backend) CreateContact(ctx context.Context, in *CreateContactInput) (*C
 
 	c := b.newContact(ctx, inst, in.Channel, in.InitiationMethod)
 	c.References, c.Contact.SegmentAttributes = in.References, segs
+	b.armExpiryLocked(c)
 	c.Contact.Name, c.Contact.Description = in.Name, in.Description
 	c.Contact.Attributes = cloneTags(in.Attributes)
 	c.Contact.PreviousContactID, c.Contact.RelatedContactID = in.PreviousContactID, in.RelatedContactID

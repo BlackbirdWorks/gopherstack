@@ -153,7 +153,19 @@ func (h *Handler) ops() map[string]restroute.OpFunc {
 	h.tagOps(ops)
 	h.extraOps(ops)
 
+	for name, op := range ops {
+		ops[name] = h.expiring(op)
+	}
+
 	return ops
+}
+
+func (h *Handler) expiring(op restroute.OpFunc) restroute.OpFunc {
+	return func(ctx context.Context, req *restroute.Request) (any, int, error) {
+		h.Backend.ExpireContacts()
+
+		return op(ctx, req)
+	}
 }
 
 func (h *Handler) instanceOps(ops map[string]restroute.OpFunc) {
@@ -617,6 +629,12 @@ func (h *Handler) contactOps(ops map[string]restroute.OpFunc) {
 		"StartOutboundVoiceContact",
 		func(in *StartOutboundVoiceContactInput) string { return in.ClientToken },
 		b.StartOutboundVoiceContact,
+	)
+	ops["StartOutboundChatContact"] = replay(
+		h,
+		"StartOutboundChatContact",
+		func(in *StartOutboundChatContactInput) string { return in.ClientToken },
+		b.StartOutboundChatContact,
 	)
 	ops["StartChatContact"] = replay(
 		h,

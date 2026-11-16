@@ -294,6 +294,8 @@ func (c *connectCall) stashMetric(metricARN string) {
 		"Category":                        m.Category,
 		connectCreatedTime:                connectTime(m.CreatedTime),
 		"Type":                            m.Type,
+		"CreationMethod":                  m.CreationMethod,
+		"EffectiveTime":                   connectTime(m.EffectiveTime),
 		connectLastModified:               connectTime(m.LastModifiedTime),
 		connectLastModRegion:              m.LastModifiedRegion,
 		"SupportsCustomCalculation":       strconv.FormatBool(m.SupportsCustomCalc),

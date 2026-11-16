@@ -352,6 +352,7 @@ func (b *Backend) StartChatContact(ctx context.Context, in *StartChatContactInpu
 	c.FlowID, c.ParticipantID, c.ParticipantToken = in.ContactFlowID, uuid.NewString(), newToken()
 	c.Contact.Attributes, c.Contact.CustomerID = cloneTags(in.Attributes), in.CustomerID
 	c.Contact.RelatedContactID, c.Contact.SegmentAttributes = in.RelatedContactID, in.SegmentAttributes
+	b.armExpiryLocked(c)
 
 	out := &chatOut{ContactID: c.Contact.ID, ParticipantID: c.ParticipantID, ParticipantToken: c.ParticipantToken}
 
@@ -451,6 +452,7 @@ func (b *Backend) StartTaskContact(ctx context.Context, in *StartTaskContactInpu
 	c.Contact.Attributes, c.Contact.SegmentAttributes = cloneTags(in.Attributes), in.SegmentAttributes
 	c.Contact.RelatedContactID = in.RelatedContactID
 	c.Contact.ScheduledTimestamp = in.ScheduledTime
+	b.armExpiryLocked(c)
 
 	if in.PreviousContactID != "" {
 		prev, perr := b.contacts.get(inst, in.PreviousContactID)

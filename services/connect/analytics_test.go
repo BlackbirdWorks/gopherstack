@@ -28,12 +28,13 @@ func TestAnalyticsDataAssociations(t *testing.T) {
 	assert.Equal(t, aws.ToString(one.ResourceShareId), aws.ToString(again.ResourceShareId))
 
 	_, err = f.client.AssociateAnalyticsDataSet(t.Context(), &sdk.AssociateAnalyticsDataSetInput{
-		InstanceId: inst, DataSetId: aws.String("x"), TargetAccountId: aws.String("short"),
+		InstanceId: inst, DataSetId: aws.String("contact_record"), TargetAccountId: aws.String("short"),
 	})
 	assert.Equal(t, "InvalidParameterException", apiCode(err))
 
 	batch, err := f.client.BatchAssociateAnalyticsDataSet(t.Context(), &sdk.BatchAssociateAnalyticsDataSetInput{
-		InstanceId: inst, DataSetIds: []string{"a", "b", ""}, TargetAccountId: aws.String("111122223333"),
+		InstanceId: inst, DataSetIds: []string{"agent_statistic_record", "bot_intents", ""},
+		TargetAccountId: aws.String("111122223333"),
 	})
 	require.NoError(t, err)
 	assert.Len(t, batch.Created, 2)
@@ -47,7 +48,8 @@ func TestAnalyticsDataAssociations(t *testing.T) {
 	assert.Len(t, all.Results, 3)
 
 	only, err := f.client.ListAnalyticsDataAssociations(
-		t.Context(), &sdk.ListAnalyticsDataAssociationsInput{InstanceId: inst, DataSetId: aws.String("a")})
+		t.Context(),
+		&sdk.ListAnalyticsDataAssociationsInput{InstanceId: inst, DataSetId: aws.String("agent_statistic_record")})
 	require.NoError(t, err)
 	require.Len(t, only.Results, 1)
 	assert.Equal(t, "111122223333", aws.ToString(only.Results[0].TargetAccountId))
@@ -61,15 +63,19 @@ func TestAnalyticsDataAssociations(t *testing.T) {
 	assert.Equal(t, "ResourceNotFoundException", apiCode(err))
 
 	del, err := f.client.BatchDisassociateAnalyticsDataSet(t.Context(), &sdk.BatchDisassociateAnalyticsDataSetInput{
-		InstanceId: inst, DataSetIds: []string{"a", "ghost"}, TargetAccountId: aws.String("111122223333"),
+		InstanceId: inst, DataSetIds: []string{"agent_statistic_record", "ghost"},
+		TargetAccountId: aws.String("111122223333"),
 	})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"a"}, del.Deleted)
+	assert.Equal(t, []string{"agent_statistic_record"}, del.Deleted)
 	require.Len(t, del.Errors, 1)
 	assert.Equal(t, "ResourceNotFoundException", aws.ToString(del.Errors[0].ErrorCode))
 
 	_, err = f.client.AssociateAnalyticsDataSet(
-		t.Context(), &sdk.AssociateAnalyticsDataSetInput{InstanceId: aws.String("ghost"), DataSetId: aws.String("a")})
+		t.Context(),
+		&sdk.AssociateAnalyticsDataSetInput{
+			InstanceId: aws.String("ghost"), DataSetId: aws.String("agent_statistic_record"),
+		})
 	assert.Equal(t, "ResourceNotFoundException", apiCode(err))
 }
 

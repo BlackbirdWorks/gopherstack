@@ -17,7 +17,7 @@ func createConnectDataLakeAssociation(c *connectCall) (string, error) {
 	in := connectbackend.AssociateAnalyticsDataSetInput{TargetAccountID: c.str("TargetAccountId")}
 	in.InstanceID, in.DataSetID = lastPathSegment(c.instance()), c.str("DataSetId")
 
-	out, err := c.be.AssociateAnalyticsDataSet(&in)
+	out, err := c.be.AssociateAnalyticsDataSet(c.ctx, &in)
 	if err != nil {
 		return "", err
 	}
@@ -35,7 +35,7 @@ func deleteConnectDataLakeAssociation(c *connectCall, physicalID string) error {
 
 	in := connectbackend.AssociateAnalyticsDataSetInput{TargetAccountID: parts[2]}
 	in.InstanceID, in.DataSetID = parts[0], parts[1]
-	_, err := c.be.DisassociateAnalyticsDataSet(&in)
+	_, err := c.be.DisassociateAnalyticsDataSet(c.ctx, &in)
 
 	return err
 }

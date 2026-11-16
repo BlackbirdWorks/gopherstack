@@ -133,6 +133,8 @@ func (f family[V]) findARN(resourceARN string) *map[string]string {
 type Backend struct {
 	apps            Integrations
 	mailer          Mailer
+	shares          Shares
+	expiring        bool
 	resolvers       Resolvers
 	phoneNumbers    *store.Table[phoneNumberRec]
 	now             func() time.Time
@@ -185,6 +187,20 @@ func (b *Backend) SetResolvers(r Resolvers) {
 	b.resolvers = r
 }
 
+// Shares creates and removes the RAM resource shares behind analytics data set associations.
+type Shares interface {
+	CreateShare(ctx context.Context, name, targetAccountID, resourceARN string) (string, error)
+	DeleteShare(ctx context.Context, shareARN string) error
+}
+
+// SetShares wires resource sharing for analytics data set associations.
+func (b *Backend) SetShares(s Shares) {
+	b.mu.Lock("SetShares")
+	defer b.mu.Unlock()
+
+	b.shares = s
+}
+
 // SetIntegrations wires AppIntegrations for EVENT and APPLICATION integration associations.
 func (b *Backend) SetIntegrations(i Integrations) {
 	b.mu.Lock("SetIntegrations")
@@ -217,6 +233,7 @@ func (b *Backend) Reset() {
 	defer b.mu.Unlock()
 
 	b.registry.ResetAll()
+	b.expiring = false
 }
 
 func (b *Backend) scope(ctx context.Context) (string, string) {

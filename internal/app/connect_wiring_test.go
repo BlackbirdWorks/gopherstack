@@ -11,6 +11,8 @@ import (
 	connectsdk "github.com/aws/aws-sdk-go-v2/service/connect"
 	connecttypes "github.com/aws/aws-sdk-go-v2/service/connect/types"
 	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
+	"github.com/aws/aws-sdk-go-v2/service/ram"
+	ramtypes "github.com/aws/aws-sdk-go-v2/service/ram/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	sessdk "github.com/aws/aws-sdk-go-v2/service/ses"
 	"github.com/aws/smithy-go"
@@ -24,6 +26,7 @@ type connectWiringEnv struct {
 	events       *eventbridge.Client
 	objects      *s3.Client
 	mail         *sessdk.Client
+	shares       *ram.Client
 	instance     *connectsdk.CreateInstanceOutput
 }
 
@@ -45,6 +48,7 @@ func TestInitializeServices_ConnectWiring(t *testing.T) {
 		events:       eventbridge.NewFromConfig(cfg),
 		objects:      s3.NewFromConfig(cfg, func(o *s3.Options) { o.UsePathStyle = true }),
 		mail:         sessdk.NewFromConfig(cfg),
+		shares:       ram.NewFromConfig(cfg),
 	}
 
 	tests := []struct {
@@ -63,6 +67,7 @@ func TestInitializeServices_ConnectWiring(t *testing.T) {
 		}},
 		{name: "prompts read S3 objects", run: connectPromptCase},
 		{name: "outbound email is delivered through SES", run: connectOutboundEmailCase},
+		{name: "analytics association owns a RAM share", run: connectAnalyticsShareCase},
 		{name: "storage config needs its bucket", run: func(t *testing.T, e *connectWiringEnv) {
 			t.Helper()
 
@@ -251,4 +256,30 @@ func connectOutboundEmailCase(t *testing.T, e *connectWiringEnv) {
 	quota, err := e.mail.GetSendQuota(t.Context(), &sessdk.GetSendQuotaInput{})
 	require.NoError(t, err)
 	assert.InDelta(t, 1.0, quota.SentLast24Hours, 0.01)
+}
+
+func connectAnalyticsShareCase(t *testing.T, e *connectWiringEnv) {
+	t.Helper()
+
+	out, err := e.connect.AssociateAnalyticsDataSet(t.Context(), &connectsdk.AssociateAnalyticsDataSetInput{
+		InstanceId: e.instance.Id, DataSetId: aws.String("contact_record"), TargetAccountId: aws.String("111122223333"),
+	})
+	require.NoError(t, err)
+
+	got, err := e.shares.GetResourceShares(t.Context(), &ram.GetResourceSharesInput{
+		ResourceOwner: ramtypes.ResourceOwnerSelf, ResourceShareArns: []string{aws.ToString(out.ResourceShareArn)},
+	})
+	require.NoError(t, err)
+	require.Len(t, got.ResourceShares, 1)
+
+	_, err = e.connect.DisassociateAnalyticsDataSet(t.Context(), &connectsdk.DisassociateAnalyticsDataSetInput{
+		InstanceId: e.instance.Id, DataSetId: aws.String("contact_record"), TargetAccountId: aws.String("111122223333"),
+	})
+	require.NoError(t, err)
+
+	got, err = e.shares.GetResourceShares(t.Context(), &ram.GetResourceSharesInput{
+		ResourceOwner: ramtypes.ResourceOwnerSelf, ResourceShareArns: []string{aws.ToString(out.ResourceShareArn)},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, got.ResourceShares)
 }

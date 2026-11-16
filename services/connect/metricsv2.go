@@ -117,36 +117,58 @@ func (w window) has(t *awstime.EpochTime) bool {
 
 type v2Spec struct {
 	eval          func(cs []*contactRec, w window, th *ThresholdV2) float64
+	sample        func(c *contactRec, w window) (float64, bool)
 	metricFilters []string
 	threshold     bool
 }
 
+func countSpec(filters []string, sample func(c *contactRec, w window) (float64, bool)) v2Spec {
+	return v2Spec{
+		metricFilters: filters, sample: sample,
+		eval: func(cs []*contactRec, w window, _ *ThresholdV2) float64 {
+			return countWhere(cs, func(c *contactRec) bool {
+				_, ok := sample(c, w)
+
+				return ok
+			})
+		},
+	}
+}
+
+func meanSpec(filters []string, sample func(c *contactRec, w window) (float64, bool)) v2Spec {
+	return v2Spec{
+		metricFilters: filters, sample: sample,
+		eval: func(cs []*contactRec, w window, _ *ThresholdV2) float64 {
+			return meanOf(cs, func(c *contactRec) (float64, bool) { return sample(c, w) })
+		},
+	}
+}
+
+func one(ok bool) (float64, bool) {
+	if !ok {
+		return 0, false
+	}
+
+	return 1, true
+}
+
 func v2Specs() map[string]v2Spec {
 	return map[string]v2Spec{
-		"CONTACTS_CREATED": {
-			metricFilters: []string{dimInitiation},
-			eval: func(cs []*contactRec, w window, _ *ThresholdV2) float64 {
-				return countWhere(cs, func(c *contactRec) bool { return w.has(c.Contact.InitiationTimestamp) })
+		"CONTACTS_CREATED": countSpec([]string{dimInitiation}, func(c *contactRec, w window) (float64, bool) {
+			return one(w.has(c.Contact.InitiationTimestamp))
+		}),
+		"CONTACTS_QUEUED": countSpec(nil, func(c *contactRec, w window) (float64, bool) {
+			return one(w.has(enqueued(c)))
+		}),
+		"CONTACTS_HANDLED": countSpec(
+			[]string{dimInitiation, dimDisconnect},
+			func(c *contactRec, w window) (float64, bool) {
+				return one(w.has(connected(c)))
 			},
-		},
-		"CONTACTS_QUEUED": {eval: func(cs []*contactRec, w window, _ *ThresholdV2) float64 {
-			return countWhere(cs, func(c *contactRec) bool { return w.has(enqueued(c)) })
-		}},
-		"CONTACTS_HANDLED": {
-			metricFilters: []string{dimInitiation, dimDisconnect},
-			eval: func(cs []*contactRec, w window, _ *ThresholdV2) float64 {
-				return countWhere(cs, func(c *contactRec) bool { return w.has(connected(c)) })
-			},
-		},
-		metricAbandoned: {
-			metricFilters: []string{dimInitiation},
-			eval: func(cs []*contactRec, w window, _ *ThresholdV2) float64 {
-				return countWhere(
-					cs,
-					func(c *contactRec) bool { return abandoned(c) && w.has(c.Contact.DisconnectTimestamp) },
-				)
-			},
-		},
+		),
+		metricAbandoned: countSpec([]string{dimInitiation}, func(c *contactRec, w window) (float64, bool) {
+			return one(abandoned(c) && w.has(c.Contact.DisconnectTimestamp))
+		}),
 		"ABANDONMENT_RATE": {eval: func(cs []*contactRec, w window, _ *ThresholdV2) float64 {
 			queued := countWhere(cs, func(c *contactRec) bool { return w.has(enqueued(c)) })
 
@@ -155,37 +177,26 @@ func v2Specs() map[string]v2Spec {
 				queued,
 			)
 		}},
-		"AVG_HANDLE_TIME": {eval: func(cs []*contactRec, w window, _ *ThresholdV2) float64 {
-			return meanOf(cs, func(c *contactRec) (float64, bool) {
-				return span(connected(c), c.Contact.DisconnectTimestamp, w.has(c.Contact.DisconnectTimestamp))
-			})
-		}},
-		"AVG_CONTACT_DURATION": {eval: func(cs []*contactRec, w window, _ *ThresholdV2) float64 {
-			return meanOf(cs, func(c *contactRec) (float64, bool) {
-				return span(
-					c.Contact.InitiationTimestamp,
-					c.Contact.DisconnectTimestamp,
-					w.has(c.Contact.DisconnectTimestamp),
-				)
-			})
-		}},
-		"AVG_QUEUE_ANSWER_TIME": {eval: func(cs []*contactRec, w window, _ *ThresholdV2) float64 {
-			return meanOf(cs, func(c *contactRec) (float64, bool) {
-				return span(enqueued(c), connected(c), w.has(connected(c)))
-			})
-		}},
-		"AVG_ABANDON_TIME": {
-			metricFilters: []string{dimInitiation},
-			eval: func(cs []*contactRec, w window, _ *ThresholdV2) float64 {
-				return meanOf(cs, func(c *contactRec) (float64, bool) {
-					return span(
-						enqueued(c),
-						c.Contact.DisconnectTimestamp,
-						abandoned(c) && w.has(c.Contact.DisconnectTimestamp),
-					)
-				})
-			},
-		},
+		"AVG_HANDLE_TIME": meanSpec(nil, func(c *contactRec, w window) (float64, bool) {
+			return span(connected(c), c.Contact.DisconnectTimestamp, w.has(c.Contact.DisconnectTimestamp))
+		}),
+		"AVG_CONTACT_DURATION": meanSpec(nil, func(c *contactRec, w window) (float64, bool) {
+			return span(
+				c.Contact.InitiationTimestamp,
+				c.Contact.DisconnectTimestamp,
+				w.has(c.Contact.DisconnectTimestamp),
+			)
+		}),
+		"AVG_QUEUE_ANSWER_TIME": meanSpec(nil, func(c *contactRec, w window) (float64, bool) {
+			return span(enqueued(c), connected(c), w.has(connected(c)))
+		}),
+		"AVG_ABANDON_TIME": meanSpec([]string{dimInitiation}, func(c *contactRec, w window) (float64, bool) {
+			return span(
+				enqueued(c),
+				c.Contact.DisconnectTimestamp,
+				abandoned(c) && w.has(c.Contact.DisconnectTimestamp),
+			)
+		}),
 		"MAX_QUEUED_TIME": {eval: func(cs []*contactRec, w window, _ *ThresholdV2) float64 {
 			var most float64
 
@@ -471,11 +482,18 @@ func (b *Backend) validateV2Metric(inst string, m MetricV2, specs map[string]v2S
 	}
 
 	if m.MetricID != "" {
-		if !b.metricDefs.has(inst, idTail(m.MetricID)) {
+		def, err := b.metricDefs.get(inst, idTail(m.MetricID))
+		if err != nil {
 			return notFoundErr(labelMetric, m.MetricID)
 		}
 
-		return invalidParamErr("custom metric %q cannot be computed: only named AWS metrics are supported", m.MetricID)
+		if len(m.Threshold) > 0 || len(m.MetricFilters) > 0 {
+			return invalidParamErr("custom metric %q takes no Threshold or MetricFilters", m.MetricID)
+		}
+
+		_, err = compileCustomMetric(def.Metric.MetricCalculation)
+
+		return err
 	}
 
 	spec, ok := specs[m.Name]
@@ -732,6 +750,15 @@ func (b *Backend) v2Result(
 	specs := v2Specs()
 
 	for _, m := range in.Metrics {
+		if m.MetricID != "" {
+			res.Collections = append(
+				res.Collections,
+				MetricDataV2{Metric: m, Value: b.customValue(inst, m, w, inGroup)},
+			)
+
+			continue
+		}
+
 		spec := specs[m.Name]
 
 		var th *ThresholdV2
@@ -751,4 +778,18 @@ func (b *Backend) v2Result(
 	}
 
 	return res
+}
+
+func (b *Backend) customValue(inst string, m MetricV2, w window, cs []*contactRec) float64 {
+	def, err := b.metricDefs.get(inst, idTail(m.MetricID))
+	if err != nil {
+		return 0
+	}
+
+	compiled, err := compileCustomMetric(def.Metric.MetricCalculation)
+	if err != nil {
+		return 0
+	}
+
+	return b.evalCustomMetric(inst, compiled, w, cs)
 }

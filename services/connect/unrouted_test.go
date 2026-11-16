@@ -10,7 +10,6 @@ func notImplemented() []string {
 		"ReplicateInstance",
 		"SendChatIntegrationEvent",
 		"StartAssistantContact",
-		"StartOutboundChatContact",
 		"StartScreenSharing",
 		"StartWebRTCContact",
 		"TransferContact",
