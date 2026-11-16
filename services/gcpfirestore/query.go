@@ -404,6 +404,12 @@ func (b *InMemoryBackend) runQuery(
 		return nil, 0, err
 	}
 
+	if fn := q.GetFindNearest(); fn != nil {
+		if docs, err = findNearest(docs, fn); err != nil {
+			return nil, 0, err
+		}
+	}
+
 	page, skipped := cq.page(docs)
 
 	return page, skipped, nil

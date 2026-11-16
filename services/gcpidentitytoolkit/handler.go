@@ -34,7 +34,7 @@ const (
 	readTimeout       = 5 * time.Minute
 	idleTimeout       = 120 * time.Second
 	keyCacheSeconds   = 3600
-	supportedOpCount  = 17
+	supportedOpCount  = 23
 )
 
 // Handler serves the Identity Toolkit and Secure Token REST APIs on a dedicated listener.
@@ -86,7 +86,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		opEmulatorAction,
 		opGetPasswordPolicy,
 		opGetRecaptchaConfig,
+		opIdpConfigs,
 	)
+	ops = append(ops, mfaOps...)
 	ops = append(ops, accountVerbs...)
 
 	return ops
@@ -154,7 +156,12 @@ func (h *Handler) call(c *echo.Context, rt route) call {
 		project = h.Backend.defaultProjectName()
 	}
 
-	return call{project: project, tenant: rt.tenant, host: c.Request().Host, admin: bearer(c.Request())}
+	ip, _, err := net.SplitHostPort(c.Request().RemoteAddr)
+	if err != nil {
+		ip = c.Request().RemoteAddr
+	}
+
+	return call{project: project, tenant: rt.tenant, host: c.Request().Host, ip: ip, admin: bearer(c.Request())}
 }
 
 func (b *InMemoryBackend) defaultProjectName() string {
@@ -231,12 +238,18 @@ func (h *Handler) dispatch(c *echo.Context, rt route) (any, error) {
 		return h.clientConfig(c, rt, cl)
 	}
 
-	if (rt.version == "v2" || slices.Contains(adminOps, rt.op)) && !cl.admin {
+	isMfa := slices.Contains(mfaOps, rt.op)
+
+	if ((rt.version == "v2" && !isMfa) || slices.Contains(adminOps, rt.op)) && !cl.admin {
 		return nil, errUnauth()
 	}
 
 	if !cl.admin && c.QueryParam("key") == "" && c.Request().Header.Get("X-Goog-Api-Key") == "" {
 		return nil, errNoKey()
+	}
+
+	if isMfa {
+		return h.mfaOp(c, rt.op, cl)
 	}
 
 	if rt.version == "v2" {
@@ -375,6 +388,8 @@ func (h *Handler) authOp(ctx context.Context, op string, cl call, req *authReque
 		return b.ResetPassword(cl, req)
 	case "createAuthUri":
 		return b.CreateAuthURI(cl, req)
+	case opSignInWithIdp:
+		return b.SignInWithIdp(cl, req)
 	case opCreateSessionCookie:
 		return b.CreateSessionCookie(cl, req)
 	}
@@ -420,6 +435,8 @@ func (h *Handler) adminV2(c *echo.Context, rt route) (any, error) {
 		return h.listTenants(c, rt)
 	case opCreateTenant, opGetTenant, opUpdateTenant, opDeleteTenant:
 		return h.tenantOp(c, rt)
+	case opIdpConfigs:
+		return h.idpOp(c, rt)
 	}
 
 	return nil, errNotFound("NOT_FOUND")

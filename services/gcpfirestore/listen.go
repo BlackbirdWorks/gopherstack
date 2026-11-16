@@ -20,12 +20,15 @@ type listenTarget struct {
 }
 
 func (b *InMemoryBackend) targetState(
-	t *firestorepb.Target, sent map[string]time.Time,
+	t *firestorepb.Target, sent map[string]time.Time, at time.Time,
 ) (map[string]*firestorepb.Document, map[string]bool, time.Time, error) {
 	b.mu.RLock("Listen")
 	defer b.mu.RUnlock()
 
 	rv := &readView{readTime: b.readNowLocked()}
+	if !at.IsZero() {
+		rv.readTime, rv.at = at, at
+	}
 	cur := map[string]*firestorepb.Document{}
 
 	switch tt := t.GetTargetType().(type) {
@@ -64,13 +67,57 @@ func (b *InMemoryBackend) targetState(
 	return cur, deleted, rv.readTime, nil
 }
 
+// resumePoint is the time a target asks to resume from: its resume token or its read_time.
+func resumePoint(t *firestorepb.Target) (time.Time, bool) {
+	if tok := t.GetResumeToken(); len(tok) > 0 {
+		n, err := strconv.ParseInt(string(tok), 10, 64)
+
+		return time.Unix(0, n).UTC(), err == nil
+	}
+
+	if rt := t.GetReadTime(); rt != nil {
+		return rt.AsTime(), true
+	}
+
+	return time.Time{}, false
+}
+
+// seedResume records the target's state at its resume point as already delivered, so the following diff replays
+// only the changes since then. It reports false when the point is unusable (malformed, future or older than the
+// retained history) and the client must be reset.
+func (b *InMemoryBackend) seedResume(lt *listenTarget) (bool, error) {
+	at, ok := resumePoint(lt.t)
+	if !ok {
+		return false, nil
+	}
+
+	b.mu.RLock("ListenResume")
+	now := b.readNowLocked()
+	b.mu.RUnlock()
+
+	if at.After(now) || now.Sub(at) > historyWindow {
+		return false, nil
+	}
+
+	past, _, _, err := b.targetState(lt.t, nil, at)
+	if err != nil {
+		return false, err
+	}
+
+	for n, d := range past {
+		lt.sent[n] = d.GetUpdateTime().AsTime()
+	}
+
+	return true, nil
+}
+
 func resumeToken(t time.Time) []byte { return []byte(strconv.FormatInt(t.UnixNano(), 10)) }
 
 // diff sends the changes needed to bring the client's view of a target up to date; it reports whether any were sent.
 func (b *InMemoryBackend) diff(
 	lt *listenTarget, stream firestorepb.Firestore_ListenServer,
 ) (time.Time, bool, error) {
-	cur, deleted, rt, err := b.targetState(lt.t, lt.sent)
+	cur, deleted, rt, err := b.targetState(lt.t, lt.sent, time.Time{})
 	if err != nil {
 		return rt, false, err
 	}
@@ -152,7 +199,12 @@ func (b *InMemoryBackend) addTarget(
 		return nil, err
 	}
 
-	if len(t.GetResumeToken()) > 0 {
+	resumed, err := b.seedResume(lt)
+	if err != nil {
+		return nil, err
+	}
+
+	if (len(t.GetResumeToken()) > 0 || t.GetReadTime() != nil) && !resumed {
 		if serr := sendTargetChange(stream, firestorepb.TargetChange_RESET, ids, time.Time{}, false); serr != nil {
 			return nil, serr
 		}
@@ -161,6 +213,15 @@ func (b *InMemoryBackend) addTarget(
 	rt, _, err := b.diff(lt, stream)
 	if err != nil {
 		return nil, err
+	}
+
+	if resumed {
+		filter := &firestorepb.ExistenceFilter{TargetId: lt.id, Count: count32(len(lt.sent))}
+		if serr := stream.Send(&firestorepb.ListenResponse{
+			ResponseType: &firestorepb.ListenResponse_Filter{Filter: filter},
+		}); serr != nil {
+			return nil, serr
+		}
 	}
 
 	if serr := sendTargetChange(stream, firestorepb.TargetChange_CURRENT, ids, rt, true); serr != nil {

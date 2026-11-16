@@ -14,6 +14,7 @@ type call struct {
 	project string
 	tenant  string
 	host    string
+	ip      string
 	admin   bool
 }
 
@@ -42,12 +43,16 @@ func (b *InMemoryBackend) SignUp(c call, r *authRequest) (*tokenResponse, error)
 		return b.linkAnonymousLocked(sc, r, email, pw)
 	}
 
+	if err = b.signUpAllowedLocked(sc, c.ip); err != nil {
+		return nil, err
+	}
+
 	if email == "" && pw == "" {
 		if !sc.anon {
 			return nil, idtk("ADMIN_ONLY_OPERATION")
 		}
 
-		anon, cErr := b.createUserLocked(sc, newUser{anonymous: true}, false)
+		anon, cErr := b.createClientUserLocked(sc, newUser{anonymous: true}, anonProvider, nil)
 		if cErr != nil {
 			return nil, cErr
 		}
@@ -59,6 +64,10 @@ func (b *InMemoryBackend) SignUp(c call, r *authRequest) (*tokenResponse, error)
 		return nil, idtk("OPERATION_NOT_ALLOWED", "Password sign-in is disabled for this project.")
 	}
 
+	if err = recaptchaGate(sc, false, r); err != nil {
+		return nil, err
+	}
+
 	if email == "" {
 		return nil, idtk("MISSING_EMAIL")
 	}
@@ -67,7 +76,9 @@ func (b *InMemoryBackend) SignUp(c call, r *authRequest) (*tokenResponse, error)
 		return nil, idtk("MISSING_PASSWORD")
 	}
 
-	u, err := b.createUserLocked(sc, newUser{email: email, password: pw, displayName: deref(r.DisplayName)}, false)
+	u, err := b.createClientUserLocked(
+		sc, newUser{email: email, password: pw, displayName: deref(r.DisplayName)}, passwordProv, nil,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -92,9 +103,24 @@ func effectiveTenant(c call, r *authRequest) string {
 }
 
 func (b *InMemoryBackend) finishSignInLocked(sc *scope, u *userRec, provider, kind string) (*tokenResponse, error) {
+	session, err := b.blockLocked(sc, evBeforeSignIn, provider, u, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if u.Disabled {
+		return nil, idtk("USER_DISABLED", "The user account has been disabled by an administrator.")
+	}
+
+	if pend, ok := b.mfaPendingLocked(sc, u, provider); ok {
+		pend.Kind = kind
+
+		return pend, nil
+	}
+
 	b.touchLoginLocked(u)
 
-	s, err := b.issueLocked(sc, u, provider, nil)
+	s, err := b.issueLocked(sc, u, provider, session)
 	if err != nil {
 		return nil, err
 	}
@@ -168,6 +194,12 @@ func (b *InMemoryBackend) SignInWithPassword(c call, r *authRequest) (*tokenResp
 		b.mu.Unlock()
 
 		return nil, idtk("MISSING_PASSWORD")
+	}
+
+	if err = recaptchaGate(sc, false, r); err != nil {
+		b.mu.Unlock()
+
+		return nil, err
 	}
 
 	u := sc.byEmail(email)
@@ -459,7 +491,7 @@ func (b *InMemoryBackend) CreateAuthURI(c call, r *authRequest) (map[string]any,
 	}
 
 	if r.ProviderID != "" {
-		return nil, idtk("OPERATION_NOT_ALLOWED", "Federated sign-in is not supported by this emulator.")
+		return b.federatedAuthURILocked(sc, r)
 	}
 
 	if r.Identifier == "" {

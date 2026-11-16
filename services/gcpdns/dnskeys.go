@@ -1,6 +1,8 @@
 package gcpdns
 
 import (
+	"crypto/x509"
+	"encoding/base64"
 	"fmt"
 	"slices"
 	"strconv"
@@ -82,16 +84,17 @@ func keyRR(zone string, k *dnsapi.DnsKey) *dns.DNSKEY {
 	}
 }
 
-func generateKeys(z *dnsapi.ManagedZone, firstID int, now string) ([]*dnsapi.DnsKey, error) {
+func generateKeys(z *dnsapi.ManagedZone, firstID int, now string) ([]*dnsapi.DnsKey, map[string]string, error) {
 	specs := z.DnssecConfig.DefaultKeySpecs
 	if len(specs) == 0 {
 		specs = defaultKeySpecs()
 		if err := normalizeKeySpecs(specs); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
 	keys := make([]*dnsapi.DnsKey, 0, len(specs))
+	private := make(map[string]string, len(specs))
 
 	for i, s := range specs {
 		k := &dnsapi.DnsKey{
@@ -100,15 +103,22 @@ func generateKeys(z *dnsapi.ManagedZone, firstID int, now string) ([]*dnsapi.Dns
 		}
 		rr := keyRR(z.DnsName, k)
 
-		if _, err := rr.Generate(int(s.KeyLength)); err != nil {
-			return nil, errInvalid("Cannot generate %s key: %v", s.Algorithm, err)
+		priv, err := rr.Generate(int(s.KeyLength))
+		if err != nil {
+			return nil, nil, errInvalid("Cannot generate %s key: %v", s.Algorithm, err)
+		}
+
+		der, err := x509.MarshalPKCS8PrivateKey(priv)
+		if err != nil {
+			return nil, nil, errInvalid("Cannot encode %s key: %v", s.Algorithm, err)
 		}
 
 		k.PublicKey, k.KeyTag = rr.PublicKey, int64(rr.KeyTag())
+		private[k.Id] = base64.StdEncoding.EncodeToString(der)
 		keys = append(keys, k)
 	}
 
-	return keys, nil
+	return keys, private, nil
 }
 
 func withDigests(zone string, k *dnsapi.DnsKey, types []string) (*dnsapi.DnsKey, error) {

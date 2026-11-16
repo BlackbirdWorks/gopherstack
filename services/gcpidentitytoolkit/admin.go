@@ -54,6 +54,8 @@ func (b *InMemoryBackend) AdminCreate(c call, r *authRequest) (map[string]any, e
 		return nil, err
 	}
 
+	u.MFA = b.enrollmentsFromWire(r.MfaInfo)
+
 	return map[string]any{keyKind: "identitytoolkit#SignupNewUserResponse", "localId": u.UID}, nil
 }
 
@@ -707,6 +709,7 @@ func (b *InMemoryBackend) DeleteTenant(project, id string) error {
 
 	delete(p.Tenants, id)
 	delete(p.Users, id)
+	deleteTenantIdps(p, id)
 
 	for code, rec := range p.Codes {
 		if rec.TenantID == id {

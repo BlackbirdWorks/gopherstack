@@ -3,6 +3,7 @@ package gcpfirestore
 import (
 	"context"
 	"math"
+	"time"
 
 	"cloud.google.com/go/firestore/apiv1/firestorepb"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -108,6 +109,8 @@ func (s *server) RunQuery(in *firestorepb.RunQueryRequest, stream firestorepb.Fi
 		return errInvalid("structured_query is required.")
 	}
 
+	started := time.Now()
+
 	var (
 		docs    []*firestorepb.Document
 		skipped int
@@ -125,6 +128,10 @@ func (s *server) RunQuery(in *firestorepb.RunQueryRequest, stream firestorepb.Fi
 	})
 	if err != nil {
 		return err
+	}
+
+	if eo := in.GetExplainOptions(); eo != nil {
+		return s.explainQuery(stream, in, docs, skipped, txn, rt, eo.GetAnalyze(), time.Since(started))
 	}
 
 	if len(docs) == 0 {
@@ -150,6 +157,8 @@ func (s *server) RunQuery(in *firestorepb.RunQueryRequest, stream firestorepb.Fi
 func (s *server) RunAggregationQuery(
 	in *firestorepb.RunAggregationQueryRequest, stream firestorepb.Firestore_RunAggregationQueryServer,
 ) error {
+	started := time.Now()
+
 	var (
 		fields map[string]*firestorepb.Value
 		txn    []byte
@@ -168,11 +177,28 @@ func (s *server) RunAggregationQuery(
 		return err
 	}
 
-	return stream.Send(&firestorepb.RunAggregationQueryResponse{
+	resp := &firestorepb.RunAggregationQueryResponse{
 		Result:      &firestorepb.AggregationResult{AggregateFields: fields},
 		Transaction: txn,
 		ReadTime:    rt,
-	})
+	}
+
+	if eo := in.GetExplainOptions(); eo != nil {
+		plan, perr := planIndexes(in.GetParent(), in.GetStructuredAggregationQuery().GetStructuredQuery())
+		if perr != nil {
+			return perr
+		}
+
+		if resp.ExplainMetrics, perr = explainMetrics(plan, eo.GetAnalyze(), 1, 1, time.Since(started)); perr != nil {
+			return perr
+		}
+
+		if !eo.GetAnalyze() {
+			resp.Result = nil
+		}
+	}
+
+	return stream.Send(resp)
 }
 
 func (s *server) PartitionQuery(
@@ -199,4 +225,39 @@ func (s *server) ListCollectionIds( //nolint:revive // name fixed by the generat
 
 func count32(n int) int32 {
 	return int32(min(n, math.MaxInt32)) //nolint:gosec // clamped to the int32 range
+}
+
+// explainQuery answers a RunQuery that carries explain_options: the plan alone, or the results followed by the
+// plan and execution statistics.
+func (s *server) explainQuery(
+	stream firestorepb.Firestore_RunQueryServer, in *firestorepb.RunQueryRequest, docs []*firestorepb.Document,
+	skipped int, txn []byte, rt *timestamppb.Timestamp, analyze bool, took time.Duration,
+) error {
+	plan, err := planIndexes(in.GetParent(), in.GetStructuredQuery())
+	if err != nil {
+		return err
+	}
+
+	metrics, err := explainMetrics(plan, analyze, len(docs), len(docs)+skipped, took)
+	if err != nil {
+		return err
+	}
+
+	if analyze {
+		for i, d := range docs {
+			resp := &firestorepb.RunQueryResponse{
+				Document: project(d, in.GetStructuredQuery().GetSelect()),
+				ReadTime: rt,
+			}
+			if i == 0 {
+				resp.Transaction, resp.SkippedResults = txn, count32(skipped)
+			}
+
+			if serr := stream.Send(resp); serr != nil {
+				return serr
+			}
+		}
+	}
+
+	return stream.Send(&firestorepb.RunQueryResponse{Transaction: txn, ReadTime: rt, ExplainMetrics: metrics})
 }

@@ -274,6 +274,10 @@ func (b *InMemoryBackend) toWire(sc *scope, u *userRec, admin bool) userWire {
 		w.ProviderUserInfo = append(w.ProviderUserInfo, providerWire(p))
 	}
 
+	if len(u.MFA) > 0 {
+		w.MfaInfo = mfaWires(u.MFA, !admin)
+	}
+
 	return w
 }
 

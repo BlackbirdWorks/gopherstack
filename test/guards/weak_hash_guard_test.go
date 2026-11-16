@@ -28,6 +28,9 @@ func allowedWeakHashFiles() map[string]string {
 		"services/azuregraph/certauth.go": "Entra x5t / customKeyIdentifier SHA-1 certificate thumbprint parity",
 		// Azure Blob Content-MD5 headers are the base64 MD5 of the body; integrity checksum, never a credential.
 		"services/azureblob/handler_cond.go": "Azure Blob Content-MD5 header parity",
+		// Identity Platform TOTP second factors are RFC 6238 HMAC-SHA1 (the API reports hashingAlgorithm SHA1); a one-time
+		// code derivation, not password storage.
+		"services/gcpidentitytoolkit/mfa.go": "RFC 6238 TOTP HMAC-SHA1, hashingAlgorithm SHA1 in the Identity Platform API",
 		// npm dist.shasum is the SHA-1 of the tarball; content checksum, never a credential.
 		"services/gcpartifactregistry/npm.go": "npm dist.shasum SHA-1 parity",
 		// Maven .sha1/.md5 checksum files and twine md5_digest are defined over those digests; never credentials.

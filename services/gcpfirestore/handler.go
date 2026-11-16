@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"sync"
 
+	"cloud.google.com/go/firestore/apiv1/admin/adminpb"
 	"cloud.google.com/go/firestore/apiv1/firestorepb"
+	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"github.com/labstack/echo/v5"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -121,6 +123,8 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 		logInterceptor(log), h.Backend.Audit.UnaryInterceptor(auditPolicy(), h.Backend.clockNow),
 	))
 	firestorepb.RegisterFirestoreServer(srv, &server{b: h.Backend})
+	adminpb.RegisterFirestoreAdminServer(srv, &adminServer{b: h.Backend})
+	longrunningpb.RegisterOperationsServer(srv, &operationsServer{b: h.Backend})
 
 	h.srvMu.Lock("StartWorker")
 	h.srv = srv

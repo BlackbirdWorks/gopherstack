@@ -19,6 +19,7 @@ const snapshotVersion = 1
 type backendSnapshot struct {
 	LastCommit time.Time                 `json:"lastCommit"`
 	Docs       map[string]jsontext.Value `json:"docs"`
+	Admin      *adminSnapshot            `json:"admin,omitempty"`
 	Version    int                       `json:"version"`
 }
 
@@ -30,6 +31,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	snap := backendSnapshot{
 		Version:    snapshotVersion,
 		LastCommit: b.lastCommit,
+		Admin:      b.admin.snapshot(),
 		Docs:       make(map[string]jsontext.Value, len(b.docs)),
 	}
 
@@ -85,7 +87,12 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		docs[name] = &docRec{vers: []docVer{{at: d.GetUpdateTime().AsTime(), doc: d}}}
 	}
 
-	b.docs = docs
+	admin, err := restoreAdmin(snap.Admin)
+	if err != nil {
+		return err
+	}
+
+	b.docs, b.admin = docs, admin
 	b.txns = make(map[string]*txnRec)
 	b.lastCommit = snap.LastCommit
 	b.notifyLocked()

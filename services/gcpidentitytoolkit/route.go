@@ -23,17 +23,22 @@ var (
 		"signInWithPhoneNumber",
 		opResetPassword,
 		"createAuthUri",
+		opSignInWithIdp,
 		opBatchCreate,
 		opBatchDelete,
 		opQuery,
 	}
 )
 
+//nolint:gochecknoglobals // immutable lookup table
+var mfaOps = []string{opMfaEnrollStart, opMfaEnrollFinalize, opMfaEnrollWithdraw, opMfaSignInStart, opMfaSignInFinalize}
+
 type route struct {
 	op      string
 	project string
 	tenant  string
 	id      string
+	res     string
 	version string
 }
 
@@ -93,7 +98,7 @@ func emulatorRoute(r *http.Request, parts []string) route {
 		rt.op = opListOobCodes
 	case parts[4] == "verificationCodes" && r.Method == http.MethodGet:
 		rt.op = opListVerificationCodes
-	case parts[4] == "accounts" && r.Method == http.MethodDelete:
+	case parts[4] == segAccounts && r.Method == http.MethodDelete:
 		rt.op = opClearAccounts
 	}
 
@@ -112,6 +117,8 @@ func versionedRoute(r *http.Request, rt route, rest []string) route {
 		rt.op = accountVerb(r, rest[0])
 	case rt.version == "v2" && len(rest) == 1:
 		return v2ClientRoute(r, rt, rest[0])
+	case rt.version == "v2" && len(rest) == 2 && rest[0] == segAccounts:
+		rt.op = mfaVerb(r, rest[1])
 	}
 
 	return rt
@@ -211,7 +218,63 @@ func v2ClientRoute(r *http.Request, rt route, seg string) route {
 	return rt
 }
 
+const idpItemLen = 2
+
+func mfaVerb(r *http.Request, verb string) string {
+	if r.Method == http.MethodPost && slices.Contains(mfaOps, verb) {
+		return verb
+	}
+
+	return ""
+}
+
+func idpCollection(seg string) bool {
+	return seg == collDefaultIdp || seg == collOAuthIdp || seg == collSamlIdp
+}
+
+func idpRoute(r *http.Request, rt route, tail []string) route {
+	rt.res, rt.op = tail[0], opIdpConfigs
+
+	switch len(tail) {
+	case 1:
+		if r.Method != http.MethodGet && r.Method != http.MethodPost {
+			rt.op = ""
+		}
+	case idpItemLen:
+		rt.id = tail[1]
+
+		if r.Method != http.MethodGet && r.Method != http.MethodPatch && r.Method != http.MethodDelete {
+			rt.op = ""
+		}
+	default:
+		rt.op = ""
+	}
+
+	return rt
+}
+
+func v2ExtraRoute(r *http.Request, rt route, tail []string) (route, bool) {
+	switch {
+	case len(tail) >= 3 && tail[0] == segTenants && idpCollection(tail[2]):
+		rt.tenant = tail[1]
+
+		return idpRoute(r, rt, tail[2:]), true
+	case len(tail) >= 1 && idpCollection(tail[0]):
+		return idpRoute(r, rt, tail), true
+	case len(tail) == 2 && tail[0] == segAccounts:
+		rt.op = mfaVerb(r, tail[1])
+
+		return rt, true
+	}
+
+	return rt, false
+}
+
 func v2Route(r *http.Request, rt route, tail []string) route {
+	if ext, ok := v2ExtraRoute(r, rt, tail); ok {
+		return ext
+	}
+
 	switch {
 	case len(tail) == 1 && tail[0] == "config":
 		rt.op = pick(r.Method, map[string]string{http.MethodGet: opGetConfig, http.MethodPatch: opUpdateConfig})

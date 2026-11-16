@@ -28,7 +28,7 @@ const (
 var reservedClaims = map[string]bool{
 	"acr": true, "amr": true, "at_hash": true, "aud": true, "auth_time": true, "azp": true, "cnf": true,
 	"c_hash": true, "exp": true, "firebase": true, "iat": true, "iss": true, "jti": true, "nbf": true,
-	"nonce": true, "sub": true,
+	"nonce": true, claimSub: true,
 }
 
 func b64url(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }
@@ -144,6 +144,14 @@ func (b *InMemoryBackend) tokenClaims(
 	}
 
 	fb := map[string]any{"identities": identities(u), "sign_in_provider": provider}
+	for _, k := range []string{"sign_in_second_factor", "second_factor_identifier"} {
+		if v, ok := claims[k]; ok {
+			fb[k] = v
+
+			delete(claims, k)
+		}
+	}
+
 	if sc.tenant != rootTenantKey {
 		fb["tenant"] = sc.tenant
 	}

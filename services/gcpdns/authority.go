@@ -5,6 +5,7 @@ import (
 	"net"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/miekg/dns"
 	dnsapi "google.golang.org/api/dns/v1"
@@ -20,16 +21,28 @@ type authority struct{ b *InMemoryBackend }
 
 // Intercept implements pkgs/dns.Interceptor.
 func (a authority) Intercept(src net.Addr, req *dns.Msg, _ func() *dns.Msg) *dns.Msg {
-	network := "udp"
+	network, ip := "udp", ""
 	if src != nil {
 		network = src.Network()
+		ip = src.String()
 	}
 
-	return a.b.Answer(req, network)
+	resp, ql := a.b.resolve(req, network, ip)
+	a.b.emitQueryLog(ql, resp)
+
+	return resp
 }
 
 // Answer builds the authoritative response to req.
 func (b *InMemoryBackend) Answer(req *dns.Msg, network string) *dns.Msg {
+	resp, _ := b.resolve(req, network, "")
+
+	return resp
+}
+
+func (b *InMemoryBackend) resolve(req *dns.Msg, network, sourceIP string) (*dns.Msg, *queryLog) {
+	var ql *queryLog
+
 	resp := new(dns.Msg)
 	resp.SetReply(req)
 	resp.RecursionAvailable = false
@@ -40,7 +53,13 @@ func (b *InMemoryBackend) Answer(req *dns.Msg, network string) *dns.Msg {
 	case len(req.Question) != 1:
 		resp.Rcode = dns.RcodeFormatError
 	default:
-		b.answerQuestion(resp, req.Question[0])
+		opt := req.IsEdns0()
+		ql = b.answerQuestion(resp, req.Question[0], opt != nil && opt.Do())
+
+		if ql != nil {
+			proto := strings.TrimSuffix(strings.TrimSuffix(network, "4"), "6")
+			ql.protocol, ql.sourceIP = strings.ToUpper(proto), sourceIP
+		}
 	}
 
 	if opt := req.IsEdns0(); opt != nil {
@@ -56,51 +75,54 @@ func (b *InMemoryBackend) Answer(req *dns.Msg, network string) *dns.Msg {
 		resp.Truncate(size)
 	}
 
-	return resp
+	return resp, ql
 }
 
-func (b *InMemoryBackend) answerQuestion(resp *dns.Msg, q dns.Question) {
+func (b *InMemoryBackend) answerQuestion(resp *dns.Msg, q dns.Question, do bool) *queryLog {
 	if q.Qclass != dns.ClassINET || q.Qtype == dns.TypeAXFR || q.Qtype == dns.TypeIXFR {
 		resp.Rcode = dns.RcodeRefused
 
-		return
+		return nil
 	}
 
 	b.mu.RLock("Answer")
 	defer b.mu.RUnlock()
 
-	rec := b.publicZoneFor(canon(q.Name))
+	qname := canon(q.Name)
+
+	if pol, rule := b.responsePolicyFor(qname); rule != nil {
+		if rule.Behavior != bypassRule {
+			answerLocalData(resp, q, qname, rule)
+
+			return b.newQueryLog(q, pol.Policy.ResponsePolicyName, "response-policy", responseNetworks(pol.Policy))
+		}
+	}
+
+	rec := b.zoneFor(qname)
 	if rec == nil {
 		resp.Rcode = dns.RcodeRefused
 
-		return
+		return nil
 	}
 
-	(&zoneAnswer{rec: rec, resp: resp}).answer(q)
-}
+	za := &zoneAnswer{rec: rec, resp: resp, now: b.now()}
+	za.answer(q)
 
-// publicZoneFor picks the public zone with the longest dnsName enclosing qname.
-func (b *InMemoryBackend) publicZoneFor(qname string) *zoneRec {
-	var best *zoneRec
-
-	for _, rec := range b.zones {
-		if rec.Zone.Visibility != visPublic || !dns.IsSubDomain(rec.Zone.DnsName, qname) {
-			continue
-		}
-
-		if best == nil || len(rec.Zone.DnsName) > len(best.Zone.DnsName) ||
-			len(rec.Zone.DnsName) == len(best.Zone.DnsName) && rec.Zone.CreationTime+key(rec.Project, rec.Zone.Name) <
-				best.Zone.CreationTime+key(best.Project, best.Zone.Name) {
-			best = rec
-		}
+	if do {
+		za.sign()
 	}
 
-	return best
+	return b.zoneQueryLog(q, rec)
 }
 
 type zoneAnswer struct {
-	rec  *zoneRec
-	resp *dns.Msg
+	now      time.Time
+	rec      *zoneRec
+	resp     *dns.Msg
+	qname    string
+	wildcard string
+	cut      string
+	proof    proofKind
 }
 
 func (z *zoneAnswer) apex() string { return z.rec.Zone.DnsName }
@@ -221,6 +243,11 @@ func (z *zoneAnswer) soaRR() *dns.SOA {
 
 func (z *zoneAnswer) negative(rcode int) {
 	z.resp.Rcode = rcode
+	z.proof = proofNoData
+
+	if rcode == dns.RcodeNameError {
+		z.proof = proofNameError
+	}
 
 	if soa := z.soaRR(); soa != nil {
 		soa.Hdr.Ttl = min(soa.Hdr.Ttl, soa.Minttl)
@@ -230,10 +257,12 @@ func (z *zoneAnswer) negative(rcode int) {
 
 func (z *zoneAnswer) answer(q dns.Question) {
 	qname := canon(q.Name)
+	z.qname = qname
 	z.resp.Authoritative = true
 
 	if ns := z.delegation(qname); ns != nil && q.Qtype != dns.TypeDS {
 		z.resp.Authoritative = false
+		z.cut = ns.Name
 		z.resp.Ns = append(z.resp.Ns, toRRs(ns.Name, ns)...)
 		z.glue(z.resp.Ns)
 
@@ -245,7 +274,7 @@ func (z *zoneAnswer) answer(q dns.Question) {
 	if len(node) == 0 && !z.exists(qname) {
 		if wc := z.wildcardOwner(qname); wc != "" {
 			if node = z.nodeTypes(wc); len(node) > 0 {
-				owner = qname
+				owner, z.wildcard = qname, wc
 			}
 		}
 	}
@@ -311,10 +340,21 @@ func (z *zoneAnswer) fill(q dns.Question, owner string, node map[string]*dnsapi.
 		}
 	}
 
-	if q.Qtype == dns.TypeDNSKEY && owner == z.apex() && len(z.resp.Answer) == 0 {
+	z.fillApexKeys(q, owner)
+}
+
+func (z *zoneAnswer) fillApexKeys(q dns.Question, owner string) {
+	if owner != z.apex() || len(z.resp.Answer) > 0 {
+		return
+	}
+
+	switch {
+	case q.Qtype == dns.TypeDNSKEY:
 		for _, k := range z.rec.Keys {
 			z.resp.Answer = append(z.resp.Answer, keyRR(z.apex(), k))
 		}
+	case q.Qtype == dns.TypeNSEC3PARAM && z.nsec3Enabled():
+		z.resp.Answer = append(z.resp.Answer, z.nsec3Param())
 	}
 }
 

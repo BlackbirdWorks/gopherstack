@@ -272,6 +272,10 @@ func (b *InMemoryBackend) applyAdminFieldsLocked(u *userRec, r *authRequest, pho
 		u.ValidSince = int64(r.ValidSince)
 	}
 
+	if r.Mfa != nil {
+		u.MFA = b.enrollmentsFromWire(r.Mfa.Enrollments)
+	}
+
 	if lp := r.LinkProvider; lp != nil && lp.ProviderID != "" && lp.RawID != "" {
 		u.Providers = slices.DeleteFunc(u.Providers, func(x providerRec) bool { return x.ProviderID == lp.ProviderID })
 		u.Providers = append(u.Providers, providerRec(*lp))
@@ -476,7 +480,7 @@ func (b *InMemoryBackend) ResetPassword(c call, r *authRequest) (map[string]any,
 	}
 
 	out := map[string]any{
-		keyKind: "identitytoolkit#ResetPasswordResponse", "email": rec.Email, "requestType": rec.RequestType,
+		keyKind: "identitytoolkit#ResetPasswordResponse", claimEmail: rec.Email, "requestType": rec.RequestType,
 	}
 
 	if rec.RequestType == reqVerifyChange {
@@ -553,7 +557,7 @@ func (b *InMemoryBackend) SignInWithEmailLink(c call, r *authRequest) (*tokenRes
 	created := existing == nil
 
 	if created {
-		existing, err = b.createUserLocked(sc, newUser{email: email, emailVerified: true}, false)
+		existing, err = b.createClientUserLocked(sc, newUser{email: email, emailVerified: true}, "emailLink", nil)
 		if err != nil {
 			return nil, err
 		}
