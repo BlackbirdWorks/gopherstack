@@ -32,3 +32,19 @@ func (b *InMemoryBackend) EngineSettings(name string) redisengine.Settings {
 
 	return b.instances[name].engine.Settings()
 }
+
+// LiveEngines counts instances that still own a running Redis server.
+func (b *InMemoryBackend) LiveEngines() int {
+	b.mu.RLock("LiveEngines")
+	defer b.mu.RUnlock()
+
+	n := 0
+
+	for _, r := range b.instances {
+		if r.engine != nil {
+			n++
+		}
+	}
+
+	return n
+}

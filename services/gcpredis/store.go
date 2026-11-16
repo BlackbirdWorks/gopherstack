@@ -93,11 +93,12 @@ func (b *InMemoryBackend) Reset() {
 
 // Close stops every instance's Redis server and waits for background work.
 func (b *InMemoryBackend) Close() {
+	b.wg.Wait()
+
 	b.mu.Lock("Close")
 	engines := b.takeEnginesLocked()
 	b.mu.Unlock()
 
-	b.wg.Wait()
 	closeAll(engines)
 }
 
