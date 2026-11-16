@@ -434,14 +434,22 @@ func (p *parser) createColumns(st *Statement) error {
 	}
 
 	for p.kw("PARTITION") || p.kw("CLUSTER") {
+		partition := p.kw("PARTITION")
 		p.i++
 
 		if err = p.expectKw("BY"); err != nil {
 			return err
 		}
 
-		if _, err = p.exprList(); err != nil {
-			return err
+		exprs, lerr := p.exprList()
+		if lerr != nil {
+			return lerr
+		}
+
+		if partition {
+			st.partitionBy = exprs[0]
+		} else {
+			st.clusterBy = clusterNames(exprs)
 		}
 	}
 
@@ -743,4 +751,16 @@ func (p *parser) alterDropColumn() ([]colDef, error) {
 	}
 
 	return []colDef{{name: name}}, nil
+}
+
+func clusterNames(exprs []*node) []string {
+	out := make([]string, 0, len(exprs))
+
+	for _, e := range exprs {
+		if e.kind == nPath && len(e.parts) > 0 {
+			out = append(out, e.parts[len(e.parts)-1])
+		}
+	}
+
+	return out
 }

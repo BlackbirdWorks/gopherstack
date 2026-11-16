@@ -793,6 +793,10 @@ func (p *parser) fromPrimary() (*fromItem, error) {
 		}
 	}
 
+	if f.sample, err = p.tableSample(); err != nil {
+		return nil, err
+	}
+
 	return p.pivotSuffix(f)
 }
 
@@ -933,4 +937,36 @@ func (p *parser) tablePath() ([]string, error) {
 
 		p.i++
 	}
+}
+
+// tableSample parses an optional TABLESAMPLE SYSTEM (percent PERCENT) clause.
+func (p *parser) tableSample() (*node, error) {
+	if !p.kw("TABLESAMPLE") {
+		return nil, nil //nolint:nilnil // no clause present
+	}
+
+	p.i++
+
+	if err := p.expectKw("SYSTEM"); err != nil {
+		return nil, err
+	}
+
+	if err := p.expectPunct("("); err != nil {
+		return nil, err
+	}
+
+	pct, err := p.expr()
+	if err != nil {
+		return nil, err
+	}
+
+	if err = p.expectKw("PERCENT"); err != nil {
+		return nil, err
+	}
+
+	if err = p.expectPunct(")"); err != nil {
+		return nil, err
+	}
+
+	return pct, nil
 }

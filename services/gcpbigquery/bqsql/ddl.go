@@ -2,7 +2,10 @@ package bqsql
 
 import (
 	"context"
+	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 func (c *compiler) runDDL(ctx context.Context, st *Statement, dryRun bool) (*Result, error) {
@@ -136,7 +139,7 @@ func (c *compiler) ddlCreateTable(ctx context.Context, st *Statement, dryRun boo
 			e.Fields = colDefFields(st.colDefs)
 		}
 
-		return []Effect{e}, nil
+		return withPartitioning(e, st)
 	}
 
 	if len(st.colDefs) == 0 {
@@ -144,6 +147,23 @@ func (c *compiler) ddlCreateTable(ctx context.Context, st *Statement, dryRun boo
 	}
 
 	e.Fields = colDefFields(st.colDefs)
+
+	return withPartitioning(e, st)
+}
+
+func withPartitioning(e Effect, st *Statement) ([]Effect, error) {
+	key, spec, err := partitionSpec(st.partitionBy, e.Fields)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, c := range st.clusterBy {
+		if !slices.ContainsFunc(e.Fields, func(f Field) bool { return strs.Equal(f.Name, c) }) {
+			return nil, invalid("Unrecognized name: %s in CLUSTER BY", c)
+		}
+	}
+
+	e.PartitionKey, e.Partition, e.Cluster = key, spec, st.clusterBy
 
 	return []Effect{e}, nil
 }

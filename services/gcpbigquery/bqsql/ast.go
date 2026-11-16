@@ -92,6 +92,7 @@ const (
 )
 
 type fromItem struct {
+	sample      *node
 	asOf        *node
 	pivot       *pivotSpec
 	left        *fromItem
@@ -199,6 +200,8 @@ type colDef struct {
 
 // Statement is one parsed GoogleSQL statement.
 type Statement struct {
+	partitionBy  *node
+	clusterBy    []string
 	routine      *RoutineData
 	options      map[string]string
 	where        *node

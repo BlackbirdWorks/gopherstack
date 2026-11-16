@@ -60,7 +60,15 @@ func (t *Table) expired(now int64) bool {
 }
 
 // Table is a table or view with its rows in the canonical stored encoding.
+// StreamBuffer tracks rows written through tabledata.insertAll that real BigQuery has not yet flushed.
+type StreamBuffer struct {
+	Rows     int64 `json:"rows"`
+	Bytes    int64 `json:"bytes"`
+	OldestMs int64 `json:"oldestMs"`
+}
+
 type Table struct {
+	Stream      *StreamBuffer    `json:"stream,omitempty"`
 	Meta        map[string]any   `json:"meta"`
 	Seen        map[string]int64 `json:"seen,omitempty"`
 	ViewQuery   string           `json:"viewQuery,omitempty"`
@@ -174,4 +182,28 @@ func (t *Table) stateAt(ms int64) ([]bqsql.Field, [][]any, bool) {
 	}
 
 	return t.Schema, t.Rows, true
+}
+
+func (t *Table) requiresPartitionFilter() bool {
+	if v, ok := t.Meta["requirePartitionFilter"].(bool); ok && v {
+		return true
+	}
+
+	tp, _ := t.Meta["timePartitioning"].(map[string]any)
+	v, _ := tp["requirePartitionFilter"].(bool)
+
+	return v
+}
+
+// partitionColumns is the column a query must filter on; ingestion-time tables have none to name.
+func (t *Table) partitionColumns() []string {
+	for _, k := range []string{"timePartitioning", "rangePartitioning"} {
+		if m, ok := t.Meta[k].(map[string]any); ok {
+			if f, _ := m["field"].(string); f != "" {
+				return []string{f}
+			}
+		}
+	}
+
+	return nil
 }

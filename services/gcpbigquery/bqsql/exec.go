@@ -9,6 +9,9 @@ import (
 
 // Effect is a catalog change a statement asks the caller to apply.
 type Effect struct {
+	Partition    map[string]any
+	Cluster      []string
+	PartitionKey string
 	Options      map[string]string
 	Routine      *RoutineData
 	Policy       *RowPolicyData

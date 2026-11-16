@@ -142,6 +142,8 @@ func (c catalog) Table(ref bqsql.TableRef) (*bqsql.TableData, bool) {
 
 	if t.isExternal() {
 		externalTableData(c.b, t, td)
+	} else if t.requiresPartitionFilter() {
+		td.PartitionFilter = t.partitionColumns()
 	}
 
 	return td, true

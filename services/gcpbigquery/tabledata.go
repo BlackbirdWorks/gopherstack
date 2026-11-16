@@ -15,6 +15,7 @@ import (
 
 const (
 	insertIDWindow   = time.Minute
+	streamFlushWindow = 90 * time.Minute
 	defaultDataPage  = 100000
 	insertErrReason  = litInvalid
 	insertErrStopped = "stopped"
@@ -175,6 +176,21 @@ func (t *Table) appendRows(in []InsertRow, parsed [][]any) {
 		}
 
 		t.Rows = append(t.Rows, row)
+		t.stream(now, row)
+	}
+}
+
+func (t *Table) stream(now int64, row []any) {
+	if t.Stream == nil || now-t.Stream.OldestMs >= streamFlushWindow.Milliseconds() {
+		t.Stream = &StreamBuffer{OldestMs: now}
+	}
+
+	t.Stream.Rows++
+
+	for i, f := range t.Schema {
+		if i < len(row) {
+			t.Stream.Bytes += bqsql.LogicalBytes(f, row[i])
+		}
 	}
 }
 

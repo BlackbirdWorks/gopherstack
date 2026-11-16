@@ -373,6 +373,8 @@ func (b *InMemoryBackend) effectCreate(e bqsql.Effect) error {
 		t.Rows = [][]any{}
 	}
 
+	applyPartitioning(t.Meta, e)
+
 	if e.External {
 		if err := b.externalFromEffect(e, t); err != nil {
 			return err
@@ -493,6 +495,10 @@ func optionsMeta(opts map[string]string) map[string]any {
 		meta["labels"] = labels
 	}
 
+	if v, ok := opts["require_partition_filter"]; ok {
+		meta["requirePartitionFilter"] = strings.EqualFold(strings.TrimSpace(v), "true")
+	}
+
 	if v, ok := opts["expiration_timestamp"]; ok {
 		s := strings.Trim(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(v), "TIMESTAMP")), `"'`)
 		if t, err := bqsql.ParseTemporal(bqsql.KindTimestamp, s); err == nil {
@@ -501,6 +507,16 @@ func optionsMeta(opts map[string]string) map[string]any {
 	}
 
 	return meta
+}
+
+func applyPartitioning(meta map[string]any, e bqsql.Effect) {
+	if e.PartitionKey != "" {
+		meta[e.PartitionKey] = e.Partition
+	}
+
+	if len(e.Cluster) > 0 {
+		meta["clustering"] = map[string]any{litClusterFields: e.Cluster}
+	}
 }
 
 func apiReason(err error) string {

@@ -841,7 +841,12 @@ func (c *compiler) compileFrom(f *fromItem, sc *scope) (string, error) {
 			return c.fromRoutine(f, sc)
 		}
 
-		return c.fromTable(f, sc)
+		src, err := c.fromTable(f, sc)
+		if err != nil || f.sample == nil {
+			return src, err
+		}
+
+		return c.sampled(f, src, sc)
 	case fromSubquery:
 		cq, err := c.compileQuery(f.query, sc.parent)
 		if err != nil {
@@ -1140,3 +1145,29 @@ func findCol(rels []*relation, name string) *colInfo {
 }
 
 func equalFold(a, b string) bool { return strings.EqualFold(a, b) }
+
+// sampled keeps each row with probability percent/100; BigQuery samples blocks, which the emulator cannot see.
+func (c *compiler) sampled(f *fromItem, src string, sc *scope) (string, error) {
+	if f.sample.kind != nInt && f.sample.kind != nFloat && f.sample.kind != nParam {
+		return "", invalid("TABLESAMPLE SYSTEM percent must be a literal or a query parameter")
+	}
+
+	if f.sample.kind != nParam {
+		v, err := strconv.ParseFloat(f.sample.str, 64)
+		if err != nil || v < 0 || v > 100 {
+			return "", invalid("TABLESAMPLE SYSTEM percent must be between 0 and 100")
+		}
+	}
+
+	g, err := c.expr(f.sample, sc)
+	if err != nil {
+		return "", err
+	}
+
+	alias := f.alias
+	if alias == "" {
+		alias = f.path[len(f.path)-1]
+	}
+
+	return "(SELECT * FROM " + src + " WHERE bq_rand() * 100.0 < (" + g.sql + ")) AS " + quoteIdent(alias), nil
+}

@@ -102,6 +102,14 @@ func tableWire(project, ds, id string, t *Table, location string) map[string]any
 	out[litType] = t.kind()
 	out[litLocation] = location
 
+	if sb := t.Stream; sb != nil && nowMs()-sb.OldestMs < streamFlushWindow.Milliseconds() {
+		out["streamingBuffer"] = map[string]any{
+			"estimatedRows":   msString(sb.Rows),
+			"estimatedBytes":  msString(sb.Bytes),
+			"oldestEntryTime": msString(sb.OldestMs),
+		}
+	}
+
 	switch {
 	case t.MV != nil:
 		out["materializedView"] = materializedWire(t)
