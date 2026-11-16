@@ -410,32 +410,86 @@ func (c *Client) execStream(
 	cmd, env []string,
 	stdout, stderr io.Writer,
 ) (int, error) {
-	created, err := c.inner.ExecCreate(ctx, containerID, mobyclient.ExecCreateOptions{
+	return c.execRun(ctx, execRun{containerID: containerID, cmd: cmd, env: env, stdout: stdout, stderr: stderr})
+}
+
+// ContainerExecStdin runs cmd with standard input attached: stdin is relayed to the process until it returns EOF. A
+// non-zero rows and cols allocate a terminal of that size, whose output is a single raw stream written to out.
+func (c *Client) ContainerExecStdin(
+	ctx context.Context,
+	containerID string,
+	cmd []string,
+	stdin io.Reader,
+	out io.Writer,
+	rows, cols uint,
+) (int, error) {
+	return c.execRun(ctx, execRun{
+		containerID: containerID, cmd: cmd, stdin: stdin, stdout: out, stderr: out, rows: rows, cols: cols,
+	})
+}
+
+type execRun struct {
+	stdin       io.Reader
+	stdout      io.Writer
+	stderr      io.Writer
+	containerID string
+	cmd         []string
+	env         []string
+	rows, cols  uint
+}
+
+func (c *Client) execRun(ctx context.Context, run execRun) (int, error) {
+	tty := run.rows > 0 && run.cols > 0
+	size := mobyclient.ConsoleSize{Height: run.rows, Width: run.cols}
+
+	created, err := c.inner.ExecCreate(ctx, run.containerID, mobyclient.ExecCreateOptions{
+		AttachStdin:  run.stdin != nil,
 		AttachStdout: true,
 		AttachStderr: true,
-		Cmd:          cmd,
-		Env:          env,
+		TTY:          tty,
+		ConsoleSize:  size,
+		Cmd:          run.cmd,
+		Env:          run.env,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("exec create: %w", err)
 	}
 
-	attached, err := c.inner.ExecAttach(ctx, created.ID, mobyclient.ExecAttachOptions{})
+	attached, err := c.inner.ExecAttach(ctx, created.ID, mobyclient.ExecAttachOptions{TTY: tty, ConsoleSize: size})
 	if err != nil {
 		return 0, fmt.Errorf("exec attach: %w", err)
 	}
 
 	defer attached.Close()
 
-	if _, err = stdcopy.StdCopy(stdout, stderr, attached.Reader); err != nil {
+	if run.stdin != nil {
+		go relayStdin(run.stdin, &attached.HijackedResponse)
+	}
+
+	if tty {
+		_, err = io.Copy(run.stdout, attached.Reader)
+	} else {
+		_, err = stdcopy.StdCopy(run.stdout, run.stderr, attached.Reader)
+	}
+
+	if err != nil {
 		return 0, fmt.Errorf("exec read: %w", err)
 	}
 
+	return c.waitExec(ctx, created.ID)
+}
+
+func relayStdin(in io.Reader, h *mobyclient.HijackedResponse) {
+	_, _ = io.Copy(h.Conn, in)
+	_ = h.CloseWrite()
+}
+
+func (c *Client) waitExec(ctx context.Context, id string) (int, error) {
 	ticker := time.NewTicker(execPollInterval)
 	defer ticker.Stop()
 
 	for {
-		info, ierr := c.inner.ExecInspect(ctx, created.ID, mobyclient.ExecInspectOptions{})
+		info, ierr := c.inner.ExecInspect(ctx, id, mobyclient.ExecInspectOptions{})
 		if ierr != nil {
 			return 0, fmt.Errorf("exec inspect: %w", ierr)
 		}
