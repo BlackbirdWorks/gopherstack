@@ -1,6 +1,7 @@
 package ses
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"net"
@@ -74,12 +75,18 @@ type spfChecker struct {
 	res     InboundTXTResolver
 	dns     InboundDNSResolver
 	sender  string
+	helo    string
 	lookups int
 	voids   int
 }
 
 // checkSPF evaluates the sender domain's v=spf1 record against the client IP (RFC 7208 check_host).
-func checkSPF(ctx context.Context, res InboundTXTResolver, from, clientIP string) string {
+// A null reverse-path is checked as postmaster@helo (RFC 7208 section 2.4).
+func checkSPF(ctx context.Context, res InboundTXTResolver, from, helo, clientIP string) string {
+	if from == "" && helo != "" {
+		from = "postmaster@" + helo
+	}
+
 	domain := domainOf(from)
 	ip, err := netip.ParseAddr(clientIP)
 
@@ -87,7 +94,7 @@ func checkSPF(ctx context.Context, res InboundTXTResolver, from, clientIP string
 		return verdictGray
 	}
 
-	c := &spfChecker{res: res, sender: strs.Fold(from), ip: ip.Unmap()}
+	c := &spfChecker{res: res, sender: strs.Fold(from), helo: strs.Fold(helo), ip: ip.Unmap()}
 	c.dns, _ = res.(InboundDNSResolver)
 
 	return c.check(ctx, domain).verdict()
@@ -489,8 +496,10 @@ func (c *spfChecker) macro(body, domain string) (string, bool) {
 		val = local + "@" + senderDomain
 	case "l":
 		val = local
-	case "o", "h":
+	case "o":
 		val = senderDomain
+	case "h":
+		val = cmp.Or(c.helo, senderDomain)
 	case "d":
 		val = domain
 	case "i":

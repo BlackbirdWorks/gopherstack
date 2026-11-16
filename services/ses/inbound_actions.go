@@ -34,6 +34,7 @@ var (
 // inboundEnvelope is one message as received over SMTP.
 type inboundEnvelope struct {
 	from     string
+	helo     string
 	clientIP string
 	rcpts    []string
 	data     []byte

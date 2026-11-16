@@ -392,15 +392,13 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	require.NoError(t, err) // tags reset to an empty map, not an error.
 	assert.Empty(t, tags)
 
-	// Reset ID counters too: the next agent minted after a discarded restore
-	// must reuse the very first ID, exactly like a brand-new backend.
 	agent, err := b.CreateAgent(ctx, bedrockagent.AgentConfig{
 		AgentName:       "post-reset-agent",
 		FoundationModel: "anthropic.claude-v2",
 		RoleARN:         "arn:aws:iam::000000000000:role/BedrockRole",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "agent-00000001", agent.AgentID)
+	assert.Regexp(t, `^[0-9A-Z]{10}$`, agent.AgentID)
 }
 
 // TestInMemoryBackend_RestoreInvalidData verifies malformed JSON surfaces as

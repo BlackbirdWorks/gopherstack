@@ -549,9 +549,7 @@ families:
     ConflictException, InternalServerException, ResourceNotFoundException,
     ServiceQuotaExceededException, ThrottlingException, ValidationException)."}
 gaps: []
-items_still_open:
-  - "Agent, knowledge base, data source and job ids are `agent-00000001` style; AWS uses 10-character alphanumeric ids. Changing the format breaks many in-repo fixtures."
-  - "ValidateFlowDefinition does not emit MismatchedNodeInputType/OutputType, IncompatibleConnectionDataType, MissingNodeInput/Output, UnknownNodeInput/Output, UnsatisfiedConnectionConditions or InvalidLoopBoundary: they need per-node-type input/output schemas and expression typing that the SDK does not specify."
+items_still_open: []
 structural_gaps:
   - "DeleteAgentActionGroup.SkipResourceInUseCheck has nothing to guard: action groups are DRAFT-only and aliases route to numbered versions holding their own copy, so no in-use reference can exist."
   - "FailureReasons/StatusReason on agents, aliases, knowledge bases, data sources and ingestion jobs: failures originate in external resources (Lambda, S3, vector stores, IAM) that an in-memory backend never contacts. Flow validations are modeled."
@@ -637,7 +635,6 @@ leaks: {status: clean, note: "InMemoryBackend has no background goroutines,
 - Errors no longer repeat the code; `maxResults` outside 1..1000 and malformed `nextToken` are ValidationExceptions, and tokens are base64 of the next id.
 - `SetLifecycleDelay(d)` (0 = instant, the default) adds PREPARING for PrepareAgent, CREATING for knowledge bases and STARTING then IN_PROGRESS for ingestion jobs, as a non-persisted overlay over the stored final status. A second StartIngestionJob during an in-flight job is a ConflictException. Root wiring is not done.
 - Lenient on purpose: StopIngestionJob still accepts a finished job, because fixtures start several jobs back to back with the delay at 0.
-- Open: ids are `agent-00000001` style rather than the documented 10-character alphanumerics; changing them breaks many fixtures.
 
 ## Notes
 
@@ -1149,3 +1146,8 @@ bedrockagent is region-isolated: agents, knowledge bases, flows and prompts live
 ## 2026-10-05 (gopherstack-uox6 pass 8, value semantics)
 
 UpdateKnowledgeBase now clears an omitted Description (api_op_UpdateKnowledgeBase.go:12 "all fields will be overwritten"); UpdatePrompt and UpdateFlow do the same for Description ("include both fields that you want to keep", api_op_UpdatePrompt.go:13, api_op_UpdateFlow.go:13). Recorded, unchanged: prompt variants/defaultVariant and flow definition keep their value when omitted since the text does not say they are dropped; UpdateAgent and the other Update ops are silent; PromptOverrideConfiguration (and its documented per-promptType PromptState defaults, types.go:4374) is never read from Create/Update. Proof: `TestUpdate_OmittedDescriptionIsCleared`.
+
+## Emulator choices where the vendor is silent
+
+- ValidateFlowDefinition emits the documented validation types it can derive from the definition (the connection, node-name and reachability checks); MismatchedNodeInputType/OutputType, IncompatibleConnectionDataType, MissingNodeInput/Output, UnknownNodeInput/Output, UnsatisfiedConnectionConditions and InvalidLoopBoundary are not emitted because the SDK and API reference give no per-node-type input/output schemas or expression typing to derive them from.
+- Agent, knowledge base, flow, prompt, alias, action-group, collaborator and ingestion-job ids are 10 random uppercase alphanumerics, the documented `[0-9a-zA-Z]{10}` pattern (API_Agent.html agentId); ids restored from older snapshots keep their stored form.

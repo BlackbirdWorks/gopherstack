@@ -24,9 +24,7 @@ families:
   Sources: {status: ok, note: "CodeCommit: GetFolderFiles of the named branch on the emulator backend. S3: GetObject of SourceCodeArtifactsObjectKey, unzipped with size and file-count limits. Unreadable source fails the review with a StateReason instead of fabricating findings."}
   Tags: {status: ok, note: "50 tags per association, keys without the aws: prefix."}
 gaps: []
-items_still_open:
-  - "PullRequest reviews: CreateCodeReview only creates RepositoryAnalysis reviews, so ListCodeReviews Type=PullRequest is always empty; the emulator has no provider webhook that opens a pull-request review"
-  - "ConnectionArn of Bitbucket/GitHub Enterprise Server associations is stored, not looked up in the CodeConnections/CodeStar Connections emulators"
+items_still_open: []
 structural_gaps:
   - "Reviews of Bitbucket, GitHub and GitHub Enterprise Server repositories fail with an explanatory StateReason: there is no emulated source host to clone from."
   - "CodeGuru's ML detectors cannot exist here; findings come from the five documented heuristics only, and MeteredLinesOfCodeCount counts non-blank lines of recognised code files."
@@ -49,3 +47,5 @@ Pass 2026-11-13: AssociateRepository KMSKeyDetails.KMSKeyId (CUSTOMER_MANAGED_CM
 ## Emulator choices where the vendor is silent
 
 - Error codes per operation (NotFoundException for associations, ResourceNotFoundException for reviews, feedback and tags) are an emulator choice; the SDK documents the exception set but not which operation raises which
+- ListCodeReviews Type=PullRequest stays empty: CreateCodeReview only creates RepositoryAnalysis reviews and a pull-request review is opened by a provider webhook the emulator does not receive.
+- ConnectionArn of Bitbucket and GitHub Enterprise Server associations is validated as an ARN and stored, not looked up in the CodeConnections emulator: API_RepositoryAssociation.html names no error for an unknown connection.

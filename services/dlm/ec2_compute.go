@@ -27,10 +27,16 @@ func (c ec2Compute) Targets(region, resourceType string) []Target {
 	vols := bk.DescribeVolumes(nil)
 	out := make([]Target, 0, len(vols))
 
+	rootDevice := map[string]string{}
+	for _, inst := range bk.DescribeInstances(nil, "") {
+		rootDevice[inst.ID] = inst.RootDeviceName
+	}
+
 	for _, v := range vols {
 		t := Target{ID: v.ID, VolumeType: v.VolumeType, Tags: bk.TagsForResource(v.ID)}
 		if v.Attachment != nil {
 			t.InstanceID = v.Attachment.InstanceID
+			t.Boot = v.Attachment.Device != "" && v.Attachment.Device == rootDevice[t.InstanceID]
 		}
 
 		out = append(out, t)

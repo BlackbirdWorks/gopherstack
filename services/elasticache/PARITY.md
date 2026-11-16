@@ -248,9 +248,7 @@ gaps: []
   #    helpers. TestHandler_DescribeCacheClusters_MaxRecordsOutOfRange locks this. NOTE:
   #    this was flagged as a "cross-service concern" in the prior ledger -- it is now
   #    fixed for elasticache specifically; other services were not touched.
-items_still_open:
-  - "Docker engine (--elasticache-engine=docker): CreateReplicationGroup/CreateCacheCluster block until the containers serve traffic; resharding, PrimaryClusterId adoption, IncreaseReplicaCount (new replicas share the primary address), failover promotion and RestoreClusterData on an existing cluster are not container-backed; TransitEncryptionMode preferred serves plaintext only (required/default serve TLS only); memcached stays pass-through; restored (persisted) groups relaunch no containers; node TLS certificates cover the advertised host (ELASTICACHE_HOST, default 127.0.0.1) and localhost, not the synthetic endpoint names; a snapshot taken in embedded mode restores only into groups with matching node-group count."
-  - "creating/modifying/deleting dwell states exist (SetLifecycleDelay) but the default delay is zero, so a running server reports available at once: in-repo integration tests and ~170 unit tests assert immediate availability and root wiring cannot set a delay."
+items_still_open: []
 structural_gaps:
   - "CreateCacheCluster/CreateReplicationGroup SnapshotArns and CopySnapshot TargetBucket: S3 RDB import/export has no S3 wiring and miniredis has no RDB reader/writer; the ARNs are validated, nothing is imported or exported. SnapshotName restore is implemented with a private gzip/gob keyspace format (strings, hashes, lists, sets, sorted sets, streams, key and hash-field TTLs; HyperLogLog and stream consumer groups are not captured). Serverless snapshots stay metadata-only."
   - "CreateCacheCluster Port in embedded mode: listener ports come from the port allocator, a caller-chosen port cannot be guaranteed free on the host (honoured in pass-through modes)."
@@ -922,3 +920,5 @@ Left lenient on purpose: CreateUserGroup without a `default` user (DefaultUserRe
 ## Emulator choices where the vendor is silent
 
 - ReplicationGroup.EffectiveDurability when Durability is default or unset: the SDK says the service resolves it from engine version and cluster mode without documenting the rules, so only an explicit async/sync/disabled is mirrored.
+- Docker engine (--elasticache-engine=docker): CreateReplicationGroup/CreateCacheCluster block until the containers serve traffic; resharding, PrimaryClusterId adoption, IncreaseReplicaCount (new replicas share the primary address), failover promotion and RestoreClusterData on an existing cluster are not container-backed; TransitEncryptionMode preferred serves plaintext only (required/default serve TLS only); memcached stays pass-through; restored groups relaunch no containers; node TLS certificates cover the advertised host (ELASTICACHE_HOST, default 127.0.0.1) and localhost, not the synthetic endpoint names; an embedded-mode snapshot restores only into groups with a matching node-group count.
+- The creating/modifying/deleting dwell exists (SetLifecycleDelay) with a zero default so a running server reports available at once; the dwell is opt-in.

@@ -20,6 +20,7 @@ type Target struct {
 	VolumeType string
 	InstanceID string
 	VolumeIDs  []string
+	Boot       bool
 }
 
 // ComputeService is the EC2 seam DLM drives: it lists targets and creates, tags and deletes snapshots and AMIs.
