@@ -9,14 +9,12 @@
 | --- | --- |
 | PARITY entries audited | 19 (12 ok, 7 partial) |
 | Feature families | 12 (11 ok, 1 partial) |
-| Known gaps | 3 |
+| Known gaps | 1 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- The documented service limits (1,000 requests/s per API per queue, 10 MB/s ingress and egress, 2 GB storage per queue and 20 GB per tenancy, 100,000 in-flight messages, 256 channels per queue, 10 queues per tenancy per region) and channelConsumptionLimit are not enforced; their error codes are undocumented.
-- Messages are held in memory and in snapshots, so large backlogs grow the snapshot.
 - IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified.
 
 ## More

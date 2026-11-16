@@ -9,16 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 20 (20 ok) |
 | Feature families | 2 (1 ok, 1 partial) |
-| Known gaps | 4 |
+| Known gaps | 3 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- IamAuth verifies a SigV4 signature (service lambda, X-Amz-Content-SHA256 required) against --sigv4-secret; MultiRegion endpoints only check the SigV4a header shape: the ECDSA P-256 verification is not implemented (the SDK's v4a signer is aws-sdk-go-v2/internal/v4a, unimportable, so a re-implementation could not be checked against a real signer). Resource-policy changes reach replica Regions immediately, not eventually as web-functions-permissions describes (replicas evaluate the function's current policy). The function resource policy is evaluated at invoke time with the IAM policy evaluator (principal and NotPrincipal, action, resource, conditions such as aws:SourceIp, aws:PrincipalAccount, aws:PrincipalOrgID and aws:ResourceOrgID from the Organizations backend): an explicit Deny refuses, an Allow admits, no match admits a same-account caller (identity-based permission is enforced by --enforce-iam via IAMAction) and refuses a cross-account one. PutResourcePolicy rejects public policies with ValidationException per web-functions-permissions.html.
 - Execution role, key and code access: when an environment starts the execution role must exist and its trust policy must allow lambda.amazonaws.com (502 Platform.CannotAssumeRole); a revision kmsKeyArn must exist, be enabled and be a symmetric encryption key (ValidationException at creation, 502 Platform.KMSDecryptionError at launch), and under --enforce-iam its key policy must allow lambda.amazonaws.com kms:Decrypt (AccessDeniedException at creation, 502 at launch), its S3 bucket policy must allow lambda.amazonaws.com s3:GetObject (AccessDeniedException; a revision that loses access or whose object version is deleted becomes Failed at the next verification), a MultiRegion/PerRegion key needs a usable replica in every target Region (else that Region fails replication) and the execution role needs logs:CreateLogStream and logs:PutLogEvents on the log group (else no log event is delivered). Not modelled: the caller's own kms:GenerateDataKey/kms:Decrypt and s3:GetObject permission checks (the emulator's IAM enforcement does not cover lambdaweb operations), encrypting environment variables and code with the key, egressNetworkConnectorArn existence and networking (no emulated service models Lambda network connectors; services/lambda has no NetworkConnector operations), cross-account and cross-Region bucket semantics (one S3 backend serves every Region) and the 512 MB code limit at creation (enforced only when the package is extracted).
-- Logs: not modelled are the totalCpuTimeMs field of platform.spinDownReport (the container is stopped before its final CPU can be read) and the CPU and memory fields whenever the container runtime cannot report stats (docker and podman can; the Kubernetes runtime cannot).
+- Logs: not modelled are the totalCpuTimeMs field of platform.spinDownReport (CPU consumed during shutdown, web-functions-logging-system-log-schema; StopAndRemoveWithin in pkgs/container stops the container before any post-SIGTERM stats read is possible, so the shutdown delta is not read) and the CPU and memory fields whenever the container runtime cannot report stats (docker and podman can; the Kubernetes runtime cannot).
 - Request path is full-duplex: the proxy forwards the request body while the application may already be responding, whereas Lambda forwards the full request body before it delivers the response (web-functions-troubleshooting, HTTP request failures).
 
 ### Structural gaps

@@ -9,15 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 7 (7 ok) |
 | Feature families | 2 (2 ok) |
-| Known gaps | 3 |
+| Known gaps | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- columns: costCategory/* columns are absent (cost category rules carry no expression to evaluate) and product/* attribute columns beyond instanceType, productFamily, servicename, servicecode, usagetype, region and location are absent because the ledger has no further product attributes
-- ATHENA artifacts: the crawler-cfn.yml template holds only the Glue database and crawler; the real template's three IAM roles, two Lambda functions and S3 notification are not published beyond that resource list
-- BillingViewArn: format-checked only, no billing view backend
+- BillingViewArn: format-checked only; no billing-view service exists in services/ to resolve it
 
 ## More
 

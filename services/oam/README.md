@@ -9,16 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 15 (15 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 3 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- SinkPolicyDenied: a policy that does not allow the caller is reported as InvalidParameterException; not published: API_PutSinkPolicy.html and API_CreateLink.html model no access-denied exception and do not say which code a sink-policy denial returns
-- Quotas: one link per source account, Region and sink (ConflictException) is not published: API_CreateLink.html states only the 100,000 and five account limits
-- LabelTemplate: without an Organizations directory $AccountName, $AccountEmail and $AccountEmailNoDomain all resolve to the account ID
 
 ### Structural gaps
 

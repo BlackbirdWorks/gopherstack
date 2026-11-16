@@ -9,15 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 1 (1 ok) |
 | Feature families | 6 (4 ok, 2 partial) |
-| Known gaps | 3 |
+| Known gaps | 1 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- accounts:signInWithIdp, federated createAuthUri, OIDC/SAML/OAuth provider configs (v2 defaultSupportedIdpConfigs, oauthIdpConfigs, inboundSamlConfigs) and linking federated providers through sign-in are not implemented.
-- Multi-factor authentication (phone/TOTP enrollment and sign-in, mfaInfo) is not implemented; mfaInfo on create is ignored.
-- TOO_MANY_ATTEMPTS_TRY_LATER and quotas, API key restrictions, blocking functions, reCAPTCHA assessments and SMS region policy are not implemented.
+- API key restrictions (HTTP referrer, IP, Android/iOS app and API target restrictions) are not enforced: the emulator has no API key service to hold them.
 
 ## More
 

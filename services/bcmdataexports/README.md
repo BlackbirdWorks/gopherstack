@@ -9,15 +9,9 @@
 | --- | --- |
 | PARITY entries audited | 12 (12 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 3 |
+| Known gaps | none |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- CARBON_EMISSIONS and COST_OPTIMIZATION_RECOMMENDATIONS: schemas only, exports contain headers and no rows (no emissions or recommendation data source)
-- manifest: delivery locations (one manifest in overwrite mode, a second per-execution copy in create-new mode) and the additionalOutputFiles section follow the documented layout; the spelling of the remaining manifest keys (columns, file list, time period) is not published
-- error bodies: ServiceQuotaExceeded QuotaCode and Throttling QuotaCode/ServiceCode are not set (Service Quotas codes are not published; throttling is never raised); query-parser validation errors report Reason other without Fields
 
 ## More
 

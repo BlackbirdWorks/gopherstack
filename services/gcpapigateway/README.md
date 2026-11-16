@@ -9,13 +9,12 @@
 | --- | --- |
 | PARITY entries audited | 25 (15 ok, 10 partial) |
 | Feature families | 11 (6 ok, 5 partial) |
-| Known gaps | 2 |
+| Known gaps | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- The Cloud Run / Functions gateway-to-backend identity token (Authorization: Bearer ID token, jwt_audience) is not minted: the original Authorization header is moved to X-Forwarded-Authorization and the backend gets none.
 - gRPC API configs (grpc_services, managed_service_configs), more than one OpenAPI document per config, h2 and WebSocket backends, x-google-allow, x-google-parameter, x-google-model-router, x-google-mcp-tool, AI and MCP blocks, and the 2.0 jwt locations extension are not supported.
 
 ## More

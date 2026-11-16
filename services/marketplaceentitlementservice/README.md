@@ -9,16 +9,14 @@
 | --- | --- |
 | PARITY entries audited | 1 (1 ok) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 3 |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Entitlements come only from Marketplace Metering subscriptions (ResolveCustomer, Subscribe on a declared product) or Backend.GrantEntitlement; there is no seller-side catalog, so a plain emulator process returns none until a customer is subscribed
-- The calling account is not checked against the product owner; any caller can list any product's entitlements
-- ThrottlingException and InternalServiceErrorException are never raised on their own
+- Authorization: the calling account is not checked against the product owner (IAM / resource-policy evaluation is out of scope)
 
 ### Structural gaps
 

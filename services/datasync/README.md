@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 53 (53 ok) |
 | Feature families | 5 (5 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- LocationUri scheme fsxl:// for FSx Lustre matches the published pattern fsx[a-z0-9-]+ but the exact scheme is not published: checked API_DescribeLocationFsxLustre.html, API_LocationListEntry.html, API_DescribeLocationFsxOntap.html and the CloudFormation LocationFSxLustre page, none of which gives an example value
 
 ### Structural gaps
 

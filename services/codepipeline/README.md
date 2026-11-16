@@ -9,16 +9,14 @@
 | --- | --- |
 | PARITY entries audited | 22 (17 ok, 4 partial, 1 gap) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 3 |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 7 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- No automatic source-change detection: PollForSourceChanges and EventBridge-driven triggers for S3/ECR/CodeCommit sources are not modelled; executions start via StartPipelineExecution (or an EventBridge/Scheduler target). Source/ECR therefore always reads the current tag at execution start and ignores source-revision overrides.
-- Deploy/ECS completion is read from the ECS backend's per-deployment rolloutState (a single remaining deployment with rollout COMPLETED, falling back to runningCount >= desiredCount); the emulator's ECS reconciler takes ~10s to settle a one-task service. DeploymentTimeout (default 60 min) is enforced against the backend clock (SetClock). Deploy/CloudFormation ignores RoleArn for authorization and writes OutputFileName as the only file in the output artifact (real CodePipeline's artifact layout for it is undocumented beyond 'a JSON file with the specified name'). Fn::GetArtifactAtt URL is https://s3.<region>.amazonaws.com/<bucket>/<key>.
-- gopherstack-wlab (2026-09-08, reconfirmed 2026-09-18): CreateCustomActionType/DeleteCustomActionType/DeletePipeline/UpdatePipeline/OverrideStageCondition/RetryStageExecution/StopPipelineExecution each emit a wire error code (InvalidStructureException/ActionTypeNotFoundException/PipelineNotFoundException x2/PipelineExecutionNotFoundException x3) absent from that op's own declared set per botocore codepipeline/2015-07-09/service-2.json; every declared candidate's doc text was checked and none fits, and a real client's errors.As still resolves each to its own concrete type (undeclared_error_codes_test.go). The real code is not determinable from the SDK.
+- Deploy/CloudFormation and the pipeline role ignore RoleArn for authorization (IAM evaluation is out of scope)
 
 ### Structural gaps
 

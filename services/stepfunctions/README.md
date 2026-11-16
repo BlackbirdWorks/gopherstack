@@ -16,8 +16,8 @@
 
 ### Known gaps
 
-- Service integrations not implemented (bd gopherstack-wdw): bedrock optimized integrations other than invokeModel (createModelCustomizationJob.sync etc.; only InvokeModel is served by bedrockruntime), eks:call against a cluster without the Docker EKS engine (fails the task: the synthetic endpoint is not reachable), and aws-sdk integrations for services outside the 55-service table in sdk_services.go. Not documented by AWS and unverified: States.Http.StatusCode.<n> Cause format, SQS/SNS/StepFunctions/Bedrock optimized error prefixes, ECS/Glue/EKS .sync output (Glue keeps GetJobRun {JobRun}; EKS returns DescribeCluster/DescribeNodegroup, deletes return the delete response).
-- Service-initiated calls not yet authorized against a customer role under --enforce-iam (2026-10-03): Firehose delivery role (S3/Redshift/HTTP destinations), CloudWatch Logs subscription-filter RoleArn (Kinesis/Firehose destinations), IoT rule action roleArn, SNS SubscriptionRoleArn Firehose subscriptions, Step Functions activity paths, Scheduler DLQ sqs:SendMessage under the schedule role, and EventBridge Lambda/SQS/SNS targets (AWS authorizes them by the target's resource policy, which gopherstack does not evaluate for these in-process deliveries).
+- Service integrations not implemented (bd gopherstack-wdw): bedrock optimized integrations other than invokeModel (createModelCustomizationJob.sync etc.) and aws-sdk integrations for services outside the 55-service table in sdk_services.go.
+- Service-initiated calls not yet authorized against a customer role under --enforce-iam: Firehose delivery role (S3/Redshift/HTTP destinations), CloudWatch Logs subscription-filter RoleArn (Kinesis/Firehose destinations), IoT rule action roleArn, SNS SubscriptionRoleArn Firehose subscriptions, Step Functions activity paths, Scheduler DLQ sqs:SendMessage under the schedule role, and EventBridge Lambda/SQS/SNS targets (target resource-policy evaluation, out of scope).
 
 ### Structural gaps
 

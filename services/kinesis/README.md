@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 39 (39 ok) |
 | Feature families | 9 (9 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 5 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- Channel S3-delivery details not published (checked data-delivery-s3-about, data-delivery-s3-key-template and the SDK): where the automatic unique suffix sits in the object key, the delivered byte layout per record format and compression, and the dead-letter JSON schema and default error prefix (gopherstack-s781r)
 
 ### Structural gaps
 

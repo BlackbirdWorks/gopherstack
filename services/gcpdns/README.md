@@ -7,16 +7,14 @@
 
 | Metric | Value |
 | --- | --- |
-| Feature families | 8 (2 ok, 5 partial, 1 gap) |
-| Known gaps | 3 |
+| Feature families | 8 (3 ok, 5 partial) |
+| Known gaps | 1 |
 | Deferred items | 0 |
-| Resource leaks | clean |
+| Resource leaks | unknown |
 
 ### Known gaps
 
-- Responses are never DNSSEC-signed (no RRSIG/NSEC/NSEC3); DNSKEY private keys are discarded and DNSSEC state transfer is stored only.
-- Response policies and rules, server policies, private zones, forwarding and peering are stored but have no effect on resolution; routing policies are answered as the union of their items.
-- Zone cloudLoggingConfig effects (no query logs: the dns_queries log name and dns_query resource labels are not published), reverse-lookup and Service Directory zones are not implemented beyond storing their configuration.
+- Server policy alternativeNameServerConfig and forwarding-zone targets are never queried (no outbound resolver; targets are private VPC addresses on port 53), dns64Config is not applied, and queries carry no source-network identity, so private zones and response policies apply to every client.
 
 ## More
 

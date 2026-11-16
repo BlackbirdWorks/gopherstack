@@ -16,7 +16,7 @@
 
 ### Known gaps
 
-- GetRemediationsV2 and ListExposuresByRemediationV2 (listed in sdk_completeness_test.go notImplemented): both read exposure findings and their remediation groupings, which Security Hub derives from other AWS services' scans; this backend ingests only ASFF findings and has no exposure or remediation-grouping model, so any answer would be fabricated.
+- GetRemediationsV2 and ListExposuresByRemediationV2 (sdk_completeness_test.go:24 notImplemented): remediation targets (RemediationV2Item: Trait, Priority, Outcome, RemediationSummary, Resource) and ExposureFinding items are produced by Security Hub exposure analysis of other services' resources; the pinned SDK exposes no operation that creates them and this backend stores only ASFF findings (findings.go) and ingested OCSF findings (findings_v2.go:670), so every non-empty answer would be invented and an always-empty one would be a stub.
 
 ### Structural gaps
 

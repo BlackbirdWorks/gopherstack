@@ -9,14 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 18 (18 ok) |
 | Feature families | 6 (4 ok, 2 partial) |
-| Known gaps | 2 |
+| Known gaps | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Managed rotation generates and stores the password version only; no Cloud SQL instance password is changed.
-- Regional secrets share the one listener; the secretmanager.<region>.rep.googleapis.com authority is honoured only for the location check, and location names are not validated against a region list.
+- Regional secret location names are not validated against Secret Manager's supported-region list: no verified catalog exists in the repo and rejecting a valid region would break working clients.
 
 ## More
 

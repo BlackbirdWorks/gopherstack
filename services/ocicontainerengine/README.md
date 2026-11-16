@@ -9,14 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 50 (46 ok, 4 partial) |
 | Feature families | 7 (6 ok, 1 partial) |
-| Known gaps | 2 |
+| Known gaps | 1 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
 - IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified (pkgs/ociauth/ociauth.go Verify). Blocker: services/ociidentity stores and parses policy statements (grammar.go) but no OCI service has a policy evaluator, group or dynamic-group resolution, or token issuer to call.
-- Virtual node pool cycling settings (virtualNodePoolCyclingDetails) are validated, stored and echoed but replace no virtual nodes on update; node pool cycling is applied.
 
 ## More
 

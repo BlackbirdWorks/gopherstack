@@ -7,18 +7,17 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 15 (15 ok) |
+| PARITY entries audited | 17 (17 ok) |
 | Feature families | 6 (4 ok, 2 partial) |
-| Known gaps | 4 |
+| Known gaps | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- The bidirectional Write stream and ExecutePipeline return UNIMPLEMENTED; the official Go client uses Commit and BatchWrite instead.
-- Only the (default)-style database named in the resource path is addressed implicitly; database creation and admin APIs (indexes, exports) are not served.
-- Vector fields, find_nearest, explain options and field-level indexes are not supported; all queries run without index requirements.
-- Listen sends no ExistenceFilter and does not replay missed changes on resume; a resumed target is reset and re-sent in full.
+- ExecutePipeline returns UNIMPLEMENTED: no evaluator exists for the google.firestore.v1 Pipeline stage language; the official Go client uses Commit, BatchWrite and RunQuery instead.
+- Firestore Admin backups, backup schedules, user creds, clone and restore are not served, and ttl_config is stored but expired documents are not deleted.
+- Queries never fail for a missing composite index and field-level index exemptions are not enforced (the vendor returns FAILED_PRECONDITION without a matching index); export files are not written as Cloud Storage objects.
 
 ## More
 

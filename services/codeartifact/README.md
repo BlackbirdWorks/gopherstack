@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 48 (41 ok, 7 partial) |
 | Feature families | 4 (4 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- Error codes for blocked publishes and the undeletable root group are not published: API_PublishPackageVersion and API_DeletePackageGroup model AccessDeniedException 403, ConflictException 409 and ValidationException 400 without saying which applies, and package-group-origin-controls describes the PUBLISH BLOCK setting without an error; the emulator returns ValidationException for a PUBLISH restriction and for DeletePackageGroup on '/*'
 
 ### Structural gaps
 

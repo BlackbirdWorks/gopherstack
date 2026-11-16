@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 59 (58 ok, 1 partial) |
 | Feature families | 29 (24 ok, 5 partial) |
-| Known gaps | 4 |
+| Known gaps | 3 |
 | Structural gaps (can't be emulated) | 5 |
 | Deferred items | 2 |
 | Resource leaks | clean |
@@ -18,7 +18,6 @@
 
 - Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): GetSystemLogsForJobRun, GetSystemLogsForSession. Both return a SystemLogsUrl into AWS-managed Spark driver/executor system logs; this emulator runs no Spark and keeps no such logs, so any URL would be fabricated (UNVERIFIABLE: no data source exists).
 - Crawler gaps: JDBC engines are postgresql/mysql/redshift only; CatalogTargets recrawl existing S3, DynamoDB and Delta tables only (DeleteBehavior is always LOG per the console docs; EventQueueArn/DlqEventQueueArn are validated and stored but no SQS events are consumed; Iceberg/Hudi-backed catalog tables are rejected, matching the documented S3/DynamoDB/Delta-only rule); MongoDB crawls sample or scan through the Go driver against the connection's CONNECTION_URL (table name is <database>_<collection>, _id renders as struct<oid:string>; the naming and the oid shape are best-effort, not verified against a real catalog); DynamoDB scanRate is accepted but never throttles (no RCU accounting); CRAWL_EVENT_MODE is not event driven; Delta native-table and DEPRECATED_BY_CRAWLER parameter names are best-effort (not verified against a real catalog).
-- PublishDataQualityResultV2 members with no read path in glue@v1.170.0 are accepted and not stored: RunConfiguration, Statistics, Telemetry, DataQualitySecurityConfiguration. Published results carry no DataSource/ProfileId, so a ListDataQualityResultsV2 DataSource filter matches nothing and GetDataQualityResultV2 omits both.
 - Interactive sessions run statements only with --glue-engine=docker (GLUE_ENGINE, or --engines=docker): CreateSession then starts a long-lived container (public.ecr.aws/glue/aws-glue-libs image per GlueVersion, or GLUE_ENGINE_IMAGE) holding a persistent Python REPL (pyspark/GlueContext preloaded for glueetl/gluestreaming). With the engine disabled (default) RunStatement on a READY session returns a statement in ERROR whose Output.ErrorValue says how to enable it; no output is fabricated. Not modeled even with the engine: the session Role's credentials and S3 endpoint wiring inside the container, WorkerType/NumberOfWorkers resource limits (recorded only), Connections, SecurityConfiguration, Session Progress/DPUSeconds/ExecutionTime/ProfileName, and the default AWS Glue image tags are not pull-verified in CI. Interpreter state does not survive a gopherstack restart: restored READY sessions fail on the next RunStatement, restored queued/running statements become ERROR.
 
 ### Structural gaps

@@ -9,15 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 77 (77 ok) |
 | Feature families | 4 (4 ok) |
-| Known gaps | 2 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 2 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- Agent, knowledge base, data source and job ids are `agent-00000001` style; AWS uses 10-character alphanumeric ids. Changing the format breaks many in-repo fixtures.
-- ValidateFlowDefinition does not emit MismatchedNodeInputType/OutputType, IncompatibleConnectionDataType, MissingNodeInput/Output, UnknownNodeInput/Output, UnsatisfiedConnectionConditions or InvalidLoopBoundary: they need per-node-type input/output schemas and expression typing that the SDK does not specify.
 
 ### Structural gaps
 

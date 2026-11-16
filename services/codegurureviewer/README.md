@@ -9,15 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 14 (14 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 2 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- PullRequest reviews: CreateCodeReview only creates RepositoryAnalysis reviews, so ListCodeReviews Type=PullRequest is always empty; the emulator has no provider webhook that opens a pull-request review
-- ConnectionArn of Bitbucket/GitHub Enterprise Server associations is stored, not looked up in the CodeConnections/CodeStar Connections emulators
 
 ### Structural gaps
 

@@ -8,14 +8,10 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 29 (20 ok, 9 partial) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 6 |
 | Deferred items | 2 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- InstanceState and RelationalDatabaseState values are not published: checked API_InstanceState.html (names only running and pending, no code table), API_RelationalDatabase.html (state is a free string) and the AWS CLI references get-instance-state, get-instance, get-relational-database; the consts.go values (EC2-style instance codes, RDS-style database states) remain unconfirmed conventions
 
 ### Structural gaps
 

@@ -8,15 +8,10 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 21 (21 ok) |
-| Known gaps | 2 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- CreateMountTarget: IPv6 is never allocated; the EC2 emulator models no requester-managed flag on the mount target network interface.
-- The creating/deleting dwell is zero by default and is not exposed as a CLI lifecycle setting; tests drive it with SetLifecycleDelay.
 
 ### Structural gaps
 

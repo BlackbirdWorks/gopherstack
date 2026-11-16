@@ -9,16 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 64 (55 ok, 9 gap) |
 | Feature families | 13 (13 ok) |
-| Known gaps | 3 |
+| Known gaps | 2 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- UpdateSecurity relaunches the broker as a fresh container: topics and messages written before the update are lost (no persistent log dir).
-- Per-API IAM: ListGroups, DescribeCluster, DescribeLogDirs and transactional/ACL APIs are not gated; a partially denied multi-topic request is rejected as a whole; denied AlterConfigs/CreatePartitions/DescribeConfigs/OffsetFetch/DescribeGroups/DeleteGroups requests close the connection instead of returning an authorization error; Metadata with a null topic list is not filtered.
-- Lambda MSK event source mappings reach plaintext, server-TLS and SASL/SCRAM clusters; AWS_MSK_IAM-only and mutual-TLS-only clusters are still not polled (no function-role credentials or client certificate plumbed into the poller).
+- UpdateSecurity relaunches the docker broker as a fresh container: topics and messages written before the update are lost (BrokerRuntime in broker.go has no volume support, so there is no persistent log dir to carry across the relaunch)
+- IAM / resource-policy evaluation: ListGroups, DescribeCluster, DescribeLogDirs and transactional/ACL APIs are not gated by the per-API IAM check; a partially denied multi-topic request is rejected as a whole; denied AlterConfigs/CreatePartitions/DescribeConfigs/OffsetFetch/DescribeGroups/DeleteGroups requests close the connection instead of returning an authorization error; Metadata with a null topic list is not filtered
 
 ### Structural gaps
 

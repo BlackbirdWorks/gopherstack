@@ -9,15 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 12 (10 ok, 2 partial) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 2 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- docker engine: startup-script output stays in container logs (CloudWatch Logs is not modelled by MWAA); MinWorkers/MaxWorkers/Schedulers/EnvironmentClass are ignored (airflow standalone, single process).
-- docker engine: Airflow 3.x auth (JWT REST, simple auth manager login) is implemented but verified only against a fake; 2.10.3 verified in docker.
 
 ### Structural gaps
 

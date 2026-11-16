@@ -9,16 +9,14 @@
 | --- | --- |
 | PARITY entries audited | 19 (19 ok) |
 | Feature families | 5 (5 ok) |
-| Known gaps | 3 |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- IAM client authentication to the MSK cluster (kafkaClusterClientAuthentication IAM) is rejected as FAILED: the worker image does not bundle aws-msk-iam-auth.
-- TLS in-transit to docker-backed brokers is wired (CA trust via SetTrustCAPEM) but has no real-worker test.
-- Capacity (workerCount/mcuCount/autoscaling) is recorded but does not scale the single worker container.
+- IAM client authentication to the MSK cluster (kafkaClusterClientAuthentication IAM) is rejected as FAILED: the worker image does not bundle aws-msk-iam-auth
 
 ### Structural gaps
 
