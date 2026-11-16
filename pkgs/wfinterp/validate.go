@@ -1,9 +1,13 @@
 package wfinterp
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 type vctx struct {
 	targets    []*block
+	parDepth   int
 	inLoop     bool
 	inParallel bool
 }
@@ -22,7 +26,11 @@ func (c *compiler) validateRoutine(p *Program, r *routine) error {
 		return &SyntaxError{Routine: r.name, Msg: "main takes at most one parameter"}
 	}
 
-	return c.validateBlock(p, r.body, vctx{})
+	if err := c.validateBlock(p, r.body, vctx{}); err != nil {
+		return err
+	}
+
+	return c.checkScopes(p, r)
 }
 
 func (c *compiler) validateBlock(p *Program, b *block, v vctx) error {
@@ -125,6 +133,11 @@ func (c *compiler) validateChildren(p *Program, s *step, v vctx) error {
 func (c *compiler) validateParallel(p *Program, ps *parSpec, v vctx) error {
 	v.inParallel, v.inLoop = true, false
 	v.targets = nil
+
+	if v.parDepth++; v.parDepth > maxParallelDepth {
+		return &SyntaxError{Routine: c.routine, Step: c.step,
+			Msg: fmt.Sprintf("parallel steps can be nested at most %d levels deep", maxParallelDepth)}
+	}
 
 	if ps.loop != nil {
 		lv := v

@@ -34,15 +34,23 @@ families:
   auth: {status: partial, note: "No request is authenticated or authorised; IAM policy methods are not part of the Workflows API."}
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; RPC failures are logged at debug. No dashboard page."}
 items_still_open:
-  - "execution_history_level, execution step history (Executions step entries) and automatic call logging are stored but not produced; already running executions are not failed when their CMEK key is disabled."
-  - "Quotas are only partly modelled: 100000 steps per execution and a call depth of 20 are enforced; the 512 KB result/argument rules, concurrent execution limits, QUEUED state and the 1 year execution timeout are not."
-  - "Variable use is not statically checked: undefined variables, writes to non-shared parent variables inside parallel steps and loop-variable scope leaks fail at run time instead of at deployment."
-  - "experimental.executions.run/map, the in() function form and non-UTF-8 charsets are not implemented; get_type value names, the exact text of runtime error messages and deployment error messages, and the code of the failed CreateWorkflow operation were chosen without a production reference."
-  - "Only the listed googleapis.* connectors exist; other connectors, connector retry/long-running-operation polling helpers and calls to *.googleapis.com hosts (which would leave the emulator) are not rewritten."
-  - "Operations are recorded already finished: no CREATING state, and CancelOperation has no effect."
-  - "Callback endpoints and in-flight executions do not survive a restore, and a callback URL is bound to the listener port of the run that created it."
+  - "Executions step entries (and so execution_history_level) cannot be served: google/cloud/workflows/executions/v1/executions.proto defines only ListExecutions, CreateExecution, GetExecution and CancelExecution, and the pinned cloud.google.com/go/workflows v1.21.0 (executions/apiv1/executionspb/executions_grpc.pb.go) has no step-entry RPC, so the REST-only stepEntries resource has no listener here. The executions_system log (start and finish entries per execution) is not produced."
+  - "Connectors exist only for Pub/Sub, Secret Manager, Firestore and Cloud Storage (connectors.go connectors()); other connectors, connector retry and long-running-operation polling helpers are not implemented, and http.* calls to googleapis.com hosts of services without an emulator are not rewritten (googlehosts.go googleHost)."
 leaks: {status: clean, note: "Background resources are the grpc.Server and its serve goroutine, joined by Shutdown, one goroutine per running execution (cancelled and joined by Shutdown, Reset, Restore and Close), and the pooled HTTP client, closed there."}
 ---
+
+## Emulator choices where the vendor is silent
+
+- Operations are recorded already finished (no CREATING state) and CancelOperation has no effect on them; the Workflows reference documents no creation duration.
+- Callback endpoints and in-flight executions do not survive a restore: running executions become FAILED with an emulator-restart error, and a callback URL is bound to the listener port of the run that created it.
+- get_type value names, the exact text of runtime and deployment error messages and the code of the failed CreateWorkflow operation were chosen without a production reference.
+- The `in()` function form is listed on the expression-helpers page without a signature (only the `in` operator is implemented); the supported charsets of text.encode and text.decode are not listed on the reference page (UTF-8 only here).
+- Scope checks at deployment are flow-insensitive: a variable is undefined only when no visible scope ever assigns it, and a write to a parent variable inside a parallel branch is rejected when an earlier step of an enclosing scope assigned it; use-before-assignment inside one scope is not detected. The docs (troubleshooting, variables) name the error class but not its text.
+- The 1-year execution duration ends the execution FAILED with a TimeoutError payload; the docs say "a timeout error" without naming the state.
+- Request-rate quotas (1,200 Workflow API requests per minute and the other per-minute rows) are not enforced; the quotas page documents no error for them.
+- Executions started from executions (experimental.executions.run and map) nest at most 20 deep; the limit and its ExecutionError text are an emulator restriction. Call-log text fields are truncated at 8 KiB (exception and origin at 1 KiB) and the call log carries severity INFO (ERROR for EXCEPTION_RAISED).
+
+Verified: quotas at docs.cloud.google.com/workflows/quotas (10,000 concurrent executions per region and project, 100,000 backlogged with HTTP 429 beyond, 1 year duration, 90 days retention, 512 KB cumulative variable data, 256 KB strings, 128 KB source, 400-character expressions, 50 assignments per step, parallel nesting 2, 20 concurrent branches, 100 reported branch exceptions); call logging per google/cloud/workflows/type/engine_call.proto and logs `workflows.googleapis.com%2Fengine_call` at docs.cloud.google.com/logging/docs/api/platform-logs (Authorization headers redacted per docs.cloud.google.com/workflows/docs/log-workflow); CMEK key disable fails running executions per docs.cloud.google.com/workflows/docs/use-cmek; experimental.executions.run and map per their stdlib reference pages.
 
 Verified 2026-11-13: an UpdateWorkflow without update_mask replaces the entire workflow (workflows.proto UpdateWorkflowRequest.update_mask: "If not present, the entire workflow will be updated"); argument size limit 32KB is per docs.cloud.google.com/workflows/docs/reference/executions/rest/v1/projects.locations.workflows.executions, while docs.cloud.google.com/workflows/quotas lists 512 KB cumulative variable/argument data, 2 MB response size, 10,000 concurrent and 100,000 queued executions per region, 1 year duration, none with a documented error.
 

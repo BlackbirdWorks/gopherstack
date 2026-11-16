@@ -36,6 +36,7 @@ type Frame struct {
 
 // Error is a workflow error: the value a raise produced or a runtime error map.
 type Error struct {
+	call   *callOrigin
 	Value  any
 	Stack  []Frame
 	cancel bool

@@ -22,14 +22,34 @@ const (
 )
 
 func (b *InMemoryBackend) dropExecutionsLocked(prefix string) {
+	regions := map[string]bool{}
+
 	for name, rec := range b.execs {
 		if strings.HasPrefix(name, prefix) {
 			if rec.cancel != nil {
 				rec.cancel()
 			}
 
+			if rec.stopTimer != nil {
+				rec.stopTimer()
+			}
+
+			if rec.done != nil {
+				close(rec.done)
+				rec.done = nil
+			}
+
+			if rec.pb.GetState() == executionspb.Execution_ACTIVE {
+				b.loadLocked(regionOf(name)).active--
+				regions[regionOf(name)] = true
+			}
+
 			delete(b.execs, name)
 		}
+	}
+
+	for key := range regions {
+		b.promoteLocked(key)
 	}
 
 	for url, cb := range b.callbacks {
@@ -58,6 +78,12 @@ func parseArgument(arg string) (any, error) {
 
 // CreateExecution starts an execution of the latest revision of a workflow.
 func (b *InMemoryBackend) CreateExecution(in *executionspb.CreateExecutionRequest) (*executionspb.Execution, error) {
+	return b.createExecution(in, 0)
+}
+
+func (b *InMemoryBackend) createExecution(
+	in *executionspb.CreateExecutionRequest, depth int,
+) (*executionspb.Execution, error) {
 	if _, _, _, err := parseWorkflow(in.GetParent()); err != nil {
 		return nil, err
 	}
@@ -106,9 +132,12 @@ func (b *InMemoryBackend) CreateExecution(in *executionspb.CreateExecutionReques
 		Status:             &executionspb.Execution_Status{},
 	}
 
-	er := &execRec{pb: pb}
+	er := &execRec{pb: pb, done: make(chan struct{}), depth: depth, key: wf.GetCryptoKeyName()}
+	if err = b.admitLocked(er, wf, prog, arg); err != nil {
+		return nil, err
+	}
+
 	b.execs[name] = er
-	b.launchLocked(er, wf, prog, arg)
 
 	return clone(pb), nil
 }
@@ -172,6 +201,9 @@ func (b *InMemoryBackend) GetExecution(in *executionspb.GetExecutionRequest) (*e
 		return nil, err
 	}
 
+	b.sweepExecutions()
+	b.failIfKeyDisabled(in.GetName())
+
 	b.mu.RLock("GetExecution")
 	defer b.mu.RUnlock()
 
@@ -199,6 +231,9 @@ func (b *InMemoryBackend) ListExecutions(
 	if err != nil {
 		return nil, err
 	}
+
+	b.sweepExecutions()
+	b.failDisabledKeyExecutions(in.GetParent() + "/")
 
 	b.mu.RLock("ListExecutions")
 
@@ -321,8 +356,8 @@ func (b *InMemoryBackend) CancelExecution(in *executionspb.CancelExecutionReques
 		return nil, errNotFound("Execution %q not found.", in.GetName())
 	}
 
-	if rec.pb.GetState() != executionspb.Execution_ACTIVE {
-		return nil, errPrecondition("Execution %q is %s and cannot be cancelled.", in.GetName(), rec.pb.GetState())
+	if st := rec.pb.GetState(); st != executionspb.Execution_ACTIVE && st != executionspb.Execution_QUEUED {
+		return nil, errPrecondition("Execution %q is %s and cannot be cancelled.", in.GetName(), st)
 	}
 
 	if rec.cancel != nil {
@@ -345,6 +380,19 @@ func cancelledError() *executionspb.Execution_Error {
 func (b *InMemoryBackend) endLocked(
 	name string, rec *execRec, state executionspb.Execution_State, result string, errPB *executionspb.Execution_Error,
 ) {
+	wasActive := rec.pb.GetState() == executionspb.Execution_ACTIVE
+	rec.pending = nil
+
+	if rec.done != nil {
+		close(rec.done)
+		rec.done = nil
+	}
+
+	if rec.stopTimer != nil {
+		rec.stopTimer()
+		rec.stopTimer = nil
+	}
+
 	end := b.ts()
 	rec.pb.State, rec.pb.EndTime = state, end
 	rec.pb.Duration = durationpb.New(end.AsTime().Sub(rec.pb.GetStartTime().AsTime()))
@@ -360,6 +408,11 @@ func (b *InMemoryBackend) endLocked(
 		if cb.exec == name {
 			delete(b.callbacks, url)
 		}
+	}
+
+	if wasActive {
+		b.loadLocked(regionOf(name)).active--
+		b.promoteLocked(regionOf(name))
 	}
 }
 

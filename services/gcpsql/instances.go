@@ -58,9 +58,11 @@ func validateInstance(in *InstanceInput) error {
 		return errInvalid("Missing parameter: Tier.")
 	}
 
-	_, err := authorizedNets(in.Settings)
+	if _, err := authorizedNets(in.Settings); err != nil {
+		return err
+	}
 
-	return err
+	return validatePasswordPolicy(in.Settings)
 }
 
 func serviceAccount(project, name string) string {
@@ -264,6 +266,10 @@ func nextSettings(rec *instRec, in InstanceInput, replace bool) (map[string]any,
 	}
 
 	if err := checkDiskShrink(cur, next); err != nil {
+		return nil, err
+	}
+
+	if err := validatePasswordPolicy(next); err != nil {
 		return nil, err
 	}
 

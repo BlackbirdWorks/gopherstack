@@ -35,6 +35,7 @@ const (
 
 // testClock makes sleeps instant, records them, and can hold a sleeper until the test releases it.
 type testClock struct {
+	timers   []*testTimer
 	gate     chan struct{}
 	sleeping chan struct{}
 	now      time.Time
@@ -63,6 +64,13 @@ func (c *testClock) holdSleeps() {
 	defer c.mu.Unlock()
 
 	c.hold = true
+}
+
+func (c *testClock) advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.now = c.now.Add(d)
 }
 
 func (c *testClock) release() { close(c.gate) }
@@ -247,4 +255,51 @@ func projectNumberOf(ex *executionspb.Execution) string {
 	i := strings.Index(r, key) + len(key)
 
 	return r[i : i+strings.Index(r[i:], `"`)]
+}
+
+type testTimer struct {
+	f       func()
+	d       time.Duration
+	stopped bool
+}
+
+// AfterFunc registers f without scheduling it; fireTimers runs it.
+func (c *testClock) AfterFunc(d time.Duration, f func()) func() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	t := &testTimer{d: d, f: f}
+	c.timers = append(c.timers, t)
+
+	return func() bool {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		was := !t.stopped
+		t.stopped = true
+
+		return was
+	}
+}
+
+// fireTimers runs every timer that was not stopped and returns their durations.
+func (c *testClock) fireTimers() []time.Duration {
+	c.mu.Lock()
+	var run []*testTimer
+
+	for _, t := range c.timers {
+		if !t.stopped {
+			run = append(run, t)
+			t.stopped = true
+		}
+	}
+	c.mu.Unlock()
+
+	ds := make([]time.Duration, len(run))
+	for i, t := range run {
+		ds[i] = t.d
+		t.f()
+	}
+
+	return ds
 }

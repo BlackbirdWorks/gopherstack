@@ -119,3 +119,37 @@ func TestDisabledKeyBlocksExecutions(t *testing.T) {
 	require.Equal(t, codes.FailedPrecondition, code(err))
 	require.ErrorContains(t, err, "The provided Cloud KMS key version has been disabled.")
 }
+
+func TestDisabledKeyFailsRunningExecutions(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	e.clock.holdSleeps()
+
+	kb := newKMS(t)
+	e.handler.Backend.SetKeyChecker(kb)
+
+	w := e.createWorkflow(t, "w", sleeper, func(w *workflowspb.Workflow) { w.CryptoKeyName = symKey })
+	ex := e.execute(t, w.GetName(), "")
+	plain := e.createWorkflow(t, "plain", sleeper)
+	other := e.execute(t, plain.GetName(), "")
+
+	<-e.clock.sleeping
+	<-e.clock.sleeping
+
+	_, err := kb.UpdateCryptoKeyVersion(&kmspb.UpdateCryptoKeyVersionRequest{
+		CryptoKeyVersion: &kmspb.CryptoKeyVersion{
+			Name:  symKey + "/cryptoKeyVersions/1",
+			State: kmspb.CryptoKeyVersion_DISABLED,
+		},
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"state"}},
+	})
+	require.NoError(t, err)
+
+	got, err := e.ex.GetExecution(t.Context(), &executionspb.GetExecutionRequest{Name: ex.GetName()})
+	require.NoError(t, err)
+	require.Equal(t, executionspb.Execution_FAILED, got.GetState())
+	require.Contains(t, got.GetError().GetContext(), "has been disabled")
+
+	require.Equal(t, executionspb.Execution_ACTIVE, e.state(t, other.GetName()))
+}

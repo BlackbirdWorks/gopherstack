@@ -243,6 +243,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	log := logger.Load(workerCtx)
 
 	h.Backend.SetRunContext(context.WithoutCancel(workerCtx))
+	h.Backend.StartBackupScheduler(0)
 
 	h.srvMu.Lock("StartWorker")
 	h.srv = srv

@@ -16,8 +16,10 @@ type ObjectStore interface {
 }
 
 type userRec struct {
-	Password string `json:"password,omitempty"`
-	User     User   `json:"user"`
+	Password string   `json:"password,omitempty"`
+	Changed  string   `json:"passwordChanged,omitempty"`
+	History  []string `json:"passwordHistory,omitempty"`
+	User     User     `json:"user"`
 }
 
 type backupRec struct {
@@ -77,6 +79,7 @@ type InMemoryBackend struct {
 	ops        map[string]*Operation
 	quotaWG    sync.WaitGroup
 	quotaEvery time.Duration
+	schedEvery time.Duration
 	startup    time.Duration
 	seq        int64
 	swept      bool
@@ -98,6 +101,16 @@ func (b *InMemoryBackend) resetMaps() {
 	b.instances = map[string]*instRec{}
 	b.ops = map[string]*Operation{}
 	b.seq = 0
+}
+
+// SetClock replaces the time source for timestamps and schedules; tests pass a fake.
+func (b *InMemoryBackend) SetClock(now func() time.Time) {
+	b.mu.Lock("SetClock")
+	defer b.mu.Unlock()
+
+	if now != nil {
+		b.now = now
+	}
 }
 
 // SetLauncher wires the database engine source; nil keeps instances state-only.
@@ -188,6 +201,7 @@ func (b *InMemoryBackend) shutdown(renew bool) {
 
 	if renew {
 		b.runCtx, b.cancel = context.WithCancel(context.Background())
+		b.startSchedulerLocked()
 	}
 
 	closer, _ := b.launcher.(interface{ Close() })

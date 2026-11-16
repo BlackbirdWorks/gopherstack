@@ -147,6 +147,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	defer b.mu.Unlock()
 
 	b.workflows, b.execs, b.callbacks = r.workflows, r.execs, make(map[string]*callback)
+	b.load = make(map[string]*regionLoad)
 	b.runCtx, b.stop = context.WithCancel(context.Background())
 
 	for _, rec := range b.execs {

@@ -188,6 +188,10 @@ func prepForwardingRule(b *InMemoryBackend, c lbCtx, in *computeapi.ForwardingRu
 		return err
 	}
 
+	if err := b.ruleTierLocked(c, in, in.NetworkTier); err != nil {
+		return err
+	}
+
 	if err := b.ruleConflictLocked(in); err != nil {
 		return err
 	}
@@ -472,6 +476,36 @@ func (b *InMemoryBackend) prepRuleIPLocked(c lbCtx, in *computeapi.ForwardingRul
 	return nil
 }
 
+func isExternalScheme(s string) bool { return s == schemeExternal || s == "EXTERNAL_MANAGED" }
+
+// ruleTierLocked sets the network tier of an external rule: it follows its reserved address, and a requested
+// tier must match that address. The error text is not documented.
+func (b *InMemoryBackend) ruleTierLocked(c lbCtx, in *computeapi.ForwardingRule, want string) *APIError {
+	if !isExternalScheme(in.LoadBalancingScheme) {
+		return nil
+	}
+
+	if want != "" && want != tierPremium && (c.scope == scopeGlobal || want != tierStandard) {
+		return errField("resource.networkTier", want, "")
+	}
+
+	tier := cmpOr(want, tierPremium)
+
+	if a, err := b.findReservedLocked(c, in.IPAddress); err == nil {
+		have := cmpOr(a.NetworkTier, tierPremium)
+		if want != "" && want != have {
+			return errField("resource.networkTier", want,
+				"The network tier of a forwarding rule must match the network tier of its reserved IP address.")
+		}
+
+		tier = have
+	}
+
+	in.NetworkTier = tier
+
+	return nil
+}
+
 func (b *InMemoryBackend) reservedRuleIPLocked(c lbCtx, raw string, internal bool) (string, *APIError) {
 	want := addrExternal
 	if internal {
@@ -667,6 +701,10 @@ func (b *InMemoryBackend) patchForwardingRule(c lbCtx, name string, raw map[stri
 			}
 
 			cur.NetworkTier = tier
+
+			if err := b.ruleTierLocked(c, cur, tier); err != nil {
+				return nil, err
+			}
 
 			return cur, nil
 		})

@@ -122,8 +122,8 @@ func inheritFromPrimary(in *InstanceInput, prim *instRec) error {
 		in.Region = prim.Inst.Region
 	}
 
-	if in.DatabaseVersion != prim.Inst.DatabaseVersion || in.Region != prim.Inst.Region {
-		return errInvalid("The database version and region of a read replica must match its primary.")
+	if in.DatabaseVersion != prim.Inst.DatabaseVersion {
+		return errInvalid("The database version of a read replica must match its primary.")
 	}
 
 	if !isPG(prim.Inst.DatabaseVersion) && !binlogOn(prim.Inst.Settings) {

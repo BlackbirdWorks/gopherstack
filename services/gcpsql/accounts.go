@@ -342,7 +342,13 @@ func (b *InMemoryBackend) InsertUser(project, instance string, in UserInput) (*O
 	}
 
 	u := newUser(rec, in.Name, host, orDefault(in.Type, typeBuiltIn))
+	if err = checkPassword(parsePasswordPolicy(rec.Inst.Settings), u, in.Password, isPG(rec.Inst.DatabaseVersion),
+		b.now()); err != nil {
+		return nil, err
+	}
+
 	u.User.PasswordPolicy, u.User.DatabaseRoles, u.Password = in.PasswordPolicy, in.DatabaseRoles, in.Password
+	recordPassword(u, in.Password, b.now())
 	rec.Users[key] = u
 
 	spec := UserSpec{Name: in.Name, Host: host, Password: in.Password}
@@ -380,7 +386,13 @@ func (b *InMemoryBackend) UpdateUser(project, instance, name, host string, in Us
 
 	prev := *u
 	if in.Password != "" {
+		if err = checkPassword(parsePasswordPolicy(rec.Inst.Settings), u, in.Password, isPG(rec.Inst.DatabaseVersion),
+			b.now()); err != nil {
+			return nil, err
+		}
+
 		u.Password = in.Password
+		recordPassword(u, in.Password, b.now())
 		if isBuiltinAdmin(rec.Inst.DatabaseVersion, u.User.Name) {
 			rec.RootPassword = in.Password
 		}

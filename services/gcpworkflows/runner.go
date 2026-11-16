@@ -19,10 +19,12 @@ import (
 
 // launchLocked starts the runner goroutine of a new execution; the caller holds b.mu.
 func (b *InMemoryBackend) launchLocked(er *execRec, wf *workflowspb.Workflow, prog *wfinterp.Program, arg any) {
-	ctx, cancel := context.WithCancel(b.runCtx)
+	ctx, cancel := context.WithCancel(context.WithValue(b.runCtx, depthKey{}, er.depth))
 	er.cancel = cancel
 	name := er.pb.GetName()
-	host := b.hostFor(name, wf)
+	host := b.hostFor(name, wf, er.pb.GetCallLogLevel())
+
+	b.scheduleExpiryLocked(er)
 
 	b.wg.Go(func() {
 		defer cancel()
@@ -128,7 +130,9 @@ func (r runInfo) env(name string) (string, bool) {
 }
 
 // hostFor builds the wfinterp.Host of one execution; the caller holds b.mu.
-func (b *InMemoryBackend) hostFor(execName string, wf *workflowspb.Workflow) *wfinterp.Host {
+func (b *InMemoryBackend) hostFor(
+	execName string, wf *workflowspb.Workflow, level executionspb.Execution_CallLogLevel,
+) *wfinterp.Host {
 	project, location, id, _ := parseWorkflow(wf.GetName())
 	info := runInfo{
 		userEnv: wf.GetUserEnvVars(), exec: execName, project: project, location: location, workflow: id,
@@ -156,7 +160,14 @@ func (b *InMemoryBackend) hostFor(execName string, wf *workflowspb.Workflow) *wf
 			return b.createCallback(execName, method)
 		},
 		AwaitCallback: b.awaitCallback,
-		Progress:      func(frames []wfinterp.Frame) { b.setSteps(execName, frames) },
+		RunExecutions: func(ctx context.Context, reqs []wfinterp.ExecutionRequest) ([]any, error) {
+			return b.runExecutions(ctx, info, reqs)
+		},
+		CallLog: func(e wfinterp.CallEvent) { b.emitCall(info, level, e) },
+		Progress: func(frames []wfinterp.Frame) {
+			b.setSteps(execName, frames)
+			b.failIfKeyDisabled(execName)
+		},
 	}
 }
 
