@@ -174,8 +174,7 @@ ops:
 # individually above; every op in this service is a fixed POST / with no path-parameter routing,
 # so there is no natural "route family" grouping the way REST-JSON services have.
 gaps: []
-items_still_open:
-  - "UpdateConnectionsBillingMode: Connection.billingMode is only reported once set (no default PayAsYouGo on create), and the Connection prefixPool* members are not modeled."
+items_still_open: []
 structural_gaps:
   - "Interconnect/hosted-connection/reseller (partner) flow (CreateInterconnect, AllocateConnectionOnInterconnect, AllocateHostedConnection, ConfirmConnection, DescribeConnectionsOnInterconnect, DescribeHostedConnections): real Direct Connect Partners own physical cross-connect infrastructure at colocation facilities. There is no physical link for an emulator to have or lack -- 'is this physically cross-connected' cannot be made real by any amount of implementation effort. Full state bookkeeping (Interconnect/Connection creation, ordering->confirm->available transitions, parent/child relationships) IS implemented and IS the honest ceiling."
   - "LOA-CFA (Letter of Authorization - Connecting Facility Assignment) content (DescribeLoa/DescribeConnectionLoa/DescribeInterconnectLoa): a real LOA-CFA is an authentic AWS-issued document authorizing physical cross-connect work at a named colocation facility. No implementation can produce a genuine one without real physical infrastructure and a real issuing authority. loa.go's placeholderLoaContent (a minimal, well-formed PDF labeled 'PLACEHOLDER - NOT A REAL AUTHORIZATION') is the honest ceiling, never a fabricated real-looking document."
@@ -935,3 +934,4 @@ Terraform provider matches) instead of an empty list; LAG child connections now 
 ## Emulator choices where the vendor is silent
 
 - Resiliency groups: the ID format (dxrg-<8 hex>) and ARN resource path (dxrg/<id>) are UNCONFIRMED -- the SDK shows neither. Also inferred, not documented: a group with associated connections cannot be deleted, and a connection belongs to at most one group (both raise DirectConnectClientException).
+- Connection billingMode is echoed from CreateConnection/UpdateConnectionsBillingMode and left unset when never given, and the Connection prefixPool* members are not reported: API_CreateConnection.html documents neither a default billing mode nor how the prefix pool is sized or consumed.

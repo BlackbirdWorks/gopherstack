@@ -13,8 +13,7 @@ families:
   invocation_history: {status: ok, note: "bounded FIFO (maxInvocationHistory=1000), persisted."}
   endpoint_validation: {status: ok, note: "EndpointLookup (endpoint_lookup.go) is a minimal interface satisfied directly by *sagemaker.InMemoryBackend's exported DescribeEndpoint method; wired at Provider.Init via wireEndpointLookup (provider.go), following the services/cloudwatchlogs/provider.go s3HandlerProvider precedent -- no change to services/sagemaker was needed, since DescribeEndpoint was already an exported, lock-safe read accessor. Unknown EndpointName and known-but-not-InService both surface real AWS's 'Endpoint <name> of account <account> not found.' ValidationError message (confirmed against real-world AWS error reports: an endpoint still Creating is reported as not-found from InvokeEndpoint's perspective too, since the runtime routing table only serves InService endpoints). When no lookup is wired (bare NewInMemoryBackend, e.g. every pre-existing test in this package), validation is a no-op, preserving standalone behaviour."}
 gaps: []
-items_still_open:
-  - "InferenceComponentName invocations, multi-model TargetModel loading and ModelPackage-defined containers are not served by the container engine (see services/sagemaker PARITY.md)"
+items_still_open: []
 structural_gaps:
   - "InvokeEndpointAsync.RequestTTLSeconds: request-only header with no output member and no async queue to expire a request in (InvocationTimeoutSeconds is applied to the container call)."
 deferred: []
@@ -362,3 +361,7 @@ sagemakerruntime is region-isolated: async invocations and sessions live per reg
 ## 2026-10-05 (gopherstack-uox6 pass 13, value semantics)
 
 Inapplicable (value semantics). Invoke* operations are data-plane with no Create/Describe/Update surface and no SDK-documented defaults beyond pass-through headers.
+
+## Emulator choices where the vendor is silent
+
+- Container engine serving: InferenceComponentName routes to the component's own container (Container spec, ModelName, or its base component for adapters), one container serving all CopyCount copies; TargetModel on Mode=MultiModel containers stages the artifact from the ModelDataUrl prefix and drives POST /models and POST /models/{name}/invoke (mms-container-apis; model_name is an opaque hash, a 507 evicts every loaded model); containers naming a ModelPackageName run the package's InferenceSpecification containers. A multi-model invoke without TargetModel is a ValidationError, and a missing artifact is a ModelError with status 404; the docs name neither.

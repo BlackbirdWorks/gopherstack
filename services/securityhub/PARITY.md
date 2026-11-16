@@ -146,7 +146,7 @@ families:
   Persistence: {status: ok, note: "Handler.Snapshot/Restore (persistence.go) delegate to InMemoryBackend.Snapshot/Restore (backend.go), which round-trips every store.Table via registry.SnapshotAll/RestoreAll (store_setup.go) plus the 5 plain-map fields (tags, findings, controlParams, productSubscriptions, orgAdminAccounts) and all scalar/pointer fields. Verified store_setup.go registers exactly the set of *store.Table fields declared on InMemoryBackend -- no orphaned or unregistered table."}
 gaps: []
 items_still_open:
-  - "GetRemediationsV2 and ListExposuresByRemediationV2 (listed in sdk_completeness_test.go notImplemented): both read exposure findings and their remediation groupings, which Security Hub derives from other AWS services' scans; this backend ingests only ASFF findings and has no exposure or remediation-grouping model, so any answer would be fabricated."
+  - "GetRemediationsV2 and ListExposuresByRemediationV2 (sdk_completeness_test.go:24 notImplemented): remediation targets (RemediationV2Item: Trait, Priority, Outcome, RemediationSummary, Resource) and ExposureFinding items are produced by Security Hub exposure analysis of other services' resources; the pinned SDK exposes no operation that creates them and this backend stores only ASFF findings (findings.go) and ingested OCSF findings (findings_v2.go:670), so every non-empty answer would be invented and an always-empty one would be a stub."
 structural_gaps:
   - "UpdateConfigurationPolicy.UpdatedReason has no read member in the SDK, so it cannot be surfaced."
   - "ListSecurityControlDefinitions.StandardsArn is unapplied: the 3-control catalog carries no per-standard control mapping (AWS-owned catalog data)."

@@ -59,7 +59,8 @@ func writeInvokeError(c *echo.Context, err error) error {
 			"OriginalStatusCode": http.StatusGatewayTimeout,
 			"OriginalMessage":    "invocation timed out",
 		})
-	case errors.Is(err, sagemaker.ErrEndpointNotFound), errors.Is(err, sagemaker.ErrNotAsyncEndpoint):
+	case errors.Is(err, sagemaker.ErrEndpointNotFound), errors.Is(err, sagemaker.ErrNotAsyncEndpoint),
+		errors.Is(err, sagemaker.ErrTargetModelRequired):
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationError", err.Error()))
 	case errors.Is(err, sagemaker.ErrEngineDisabled), errors.Is(err, sagemaker.ErrEngineUnavailable),
 		errors.Is(err, sagemaker.ErrEndpointNotRunning), errors.Is(err, errNoInvoker),
@@ -84,6 +85,7 @@ func invokeRequest(
 		TargetVariant:           h.Get(headerTargetVariant),
 		TargetContainerHostname: h.Get(headerTargetContainer),
 		TargetModel:             h.Get(headerTargetModel),
+		InferenceComponentName:  h.Get(headerInferenceComponent),
 		InferenceID:             h.Get(headerInferenceID),
 	}
 }

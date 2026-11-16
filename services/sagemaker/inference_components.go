@@ -202,6 +202,12 @@ func (b *InMemoryBackend) CreateInferenceComponent(
 	}
 	b.inferenceComponentsStore(region).Put(c)
 
+	if eng := b.engine; eng != nil {
+		b.startInferenceComponentLocked(eng, region, opts.InferenceComponentName)
+
+		return cloneInferenceComponent(c), nil
+	}
+
 	b.scheduleInferenceComponentTransition(
 		b.lifecycleCtx, region, opts.InferenceComponentName, statusCreating, statusInService,
 		inferenceComponentCreatingToInService,
@@ -417,6 +423,12 @@ func (b *InMemoryBackend) UpdateInferenceComponent(
 	c.InferenceComponentStatus = statusUpdating
 	c.LastModifiedTime = time.Now()
 
+	if eng := b.engine; eng != nil && (opts.Specification != nil || opts.Specifications != nil) {
+		b.startInferenceComponentLocked(eng, region, name)
+
+		return nil
+	}
+
 	b.scheduleInferenceComponentTransition(
 		b.lifecycleCtx, region, name, statusUpdating, statusInService, inferenceComponentUpdatingToInService,
 	)
@@ -465,6 +477,13 @@ func (b *InMemoryBackend) DeleteInferenceComponent(ctx context.Context, name str
 	}
 
 	store.Delete(name)
+
+	if eng := b.engine; eng != nil {
+		key := engineKey("ic", region, name)
+		eng.interrupt(key)
+
+		b.goEngine(func() { eng.removeDeployment(key).stop() })
+	}
 
 	return nil
 }

@@ -231,6 +231,7 @@ type createConnectionRequest struct {
 	Bandwidth      string    `json:"bandwidth"`
 	ConnectionName string    `json:"connectionName"`
 	Location       string    `json:"location"`
+	BillingMode    string    `json:"billingMode,omitempty"`
 	LagID          string    `json:"lagId,omitempty"`
 	ProviderName   string    `json:"providerName,omitempty"`
 	RequestMACSec  *bool     `json:"requestMACSec,omitempty"`

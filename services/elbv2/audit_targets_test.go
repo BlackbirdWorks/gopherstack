@@ -243,6 +243,7 @@ func TestAuditELBv2_TargetHealth_AllStates(t *testing.T) {
 	h := elbv2.NewHandler(b)
 
 	tgArn := auditCreateTG(t, h, "all-states-tg")
+	auditCreateListener(t, h, auditCreateLB(t, h, "all-states-lb"), tgArn)
 
 	// Register multiple targets.
 	auditDo(t, h, url.Values{

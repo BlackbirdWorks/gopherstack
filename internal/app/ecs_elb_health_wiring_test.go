@@ -43,6 +43,14 @@ func TestECSELBHealthReaderAdapter(t *testing.T) {
 			})
 			require.NoError(t, err)
 
+			lb, err := bk.CreateLoadBalancer(elbv2backend.CreateLoadBalancerInput{Name: "lb"})
+			require.NoError(t, err)
+			_, err = bk.CreateListener(elbv2backend.CreateListenerInput{
+				LoadBalancerArn: lb.LoadBalancerArn, Protocol: "HTTP", Port: 80,
+				DefaultActions: []elbv2backend.Action{{Type: "forward", TargetGroupArn: tg.TargetGroupArn}},
+			})
+			require.NoError(t, err)
+
 			target := ecsbackend.ELBTarget{ID: "10.0.0.5", Port: 8080}
 
 			if tt.register {

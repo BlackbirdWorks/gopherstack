@@ -121,7 +121,11 @@ func TestTargetHealthFollowsInstanceState(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			client := newResolverBackedClient(t, &placementResolver{instanceState: map[string]string{"i-1": tt.state}})
+			client := newResolverBackedClient(t, &placementResolver{
+				instanceState: map[string]string{"i-1": tt.state},
+				subnetAZ:      map[string]string{"subnet-a": "us-east-1c", "subnet-b": "us-east-1f"},
+				subnetVPC:     map[string]string{"subnet-a": "vpc-1", "subnet-b": "vpc-1"},
+			})
 
 			tg, err := client.CreateTargetGroup(t.Context(), &elbv2sdk.CreateTargetGroupInput{
 				Name: aws.String("tg-inst"), Protocol: elbv2types.ProtocolEnumHttp, Port: aws.Int32(80),
@@ -130,6 +134,20 @@ func TestTargetHealthFollowsInstanceState(t *testing.T) {
 			require.NoError(t, err)
 
 			tgArn := tg.TargetGroups[0].TargetGroupArn
+			lb, err := client.CreateLoadBalancer(t.Context(), &elbv2sdk.CreateLoadBalancerInput{
+				Name:    aws.String("lb-inst"),
+				Subnets: []string{"subnet-a", "subnet-b"},
+			})
+			require.NoError(t, err)
+			_, err = client.CreateListener(t.Context(), &elbv2sdk.CreateListenerInput{
+				LoadBalancerArn: lb.LoadBalancers[0].LoadBalancerArn,
+				Protocol:        elbv2types.ProtocolEnumHttp,
+				Port:            aws.Int32(80),
+				DefaultActions: []elbv2types.Action{{
+					Type: elbv2types.ActionTypeEnumForward, TargetGroupArn: tgArn,
+				}},
+			})
+			require.NoError(t, err)
 			_, err = client.RegisterTargets(t.Context(), &elbv2sdk.RegisterTargetsInput{
 				TargetGroupArn: tgArn,
 				Targets:        []elbv2types.TargetDescription{{Id: aws.String("i-1")}},
@@ -269,6 +287,136 @@ func TestModifyLoadBalancerAttributeValues(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "ValidationError")
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestTargetHealthNotInUseWithoutListener(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantState  elbv2types.TargetHealthStateEnum
+		wantReason elbv2types.TargetHealthReasonEnum
+		attach     bool
+	}{
+		{name: "unattached", wantState: elbv2types.TargetHealthStateEnumUnused,
+			wantReason: elbv2types.TargetHealthReasonEnumNotInUse},
+		{name: "attached", attach: true, wantState: elbv2types.TargetHealthStateEnumHealthy},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newResolverBackedClient(t, &placementResolver{
+				subnetAZ:  map[string]string{"subnet-a": "us-east-1c", "subnet-b": "us-east-1f"},
+				subnetVPC: map[string]string{"subnet-a": "vpc-1", "subnet-b": "vpc-1"},
+			})
+
+			tg, err := client.CreateTargetGroup(t.Context(), &elbv2sdk.CreateTargetGroupInput{
+				Name: aws.String("tg-niu"), Protocol: elbv2types.ProtocolEnumHttp, Port: aws.Int32(80),
+				VpcId: aws.String("vpc-1"), TargetType: elbv2types.TargetTypeEnumIp,
+			})
+			require.NoError(t, err)
+
+			tgArn := tg.TargetGroups[0].TargetGroupArn
+			if tt.attach {
+				lb, lbErr := client.CreateLoadBalancer(t.Context(), &elbv2sdk.CreateLoadBalancerInput{
+					Name: aws.String("lb-niu"), Subnets: []string{"subnet-a", "subnet-b"},
+				})
+				require.NoError(t, lbErr)
+				_, err = client.CreateListener(t.Context(), &elbv2sdk.CreateListenerInput{
+					LoadBalancerArn: lb.LoadBalancers[0].LoadBalancerArn,
+					Protocol:        elbv2types.ProtocolEnumHttp,
+					Port:            aws.Int32(80),
+					DefaultActions: []elbv2types.Action{{
+						Type: elbv2types.ActionTypeEnumForward, TargetGroupArn: tgArn,
+					}},
+				})
+				require.NoError(t, err)
+			}
+
+			_, err = client.RegisterTargets(t.Context(), &elbv2sdk.RegisterTargetsInput{
+				TargetGroupArn: tgArn,
+				Targets:        []elbv2types.TargetDescription{{Id: aws.String("10.0.0.5")}},
+			})
+			require.NoError(t, err)
+
+			health, err := client.DescribeTargetHealth(
+				t.Context(),
+				&elbv2sdk.DescribeTargetHealthInput{TargetGroupArn: tgArn},
+			)
+			require.NoError(t, err)
+			require.Len(t, health.TargetHealthDescriptions, 1)
+
+			th := health.TargetHealthDescriptions[0].TargetHealth
+			if tt.wantState == elbv2types.TargetHealthStateEnumHealthy {
+				assert.Contains(t, []elbv2types.TargetHealthStateEnum{
+					elbv2types.TargetHealthStateEnumHealthy, elbv2types.TargetHealthStateEnumInitial,
+				}, th.State)
+
+				return
+			}
+
+			assert.Equal(t, tt.wantState, th.State)
+			assert.Equal(t, tt.wantReason, th.Reason)
+		})
+	}
+}
+
+func TestCreateLoadBalancerTwoZoneMinimum(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		lbType  elbv2types.LoadBalancerTypeEnum
+		subnets []string
+		wantErr bool
+	}{
+		{
+			name:    "alb one subnet",
+			lbType:  elbv2types.LoadBalancerTypeEnumApplication,
+			subnets: []string{"subnet-a"},
+			wantErr: true,
+		},
+		{
+			name:    "alb same zone",
+			lbType:  elbv2types.LoadBalancerTypeEnumApplication,
+			subnets: []string{"subnet-a", "subnet-c"},
+			wantErr: true,
+		},
+		{
+			name:    "alb two zones",
+			lbType:  elbv2types.LoadBalancerTypeEnumApplication,
+			subnets: []string{"subnet-a", "subnet-b"},
+		},
+		{name: "nlb one subnet", lbType: elbv2types.LoadBalancerTypeEnumNetwork, subnets: []string{"subnet-a"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newResolverBackedClient(t, &placementResolver{
+				subnetAZ: map[string]string{
+					"subnet-a": "us-east-1c",
+					"subnet-b": "us-east-1f",
+					"subnet-c": "us-east-1c",
+				},
+				subnetVPC: map[string]string{"subnet-a": "vpc-1", "subnet-b": "vpc-1", "subnet-c": "vpc-1"},
+			})
+
+			_, err := client.CreateLoadBalancer(t.Context(), &elbv2sdk.CreateLoadBalancerInput{
+				Name: aws.String("lb-zones"), Type: tt.lbType, Subnets: tt.subnets,
+			})
+			if tt.wantErr {
+				require.ErrorContains(t, err, "InvalidConfigurationRequest")
 
 				return
 			}

@@ -1,6 +1,5 @@
 ---
-items_still_open:
-  - "SendEmail/SendBulkEmail tenant-association mismatch error code is not published (checked API_SendEmail.html and the sesv2 SDK docs: TenantName says only that the send succeeds when all referenced resources are associated with the tenant; the modeled errors are BadRequestException, NotFoundException, AccountSuspendedException, MailFromDomainNotVerifiedException, MessageRejected, SendingPausedException, LimitExceededException and TooManyRequestsException); BadRequestException is used"
+items_still_open: []
 structural_gaps:
   - "GetDeliverabilityTestReport OverallPlacement (required output) is never emitted: its Inbox/Spam/Dkim/Spf percentages are results of real seed-mailbox placement tests across ISPs, which this backend cannot run; synthesizing them would be fabricated data."
   - "SendEmail/SendBulkEmail sending-authorization policy evaluation for identity ARNs of OTHER accounts, and FeedbackForwardingEmailAddress bounce/complaint feedback: there is no second account whose identity policies could be evaluated and no real delivery to bounce. EndpointId and same-account identity ARNs are validated (TestSendEmail_EndpointAndIdentityARNs)."
@@ -945,3 +944,4 @@ GetEmailIdentity no longer emits EmailIdentity (not on GetEmailIdentityOutput).
 ## Emulator choices where the vendor is silent
 
 - ListContacts Filter.FilteredStatus without a TopicFilter is not applied: the SDK does not say what it filters against. With both set it matches the topic preference, falling back to the topic default only when UseDefaultIfPreferenceUnavailable is true; that fallback and the status-alone case are from the SDK prose, not observed AWS.
+- SendEmail/SendBulkEmail tenant-association mismatch returns BadRequestException: API_SendEmail.html TenantName only says the send succeeds when all referenced resources are associated with the tenant, and names no specific error code.

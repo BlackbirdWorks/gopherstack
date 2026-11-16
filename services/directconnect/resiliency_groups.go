@@ -416,12 +416,20 @@ func (b *InMemoryBackend) resumeResiliencyTransitionsLocked() {
 	}
 }
 
-// UpdateConnectionsBillingMode sets the billing mode on every listed connection, all or nothing.
-func (b *InMemoryBackend) UpdateConnectionsBillingMode(mode string, connectionIDs []string) ([]*Connection, error) {
+// validateRequestBillingMode checks types.RequestBillingMode (SDK enums.go).
+func validateRequestBillingMode(mode string) error {
 	switch mode {
 	case "PayAsYouGo", "FlatRateTier1", "FlatRateTier2", "FlatRateTier3", "FlatRateTier4", "FlatRateTier5":
+		return nil
 	default:
-		return nil, clientError("Invalid billingMode " + mode)
+		return clientError("Invalid billingMode " + mode)
+	}
+}
+
+// UpdateConnectionsBillingMode sets the billing mode on every listed connection, all or nothing.
+func (b *InMemoryBackend) UpdateConnectionsBillingMode(mode string, connectionIDs []string) ([]*Connection, error) {
+	if err := validateRequestBillingMode(mode); err != nil {
+		return nil, err
 	}
 
 	if len(connectionIDs) == 0 || len(connectionIDs) > maxBillingModeConnections {

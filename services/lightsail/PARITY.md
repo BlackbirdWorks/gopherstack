@@ -95,8 +95,7 @@ families:
   profile: {status: ok, note: "GetProfile (profile.go): Lightsailor by default; LightsailPartner with partner {tierName, status, enrolledAt epoch-seconds} once InMemoryBackend.SetPartnerProfile seeds enrollment (no Lightsail API enrolls an account). Persisted in backendSnapshot.partner, cleared by Reset."}
   misc: {status: partial, note: "2 ops, tagging_vpc_misc.go. GetActiveNames is fully real (backed directly by the activeNames global-uniqueness index every other family maintains). GetCostEstimate (tagging_vpc_misc.go:729) deliberately returns a real, well-formed, EMPTY cost-estimate response after existence validation -- a real cost estimate needs real usage-based billing logic this emulator has no grounds to fabricate, disclosed at the call site."}
 gaps: []
-items_still_open:
-  - "InstanceState and RelationalDatabaseState values are not published: checked API_InstanceState.html (names only running and pending, no code table), API_RelationalDatabase.html (state is a free string) and the AWS CLI references get-instance-state, get-instance, get-relational-database; the consts.go values (EC2-style instance codes, RDS-style database states) remain unconfirmed conventions"
+items_still_open: []
 structural_gaps:
   - "5 of 8 wire exceptions (AccessDenied/AccountSetupInProgress/OperationFailure/RegionSetupInProgress/Unauthenticated) are classified in errors.go but never raised: each needs a permission or account/region provisioning-state model this backend lacks."
   - "RelationalDatabase.PendingMaintenanceActions is never set: these are raised by AWS-initiated engine maintenance, which has no analogue here (user-requested changes surface as PendingModifiedValues)."
@@ -1591,3 +1590,7 @@ CreateInstancesFromSnapshot defaulted IpAddressType to empty instead of dualstac
 
 ## Primary-source checks (2026-11-13)
 - lightsail: API_InstanceState.html confirms code is an integer and name is a string (running or pending); API_RelationalDatabase.html describes state as a free string.
+
+## Emulator choices where the vendor is silent
+
+- InstanceState and RelationalDatabaseState code tables are not published (API_InstanceState.html names only running and pending; API_RelationalDatabase.html state is a free string; CLI references checked); consts.go uses EC2-style instance codes and RDS-style database states.

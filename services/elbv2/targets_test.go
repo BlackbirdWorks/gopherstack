@@ -339,6 +339,7 @@ func TestDescribeTargetHealthUnregisteredTargets(t *testing.T) {
 
 			h := newTestHandler(t)
 			tgArn := mustCreateTG(t, h, "unreg-tg")
+			mustCreateListener(t, h, mustCreateLB(t, h, "unreg-lb"), tgArn)
 
 			// Register only "i-registered" for the mixed test case.
 			if len(tc.wantRegistered) > 0 {
@@ -391,6 +392,7 @@ func TestRegisterTargets_InitialHealthState(t *testing.T) {
 
 	h := newBatch1Handler(t)
 	tgArn := b1CreateTG(t, h, "hc-initial-tg")
+	b1CreateListener(t, h, b1CreateLB(t, h, "hc-initial-lb"), tgArn)
 
 	rec := doELBv2(t, h, url.Values{
 		"Action":                {"RegisterTargets"},
@@ -438,6 +440,7 @@ func TestTargetHealth_SetHealthy(t *testing.T) {
 	h := elbv2.NewHandler(b)
 
 	tgArn := b1CreateTG(t, h, "hc-set-healthy")
+	b1CreateListener(t, h, b1CreateLB(t, h, "hc-set-healthy-lb"), tgArn)
 
 	rec := doELBv2(t, h, url.Values{
 		"Action":                {"RegisterTargets"},
@@ -525,6 +528,7 @@ func TestTargetHealth_MultipleDifferentStates(t *testing.T) {
 	h := elbv2.NewHandler(b)
 
 	tgArn := b1CreateTG(t, h, "hc-multi-state")
+	b1CreateListener(t, h, b1CreateLB(t, h, "hc-multi-state-lb"), tgArn)
 
 	doELBv2(t, h, url.Values{
 		"Action":                {"RegisterTargets"},

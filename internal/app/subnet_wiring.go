@@ -201,7 +201,7 @@ func wireSubnetLookups(byName map[string]service.Registerable) {
 	if h, hok := byName["NetworkFirewall"].(*networkfirewallbackend.Handler); hok {
 		h.SetSubnetResolver(adapter)
 		h.SetTransitGatewayResolver(adapter)
-		h.SetNetworkResolver(adapter)
+		h.SetNetworkResolver(firewallReferences(adapter, byName))
 	}
 
 	if h, hok := byName["GlobalAccelerator"].(*globalacceleratorbackend.Handler); hok {

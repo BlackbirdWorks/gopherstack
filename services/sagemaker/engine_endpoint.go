@@ -121,8 +121,16 @@ func (b *InMemoryBackend) runProvision(ctx context.Context, eng *engineState, re
 	ed := &endpointDeployment{variants: make(map[string]*modelDeployment, len(plans))}
 
 	for _, p := range plans {
+		resolved, rerr := b.resolveModelPackages(region, p.model)
+		if rerr != nil {
+			ed.stop()
+			b.failEndpoint(region, name, rerr.Error(), prev)
+
+			return
+		}
+
 		md, serr := eng.startModel(ctx, modelStart{
-			model: p.model, region: region, label: name + "-" + p.name, variant: p.name,
+			model: resolved, region: region, label: name + "-" + p.name, variant: p.name,
 			logGroup: "/aws/sagemaker/Endpoints/" + name, logStreamBase: p.name, startupTimeout: p.timeout,
 		})
 		if serr != nil {

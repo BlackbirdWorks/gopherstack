@@ -244,6 +244,7 @@ func (b *InMemoryBackend) DescribeContainerAssociation(
 	return &DescribeContainerAssociationOutput{
 		ContainerAssociationOutput: r.output(now),
 		LastUpdatedTime:            epoch(r.LastUpdated),
+		ResolvedCidrCount:          toInt32(b.containerCIDRs(r)),
 	}, nil
 }
 

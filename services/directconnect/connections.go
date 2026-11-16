@@ -42,6 +42,12 @@ func (b *InMemoryBackend) CreateConnection(req *createConnectionRequest) (*Conne
 		return nil, clientError("Invalid bandwidth " + req.Bandwidth + dedicatedBandwidthHint)
 	}
 
+	if req.BillingMode != "" {
+		if err := validateRequestBillingMode(req.BillingMode); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := validateNewTags(tagWireKeys(req.Tags)); err != nil {
 		return nil, err
 	}
@@ -68,6 +74,7 @@ func (b *InMemoryBackend) CreateConnection(req *createConnectionRequest) (*Conne
 		Region:          b.region,
 		LagID:           req.LagID,
 		ProviderName:    req.ProviderName,
+		BillingMode:     req.BillingMode,
 		OwnerAccount:    b.accountID,
 		MacSecCapable:   ptrconv.Bool(req.RequestMACSec),
 		Tags:            t,
