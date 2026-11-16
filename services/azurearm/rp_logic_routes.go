@@ -202,6 +202,18 @@ func logicHandlers() map[string]logicHandlerFunc {
 		"POST:runs/*/cancel":                   (*Handler).logicCancelRun,
 		"GET:runs/*/actions":                   (*Handler).logicListActions,
 		"GET:runs/*/actions/*":                 (*Handler).logicGetAction,
+		"GET:runs/*/actions/*/repetitions": func(h *Handler, q logicReq) error {
+			return h.logicListRepetitions(q, false)
+		},
+		"GET:runs/*/actions/*/repetitions/*": func(h *Handler, q logicReq) error {
+			return h.logicGetRepetition(q, false)
+		},
+		"GET:runs/*/actions/*/scoperepetitions": func(h *Handler, q logicReq) error {
+			return h.logicListRepetitions(q, true)
+		},
+		"GET:runs/*/actions/*/scoperepetitions/*": func(h *Handler, q logicReq) error {
+			return h.logicGetRepetition(q, true)
+		},
 	}
 }
 

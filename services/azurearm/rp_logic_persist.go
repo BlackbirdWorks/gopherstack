@@ -42,6 +42,7 @@ func (p *LogicProvider) restore(snap *logicSnapshot) {
 
 	p.timers = map[string]gcpscale.Timer{}
 	p.wf = map[string]*logicWorkflow{}
+	p.queue = map[string][]*logicQueued{}
 
 	if snap != nil {
 		now := p.clock.Now().UTC()
@@ -70,7 +71,7 @@ func prepareRestoredWorkflow(w *logicWorkflow, now time.Time) {
 			r.Actions = map[string]*logicActionRec{}
 		}
 
-		if r.Status != logicStRunning {
+		if r.Status != logicStRunning && r.Status != logicStWaiting {
 			continue
 		}
 

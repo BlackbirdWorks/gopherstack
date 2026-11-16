@@ -27,6 +27,7 @@ const (
 	logicSegsInvoke        = 5
 	contentTriggerSegs     = 5
 	contentDeepSegs        = 7
+	contentRepSegs         = 9
 )
 
 func validCallbackKeyType(k string) bool {
@@ -520,6 +521,9 @@ func (w *logicWorkflow) lookupContent(segs []string) (logicContent, bool) {
 		return w.runTriggerContent(segs[2], kind)
 	case segs[1] == logicSegRuns && len(segs) == contentDeepSegs && segs[3] == logicKActions:
 		return w.actionContent(segs[2], segs[4], kind)
+	case segs[1] == logicSegRuns && len(segs) == contentRepSegs && segs[3] == logicKActions &&
+		segs[5] == logicSegRepetitions:
+		return w.repetitionContent(segs[2], segs[4], segs[6], kind)
 	case segs[1] == logicSegTriggers && len(segs) == contentDeepSegs:
 		return w.historyContent(segs[2], segs[4], kind)
 	}

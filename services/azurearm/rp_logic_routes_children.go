@@ -204,7 +204,7 @@ func (h *Handler) logicCancelRun(q logicReq) error {
 		return h.writeAPIError(q.c, err)
 	}
 
-	if l, ok := live.(*logicLive); ok {
+	if l, ok := live.(*logicLive); ok && l != nil {
 		logicCancelRun(l)
 	}
 

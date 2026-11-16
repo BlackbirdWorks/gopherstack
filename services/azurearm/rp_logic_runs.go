@@ -78,6 +78,15 @@ func (w *logicWorkflow) versionRef(r *logicRunRec) map[string]any {
 }
 
 func (w *logicWorkflow) actionBody(r *logicRunRec, a *logicActionRec, base string) map[string]any {
+	prefix := "/workflows/" + w.FlowID + "/runs/" + r.Name + "/actions/" + a.Name + "/contents/"
+
+	return map[string]any{
+		logicFieldID: w.armID() + "/runs/" + r.Name + "/actions/" + a.Name, fieldName: a.Name,
+		fieldType: logicRunType + "/actions", fieldProperties: w.actionProps(r, a, base, prefix),
+	}
+}
+
+func (w *logicWorkflow) actionProps(r *logicRunRec, a *logicActionRec, base, prefix string) map[string]any {
 	props := map[string]any{
 		logicKStartTime:  logicTime(a.Start),
 		logicKStatus:     a.Status,
@@ -100,8 +109,6 @@ func (w *logicWorkflow) actionBody(r *logicRunRec, a *logicActionRec, base strin
 		props[logicKError] = a.Error
 	}
 
-	prefix := "/workflows/" + w.FlowID + "/runs/" + r.Name + "/actions/" + a.Name + "/contents/"
-
 	if a.Inputs.Set {
 		props["inputsLink"] = w.contentLink(base, prefix+"ActionInputs", a.Inputs.Value)
 	}
@@ -110,10 +117,7 @@ func (w *logicWorkflow) actionBody(r *logicRunRec, a *logicActionRec, base strin
 		props["outputsLink"] = w.contentLink(base, prefix+"ActionOutputs", a.Outputs.Value)
 	}
 
-	return map[string]any{
-		logicFieldID: w.armID() + "/runs/" + r.Name + "/actions/" + a.Name, fieldName: a.Name,
-		fieldType: logicRunType + "/actions", fieldProperties: props,
-	}
+	return props
 }
 
 func orStr(a, b string) string {
