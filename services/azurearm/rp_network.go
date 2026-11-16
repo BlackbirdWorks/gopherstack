@@ -532,7 +532,7 @@ func (p *NetworkProvider) getLocked(id ResourceID) (map[string]any, error) {
 	}
 
 	parent, ok := p.top(top, id.ResourceGroup, id.Names[0])
-	if !ok {
+	if !ok || hiddenNIC(parent) {
 		return nil, ErrResourceNotFound
 	}
 
@@ -559,7 +559,7 @@ func (p *NetworkProvider) listLocked(id ResourceID) ([]map[string]any, error) {
 		out := []map[string]any{}
 
 		for _, it := range p.ofType(top) {
-			if id.ResourceGroup != "" && !resourceGroupsEqual(it.RG, id.ResourceGroup) {
+			if (id.ResourceGroup != "" && !resourceGroupsEqual(it.RG, id.ResourceGroup)) || hiddenNIC(it) {
 				continue
 			}
 

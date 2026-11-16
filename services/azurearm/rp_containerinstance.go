@@ -35,6 +35,7 @@ type storedACIGroup struct {
 	Props         aciPropsWire      `json:"props"`
 	Zones         []string          `json:"zones,omitempty"`
 	Identity      resourceIdentity  `json:"identity"`
+	Resume        bool              `json:"resume,omitempty"`
 }
 
 // ContainerInstanceProvider implements ResourceProvider for Microsoft.ContainerInstance container groups. ARM
@@ -105,6 +106,10 @@ func (p *ContainerInstanceProvider) Put(_ context.Context, id ResourceID, body m
 	props, err := parseACIProps(body[fieldProperties])
 	if err != nil {
 		return nil, err
+	}
+
+	if props.Priority == aciPrioritySpot && len(zones) > 0 {
+		return nil, aciBad("Spot container groups cannot be pinned to an availability zone")
 	}
 
 	if err = p.checkSubnets(props.SubnetIDs); err != nil {
@@ -528,6 +533,10 @@ func (p *ContainerInstanceProvider) bodyOf(id ResourceID, rec *storedACIGroup) m
 
 	if len(pp.Volumes) == 0 {
 		delete(props, "volumes")
+	}
+
+	if pp.Priority != "" {
+		props["priority"] = pp.Priority
 	}
 
 	p.addExtBody(props, rec, view, live)

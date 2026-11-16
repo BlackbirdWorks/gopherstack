@@ -24,7 +24,51 @@ const (
 	aciExecMaxRead = 4096
 )
 
-var errACIExecUnsupported = errors.New("the container runtime cannot stream a command's output")
+var (
+	errACIExecUnsupported = errors.New("the container runtime cannot stream a command's output")
+	errACITerminalSize    = errors.New("terminalSize rows and cols must both be positive")
+)
+
+// ACITerminalSize is the terminal an exec request asked for; the zero value means no terminal.
+type ACITerminalSize struct{ Rows, Cols uint }
+
+func aciTerminalOf(body map[string]any) (ACITerminalSize, error) {
+	raw, ok := body["terminalSize"].(map[string]any)
+	if !ok {
+		return ACITerminalSize{}, nil
+	}
+
+	rows, cols := intOf(raw["rows"]), intOf(raw["cols"])
+	if rows <= 0 || cols <= 0 {
+		return ACITerminalSize{}, errACITerminalSize
+	}
+
+	return ACITerminalSize{Rows: uint(rows), Cols: uint(cols)}, nil
+}
+
+// ACIStdinExecRuntime is implemented by runtimes that can relay standard input to an exec'd command.
+type ACIStdinExecRuntime interface {
+	ExecStdin(
+		ctx context.Context, id string, cmd []string, stdin io.Reader, out io.Writer, term ACITerminalSize,
+	) (int, error)
+}
+
+// ExecStdin runs cmd in the container with stdin relayed and a terminal when term is set.
+func (d dockerACIRuntime) ExecStdin(
+	ctx context.Context, id string, cmd []string, stdin io.Reader, out io.Writer, term ACITerminalSize,
+) (int, error) {
+	x, ok := d.r.(container.StdinExecer)
+	if !ok {
+		return 0, errACIExecUnsupported
+	}
+
+	code, err := x.ExecStdin(ctx, id, cmd, stdin, out, term.Rows, term.Cols)
+	if err != nil {
+		return 0, fmt.Errorf("exec in container: %w", err)
+	}
+
+	return code, nil
+}
 
 // ACIStreamExecRuntime is implemented by runtimes that can run a command and stream its output.
 type ACIStreamExecRuntime interface {
@@ -75,6 +119,7 @@ type aciExecSession struct {
 	container string
 	password  string
 	command   string
+	term      ACITerminalSize
 	attach    bool
 }
 
@@ -126,7 +171,7 @@ func (s *aciSessions) take(token string) (*aciExecSession, bool) {
 // NewExecSession registers an exec or attach session for a started container and returns the websocket URI and the
 // password the client sends first (armcontainerinstance ContainerExecResponse / ContainerAttachResponse).
 func (p *ContainerInstanceProvider) NewExecSession(
-	host string, id ResourceID, containerName, command string, attach bool,
+	host string, id ResourceID, containerName, command string, attach bool, term ACITerminalSize,
 ) (string, string, error) {
 	p.mu.RLock("NewExecSession")
 	rec, ok := p.group(id.ResourceGroup, id.LeafName())
@@ -147,15 +192,15 @@ func (p *ContainerInstanceProvider) NewExecSession(
 	password := hex.EncodeToString(pw[:])
 
 	token := p.sessions.add(&aciExecSession{
-		key: key, container: containerName, password: password, command: command, attach: attach,
+		key: key, container: containerName, password: password, command: command, attach: attach, term: term,
 	})
 
 	return "wss://" + host + aciExecPrefix + token, password, nil
 }
 
 // ServeExec upgrades /_aci/exec/{token} to a websocket. Exec clients send the password first, attach clients send it as
-// the Authorization header; the command's combined
-// output is then streamed as binary frames and the socket closes with the command. Standard input is not relayed.
+// the Authorization header; the command's combined output is then streamed as binary frames and the socket closes
+// with the command. Frames the client sends after that are the command's standard input.
 func (p *ContainerInstanceProvider) ServeExec(rw http.ResponseWriter, r *http.Request) bool {
 	token, ok := strings.CutPrefix(r.URL.Path, aciExecPrefix)
 	if !ok {
@@ -237,6 +282,14 @@ func (p *ContainerInstanceProvider) streamSession(ctx context.Context, conn *web
 		return
 	}
 
+	cmd := []string{"/bin/sh", "-c", sess.command}
+
+	if sx, ok := rt.(ACIStdinExecRuntime); ok {
+		p.streamWithStdin(ctx, conn, sx, id, cmd, sess.term)
+
+		return
+	}
+
 	x, ok := rt.(ACIStreamExecRuntime)
 	if !ok {
 		_ = conn.WriteMessage(websocket.TextMessage, []byte(errACIExecUnsupported.Error()))
@@ -244,10 +297,44 @@ func (p *ContainerInstanceProvider) streamSession(ctx context.Context, conn *web
 		return
 	}
 
-	if _, xerr := x.ExecStream(ctx, id, []string{"/bin/sh", "-c", sess.command}, wsWriter{conn}); xerr != nil {
+	if _, xerr := x.ExecStream(ctx, id, cmd, wsWriter{conn}); xerr != nil {
 		_ = conn.WriteMessage(websocket.TextMessage, []byte(xerr.Error()))
 	}
 
 	_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
 		time.Now().Add(time.Second))
+}
+
+func (p *ContainerInstanceProvider) streamWithStdin(
+	ctx context.Context, conn *websocket.Conn, x ACIStdinExecRuntime, id string, cmd []string, term ACITerminalSize,
+) {
+	pr, pw := io.Pipe()
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		defer pw.Close()
+
+		for {
+			_, msg, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+
+			if _, werr := pw.Write(msg); werr != nil {
+				return
+			}
+		}
+	}()
+
+	if _, xerr := x.ExecStdin(ctx, id, cmd, pr, wsWriter{conn}, term); xerr != nil {
+		_ = conn.WriteMessage(websocket.TextMessage, []byte(xerr.Error()))
+	}
+
+	_ = pr.Close()
+	_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+		time.Now().Add(time.Second))
+	_ = conn.Close()
+
+	<-done
 }

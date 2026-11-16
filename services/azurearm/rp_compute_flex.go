@@ -3,6 +3,7 @@ package azurearm
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -40,6 +41,10 @@ func vmssModeOf(body map[string]any, old *cmpRes) (string, error) {
 
 func (p *ComputeProvider) flexNormalize(r *cmpRes, old *cmpRes, props map[string]any, capacity int) error {
 	props[cmpFieldOrchMode] = modeFlexible
+
+	if err := normalizeScaleInPolicy(props); err != nil {
+		return err
+	}
 
 	fd := flexDefaultFD
 	if v, set := props[cmpFieldFD]; set {
@@ -154,8 +159,13 @@ func (p *ComputeProvider) flexReconcile(r *cmpRes, capacity int) error {
 	managed := p.vmssManaged(r)
 
 	for len(managed) > capacity {
-		p.removeVM(managed[len(managed)-1])
-		managed = managed[:len(managed)-1]
+		drop := len(managed) - 1
+		if vmssScaleInRule(r) == scaleInOldest {
+			drop = 0
+		}
+
+		p.removeVM(managed[drop])
+		managed = slices.Delete(managed, drop, drop+1)
 	}
 
 	var created []*cmpRes
@@ -457,7 +467,7 @@ func (p *ComputeProvider) flexInstanceBody(r, vm *cmpRes) map[string]any {
 		cmpFieldID: id.ARMID(), fieldName: vm.Name, fieldType: namespaceMicrosoftCompute + "/" + cmpVMSS + "/" + cmpVMs,
 		fieldLocation: vm.Location, cmpFieldInstance: vm.Name,
 		fieldProperties: map[string]any{
-			cmpFieldVMID: vm.UID, fieldProvisioningState: provisioningStateSucceeded, "latestModelApplied": true,
+			cmpFieldVMID: vm.UID, fieldProvisioningState: provisioningStateSucceeded, cmpFieldLatestModel: true,
 		},
 	}
 }

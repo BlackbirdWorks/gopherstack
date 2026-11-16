@@ -801,6 +801,13 @@ func (e *ACIEngine) Active(key string) bool {
 	return r != nil && !r.stopped && r.failure == ""
 }
 
+// Resumable reports whether the group is running or starting, so a restore should deploy it again.
+func (e *ACIEngine) Resumable(key string) bool {
+	v, ok := e.View(key)
+
+	return ok && (v.State == aciStateRunning || v.State == aciStatePending)
+}
+
 // Logs returns the container's logs, limited to the last tail lines when tail is positive.
 func (e *ACIEngine) Logs(ctx context.Context, key, name string, tail int) (string, error) {
 	e.mu.RLock("Logs")

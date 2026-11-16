@@ -238,3 +238,34 @@ func (f *fakeACIRuntime) ExecStream(_ context.Context, id string, cmd []string, 
 
 	return 0, err
 }
+
+func (f *fakeACIRuntime) ExecStdin(
+	ctx context.Context, id string, cmd []string, stdin io.Reader, out io.Writer, term azurearm.ACITerminalSize,
+) (int, error) {
+	if _, err := f.ExecStream(ctx, id, cmd, out); err != nil {
+		return 0, err
+	}
+
+	if term.Rows > 0 {
+		fmt.Fprintf(out, " tty=%dx%d", term.Rows, term.Cols)
+	}
+
+	if !strings.HasSuffix(strings.Join(cmd, " "), "cat") {
+		return 0, nil
+	}
+
+	buf := make([]byte, 64)
+
+	var err error
+
+	for err == nil {
+		var n int
+
+		n, err = stdin.Read(buf)
+		if n > 0 {
+			_, _ = io.WriteString(out, "stdin:"+string(buf[:n]))
+		}
+	}
+
+	return 0, nil
+}

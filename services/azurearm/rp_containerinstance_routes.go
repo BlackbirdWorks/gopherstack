@@ -161,7 +161,10 @@ func (h *Handler) handleACIExec(c *echo.Context, segs []string) error {
 
 	attach := strings.EqualFold(segs[len(segs)-1], "attach")
 
-	var command string
+	var (
+		command string
+		term    ACITerminalSize
+	)
 
 	if !attach {
 		body, err := decodeJSONBody(c.Request())
@@ -172,9 +175,14 @@ func (h *Handler) handleACIExec(c *echo.Context, segs []string) error {
 		if command = strOf(body, "command"); command == "" {
 			return h.writeError(c, http.StatusBadRequest, aciCodeInvalid, "The property 'command' is required.")
 		}
+
+		var terr error
+		if term, terr = aciTerminalOf(body); terr != nil {
+			return h.writeError(c, http.StatusBadRequest, aciCodeInvalid, terr.Error())
+		}
 	}
 
-	uri, password, err := p.NewExecSession(c.Request().Host, id, segs[aciContainerIdx], command, attach)
+	uri, password, err := p.NewExecSession(c.Request().Host, id, segs[aciContainerIdx], command, attach, term)
 	if err != nil {
 		return h.writeAPIError(c, err)
 	}

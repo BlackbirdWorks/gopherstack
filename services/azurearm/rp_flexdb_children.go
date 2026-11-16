@@ -448,6 +448,40 @@ func (p *FlexDBProvider) CheckName(_ context.Context, name, typ string) map[stri
 	return out
 }
 
+// SubnetUsage answers checkVirtualNetworkSubnetUsage: for each subnet of the virtual network delegated to the engine,
+// the number of servers whose delegatedSubnetResourceId is that subnet.
+func (p *FlexDBProvider) SubnetUsage(sub, location, vnetID string) (map[string]any, error) {
+	if p.network == nil {
+		return nil, flexInvalid("The virtual network '%s' was not found.", vnetID)
+	}
+
+	subnets, ok := p.network.delegatedSubnetIDs(vnetID, p.flavor.subnetService)
+	if !ok {
+		return nil, flexInvalid("The virtual network '%s' was not found.", vnetID)
+	}
+
+	p.mu.RLock("SubnetUsage")
+	defer p.mu.RUnlock()
+
+	usage := make([]any, 0, len(subnets))
+
+	for _, id := range subnets {
+		n := 0
+
+		for _, r := range p.res {
+			if strings.EqualFold(r.Subnet, id) {
+				n++
+			}
+		}
+
+		usage = append(usage, map[string]any{"subnetName": id[strings.LastIndex(id, "/")+1:], "usage": n})
+	}
+
+	return map[string]any{
+		"delegatedSubnetsUsage": usage, fieldLocation: location, "subscriptionId": sub,
+	}, nil
+}
+
 // Capabilities returns the location capability list in the flavor's v1 shape.
 func (p *FlexDBProvider) Capabilities() []map[string]any {
 	if p.flavor.kind == flexKindPostgres {

@@ -56,6 +56,8 @@ func (p *NetworkProvider) claimNICs(vmID, location string, refs []nicAttachment)
 		p.touch(nic)
 	}
 
+	p.reconcileLocked()
+
 	return nil
 }
 

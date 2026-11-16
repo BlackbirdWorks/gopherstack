@@ -142,6 +142,12 @@ var flexRoutes = []armRoute{
 	},
 	{
 		match: func(segs []string, r *http.Request) bool {
+			return isFlexSubOp(segs, r, flexLocSegs, "checkVirtualNetworkSubnetUsage", http.MethodPost)
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleFlexSubnetUsage(c, segs) },
+	},
+	{
+		match: func(segs []string, r *http.Request) bool {
 			return isFlexSubOp(segs, r, flexLocSegs, "capabilities", http.MethodGet)
 		},
 		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleFlexCapabilities(c, segs) },
@@ -368,6 +374,34 @@ func (h *Handler) handleFlexCheckName(c *echo.Context, segs []string) error {
 	typ, _ := flexStr(body, fieldType)
 
 	return h.writeJSON(c, http.StatusOK, p.CheckName(c.Request().Context(), name, typ))
+}
+
+func (h *Handler) handleFlexSubnetUsage(c *echo.Context, segs []string) error {
+	p, ok := h.flexProviderFor(segs[flexSubNsIdx])
+	if !ok {
+		return h.writeNotFound(c)
+	}
+
+	body, err := decodeJSONBody(c.Request())
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	vnet, _ := flexStr(body, "virtualNetworkArmResourceId")
+	if mysql, set := flexStr(body, "virtualNetworkResourceId"); set {
+		vnet = mysql
+	}
+
+	if vnet == "" {
+		return h.writeAPIError(c, flexInvalid("The virtual network resource id is required."))
+	}
+
+	out, err := p.SubnetUsage(segs[1], segs[flexLocSegIdx+1], vnet)
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	return h.writeJSON(c, http.StatusOK, out)
 }
 
 func (h *Handler) handleFlexCapabilities(c *echo.Context, segs []string) error {

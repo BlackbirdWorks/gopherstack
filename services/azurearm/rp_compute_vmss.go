@@ -2,12 +2,10 @@ package azurearm
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
-	"reflect"
 	"strconv"
 	"strings"
-
-	"github.com/google/uuid"
 )
 
 const (
@@ -36,10 +34,16 @@ const (
 
 // cmpInstance is one virtual machine of a uniform scale set.
 type cmpInstance struct {
-	ID    string `json:"id"`
-	VMID  string `json:"vmId"`
-	Power string `json:"power"`
-	Model int    `json:"model"`
+	Tags           map[string]string `json:"tags,omitempty"`
+	Props          map[string]any    `json:"props,omitempty"`
+	ID             string            `json:"id"`
+	VMID           string            `json:"vmId"`
+	Power          string            `json:"power"`
+	Zone           string            `json:"zone,omitempty"`
+	NICs           []string          `json:"nics,omitempty"`
+	Model          int               `json:"model"`
+	ProtectScaleIn bool              `json:"protectScaleIn,omitempty"`
+	ProtectActions bool              `json:"protectActions,omitempty"`
 }
 
 func (p *ComputeProvider) putVMSS(id ResourceID, body map[string]any) (*cmpRes, error) {
@@ -90,7 +94,11 @@ func (p *ComputeProvider) putVMSS(id ResourceID, body map[string]any) (*cmpRes, 
 	}
 
 	r.Props = props
-	vmssReconcile(r, old, capacity)
+
+	if err = p.vmssReconcile(r, old, capacity); err != nil {
+		return nil, err
+	}
+
 	p.items[cmpKey(cmpVMSS, r.RG, r.Name)] = r
 
 	return r, nil
@@ -168,7 +176,16 @@ func (p *ComputeProvider) vmssNormalize(r, old *cmpRes, props map[string]any) er
 	}
 
 	up["mode"] = pm
+
+	if err := normalizeRollingPolicy(up); err != nil {
+		return err
+	}
+
 	props[cmpFieldUpgrade] = up
+
+	if err := normalizeScaleInPolicy(props); err != nil {
+		return err
+	}
 
 	setDefault(props, "overprovision", true)
 	setDefault(props, "singlePlacementGroup", true)
@@ -305,42 +322,6 @@ func (p *ComputeProvider) vmssNetwork(r *cmpRes, profile map[string]any) error {
 	return nil
 }
 
-// vmssReconcile resizes the instance list to capacity and bumps the model version when the profile or size changed.
-func vmssReconcile(r, old *cmpRes, capacity int) {
-	model := 1
-	if old != nil {
-		model = atoiOr(old.Aux[auxModel], 1)
-
-		if !reflect.DeepEqual(old.Props[cmpFieldVMProfile], r.Props[cmpFieldVMProfile]) ||
-			strOf(old.SKU, fieldName) != strOf(r.SKU, fieldName) {
-			model++
-		}
-	}
-
-	r.Aux[auxModel] = strconv.Itoa(model)
-
-	if mode := strOf(mapOf(r.Props[cmpFieldUpgrade]), "mode"); mode != upgradeManual {
-		for _, in := range r.Instances {
-			in.Model = model
-		}
-	}
-
-	next := atoiOr(r.Aux[auxNextInstance], 0)
-
-	for len(r.Instances) < capacity {
-		r.Instances = append(r.Instances, &cmpInstance{
-			ID: strconv.Itoa(next), VMID: uuid.NewString(), Power: powerRunning, Model: model,
-		})
-		next++
-	}
-
-	if len(r.Instances) > capacity {
-		r.Instances = r.Instances[:capacity]
-	}
-
-	r.Aux[auxNextInstance] = strconv.Itoa(next)
-}
-
 func atoiOr(s string, def int) int {
 	if n, err := strconv.Atoi(s); err == nil {
 		return n
@@ -368,29 +349,49 @@ func vmssComputerName(r *cmpRes, in *cmpInstance) string {
 
 func (p *ComputeProvider) vmssInstanceBody(r *cmpRes, in *cmpInstance) map[string]any {
 	cur := atoiOr(r.Aux[auxModel], 1)
-	id := r.id()
-	id.Types = append(id.Types, cmpVMs)
-	id.Names = append(id.Names, in.ID)
 
-	return map[string]any{
-		cmpFieldID:       id.ARMID(),
+	props := map[string]any{
+		cmpFieldLatestModel: in.Model == cur, "modelDefinitionApplied": "VirtualMachineScaleSet",
+		cmpFieldVMID: in.VMID, fieldProvisioningState: provisioningStateSucceeded,
+		cmpFieldOSProfile: map[string]any{cmpFieldComputer: vmssComputerName(r, in)},
+		cmpFieldInstView: map[string]any{
+			cmpKeyStatuses: []any{
+				statusEntry("ProvisioningState/succeeded", "Provisioning succeeded", r.Created),
+				statusEntry("PowerState/"+in.Power, powerDisplay(in.Power), r.Created),
+			},
+		},
+		cmpFieldProtect: map[string]any{
+			"protectFromScaleIn": in.ProtectScaleIn, "protectFromScaleSetActions": in.ProtectActions,
+		},
+	}
+
+	maps.Copy(props, cloneProps(in.Props))
+
+	if nics := p.instanceNICBodies(r, in); len(nics) > 0 {
+		refs := make([]any, 0, len(nics))
+		for _, n := range nics {
+			refs = append(refs, map[string]any{cmpFieldID: n[netFieldID]})
+		}
+
+		props[cmpFieldNetwork] = map[string]any{cmpFieldNICs: refs}
+	}
+
+	out := map[string]any{
+		cmpFieldID:       vmssInstanceARMID(r, in),
 		fieldName:        r.Name + "_" + in.ID,
 		fieldType:        namespaceMicrosoftCompute + "/" + cmpVMSS + "/" + cmpVMs,
 		fieldLocation:    r.Location,
 		cmpFieldInstance: in.ID,
+		fieldTags:        tagsOrEmpty(in.Tags),
 		cmpFieldSKU:      map[string]any{fieldName: strOf(r.SKU, fieldName), cmpKeyTier: strOf(r.SKU, cmpKeyTier)},
-		fieldProperties: map[string]any{
-			"latestModelApplied": in.Model == cur, "modelDefinitionApplied": "VirtualMachineScaleSet",
-			cmpFieldVMID: in.VMID, fieldProvisioningState: provisioningStateSucceeded,
-			cmpFieldOSProfile: map[string]any{cmpFieldComputer: vmssComputerName(r, in)},
-			cmpFieldInstView: map[string]any{
-				cmpKeyStatuses: []any{
-					statusEntry("ProvisioningState/succeeded", "Provisioning succeeded", r.Created),
-					statusEntry("PowerState/"+in.Power, powerDisplay(in.Power), r.Created),
-				},
-			},
-		},
+		fieldProperties:  props,
 	}
+
+	if in.Zone != "" {
+		out[cmpFieldZones] = []any{in.Zone}
+	}
+
+	return out
 }
 
 func (r *cmpRes) instance(id string) (*cmpInstance, int) {
@@ -445,11 +446,12 @@ func (p *ComputeProvider) vmssInstanceDelete(r *cmpRes, id ResourceID) error {
 		return ErrResourceNotFound
 	}
 
-	_, idx := r.instance(id.Names[1])
+	in, idx := r.instance(id.Names[1])
 	if idx < 0 {
 		return ErrResourceNotFound
 	}
 
+	p.dropInstanceNICs(r, in)
 	r.Instances = append(r.Instances[:idx], r.Instances[idx+1:]...)
 	r.SKU[cmpFieldCapacity] = len(r.Instances)
 
@@ -486,15 +488,15 @@ func (p *ComputeProvider) VMSSAction(id ResourceID, action string, ids []string)
 		}
 	}
 
-	return vmssApply(r, strings.ToLower(action), targets)
+	return p.vmssApply(r, strings.ToLower(action), targets)
 }
 
-func vmssApply(r *cmpRes, action string, targets []*cmpInstance) error {
+func (p *ComputeProvider) vmssApply(r *cmpRes, action string, targets []*cmpInstance) error {
 	switch action {
 	case "manualupgrade":
-		for _, in := range targets {
-			in.Model = atoiOr(r.Aux[auxModel], 1)
-		}
+		return p.vmssManualUpgrade(r, targets)
+	case rollingActionOS, rollingActionExt:
+		return p.startRollingUpgrade(r)
 	case vmActionStart, vmActionRestart:
 		for _, in := range targets {
 			in.Power = powerRunning
@@ -511,6 +513,7 @@ func vmssApply(r *cmpRes, action string, targets []*cmpInstance) error {
 		drop := map[string]bool{}
 		for _, in := range targets {
 			drop[in.ID] = true
+			p.dropInstanceNICs(r, in)
 		}
 
 		kept := r.Instances[:0:0]

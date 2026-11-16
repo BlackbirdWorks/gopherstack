@@ -3,6 +3,8 @@ package azurearm_test
 import (
 	"testing"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerinstance/armcontainerinstance/v2"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -51,6 +53,56 @@ func TestACILocationReads(t *testing.T) {
 			require.NotEmpty(t, caps.Value)
 			assert.Equal(t, "containerGroups", *caps.Value[0].ResourceType)
 			assert.Positive(t, *caps.Value[0].Capabilities.MaxCPU)
+		})
+	}
+}
+
+func TestACIGroupResourceMaximum(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		wantCode string
+		cpu      float64
+		mem      float64
+		second   bool
+	}{
+		{name: "at maximum", cpu: 31, mem: 240},
+		{name: "cpu over", cpu: 32, mem: 4, wantCode: "InvalidRequestContent"},
+		{name: "memory over", cpu: 2, mem: 241, wantCode: "InvalidRequestContent"},
+		{name: "sum over", cpu: 20, mem: 100, second: true, wantCode: "InvalidRequestContent"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := newACIStack(t)
+			g := aciOpts{}.group()
+			c := g.Properties.Containers[0]
+			c.Properties.Resources.Requests = &armcontainerinstance.ResourceRequests{
+				CPU: new(tt.cpu), MemoryInGB: new(tt.mem),
+			}
+
+			if tt.second {
+				twin := *c
+				twin.Name = new("second")
+				g.Properties.Containers = append(g.Properties.Containers, &twin)
+			}
+
+			pl, err := s.factory.NewContainerGroupsClient().BeginCreateOrUpdate(t.Context(), "rg", "big", g, nil)
+			if err == nil {
+				_, err = pl.PollUntilDone(t.Context(), pollFast())
+			}
+
+			if tt.wantCode != "" {
+				require.Error(t, err)
+				assert.Equal(t, tt.wantCode, sdkErrCode(err))
+
+				return
+			}
+
+			require.NoError(t, err)
 		})
 	}
 }
