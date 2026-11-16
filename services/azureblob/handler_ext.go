@@ -5,7 +5,6 @@ import (
 	"encoding/xml"
 	"errors"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 
@@ -147,7 +146,8 @@ func errResourceNotFound() *apiError {
 // was rejected, in which case the error response has been written.
 func (h *Handler) denyAnonymous(c *echo.Context, container, blob string) (bool, error) {
 	r := c.Request()
-	if !h.EnforcePublicAccess || r.Header.Get("Authorization") != "" || c.QueryParam("sig") != "" {
+	enforcing := h.EnforcePublicAccess || h.VerifySignatures
+	if !enforcing || r.Header.Get("Authorization") != "" || c.QueryParam("sig") != "" {
 		return false, nil
 	}
 
@@ -353,6 +353,8 @@ func (h *Handler) listBlobs(c *echo.Context, container string) error {
 		switch strings.TrimSpace(inc) {
 		case "snapshots":
 			opts.IncludeSnapshots = true
+		case "deleted":
+			opts.IncludeDeleted = true
 		case compTags:
 			opts.IncludeTags = true
 		}
@@ -400,6 +402,17 @@ func (h *Handler) setBlobProperties(c *echo.Context, container, blob string) err
 	info, err := h.Backend.SetBlobProperties(container, blob, attrs, pre)
 	if err != nil {
 		return h.writeBlobNotFoundError(c, err)
+	}
+
+	if raw := c.Request().Header.Get(headerBlobContentLength); raw != "" {
+		n, perr := strconv.ParseInt(raw, 10, 64)
+		if perr != nil {
+			return h.writeAPIError(c, errInvalidHeader(headerBlobContentLength))
+		}
+
+		if info, err = h.Backend.ResizePageBlob(container, blob, n, pre); err != nil {
+			return h.writeBlobNotFoundError(c, err)
+		}
 	}
 
 	setWriteHeaders(c, info)
@@ -466,7 +479,12 @@ func (h *Handler) setBlobTier(c *echo.Context, container, blob string) error {
 		return h.writeAPIError(c, apiErr)
 	}
 
-	prev, _, err := h.Backend.SetBlobTier(container, blob, tier, pre)
+	prio := c.Request().Header.Get(headerRehydratePriority)
+	if prio != "" && prio != RehydratePriorityStandard && prio != RehydratePriorityHigh {
+		return h.writeAPIError(c, errInvalidHeader(headerRehydratePriority))
+	}
+
+	prev, _, err := h.Backend.SetBlobTierWith(container, blob, TierRequest{Tier: tier, Priority: prio}, pre)
 	if err != nil {
 		return h.writeBlobNotFoundError(c, err)
 	}
@@ -498,60 +516,4 @@ func (h *Handler) snapshotBlob(c *echo.Context, container, blob string) error {
 	c.Response().Header().Set("X-Ms-Snapshot", info.Snapshot)
 
 	return c.NoContent(http.StatusCreated)
-}
-
-func (h *Handler) copyBlob(c *echo.Context, container, blob string) error {
-	r := c.Request()
-
-	md, apiErr := metadataFromRequest(r)
-	if apiErr != nil {
-		return h.writeAPIError(c, apiErr)
-	}
-
-	tags, apiErr := tagsFromHeader(r)
-	if apiErr != nil {
-		return h.writeAPIError(c, apiErr)
-	}
-
-	src, err := url.Parse(r.Header.Get(headerCopySource))
-	if err != nil {
-		return h.writeAPIError(c, errInvalidHeader(headerCopySource))
-	}
-
-	reqAccount, _, _ := splitPath(r.URL.Path)
-	srcAccount, srcContainer, srcBlob := splitPath(src.Path)
-
-	if srcAccount != reqAccount || srcContainer == "" || srcBlob == "" {
-		return h.writeError(c, http.StatusNotFound, "CannotVerifyCopySource",
-			"Could not verify the copy source within the specified time.")
-	}
-
-	pre, apiErr := precondFromRequest(r)
-	if apiErr != nil {
-		return h.writeAPIError(c, apiErr)
-	}
-
-	info, err := h.Backend.CopyBlob(
-		srcContainer, srcBlob, src.Query().Get(querySnapshot), container, blob, md, tags, pre,
-	)
-	if err != nil {
-		if done, werr := h.writeBackendError(c, err); done {
-			return werr
-		}
-
-		if errors.Is(err, ErrContainerNotFound) && srcContainer != container {
-			if _, cErr := h.Backend.GetContainer(container); cErr != nil {
-				return h.writeContainerNotFound(c)
-			}
-		}
-
-		return h.writeError(c, http.StatusNotFound, "CannotVerifyCopySource",
-			"Could not verify the copy source within the specified time.")
-	}
-
-	setWriteHeaders(c, info)
-	c.Response().Header().Set("X-Ms-Copy-Id", newRequestID())
-	c.Response().Header().Set("X-Ms-Copy-Status", "success")
-
-	return c.NoContent(http.StatusAccepted)
 }

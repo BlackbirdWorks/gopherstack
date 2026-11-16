@@ -370,6 +370,8 @@ func (e *env) apply(op node, in *Rel) (*Rel, error) {
 		return &Rel{Cols: []Col{{Name: x.name, Type: TLong}}, Rows: [][]any{{int64(len(in.Rows))}}}, nil
 	case *unionOp:
 		return e.union(in, x.tables)
+	case *joinOp:
+		return e.applyJoin(in, x)
 	case *renderOp:
 		return in, nil
 	case *getschemaOp:

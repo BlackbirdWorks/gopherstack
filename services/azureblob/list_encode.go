@@ -62,6 +62,11 @@ func appendBlobEntry(buf []byte, bi *BlobInfo, withTags bool) []byte {
 	buf = append(buf, `<Blob>`...)
 	buf = appendMetadata(buf, bi.Metadata)
 	buf = xmlappend.Elem(buf, "Name", bi.Name)
+
+	if bi.Deleted {
+		buf = xmlappend.Elem(buf, "Deleted", "true")
+	}
+
 	buf = appendOptElem(buf, "Snapshot", bi.Snapshot)
 	buf = append(buf, `<Properties><Last-Modified>`...)
 	buf = bi.LastModified.AppendFormat(buf, http.TimeFormat)
@@ -73,8 +78,9 @@ func appendBlobEntry(buf []byte, bi *BlobInfo, withTags bool) []byte {
 	buf = appendOptElem(buf, "Content-MD5", bi.ContentMD5)
 	buf = appendOptElem(buf, "Cache-Control", bi.CacheControl)
 	buf = appendOptElem(buf, "Content-Disposition", bi.ContentDisposition)
-	buf = xmlappend.Elem(buf, "BlobType", blockBlobType)
+	buf = xmlappend.Elem(buf, "BlobType", cmpOr(bi.BlobType, BlobTypeBlock))
 	buf = appendOptElem(buf, "AccessTier", bi.AccessTier)
+	buf = appendOptElem(buf, "ArchiveStatus", bi.ArchiveStatus)
 
 	if bi.AccessTierInferred {
 		buf = xmlappend.Elem(buf, "AccessTierInferred", "true")
@@ -87,6 +93,12 @@ func appendBlobEntry(buf []byte, bi *BlobInfo, withTags bool) []byte {
 	buf = appendOptElem(buf, "LeaseStatus", bi.Lease.Status)
 	buf = appendOptElem(buf, "LeaseState", bi.Lease.State)
 	buf = appendOptElem(buf, "LeaseDuration", bi.Lease.Duration)
+
+	if bi.Deleted {
+		buf = xmlappend.Elem(buf, "DeletedTime", bi.DeletedTime.Format(http.TimeFormat))
+		buf = xmlappend.Elem(buf, "RemainingRetentionDays", strconv.Itoa(bi.RetentionDays))
+	}
+
 	buf = append(buf, `<Content-Length>`...)
 	buf = strconv.AppendInt(buf, bi.ContentLength, decimalBase)
 	buf = append(buf, `</Content-Length>`...)
@@ -146,3 +158,11 @@ func encodeBlobList(endpoint, container string, echo listEcho, page BlobPage) []
 }
 
 func httpTime(t time.Time) string { return t.Format(http.TimeFormat) }
+
+func cmpOr(v, def string) string {
+	if v == "" {
+		return def
+	}
+
+	return v
+}

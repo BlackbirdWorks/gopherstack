@@ -263,7 +263,7 @@ func TestQueryErrors(t *testing.T) {
 			wantCode: "BadArgumentError", wantInner: "SemanticError"},
 		{name: "unknown table", query: "Nope | take 1", wantHTTP: http.StatusBadRequest,
 			wantCode: "BadArgumentError", wantInner: "SemanticError"},
-		{name: "unsupported operator", query: "AppEvents_CL | join AppEvents_CL on Computer",
+		{name: "unsupported operator", query: "AppEvents_CL | mv-expand Computer",
 			wantHTTP: http.StatusBadRequest, wantCode: "BadArgumentError", wantInner: "SemanticError"},
 		{name: "missing workspace", query: "Heartbeat | take 1", workspace: "00000000-0000-0000-0000-0000000000ff",
 			wantHTTP: http.StatusNotFound, wantCode: "WorkspaceNotFoundError"},
@@ -459,6 +459,7 @@ func TestSnapshotRestoreKeepsRows(t *testing.T) {
 	require.NotEmpty(t, snap)
 
 	e2 := newEnv(t, azuremonitor.DefaultSettings())
+	e2.handler.Backend.SetClock(func() time.Time { return testNow })
 	require.NoError(t, e2.handler.Restore(t.Context(), snap))
 
 	res := e2.run(t, s, "AppEvents_CL | order by Count asc | project Count, Value, Ok, Extra")

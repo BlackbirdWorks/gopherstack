@@ -35,10 +35,19 @@ families:
 gaps: []
 deferred: []
 items_still_open:
-  - "KQL: join, lookup, mv-expand, parse, evaluate, search/find, make-series, user-defined functions, toscalar/materialize, cross-cluster calls, wildcard union, row_number/serialize and many rarer scalar functions answer 400 SemanticError. Dynamic values inside results are returned as JSON strings; dcount is exact, not HyperLogLog."
-  - "By default records that mismatch the stream schema are dropped silently and the upload answers 204, as Azure reports them only asynchronously in DCRLogErrors (Learn: data-collection-monitor); --azure-monitor-strict-ingest (AZURE_MONITOR_STRICT_INGEST) rejects such uploads with 400 InvalidPayload instead. Malformed JSON is always 400; the codes InvalidStream, InvalidPayload, InvalidContentEncoding, ContentLengthLimitExceeded and InvalidOutputTable are not verified against the live service. Azure's TimeGenerated age limits (14 days past, 2 days future) are not enforced."
-  - "Retention is stored and reported but never purges rows; there is no daily cap, billing or ingestion latency. Built-in tables are a small subset (Heartbeat, Syslog, Event, Perf, AzureActivity, AzureDiagnostics, Usage) with simplified columns and only accept data through DCRs that write to them."
+  - "KQL: lookup, mv-expand, parse, evaluate, search/find, make-series, user-defined functions, toscalar/materialize, cross-cluster calls, wildcard union, row_number/serialize and many rarer scalar functions answer 400 SemanticError (join is implemented: kinds innerunique, inner, leftouter, rightouter, fullouter, leftsemi, rightsemi, leftanti, rightanti on equal-named or $left.x == $right.y keys). Dynamic values inside results are returned as JSON strings; dcount is exact, not HyperLogLog."
+  - "No workspace daily cap (workspaceCapping.dailyQuotaGb) or billing is enforced; built-in tables are a small subset (Heartbeat, Syslog, Event, Perf, AzureActivity, AzureDiagnostics, Usage) with simplified columns and only accept data through DCRs that write to them."
   - "Resource-centric queries (QueryResource on a non-workspace resource id) return empty tables; the emulator's own Azure service diagnostic logs are not routed into workspaces, and Azure Monitor diagnostic settings, data collection rule associations, saved searches, workspace purge, usages, schema, linked services and cluster resources are not implemented (Microsoft.OperationalInsights and Microsoft.Insights types without a dedicated handler stay in the generic metadata store)."
   - "Query statistics carry only executionTime; render/visualization output is not produced. Workspace delete is immediate (no 14-day soft delete, recover or force)."
 leaks: {status: clean, note: "StartWorker's http.Server is stopped by Shutdown (graceful, then Close); TestMain runs testleak.VerifyTestMain over the SDK-driven suite."}
 ---
+
+## Retention and ingestion
+
+- Rows older than the table's retentionInDays (else the workspace's) are hidden from queries and dropped on the next ingest into that table. Data between retention and totalRetentionInDays (archive) is not queryable, as archived data needs a search job.
+- A TimeGenerated more than two days before or more than one day after the received time is replaced with the received time (Learn log-standard-columns, TimeGenerated column).
+
+## Emulator choices where the vendor is silent
+
+- The error codes InvalidStream, InvalidPayload, InvalidContentEncoding, ContentLengthLimitExceeded and InvalidOutputTable of the Logs Ingestion API and the default of dropping schema-mismatched records silently (204) follow data-collection-monitor; strict mode (`--azure-monitor-strict-ingest`) answers 400 InvalidPayload instead.
+- Ingestion latency is zero: ingested rows are queryable at once.

@@ -23,6 +23,7 @@ type InMemoryBackend struct {
 	mu         *lockmetrics.RWMutex
 	clock      func() time.Time
 	containers map[string]*storedContainer
+	service    *ServiceProperties
 	// etagSeq is a monotonically increasing counter mixed into every ETag
 	// (see computeETag) so that overwriting a blob with byte-identical
 	// content still produces a new ETag, matching real Azure Blob semantics
@@ -218,6 +219,11 @@ func (b *InMemoryBackend) storeBlobLocked(c *storedContainer, blob string, data 
 		ETag:         computeBlobETag(data, b.etagSeq),
 	}
 	stored.applyAttrs(attrs)
+
+	if attrs.BlobType == BlobTypeAppend || attrs.BlobType == BlobTypePage {
+		stored.BlobType, stored.PageLength, stored.SequenceNumber = attrs.BlobType, attrs.PageLength, attrs.SequenceNumber
+	}
+
 	stored.Metadata = maps.Clone(attrs.Metadata)
 	stored.Tags = maps.Clone(attrs.Tags)
 
@@ -253,7 +259,7 @@ func (b *InMemoryBackend) GetBlobAt(container, blob, snapshot string, pre ...Pre
 		return BlobInfo{}, nil, err
 	}
 
-	return stored.info(b.now()), stored.Data, nil
+	return stored.info(b.now()), stored.body(), nil
 }
 
 // readableLocked resolves a blob for a read and applies lease and
@@ -330,6 +336,7 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.containers = make(map[string]*storedContainer)
+	b.service = nil
 	b.etagSeq = 0
 }
 

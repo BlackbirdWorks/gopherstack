@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
+
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig/v2"
 	"github.com/stretchr/testify/assert"
@@ -380,7 +382,7 @@ func TestSDK_FeatureFlagAndKeyVaultReference(t *testing.T) {
 func TestSDK_Snapshots(t *testing.T) {
 	t.Parallel()
 
-	e := newEnv(t, envOpts{})
+	e := newEnv(t, envOpts{tick: time.Second})
 	c := e.client(t)
 
 	for _, s := range []struct{ key, label, val string }{
@@ -420,7 +422,7 @@ func TestSDK_Snapshots(t *testing.T) {
 				}, &azappconfig.BeginCreateSnapshotOptions{CompositionType: &comp})
 				require.NoError(t, err)
 
-				created, err := poller.PollUntilDone(t.Context(), nil)
+				created, err := poller.PollUntilDone(t.Context(), fastPoll())
 				require.NoError(t, err)
 				assert.Equal(t, azappconfig.SnapshotStatusReady, *created.Status)
 				assert.Equal(t, tt.composition, *created.CompositionType)
@@ -445,7 +447,7 @@ func TestSDK_Snapshots(t *testing.T) {
 func seededSnapshotClient(t *testing.T) *azappconfig.Client {
 	t.Helper()
 
-	c := newEnv(t, envOpts{}).client(t)
+	c := newEnv(t, envOpts{tick: time.Second}).client(t)
 
 	for _, kv := range []struct{ key, label, val string }{
 		{"app/a", "", "a0"}, {"app/a", "prod", "a1"}, {"app/b", "prod", "b1"}, {"other", "", "o"},
@@ -471,7 +473,7 @@ func TestSDK_SnapshotLifecycle(t *testing.T) {
 		{KeyFilter: new("other")},
 	}, nil)
 	require.NoError(t, err)
-	_, err = poller.PollUntilDone(t.Context(), nil)
+	_, err = poller.PollUntilDone(t.Context(), fastPoll())
 	require.NoError(t, err)
 
 	_, err = c.SetSetting(t.Context(), "other", new("changed"), nil)
@@ -527,9 +529,13 @@ func TestSDK_SnapshotDuplicateName(t *testing.T) {
 		nil,
 	)
 	require.NoError(t, err)
-	_, err = poller.PollUntilDone(t.Context(), nil)
+	_, err = poller.PollUntilDone(t.Context(), fastPoll())
 	require.NoError(t, err)
 
 	_, err = c.BeginCreateSnapshot(t.Context(), "snap-key", []azappconfig.SettingFilter{{KeyFilter: new("*")}}, nil)
 	assert.Equal(t, http.StatusConflict, statusOf(err))
+}
+
+func fastPoll() *runtime.PollUntilDoneOptions {
+	return &runtime.PollUntilDoneOptions{Frequency: time.Millisecond}
 }

@@ -51,7 +51,7 @@ var timeUnits = map[string]time.Duration{ //nolint:gochecknoglobals // static lo
 	"tick": nanosPerTick * time.Nanosecond, "ticks": nanosPerTick * time.Nanosecond,
 }
 
-func isIdentStart(r rune) bool { return r == '_' || unicode.IsLetter(r) }
+func isIdentStart(r rune) bool { return r == '_' || r == '$' || unicode.IsLetter(r) }
 func isIdentPart(r rune) bool  { return isIdentStart(r) || unicode.IsDigit(r) }
 
 type lexer struct {

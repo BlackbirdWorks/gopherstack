@@ -24,8 +24,14 @@ const sdkAccountKey = "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz
 func newSDKContainer(t *testing.T, name string) *container.Client {
 	t.Helper()
 
+	return newSDKContainerWith(t, name, azureblob.NewInMemoryBackend())
+}
+
+func newSDKContainerWith(t *testing.T, name string, backend *azureblob.InMemoryBackend) *container.Client {
+	t.Helper()
+
 	e := echo.New()
-	e.Any("/*", azureblob.NewHandler(azureblob.NewInMemoryBackend()).Handler())
+	e.Any("/*", azureblob.NewHandler(backend).Handler())
 
 	srv := httptest.NewServer(e)
 	t.Cleanup(srv.Close)
@@ -103,7 +109,8 @@ func TestSDK_BlobMetadataPropertiesTierSnapshots(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	cc := newSDKContainer(t, "sdkb")
+	clock := newFakeClock()
+	cc := newSDKContainerWith(t, "sdkb", azureblob.NewInMemoryBackendWithClock(clock.Now))
 	_, err := cc.Create(ctx, nil)
 	require.NoError(t, err)
 
@@ -147,6 +154,13 @@ func TestSDK_BlobMetadataPropertiesTierSnapshots(t *testing.T) {
 
 	_, err = bc.SetTier(ctx, blob.AccessTierHot, nil)
 	require.NoError(t, err)
+
+	pending, err := bc.GetProperties(ctx, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "rehydrate-pending-to-hot", *pending.ArchiveStatus)
+	assert.Equal(t, "Archive", *pending.AccessTier)
+
+	clock.Advance(azureblob.RehydrateStandardAfter)
 
 	snap, err := bc.CreateSnapshot(ctx, nil)
 	require.NoError(t, err)

@@ -15,10 +15,10 @@ ops:
   PutLock: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /locks/{key}?label= makes a key-value read-only (writes and deletes then return 409); 404 for a missing key; honours If-Match / If-None-Match. A lock change is a new revision with a new ETag."}
   DeleteLock: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /locks/{key}?label= makes the key-value writable again."}
   CreateSnapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /snapshots/{name} captures up to 3 key/label filters with composition_type key or key_label, retention_period (3600-7776000 s) and tags; 201 with Operation-Location that GET /operations?snapshot= answers Succeeded. 409 for an existing name."}
-  GetSnapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET and HEAD /snapshots/{name} with $select; Link rel=items points at /kv?snapshot=. Snapshot items are frozen at creation; an archived snapshot disappears once its retention period has passed."}
+  GetSnapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET and HEAD /snapshots/{name} with $select; Link rel=items points at /kv?snapshot=. Create answers 201 provisioning (size 0, no items) with Operation-Location; the snapshot turns ready after 2s on the backend clock, or failed when the tier snapshot storage (Free 10 MB, Developer 500 MB, Standard 1 GB, Premium 4 GB) would be exceeded; archive/recover of a provisioning or failed snapshot is 409 invalid-state. Retention defaults to 30 days (Standard/Premium) or 7 days (Free/Developer, also their maximum). An archived snapshot disappears once its retention period has passed."}
   UpdateSnapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "PATCH /snapshots/{name} {status: archived|ready}: archive sets expires, recover clears it; the same status again gives 409; If-Match is honoured."}
   GetSnapshots: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /snapshots with name filter, status list and $select, paged."}
-  GetOperationDetails: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /operations?snapshot=<name> returns {id, status: Succeeded} for an existing snapshot; the SDK poller finishes on it."}
+  GetOperationDetails: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /operations?snapshot=<name> returns {id, status: Running|Succeeded|Failed, error}; Failed carries QuotaExceeded (Learn rest-api-snapshot, Polling snapshot creation)."}
 families:
   arm_integration: {status: ok, note: "services/azurearm Microsoft.AppConfiguration: configurationStores (sku, identity, tags, unmodelled properties round-trip; endpoint https://{store}.{azconfig host}), listKeys / regenerateKey backed by the data plane's four HMAC credentials with Endpoint=;Id=;Secret= connection strings, keyValues ({key}${label}, ~XX escapes) that read and write the data plane's key-values, replicas (ARM metadata), soft-deleted stores (deletedConfigurationStores get/list/purge, createMode Recover), checkNameAvailability and listKeyValue. Applied, re-planned with no drift and destroyed by test/terraform/azure/appconfig_test.go."}
   sdk_compat: {status: ok, note: "azappconfig v2.2.0 with connection-string HMAC: set/get/delete with labels, filtered list and revision pagers, conditional updates, read-only locks, point-in-time reads, snapshot create/archive/recover/list, feature-flag and Key Vault reference content types. Sync-Token is returned on every response (the SDK dereferences it)."}
@@ -26,17 +26,9 @@ families:
   store_resolution: {status: ok, note: "/stores/{name}/... path prefix, then the first host label when it names an existing store, then the store that owns the HMAC credential, then the auto-created default store (--azure-appconfig-auto-create)."}
 gaps:
   - "Bearer tokens are accepted when JWT-shaped; AAD token validation and RBAC data roles are not implemented."
-  - "History is capped at 50000 entries per store."
-  - "Snapshots are ready as soon as they are created; there is no provisioning or failed status."
-  - "Replicas are ARM metadata only; their data is the store's data."
-  - "Customer-managed key encryption, private endpoint connections and SKU quotas are not modelled."
 deferred: []
 items_still_open:
-  - "Bearer token validation and AAD data-plane roles are not implemented; JWT-shaped bearer tokens are accepted without verification."
-  - "History is capped at 50000 entries per store (the real limit is the tier storage quota, not an entry count)."
-  - "Snapshots complete synchronously: the create response carries status ready where the REST reference shows 201 with status provisioning, an Operation-Location header and later ready, and the failed state is never entered; with composition_type key, which key-value wins when several filters select different labels of one key is not published: checked rest-api-snapshot and concept-snapshots (emulator keeps the later filter's)"
-  - "Replicas are metadata only and do not replicate or serve a separate data set."
-  - "Customer-managed key encryption, private endpoint connections, and SKU request quotas are not modelled."
+  - "Bearer token validation and AAD data-plane roles are not implemented; JWT-shaped bearer tokens are accepted without verification (RBAC is out of scope)."
 leaks: {status: clean, note: "Shutdown closes the HTTPS server and waits for the serve goroutine; there are no background workers."}
 ---
 
@@ -52,3 +44,20 @@ The azappconfig SDK sends its point-in-time selector as `after=<RFC 3339 time>` 
 
 ## Primary-source checks (2026-11-13)
 - azureappconfig: rest-api-snapshot lists status provisioning|ready|archived|failed, filter Count 1..3, and rejects multi-match label filters with composition_type key.
+
+## Tier limits and ARM-held settings
+
+- The data plane reads SKU and publicNetworkAccess of the ARM store (services/azurearm `StoreSettings`). Request quota per Learn FAQ "Which App Configuration tier should I use": Free 1,000 per UTC day, Developer 6,000 per hour, Standard 30,000 per hour, Premium none; over quota is 429 with `retry-after-ms`. Standard's "may return 429 above quota" is enforced strictly at the limit.
+- Regular storage per store (key-values plus revisions): Free 10 MB, Developer 500 MB, Standard 1 GB, Premium 4 GB; a write past it is 429, as the FAQ lists. Revisions older than the tier window (7 days Free/Developer, 30 days Standard/Premium) that are no longer live are dropped on write.
+- A store with `publicNetworkAccess: Disabled` answers every data-plane request 403 `forbidden`; the emulator cannot tell a private-link request from a public one, so private endpoints never open it.
+- A replica endpoint (`<store>-<replica>` host label) resolves to the origin store and serves the same data at once; writes through it land in the origin (no replication lag).
+
+## Emulator choices where the vendor is silent
+
+- With composition_type key and filters selecting different labels of one key, the later filter's key-value wins (rest-api-snapshot and concept-snapshots do not say).
+- The provisioning time of a snapshot (2 s) and the 429 body shape are not documented.
+- The default store auto-created without ARM has no request quota and the Standard storage limit.
+
+## External effects that are recorded, not performed
+
+- Customer-managed key encryption: the ARM encryption property is stored and returned; data is not re-encrypted with a Key Vault key.

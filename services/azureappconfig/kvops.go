@@ -57,10 +57,35 @@ func checkWrite(cur *KeyValue, p Precondition) error {
 
 func (s *store) record(kv KeyValue, at time.Time, deleted bool) {
 	s.History = append(s.History, histEntry{At: at, KV: cloneKV(kv), Deleted: deleted})
+	s.Used += kvBytes(kv)
+	s.prune(at)
+}
 
-	if over := len(s.History) - maxHistory; over > 0 {
-		s.History = append([]histEntry(nil), s.History[over:]...)
+// prune drops revisions older than the retention window that are no longer the live state.
+func (s *store) prune(now time.Time) {
+	days := s.Retention
+	if days <= 0 {
+		days = defaultRetentionDays
 	}
+
+	cutoff := now.AddDate(0, 0, -days)
+	if len(s.History) == 0 || !s.History[0].At.Before(cutoff) {
+		return
+	}
+
+	kept := s.History[:0:0]
+
+	for _, e := range s.History {
+		if e.At.Before(cutoff) && !s.isLive(e.KV) {
+			s.Used -= kvBytes(e.KV)
+
+			continue
+		}
+
+		kept = append(kept, e)
+	}
+
+	s.History = kept
 }
 
 // SetKeyValue creates or replaces a key-value.
@@ -85,6 +110,12 @@ func (b *InMemoryBackend) SetKeyValue(storeName, key, label string, in KVInput, 
 	kv := KeyValue{
 		Key: key, Label: label, Value: cloneStr(in.Value), ContentType: cloneStr(in.ContentType),
 		Tags: maps.Clone(in.Tags), ETag: randomText(etagBytes), LastModified: now,
+	}
+
+	s.prune(now)
+
+	if s.Used+kvBytes(kv) > storageLimit(b.settingsLocked(storeName).SKU) {
+		return KeyValue{}, fmt.Errorf("%w: the storage quota is exceeded", ErrTooManyRequests)
 	}
 	s.KVs[kvID(key, label)] = &kv
 	s.record(kv, now, false)

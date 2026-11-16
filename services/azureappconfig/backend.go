@@ -27,10 +27,12 @@ var keyNames = []struct { //nolint:gochecknoglobals // fixed credential names, r
 
 // InMemoryBackend holds every configuration store; the ARM and data planes share it.
 type InMemoryBackend struct {
-	mu     *lockmetrics.RWMutex
-	stores map[string]*store
-	trash  map[string]*store
-	now    func() time.Time
+	mu       *lockmetrics.RWMutex
+	stores   map[string]*store
+	trash    map[string]*store
+	usage    map[string]*usageWindow
+	platform Platform
+	now      func() time.Time
 }
 
 // NewInMemoryBackend returns an empty backend using the wall clock.
@@ -50,6 +52,7 @@ func (b *InMemoryBackend) Reset() {
 
 	b.stores = map[string]*store{}
 	b.trash = map[string]*store{}
+	b.usage = nil
 }
 
 // ValidStoreName reports whether name is a legal store name (5-50 letters, digits, hyphens).

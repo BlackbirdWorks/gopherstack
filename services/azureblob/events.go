@@ -10,8 +10,10 @@ import (
 
 // Event types and operation names of the Blob Storage Event Grid source.
 const (
-	EventBlobCreated = "Microsoft.Storage.BlobCreated"
-	EventBlobDeleted = "Microsoft.Storage.BlobDeleted"
+	EventBlobCreated     = "Microsoft.Storage.BlobCreated"
+	EventBlobDeleted     = "Microsoft.Storage.BlobDeleted"
+	EventBlobTierChanged = "Microsoft.Storage.BlobTierChanged"
+	EventAsyncOperation  = "Microsoft.Storage.AsyncOperationInitiated"
 )
 
 // BlobEvent describes a committed blob create/replace or a blob delete.
@@ -43,7 +45,7 @@ func (h *Handler) serveBlobEvents(c *echo.Context, account, container, blob stri
 	var prior BlobInfo
 
 	deleting := op == opDeleteBlob && r.URL.Query().Get(querySnapshot) == ""
-	if deleting {
+	if deleting || op == opSetBlobTier {
 		prior, _ = h.Backend.HeadBlobAt(container, blob, "")
 	}
 
@@ -66,16 +68,7 @@ func (h *Handler) serveBlobEvents(c *echo.Context, account, container, blob stri
 		RequestID: uuid.NewString(), ClientRequestID: r.Header.Get("X-Ms-Client-Request-Id"),
 	}
 
-	switch {
-	case op == opPutBlob || op == opPutBlockList || op == opCopyBlob:
-		info, herr := h.Backend.HeadBlobAt(container, blob, "")
-		if herr == nil {
-			ev.EventType, ev.ContentType, ev.ETag = EventBlobCreated, info.ContentType, info.ETag
-			ev.ContentLength, ev.AccessTier = info.ContentLength, info.AccessTier
-		}
-	case deleting:
-		ev.EventType, ev.ContentType = EventBlobDeleted, prior.ContentType
-	default:
+	if !h.fillEvent(&ev, op, container, blob, prior, deleting) {
 		return nil
 	}
 
@@ -84,4 +77,27 @@ func (h *Handler) serveBlobEvents(c *echo.Context, account, container, blob stri
 	}
 
 	return nil
+}
+
+// fillEvent sets the event type and blob properties for op; it reports false when op emits nothing.
+func (h *Handler) fillEvent(ev *BlobEvent, op, container, blob string, prior BlobInfo, deleting bool) bool {
+	switch {
+	case op == opPutBlob || op == opPutBlockList || op == opCopyBlob:
+		if info, err := h.Backend.HeadBlobAt(container, blob, ""); err == nil {
+			ev.EventType, ev.ContentType, ev.ETag = EventBlobCreated, info.ContentType, info.ETag
+			ev.ContentLength, ev.AccessTier = info.ContentLength, info.AccessTier
+		}
+	case op == opSetBlobTier:
+		ev.EventType, ev.ContentType, ev.ContentLength = EventBlobTierChanged, prior.ContentType, prior.ContentLength
+
+		if prior.AccessTier == TierArchive {
+			ev.EventType = EventAsyncOperation
+		}
+	case deleting:
+		ev.EventType, ev.ContentType = EventBlobDeleted, prior.ContentType
+	default:
+		return false
+	}
+
+	return true
 }

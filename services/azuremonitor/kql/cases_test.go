@@ -210,4 +210,44 @@ var goldenCases = []goldenCase{
 	{name: "q60", query: `Logs | take 0`,
 		cols: `TimeGenerated:datetime,Computer:string,Level:string,Value:real,N:long,Message:string,Props:dynamic`,
 		rows: `[]`},
+	{
+		name: "join inner", cols: `N:long,Region:string`, rows: `[[1,"west"],[2,"west"],[3,"east"]]`,
+		query: `Logs | where N <= 3 | join kind=inner (datatable(Computer:string, Region:string)` +
+			`["web1","west","web2","east"]) on Computer | project N, Region | order by N asc`,
+	},
+	{
+		name: "join leftouter", cols: `N:long,Region:string`, rows: `[[2,"west"],[5,""]]`,
+		query: `Logs | where N in (2, 5) | join kind=leftouter (datatable(Computer:string, Region:string)` +
+			`["web1","west"]) on Computer | project N, Region | order by N asc`,
+	},
+	{
+		name: "join leftanti", cols: `N:long`, rows: `[[3],[4],[5]]`,
+		query: `Logs | where N <= 5 | join kind=leftanti (datatable(Computer:string)["web1"]) on Computer` +
+			` | project N | order by N asc`,
+	},
+	{
+		name: "join leftsemi", cols: `N:long`, rows: `[[1],[2]]`,
+		query: `Logs | where N <= 5 | join kind=leftsemi (datatable(Computer:string)["web1"]) on Computer` +
+			` | project N | order by N asc`,
+	},
+	{
+		name: "join innerunique default", cols: `Count:long`, rows: `[[1]]`,
+		query: `Logs | where Computer == "web1" | join (datatable(Computer:string, Region:string)` +
+			`["web1","west"]) on Computer | count`,
+	},
+	{
+		name: "join renames duplicate column", cols: `Computer1:string`, rows: `[["web1"]]`,
+		query: `Logs | where N == 1 | join kind=inner (datatable(Computer:string)["web1"]) on Computer` +
+			` | project Computer1`,
+	},
+	{
+		name: "join left right keys", cols: `N:long,Region:string,C:string`, rows: `[[1,"west","web1"]]`,
+		query: `Logs | where N == 1 | join kind=inner (datatable(C:string, Region:string)["web1","west"])` +
+			` on $left.Computer == $right.C | project N, Region, C`,
+	},
+	{
+		name: "join fullouter", cols: `N:long,Region:string`, rows: `[[2,"west"],[null,"north"]]`,
+		query: `Logs | where N == 2 | join kind=fullouter (datatable(Computer:string, Region:string)` +
+			`["web1","west","zzz","north"]) on Computer | project N, Region | order by N desc`,
+	},
 }

@@ -1,6 +1,7 @@
 package azureeventgrid_test
 
 import (
+	"context"
 	"encoding/json/v2"
 	"maps"
 	"sync"
@@ -89,6 +90,10 @@ func (r *recorder) SendEventHub(ns, hub string, m azureeventgrid.Message) error 
 
 func (r *recorder) SendStorageQueue(account, queue, text string, ttl time.Duration) error {
 	return r.add(sent{account: account, queue: queue, text: text, ttl: ttl})
+}
+
+func (r *recorder) InvokeFunction(_ context.Context, app, function string, body []byte, _ string) error {
+	return r.add(sent{ns: app, hub: function, body: body})
 }
 
 func (r *recorder) PutBlob(account, container, blob string, data []byte, _ string) error {

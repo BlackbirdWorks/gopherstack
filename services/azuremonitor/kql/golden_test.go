@@ -116,7 +116,7 @@ func TestErrors(t *testing.T) {
 	}{
 		{"unknown column", `Logs | where Nope == 1`, "SemanticError", "SEM0100"},
 		{"unknown table", `NoSuchTable | take 1`, "SemanticError", "SEM0100"},
-		{"join unsupported", `Logs | join Other on Computer`, "SemanticError", "SEM0001"},
+		{"join kind unsupported", `Logs | join kind=weird (Other) on Computer`, "SemanticError", "SEM0001"},
 		{"mv-expand unsupported", `Logs | mv-expand Props`, "SemanticError", "SEM0001"},
 		{"search unsupported", `search "x"`, "SemanticError", "SEM0001"},
 		{"function let unsupported", `let f = (x:long) { x + 1 }; Logs | take 1`, "SemanticError", "SEM0001"},

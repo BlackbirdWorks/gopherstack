@@ -248,7 +248,7 @@ func (b *InMemoryBackend) attempt(ctx context.Context, j job) outcome {
 	case EndpointWebHook:
 		return b.deliverWebhook(ctx, j)
 	default:
-		return b.deliverTarget(j)
+		return b.deliverTarget(ctx, j)
 	}
 }
 
