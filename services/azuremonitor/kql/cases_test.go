@@ -250,4 +250,41 @@ var goldenCases = []goldenCase{
 		query: `Logs | where N == 2 | join kind=fullouter (datatable(Computer:string, Region:string)` +
 			`["web1","west","zzz","north"]) on Computer | project N, Region | order by N desc`,
 	},
+	{
+		name: "join inner keeps duplicate matches", cols: `k:long,l:string,k1:long,r:string`,
+		rows: `[[2,"b",2,"x"],[2,"c",2,"x"]]`,
+		query: `datatable(k:long, l:string)[1,"a",2,"b",2,"c"] | join kind=inner` +
+			` (datatable(k:long, r:string)[2,"x",3,"y"]) on k | order by l asc`,
+	},
+	{
+		name: "join innerunique dedups the left side", cols: `k:long,l:string,k1:long,r:string`,
+		rows: `[[2,"b",2,"x"]]`,
+		query: `datatable(k:long, l:string)[1,"a",2,"b",2,"c"] | join` +
+			` (datatable(k:long, r:string)[2,"x",3,"y"]) on k`,
+	},
+	{
+		name: "join rightouter", cols: `l:string,r:string`, rows: `[["b","x"],["c","x"],["","y"]]`,
+		query: `datatable(k:long, l:string)[1,"a",2,"b",2,"c"] | join kind=rightouter` +
+			` (datatable(k:long, r:string)[2,"x",3,"y"]) on k | project l, r | order by r asc, l asc`,
+	},
+	{
+		name: "join rightsemi", cols: `k:long,r:string`, rows: `[[2,"x"]]`,
+		query: `datatable(k:long, l:string)[1,"a",2,"b",2,"c"] | join kind=rightsemi` +
+			` (datatable(k:long, r:string)[2,"x",3,"y"]) on k`,
+	},
+	{
+		name: "join rightanti", cols: `k:long,r:string`, rows: `[[3,"y"]]`,
+		query: `datatable(k:long, l:string)[1,"a",2,"b",2,"c"] | join kind=rightanti` +
+			` (datatable(k:long, r:string)[2,"x",3,"y"]) on k`,
+	},
+	{
+		name: "join leftantisemi", cols: `k:long,l:string`, rows: `[[1,"a"]]`,
+		query: `datatable(k:long, l:string)[1,"a",2,"b",2,"c"] | join kind=leftantisemi` +
+			` (datatable(k:long, r:string)[2,"x",3,"y"]) on k`,
+	},
+	{
+		name: "join two keys with and", cols: `Count:long`, rows: `[[1]]`,
+		query: `datatable(a:long, b:long)[1,1,1,2] | join kind=inner (datatable(a:long, b:long)[1,2])` +
+			` on $left.a == $right.a and $left.b == $right.b | count`,
+	},
 }

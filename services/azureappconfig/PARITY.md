@@ -56,7 +56,7 @@ The azappconfig SDK sends its point-in-time selector as `after=<RFC 3339 time>` 
 
 - With composition_type key and filters selecting different labels of one key, the later filter's key-value wins (rest-api-snapshot and concept-snapshots do not say).
 - The provisioning time of a snapshot (2 s) and the 429 body shape are not documented.
-- The default store auto-created without ARM has no request quota and the Standard storage limit.
+- A store with no ARM resource (including the auto-created default store) has no request quota and the Standard storage limit; request quotas apply only to stores whose ARM SKU is Free, Developer or Standard (FAQ: Free 1,000/day, Developer 6,000/hour, Standard 30,000/hour, Premium unlimited), and the 429 carries `Retry-After-Ms` of at least 1,000.
 
 ## External effects that are recorded, not performed
 

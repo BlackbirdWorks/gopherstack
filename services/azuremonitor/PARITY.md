@@ -51,3 +51,4 @@ leaks: {status: clean, note: "StartWorker's http.Server is stopped by Shutdown (
 
 - The error codes InvalidStream, InvalidPayload, InvalidContentEncoding, ContentLengthLimitExceeded and InvalidOutputTable of the Logs Ingestion API and the default of dropping schema-mismatched records silently (204) follow data-collection-monitor; strict mode (`--azure-monitor-strict-ingest`) answers 400 InvalidPayload instead.
 - Ingestion latency is zero: ingested rows are queryable at once.
+- A join result is capped at 500,000 rows and 4,096 columns to bound memory; `join ... on $left.a == $right.b and ...` is accepted like the comma form.

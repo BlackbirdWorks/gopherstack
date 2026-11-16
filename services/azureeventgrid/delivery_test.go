@@ -501,7 +501,7 @@ func TestRelayAndPartnerDestinationsAreRecorded(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b, _, rec := newBackend(t)
+			b, clk, rec := newBackend(t)
 
 			_, err := b.PutSubscription(t.Context(), "t1", "s1", map[string]any{"destination": tt.dest})
 			if !tt.ok {
@@ -514,6 +514,9 @@ func TestRelayAndPartnerDestinationsAreRecorded(t *testing.T) {
 			require.NoError(t, b.Publish("t1", []azureeventgrid.Event{egEvent("e1", "a")}))
 			assert.Equal(t, 1, b.RunDue(t.Context()))
 			assert.Empty(t, rec.all(), "nothing is sent to a sink; the delivery is logged")
+
+			clk.Advance(2 * time.Minute)
+			assert.Equal(t, 0, b.RunDue(t.Context()), "the logged delivery counts as done, nothing is retried")
 		})
 	}
 }

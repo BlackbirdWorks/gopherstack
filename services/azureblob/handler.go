@@ -80,6 +80,7 @@ type Handler struct {
 	srvMu               *lockmetrics.RWMutex
 	srv                 *http.Server
 	copyClient          *http.Client
+	clock               func() time.Time
 	AccountKeys         map[string]string
 	Endpoint            string
 	Port                int

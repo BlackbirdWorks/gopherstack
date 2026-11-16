@@ -162,19 +162,37 @@ func (h *Handler) denyAnonymous(c *echo.Context, container, blob string) (bool, 
 		return true, h.writeAPIError(c, errResourceNotFound())
 	}
 
-	comp := c.QueryParam(queryComp)
-	metaOrBody := comp == "" || comp == compMetadata
-
-	allowed := info.PublicAccess == AccessContainer && (comp == compList || metaOrBody)
-	if blob != "" {
-		allowed = info.PublicAccess != "" && metaOrBody
-	}
-
-	if allowed {
+	if anonymousReadAllowed(c, info.PublicAccess, blob != "") {
 		return false, nil
 	}
 
 	return true, h.writeAPIError(c, errResourceNotFound())
+}
+
+func anonymousReadAllowed(c *echo.Context, access string, blobLevel bool) bool {
+	comp := c.QueryParam(queryComp)
+	metaOrBody := comp == "" || comp == compMetadata
+
+	if blobLevel {
+		return access != "" && (metaOrBody || publicBlobComp(c, comp))
+	}
+
+	return access == AccessContainer && (comp == compList || metaOrBody)
+}
+
+// publicBlobComp reports the extra anonymous blob reads of a public container: Get Page Ranges and Get Block List
+// for the committed list only (Set Container ACL reference).
+func publicBlobComp(c *echo.Context, comp string) bool {
+	switch comp {
+	case compPageList:
+		return true
+	case compBlockList:
+		lt := c.QueryParam("blocklisttype")
+
+		return lt == "" || lt == "committed"
+	default:
+		return false
+	}
 }
 
 func (h *Handler) setContainerHeaders(c *echo.Context, ci ContainerInfo) {

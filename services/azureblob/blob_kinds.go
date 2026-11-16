@@ -322,6 +322,21 @@ func (b *InMemoryBackend) softDeleteLocked(c *storedContainer, s *storedBlob) {
 	}
 
 	c.Deleted[s.Name] = s
+
+	if len(c.Deleted)%deletedSweepEvery == 0 {
+		c.sweepDeleted(b.now())
+	}
+}
+
+// deletedSweepEvery spaces the purge of expired soft-deleted blobs so mass deletes stay linear.
+const deletedSweepEvery = 256
+
+func (c *storedContainer) sweepDeleted(now time.Time) {
+	for name, s := range c.Deleted {
+		if s.purgeDue(now) {
+			delete(c.Deleted, name)
+		}
+	}
 }
 
 // UndeleteBlob restores a soft-deleted blob with its snapshots; a blob that is not deleted is left as it is.

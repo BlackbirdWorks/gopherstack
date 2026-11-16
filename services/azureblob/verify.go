@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,7 +22,11 @@ const (
 
 	sasEncryptionScopeFrom = "2020-12-06"
 	sasMinVersion          = "2018-11-09"
+	sasMaxVersion          = "2026-12-06"
 	sasHTTPSOnly           = "https"
+	sasHTTPSAndHTTP        = "https,http"
+	sasVersionLayout       = "2006-01-02"
+	maxDateSkew            = 15 * time.Minute
 )
 
 func errAuthFailed(msg string) *apiError {
@@ -62,7 +67,7 @@ func (h *Handler) accountKey(account string) (string, bool) {
 }
 
 // authorize verifies the SharedKey signature or SAS token of a request when signature verification is on.
-// Anonymous requests and bearer tokens pass through; the former fall to the public-access rules.
+// Anonymous requests fall to the public-access rules; a bearer token is not validated (RBAC is not emulated).
 func (h *Handler) authorize(r *http.Request, account, container, blob string) *apiError {
 	if !h.VerifySignatures {
 		return nil
@@ -72,19 +77,8 @@ func (h *Handler) authorize(r *http.Request, account, container, blob string) *a
 	authz := r.Header.Get("Authorization")
 
 	switch {
-	case strings.HasPrefix(authz, "SharedKey"):
-		if !known {
-			return errAuthFailed(
-				"Server failed to authenticate the request. The account is not known to this emulator.",
-			)
-		}
-
-		if !verifySharedKeyRequest(key, r) {
-			return errAuthFailed("Server failed to authenticate the request. " +
-				"Make sure the value of Authorization header is formed correctly including the signature.")
-		}
-
-		return nil
+	case authz != "":
+		return h.authorizeHeader(r, authz, key, account, known)
 	case r.URL.Query().Get("sig") != "":
 		if !known {
 			return errAuthFailed(
@@ -96,6 +90,29 @@ func (h *Handler) authorize(r *http.Request, account, container, blob string) *a
 	default:
 		return nil
 	}
+}
+
+func (h *Handler) authorizeHeader(r *http.Request, authz, key, account string, known bool) *apiError {
+	if strings.HasPrefix(authz, "Bearer ") {
+		return nil
+	}
+
+	if !strings.HasPrefix(authz, "SharedKey ") && !strings.HasPrefix(authz, "SharedKeyLite ") {
+		return errAuthFailed("Server failed to authenticate the request. The authorization scheme is not supported.")
+	}
+
+	if !known {
+		return errAuthFailed(
+			"Server failed to authenticate the request. The account is not known to this emulator.",
+		)
+	}
+
+	if !h.verifySharedKeyRequest(key, account, r) {
+		return errAuthFailed("Server failed to authenticate the request. " +
+			"Make sure the value of Authorization header is formed correctly including the signature.")
+	}
+
+	return nil
 }
 
 type sasToken struct {
@@ -118,8 +135,13 @@ func sasSignature(key, stringToSign string) (string, bool) {
 
 func (h *Handler) authorizeSAS(r *http.Request, key, account, container, blob string) *apiError {
 	t := sasToken{q: r.URL.Query()}
-	if v := t.get("sv"); v < sasMinVersion {
+	if !supportedSASVersion(t.get("sv")) {
 		return errAuthFailed("Server failed to authenticate the request. The SAS version is not supported.")
+	}
+
+	if t.get("ses") != "" && t.get("sv") < sasEncryptionScopeFrom {
+		return errAuthFailed("Server failed to authenticate the request. The SAS encryption scope needs version " +
+			sasEncryptionScopeFrom + " or later.")
 	}
 
 	var (
@@ -137,13 +159,32 @@ func (h *Handler) authorizeSAS(r *http.Request, key, account, container, blob st
 		return err
 	}
 
-	need := requiredPermissions(operationFor(r), t.get("ss") != "")
+	need := h.requiredPermissions(r, container, blob, t.get("ss") != "")
 	if need == "" || !strings.ContainsAny(perms, need) {
 		return errAuthorizationFailure()
 	}
 
 	return nil
 }
+
+func supportedSASVersion(v string) bool {
+	if _, err := time.Parse(sasVersionLayout, v); err != nil {
+		return false
+	}
+
+	return v >= sasMinVersion && v <= sasMaxVersion
+}
+
+func (h *Handler) nowUTC() time.Time {
+	if h.clock != nil {
+		return h.clock().UTC()
+	}
+
+	return time.Now().UTC()
+}
+
+// SetClock replaces the clock used for SAS validity windows and request-date checks.
+func (h *Handler) SetClock(clock func() time.Time) { h.clock = clock }
 
 func sasEqual(want, got string) bool { return hmac.Equal([]byte(want), []byte(got)) }
 
@@ -170,15 +211,20 @@ func (h *Handler) verifyAccountSAS(
 		return "", err
 	}
 
-	if !strings.Contains(t.get("ss"), "b") || !strings.Contains(t.get("srt"), accountResourceType(container, blob)) {
+	rt := accountResourceType(operationFor(r), container, blob)
+	if !strings.Contains(t.get("ss"), "b") || !strings.Contains(t.get("srt"), rt) {
 		return "", errAuthorizationFailure()
 	}
 
 	return t.get("sp"), nil
 }
 
-func accountResourceType(container, blob string) string {
+func accountResourceType(op, container, blob string) string {
 	switch {
+	case op == opUndeleteBlob:
+		return "c"
+	case op == opFindBlobsByTags && container == "":
+		return "o"
 	case blob != "":
 		return "o"
 	case container != "":
@@ -230,21 +276,10 @@ func (h *Handler) verifyServiceSAS(
 	perms, start, expiry := t.get("sp"), t.get("st"), t.get("se")
 
 	if id := t.get("si"); id != "" {
-		pol, found := h.storedPolicy(container, id)
-		if !found {
-			return "", errAuthFailed("Server failed to authenticate the request. The signed identifier was not found.")
+		var perr *apiError
+		if perms, start, expiry, perr = h.applyStoredPolicy(container, id, perms, start, expiry); perr != nil {
+			return "", perr
 		}
-
-		perms, start, expiry = firstNonEmpty(
-			perms,
-			pol.Permission,
-		), firstNonEmpty(
-			start,
-			pol.Start,
-		), firstNonEmpty(
-			expiry,
-			pol.Expiry,
-		)
 	}
 
 	if expiry == "" {
@@ -256,6 +291,27 @@ func (h *Handler) verifyServiceSAS(
 	}
 
 	return perms, nil
+}
+
+// applyStoredPolicy fills the SAS fields the stored access policy supplies; a field in both is 400.
+func (h *Handler) applyStoredPolicy(container, id, perms, start, expiry string) (string, string, string, *apiError) {
+	pol, found := h.storedPolicy(container, id)
+	if !found {
+		return "", "", "", errAuthFailed(
+			"Server failed to authenticate the request. The signed identifier was not found.",
+		)
+	}
+
+	if (perms != "" && pol.Permission != "") || (start != "" && pol.Start != "") ||
+		(expiry != "" && pol.Expiry != "") {
+		return "", "", "", &apiError{
+			status: http.StatusBadRequest, code: "InvalidAuthenticationInfo",
+			message: "A field is set in both the SAS and the stored access policy.",
+		}
+	}
+
+	return firstNonEmpty(perms, pol.Permission), firstNonEmpty(start, pol.Start),
+		firstNonEmpty(expiry, pol.Expiry), nil
 }
 
 func firstNonEmpty(a, b string) string {
@@ -294,7 +350,7 @@ func parseSASTime(v string) (time.Time, bool) {
 }
 
 func (h *Handler) checkSASWindow(r *http.Request, t sasToken, start, expiry string) *apiError {
-	now := time.Now().UTC()
+	now := h.nowUTC()
 
 	if start != "" {
 		st, ok := parseSASTime(start)
@@ -310,8 +366,14 @@ func (h *Handler) checkSASWindow(r *http.Request, t sasToken, start, expiry stri
 		}
 	}
 
-	if spr := t.get("spr"); spr == sasHTTPSOnly && r.TLS == nil {
-		return errAuthFailed("Server failed to authenticate the request. The SAS only permits HTTPS.")
+	switch spr := t.get("spr"); spr {
+	case "", sasHTTPSAndHTTP:
+	case sasHTTPSOnly:
+		if r.TLS == nil {
+			return errAuthFailed("Server failed to authenticate the request. The SAS only permits HTTPS.")
+		}
+	default:
+		return errAuthFailed("Server failed to authenticate the request. The SAS protocol is not valid.")
 	}
 
 	if sip := t.get("sip"); sip != "" && !ipInRange(sip, r.RemoteAddr) {
@@ -345,9 +407,21 @@ func ipInRange(spec, remote string) bool {
 
 func bytesCompare(a, b net.IP) int { return strings.Compare(string(a), string(b)) }
 
-// requiredPermissions lists the SAS permission letters of which any one authorises op; empty means a SAS
-// cannot authorise it (account SAS covers the account and container operations service SAS cannot).
-func requiredPermissions(op string, account bool) string {
+// requiredPermissions lists the SAS permission letters of which any one authorises the request; empty means a
+// SAS cannot authorise it (an account SAS adds the service and container operations a service SAS cannot).
+// Letters follow the "Create an account SAS" operation table and "Create a service SAS" permission table.
+func (h *Handler) requiredPermissions(r *http.Request, container, blob string, account bool) string {
+	op := operationFor(r)
+
+	switch op {
+	case opPutBlob, opCopyBlob:
+		if h.blobExists(r, op, container, blob) {
+			return "w"
+		}
+
+		return "cw"
+	}
+
 	if perms := blobPermissions(op); perms != "" || !account {
 		return perms
 	}
@@ -355,17 +429,30 @@ func requiredPermissions(op string, account bool) string {
 	switch op {
 	case opListContainers:
 		return "l"
-	case opGetServiceProperties, opGetContainerProperties, opGetContainerACL:
+	case opGetServiceProperties, opGetContainerProperties:
 		return "r"
 	case opCreateContainer:
-		return "c"
+		return "cw"
 	case opDeleteContainer:
 		return "d"
-	case opSetServiceProperties, opSetContainerMetadata, opSetContainerACL, opLeaseContainer:
+	case opSetServiceProperties, opSetContainerMetadata:
 		return "w"
+	case opLeaseContainer:
+		return "wd"
 	default:
 		return ""
 	}
+}
+
+// blobExists reports whether the blob a Put Blob or Copy Blob targets already exists (overwrite needs Write).
+func (h *Handler) blobExists(r *http.Request, op, container, blob string) bool {
+	if op == opCopyBlob && r.Header.Get(headerCopySource) == "" {
+		return false
+	}
+
+	_, err := h.Backend.HeadBlobAt(container, blob, "")
+
+	return err == nil
 }
 
 func blobPermissions(op string) string {
@@ -374,13 +461,15 @@ func blobPermissions(op string) string {
 		return "r"
 	case opListBlobs:
 		return "l"
-	case opPutBlob, opPutBlock, opPutBlockFromURL, opPutBlockList, opSetBlobProperties, opSetBlobMetadata,
-		opSetBlobTier, opSnapshotBlob, opLeaseBlob, opPutPage, opCopyBlob, opUndeleteBlob:
-		return "wcau"
+	case opPutBlock, opPutBlockFromURL, opPutBlockList, opSetBlobProperties, opSetBlobMetadata,
+		opSetBlobTier, opPutPage, opAbortCopyBlob, opUndeleteBlob:
+		return "w"
+	case opSnapshotBlob:
+		return "cw"
+	case opLeaseBlob:
+		return "wd"
 	case opAppendBlock:
 		return "aw"
-	case opAbortCopyBlob:
-		return "w"
 	case opDeleteBlob:
 		return "d"
 	case opSetBlobTags, opGetBlobTags:
@@ -392,33 +481,94 @@ func blobPermissions(op string) string {
 	}
 }
 
-// verifySharedKeyRequest accepts a signature over either canonical resource form: the Azure SDK for Go signs
-// "/<account>" plus the full URL path (the account twice for path-style URLs), other SDKs drop the path's account.
-func verifySharedKeyRequest(key string, r *http.Request) bool {
+// verifySharedKeyRequest checks the SharedKey or SharedKeyLite signature against the request. The header's
+// account must be the addressed account and the request date must be within 15 minutes of now. Both canonical
+// resource forms are accepted: the Azure SDK for Go signs "/<account>" plus the full URL path (the account twice
+// for path-style URLs), other SDKs drop the path's account.
+func (h *Handler) verifySharedKeyRequest(key, account string, r *http.Request) bool {
 	auth, ok := azureauth.ParseAuthorizationHeader(r.Header.Get("Authorization"))
-	if !ok {
-		return false
-	}
-
-	if sigOK, err := azureauth.VerifySharedKey(key, r); err == nil && sigOK {
-		return true
-	}
-
-	if auth.Scheme != azureauth.SchemeSharedKey {
+	if !ok || auth.Account != account || !h.requestDateFresh(r) {
 		return false
 	}
 
 	stripped := azureauth.CanonicalizedResource(auth.Account, r.URL)
-	full := fullPathResource(auth.Account, r.URL, stripped)
 
-	prefix, found := strings.CutSuffix(azureauth.StringToSign(r, auth.Account), stripped)
-	if !found {
+	for _, resource := range []string{stripped, fullPathResource(auth.Account, r.URL, stripped)} {
+		toSign := sharedKeyStringToSign(r, resource)
+		if auth.Scheme == azureauth.SchemeSharedKeyLite {
+			toSign = sharedKeyLiteStringToSign(r, resource)
+		}
+
+		if want, signed := sasSignature(key, toSign); signed && sasEqual(want, auth.Signature) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (h *Handler) requestDateFresh(r *http.Request) bool {
+	raw := r.Header.Get("X-Ms-Date")
+	if raw == "" {
+		raw = r.Header.Get("Date")
+	}
+
+	when, err := http.ParseTime(raw)
+	if err != nil {
 		return false
 	}
 
-	want, ok := sasSignature(key, prefix+full)
+	skew := h.nowUTC().Sub(when)
 
-	return ok && sasEqual(want, auth.Signature)
+	return skew <= maxDateSkew && skew >= -maxDateSkew
+}
+
+// dateField is the string-to-sign Date value: empty whenever x-ms-date is present.
+func dateField(r *http.Request) string {
+	if r.Header.Get("X-Ms-Date") != "" {
+		return ""
+	}
+
+	return r.Header.Get("Date")
+}
+
+func sharedKeyStringToSign(r *http.Request, resource string) string {
+	length := ""
+	if r.ContentLength > 0 {
+		length = strconv.FormatInt(r.ContentLength, 10)
+	}
+
+	return strings.Join([]string{
+		r.Method,
+		r.Header.Get("Content-Encoding"),
+		r.Header.Get("Content-Language"),
+		length,
+		r.Header.Get("Content-MD5"),
+		r.Header.Get("Content-Type"),
+		dateField(r),
+		r.Header.Get("If-Modified-Since"),
+		r.Header.Get("If-Match"),
+		r.Header.Get("If-None-Match"),
+		r.Header.Get("If-Unmodified-Since"),
+		r.Header.Get("Range"),
+		azureauth.CanonicalizedHeaders(r) + resource,
+	}, "\n")
+}
+
+// sharedKeyLiteStringToSign signs the path and only the comp query parameter.
+func sharedKeyLiteStringToSign(r *http.Request, resource string) string {
+	path, _, _ := strings.Cut(resource, "\n")
+	if comp := r.URL.Query().Get("comp"); comp != "" {
+		path += "?comp=" + comp
+	}
+
+	return strings.Join([]string{
+		r.Method,
+		r.Header.Get("Content-MD5"),
+		r.Header.Get("Content-Type"),
+		dateField(r),
+		azureauth.CanonicalizedHeaders(r) + path,
+	}, "\n")
 }
 
 func fullPathResource(account string, u *url.URL, stripped string) string {

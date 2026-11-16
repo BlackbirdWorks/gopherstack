@@ -16,6 +16,13 @@ const (
 	kindRightSemi    = "rightsemi"
 )
 
+// maxJoinRows and maxJoinCols bound a join result: a skewed key cannot blow up into a cross product and nested
+// joins cannot widen the schema without limit.
+const (
+	maxJoinRows = 500_000
+	maxJoinCols = 4096
+)
+
 type joinKey struct{ left, right string }
 
 type joinOp struct {
@@ -70,7 +77,7 @@ func (p *parser) parseJoin() (node, error) {
 
 		op.keys = append(op.keys, k)
 
-		if !p.isOp(",") {
+		if !p.isOp(",") && !p.isKw("and") {
 			return op, nil
 		}
 
@@ -137,12 +144,16 @@ func rowKey(row []any, idx []int) string {
 	return sb.String()
 }
 
-func joinOutputCols(left, right *Rel, kind string) []Col {
+func joinOutputCols(left, right *Rel, kind string) ([]Col, error) {
 	switch kind {
-	case kindLeftSemi, "leftanti", "leftantisemi":
-		return append([]Col(nil), left.Cols...)
+	case kindLeftSemi, kindLeftAnti, kindLeftAntiSemi:
+		return append([]Col(nil), left.Cols...), nil
 	case kindRightSemi, kindRightAnti, kindRightAntiSm:
-		return append([]Col(nil), right.Cols...)
+		return append([]Col(nil), right.Cols...), nil
+	}
+
+	if len(left.Cols)+len(right.Cols) > maxJoinCols {
+		return nil, semErr("the join result exceeds the emulator limit of %d columns", maxJoinCols)
 	}
 
 	cols := append([]Col(nil), left.Cols...)
@@ -152,18 +163,21 @@ func joinOutputCols(left, right *Rel, kind string) []Col {
 		used[strings.ToLower(c.Name)] = true
 	}
 
-	for _, c := range right.Cols {
-		name := c.Name
+	next := map[string]int{}
 
-		for n := 1; used[strings.ToLower(name)]; n++ {
+	for _, c := range right.Cols {
+		name, base := c.Name, strings.ToLower(c.Name)
+
+		for n := max(next[base], 1); used[strings.ToLower(name)]; n++ {
 			name = c.Name + strconv.Itoa(n)
+			next[base] = n + 1
 		}
 
 		used[strings.ToLower(name)] = true
 		cols = append(cols, Col{Name: name, Type: c.Type})
 	}
 
-	return cols
+	return cols, nil
 }
 
 func (e *env) applyJoin(in *Rel, x *joinOp) (*Rel, error) {
@@ -190,7 +204,12 @@ func (e *env) applyJoin(in *Rel, x *joinOp) (*Rel, error) {
 		byKey[k] = append(byKey[k], i)
 	}
 
-	out := &Rel{Cols: joinOutputCols(in, right, x.kind)}
+	cols, err := joinOutputCols(in, right, x.kind)
+	if err != nil {
+		return nil, err
+	}
+
+	out := &Rel{Cols: cols}
 	matched := make([]bool, len(right.Rows))
 	seen := map[string]bool{}
 
@@ -210,6 +229,9 @@ func (e *env) applyJoin(in *Rel, x *joinOp) (*Rel, error) {
 		}
 
 		out.Rows = appendLeftRow(out.Rows, x.kind, lrow, right, hits)
+		if len(out.Rows) > maxJoinRows {
+			return nil, semErr("the join result exceeds the emulator limit of %d rows", maxJoinRows)
+		}
 	}
 
 	return appendRightRows(out, x.kind, in, right, matched), nil

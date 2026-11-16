@@ -92,12 +92,51 @@ func (h *Handler) copyBlob(c *echo.Context, container, blob string) error {
 			"Could not verify the copy source within the specified time.")
 	}
 
+	if authErr := h.authorizeLocalCopySource(r, src, srcAccount, srcContainer, srcBlob); authErr != nil {
+		return h.writeAPIError(c, authErr)
+	}
+
 	info, err := h.Backend.CopyBlob(srcContainer, srcBlob, src.Query().Get(querySnapshot), container, blob, req, pre)
 	if err != nil {
 		return h.writeCopyError(c, err, srcContainer, container)
 	}
 
 	return h.writeCopyAccepted(c, info)
+}
+
+// authorizeLocalCopySource applies the source's own authorisation when the request was authorised by a SAS: the
+// source URL must carry a SAS granting read, or its container must allow public reads.
+func (h *Handler) authorizeLocalCopySource(r *http.Request, src *url.URL, account, container, blob string) *apiError {
+	if !h.VerifySignatures || r.Header.Get("Authorization") != "" {
+		return nil
+	}
+
+	cannotVerify := &apiError{
+		status: http.StatusNotFound, code: "CannotVerifyCopySource",
+		message: "Could not verify the copy source within the specified time.",
+	}
+
+	if src.Query().Get("sig") != "" {
+		key, known := h.accountKey(account)
+		if !known {
+			return cannotVerify
+		}
+
+		probe := &http.Request{
+			Method: http.MethodGet, URL: src, Header: http.Header{}, TLS: r.TLS, RemoteAddr: r.RemoteAddr,
+		}
+		if h.authorizeSAS(probe, key, account, container, blob) != nil {
+			return cannotVerify
+		}
+
+		return nil
+	}
+
+	if info, err := h.Backend.GetContainer(container); err != nil || info.PublicAccess == "" {
+		return cannotVerify
+	}
+
+	return nil
 }
 
 func (h *Handler) writeCopyError(c *echo.Context, err error, srcContainer, container string) error {
@@ -176,6 +215,10 @@ func (h *Handler) fetchCopySource(r *http.Request, src *url.URL) (ExternalBlob, 
 
 	if resp.StatusCode != http.StatusOK {
 		return ExternalBlob{}, resp.StatusCode, errCopySourceStatus
+	}
+
+	if resp.ContentLength > MaxCopySourceBytes {
+		return ExternalBlob{}, 0, errCopySourceTooLarge
 	}
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, MaxCopySourceBytes+1))

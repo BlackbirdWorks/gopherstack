@@ -223,3 +223,73 @@ func TestSnapshotProvisioningLifecycle(t *testing.T) {
 		})
 	}
 }
+
+type unknownPlatform struct{}
+
+func (unknownPlatform) StoreSettings(string) (ac.PlatformSettings, bool) {
+	return ac.PlatformSettings{}, false
+}
+func (unknownPlatform) ReplicaParent(string) (string, bool) { return "", false }
+
+func TestAdmitUnmanagedStoreIsNotThrottled(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		platform ac.Platform
+		name     string
+	}{
+		{name: "no platform", platform: nil},
+		{name: "store unknown to arm", platform: unknownPlatform{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ac.NewInMemoryBackend()
+			b.SetPlatform(tt.platform)
+
+			_, err := b.PutStore(storeName)
+			require.NoError(t, err)
+
+			for range 31000 {
+				_, err = b.Admit(storeName)
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestAdmitRetryDelayRunsToWindowEnd(t *testing.T) {
+	t.Parallel()
+
+	b, clk := newPlatformBackend(t, fakePlatform{settings: ac.PlatformSettings{SKU: "Free"}})
+
+	for range 1000 {
+		_, err := b.Admit(storeName)
+		require.NoError(t, err)
+	}
+
+	clk.Advance(time.Hour)
+
+	wait, err := b.Admit(storeName)
+	require.ErrorIs(t, err, ac.ErrTooManyRequests)
+	assert.Equal(t, 11*time.Hour, wait, "429 lasts until midnight UTC")
+}
+
+func TestAdmitRetryDelayHasAFloor(t *testing.T) {
+	t.Parallel()
+
+	b, clk := newPlatformBackend(t, fakePlatform{settings: ac.PlatformSettings{SKU: "Free"}})
+
+	for range 1000 {
+		_, err := b.Admit(storeName)
+		require.NoError(t, err)
+	}
+
+	clk.Advance(12*time.Hour - 500*time.Millisecond)
+
+	wait, err := b.Admit(storeName)
+	require.ErrorIs(t, err, ac.ErrTooManyRequests)
+	assert.Equal(t, time.Second, wait)
+}

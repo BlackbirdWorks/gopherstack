@@ -117,6 +117,15 @@ func TestErrors(t *testing.T) {
 		{"unknown column", `Logs | where Nope == 1`, "SemanticError", "SEM0100"},
 		{"unknown table", `NoSuchTable | take 1`, "SemanticError", "SEM0100"},
 		{"join kind unsupported", `Logs | join kind=weird (Other) on Computer`, "SemanticError", "SEM0001"},
+		{
+			"join cross product over the cap", `range i from 1 to 1000 step 1 | extend k = 1 | join kind=inner ` +
+				`(range j from 1 to 1000 step 1 | extend k = 1) on k`, "SemanticError", "SEM0100",
+		},
+		{
+			"nested joins widen past the column cap",
+			strings.Repeat("Logs | join (", 700) + "Logs" + strings.Repeat(") on Computer", 700),
+			"SemanticError", "SEM0100",
+		},
 		{"mv-expand unsupported", `Logs | mv-expand Props`, "SemanticError", "SEM0001"},
 		{"search unsupported", `search "x"`, "SemanticError", "SEM0001"},
 		{"function let unsupported", `let f = (x:long) { x + 1 }; Logs | take 1`, "SemanticError", "SEM0001"},
