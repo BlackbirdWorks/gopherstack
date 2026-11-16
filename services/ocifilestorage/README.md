@@ -9,19 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 74 (69 ok, 5 partial) |
 | Feature families | 7 (3 ok, 4 partial) |
-| Known gaps | 7 |
+| Known gaps | 3 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- Not published (checked FSreplication.htm, managingmounttargets.htm, managingsnapshots.htm and the filestorage SDK comments): default replicationInterval of 60, export set maxFsStat defaults (the SDK says only to use the default), LDAP idmap cache defaults and schemaType default, the same-AD rule for clones, deleting a file system together with its snapshots, policy deletion detaching file systems, REGIONAL_DATA_CENTER_TIME mapped to America/New_York, and the EstimateReplication figures (all emulator choices)
-- Quota rules are stored but not enforced: no per-user accounting, usageInBytes is 0 and hard quotas never block writes.
-- identitySquash, anonymousUid/anonymousGid, isAnonymousAccessAllowed, allowedAuth and Kerberos or LDAP id mapping are stored and validated but not applied by the NFS server (it runs as the emulator's user; go-nfs exposes no credentials to the file system); chown/chmod through NFS act as the emulator's user.
-- NFS data plane is NFSv3 over TCP on a loopback port per mount target without portmapper or NLM; clients mount with explicit port and mountport (mount -o port=N,mountport=N,nolock,tcp). The mount target's private IP lives in OCI Core only. Snapshots are full copies taken while writes may be in flight (not atomic) and meteredBytes counts apparent sizes with no deduplication; exclusiveBytes is always 0.
-- Replication cycle phases and deltaProgress are timer-driven state (structural): no byte counters. With the nfs engine each cycle copies the whole snapshot tree to the target rather than a delta. Cross-region targets are not modelled (the emulator has one region).
-- Hydration of clones is a timer (4 transition periods); the data is copied at creation with the nfs engine.
-- Not modelled: IAM policy enforcement and quotas, NSG rule enforcement on the mount target, security attributes (ZPR) beyond storage, opc-dry-run, and Kerberos ticket validation against keytabs.
+- identitySquash, anonymousUid/anonymousGid, isAnonymousAccessAllowed and Kerberos or LDAP id mapping are stored and validated but not applied: go-nfs v0.0.4 passes the Handler and billy file system no RPC credentials (conn.go:116-125 calls the procedure with only the connection context), so every request runs as the emulator's user and new files are owned by it; chown/chmod act as the emulator's user. allowedAuth is applied at mount (an export that lists auth types without SYS refuses the mount).
+- No portmapper or NLM: go-nfs v0.0.4 implements neither (no program 100000 or 100021 in the module), and a portmapper must listen on port 111 of the mount target address, which the emulator cannot bind unprivileged. Clients mount with explicit port and mountport (mount -o port=N,mountport=N,nolock,tcp). The mount target's private IP lives in OCI Core only.
+- IAM policy enforcement is not modelled (out of scope).
 
 ## More
 

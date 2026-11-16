@@ -9,18 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 39 (35 ok, 4 partial) |
 | Feature families | 12 (11 ok, 1 partial) |
-| Known gaps | 6 |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - ACLs are stored, never evaluated. Entities are not resolved (no entityId), uploads are attributed to a fixed emulator identity, and project team entities use a project number derived from the project id.
-- No bucket relocation (buckets.relocate and the bucket operations resource) or restoreToken (hierarchical-namespace restore): neither is modelled.
-- Lifecycle gaps: AbortIncompleteMultipartUpload (XML multipart is not served), matchesPattern (absent from the buckets reference and the Go client, so its semantics are undocumented) and Autoclass are not evaluated; a SetStorageClass transition emits no OBJECT_METADATA_UPDATE (the pubsub-notifications page does not say whether it should); the sweep runs every minute rather than asynchronously over hours; object-level retention (objectRetention) and CORS are stored but not enforced.
-- Virtual-hosted-style URLs (bucket.storage.googleapis.com) and XML bucket listing, multipart XML uploads and x-goog-copy-source are not supported.
-- No data is encrypted with a Cloud KMS key (kmsKeyName), and reads are not blocked when it is disabled; resumable chunk requests are not re-checked for the customer-supplied key headers (the key is read on the initiating request).
-- Managed and hierarchical-namespace folders are not modelled, so includeFoldersAsPrefixes (validated: delimiter must be '/') adds no prefixes; the docs do not say whether matchGlob with prefix matches the full name or the remainder, and the emulator matches the full name.
+- No bucket relocation (buckets.relocate and the bucket operations resource) or restoreToken (hierarchical-namespace restore): google.golang.org/api storage/v1 gives the request shapes (RelocateBucketRequest, GoogleLongrunningOperation, Operations get/list/cancel/advanceRelocateBucket) but neither it nor the buckets.relocate and bucket-relocation overview pages define the operation metadata and response, its states or its failure modes, and restoreToken exists only on hierarchical-namespace buckets, whose folders API (folders.insert/get/list/delete/deleteRecursive/rename) and managed folders are not modelled.
+- XML listing does not support versions=, uploads or the service-level bucket list, and XML multipart uploads do not serve list parts or list uploads (the XML pages read for this pass document only initiate, upload part, complete and abort).
+- Managed and hierarchical-namespace folders are not modelled, so includeFoldersAsPrefixes (validated: delimiter must be '/') adds no prefixes; the objects.list page says it includes empty folders and managed folders in prefixes[] (docs.cloud.google.com/storage/docs/json_api/v1/objects/list), which needs the managed folders API (ManagedFolder, managedFolders insert/get/list/delete/update) and the HNS folders API.
 
 ## More
 

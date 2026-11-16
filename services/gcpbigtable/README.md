@@ -7,20 +7,15 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 43 (36 ok, 7 partial) |
+| PARITY entries audited | 45 (38 ok, 7 partial) |
 | Feature families | 7 (4 ok, 3 partial) |
-| Known gaps | 6 |
+| Known gaps | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Aggregate column families (value_type.aggregate_type) and the AddToCell/MergeToCell mutations are UNIMPLEMENTED.
-- Authorized views, logical views, materialized views, schema bundles, table snapshots, UndeleteTable, CopyBackup, memory layers and hot tablets are UNIMPLEMENTED; so are ReadChangeStream, GenerateInitialChangeStreamPartitions, PrepareQuery/ExecuteQuery and the session RPCs (OpenTable, GetClientConfiguration). change_stream_config is stored but no change records are produced.
-- Operations are recorded already finished: there is no CREATING state or progress, and CancelOperation has no effect.
-- Clusters share one copy of the data: replication, per-cluster storage and routing are not simulated, app profile routing is validated but does not place requests, and autoscaling never resizes a cluster.
-- App profile warnings (ignore_warnings) are never raised, and storage-type specific autoscaling storage targets, KMS key rules and node scaling factor constraints are not validated.
-- ReadRows never splits large cell values across chunks and reports only the iteration counts in request stats; SampleRowKeys does no size-based sampling.
+- Authorized views, logical views, materialized views, schema bundles, memory layers and hot tablets are UNIMPLEMENTED (data-plane authorized_view_name is rejected at mutate.go:20); so are ReadChangeStream, GenerateInitialChangeStreamPartitions, PrepareQuery/ExecuteQuery and the session RPCs (OpenTable, GetClientConfiguration), which fall through to UnimplementedBigtableServer (grpc.go dataServer). change_stream_config is stored but no change records are produced.
 
 ## More
 

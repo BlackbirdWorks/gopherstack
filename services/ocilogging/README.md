@@ -9,19 +9,14 @@
 | --- | --- |
 | PARITY entries audited | 32 (27 ok, 5 partial) |
 | Feature families | 9 (6 ok, 3 partial) |
-| Known gaps | 7 |
+| Known gaps | 2 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- The query language lacks select, extend, dedup, summarize, timestats, joins and functions; see families.query_language.
-- The service catalog is a fixed list of six services, and only OCI Functions feeds SERVICE logs; Object Storage, Load Balancer, API Gateway, Events and flow logs never emit entries.
-- Unified agent configurations are stored and validated but no agent consumes them, so they never produce entries.
-- Archiving (Object Storage export of logs) is stored on the configuration but nothing is exported.
-- The 1 MiB request-body limit is an emulator choice and not published (checked loggingingestion SDK LogEntry and Logging custom_logs.htm, which state only a per-entry limit of under 1 MB); the per-compartment uniqueness of log group names is an emulator choice.
-- isCompartmentIdInSubtree is ignored, and IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified.
-- systemTags are never set.
+- Object Storage read and write access logs are not emitted: access entries need request-level facts (client address, user agent, status, requestAction) that only the HTTP handler of services/ociobjectstorage sees, and that service has no access-log hook (only object and bucket events, events.go:63 and :32). Entry shape: Logging reference details_for_object_storage.
+- IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified (out of scope: IAM evaluation).
 
 ## More
 
