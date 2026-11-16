@@ -273,11 +273,8 @@ func TestKudu_ContinuousWebJobs(t *testing.T) {
 	dst := newEnv(t, true)
 	require.NoError(t, dst.handler.Restore(t.Context(), e.handler.Snapshot(t.Context())))
 	dst.do(t, http.MethodGet, "app."+testDomain, "/", nil, nil)
-	assert.Never(t, func() bool {
-		_, body := dst.do(t, http.MethodGet, scm, "/api/continuouswebjobs/worker", nil, dst.kuduAuth(t, "app"))
-
-		return strings.Contains(body, `"status":"Running"`)
-	}, 200*time.Millisecond, 20*time.Millisecond, "a stopped job stays stopped after a restore")
+	_, body := dst.do(t, http.MethodGet, scm, "/api/continuouswebjobs/worker", nil, dst.kuduAuth(t, "app"))
+	assert.Contains(t, body, `"status":"Stopped"`, "a stopped job stays stopped after a restore")
 
 	resp, _ = e.do(t, http.MethodPost, scm, "/api/continuouswebjobs/worker/start", nil, auth)
 	require.Equal(t, http.StatusOK, resp.StatusCode)

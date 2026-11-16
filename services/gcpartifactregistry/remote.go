@@ -45,6 +45,14 @@ func (b *InMemoryBackend) SetRemoteUpstreams(on bool) {
 	b.remote.enabled = on
 }
 
+// SetUpstreamClient replaces the HTTP client used for upstream fetches.
+func (b *InMemoryBackend) SetUpstreamClient(c *http.Client) {
+	b.mu.Lock("SetUpstreamClient")
+	defer b.mu.Unlock()
+
+	b.remote.client = c
+}
+
 func (b *InMemoryBackend) upstreamClient() *http.Client {
 	b.mu.Lock("upstreamClient")
 	defer b.mu.Unlock()
