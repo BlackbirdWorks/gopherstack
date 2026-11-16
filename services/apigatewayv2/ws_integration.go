@@ -24,6 +24,7 @@ import (
 
 const (
 	wsMaxBackendBody       = 10 << 20
+	maxHTTPStatus          = 599
 	wsMillisPerSecond      = int32(1000)
 	passthroughNever       = "NEVER"
 	passthroughNoTemplates = "WHEN_NO_TEMPLATES"
@@ -261,18 +262,23 @@ func (s *wsSession) mapResponse(call wsCall, res wsBackendResult) ([]byte, error
 	return []byte(out), nil
 }
 
+// integrationContext bounds a backend call by the integration's TimeoutInMillis.
+func integrationContext(ctx context.Context, integ *Integration) (context.Context, context.CancelFunc) {
+	if integ.TimeoutInMillis <= 0 {
+		return context.WithCancel(ctx)
+	}
+
+	return context.WithTimeout(ctx, time.Duration(integ.TimeoutInMillis/wsMillisPerSecond)*time.Second+
+		time.Duration(integ.TimeoutInMillis%wsMillisPerSecond)*time.Millisecond)
+}
+
 func (s *wsSession) callHTTP(ctx context.Context, integ *Integration, payload []byte) (wsBackendResult, error) {
 	if integ.IntegrationURI == "" {
 		return wsBackendResult{}, fmt.Errorf("%w: integration URI is empty", ErrIntegrationInvoke)
 	}
 
-	if integ.TimeoutInMillis > 0 {
-		var cancel context.CancelFunc
-
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(integ.TimeoutInMillis/wsMillisPerSecond)*time.Second+
-			time.Duration(integ.TimeoutInMillis%wsMillisPerSecond)*time.Millisecond)
-		defer cancel()
-	}
+	ctx, cancel := integrationContext(ctx, integ)
+	defer cancel()
 
 	method := http.MethodPost
 	if integ.IntegrationMethod != "" && !strings.EqualFold(integ.IntegrationMethod, httpMethodAny) {
@@ -409,6 +415,9 @@ func (s *wsSession) callAWS(ctx context.Context, integ *Integration, payload []b
 	if method == "" || method == httpMethodAny {
 		method = http.MethodPost
 	}
+
+	ctx, cancel := integrationContext(ctx, integ)
+	defer cancel()
 
 	resp, err := s.h.awsInvoker.InvokeAWSService(ctx, apigateway.AWSServiceRequest{
 		Region: region, Service: svc, Kind: kind, Spec: spec, Method: method, Body: payload,

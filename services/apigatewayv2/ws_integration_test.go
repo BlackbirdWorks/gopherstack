@@ -30,8 +30,9 @@ type wsIntegrationSpec struct {
 	selector        string
 	integrationType apigatewayv2types.IntegrationType
 	passthrough     string
-	responses       []wsIntegrationResponse
 	routeKey        string
+	responses       []wsIntegrationResponse
+	timeoutMillis   int32
 	routeResponse   bool
 }
 
@@ -84,6 +85,10 @@ func wsIntegrationAPI(
 		RequestTemplates:            spec.templates,
 		TemplateSelectionExpression: aws.String(spec.selector),
 	}
+	if spec.timeoutMillis > 0 {
+		in.TimeoutInMillis = aws.Int32(spec.timeoutMillis)
+	}
+
 	if spec.passthrough != "" {
 		in.PassthroughBehavior = apigatewayv2types.PassthroughBehavior(spec.passthrough)
 	}

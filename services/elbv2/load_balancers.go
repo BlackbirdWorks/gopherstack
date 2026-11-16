@@ -237,7 +237,7 @@ func requireTwoZonesForALB(lbType string, azs []AvailabilityZone, vpcID string) 
 
 	if len(zones) < minALBZones {
 		return fmt.Errorf("%w: At least two subnets in two different Availability Zones must be specified",
-			ErrInvalidConfigurationRequest)
+			ErrInvalidParameter)
 	}
 
 	return nil

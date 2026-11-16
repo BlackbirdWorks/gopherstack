@@ -4,6 +4,7 @@ import (
 	"encoding/json/v2"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -17,15 +18,17 @@ import (
 )
 
 type multiModelServer struct {
-	loads  map[string]int
-	hosts  map[string]string
-	mu     sync.Mutex
-	status int
+	loads     map[string]int
+	hosts     map[string]string
+	modelsDir string
+	mu        sync.Mutex
+	status    int
 }
 
 func (m *multiModelServer) handler(spec container.Spec) http.Handler {
 	mux := http.NewServeMux()
 	modelsDir := mountSource(spec, "/opt/ml/models")
+	m.modelsDir = modelsDir
 
 	mux.HandleFunc("/ping", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("POST /models", func(w http.ResponseWriter, r *http.Request) {
@@ -160,4 +163,48 @@ func TestEngineEndpoint_MultiModelEvictsOnInsufficientStorage(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "507")
+}
+
+func TestEngineEndpoint_MultiModelFailedLoadCleansStaging(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status int
+	}{
+		{name: "server error", status: http.StatusInternalServerError},
+		{name: "insufficient storage", status: http.StatusInsufficientStorage},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rig := newEngineRig(t, sagemaker.EngineConfig{})
+			srv := &multiModelServer{loads: map[string]int{}, hosts: map[string]string{}, status: tt.status}
+			rig.rt.serve = srv.handler
+
+			requireNoErr(t, rig.s3.PutObjectBytes(t.Context(), "models", "mme/a.tar.gz",
+				tarGz(t, map[string]string{"weights.txt": "w-a"})))
+
+			endpointFixture{
+				variants: singleVariant("mme"),
+				models: map[string]sagemaker.ContainerDefinition{"mme": {
+					Image: "mme-img", ModelDataURL: "s3://models/mme", Mode: "MultiModel",
+				}},
+			}.create(t, rig)
+
+			ep := waitEndpoint(t, rig.b, "ep")
+			require.Equal(t, "InService", ep.EndpointStatus, ep.FailureReason)
+
+			_, err := rig.b.InvokeEndpoint(t.Context(), sagemaker.InvokeRequest{
+				EndpointName: "ep", Body: []byte("in"), TargetModel: "a.tar.gz",
+			})
+			require.Error(t, err)
+
+			entries, rerr := os.ReadDir(srv.modelsDir)
+			require.NoError(t, rerr)
+			assert.Empty(t, entries)
+		})
+	}
 }

@@ -178,11 +178,15 @@ func (e *efsEngine) restore(ctx context.Context, data jsontext.Value, md map[str
 		return "", fmt.Errorf("decode EFS snapshot: %w", err)
 	}
 
-	if v := md["performanceMode"]; v != "" {
+	if v := mdValue(md, "PerformanceMode"); v != "" {
 		info.PerformanceMode = v
 	}
 
-	if v := md["kmsKeyId"]; v != "" {
+	if v := mdValue(md, "ThroughputMode"); v != "" {
+		info.ThroughputMode = v
+	}
+
+	if v := mdValue(md, "KmsKeyId"); v != "" {
 		info.KmsKeyID, info.Encrypted = v, true
 	}
 
@@ -192,6 +196,17 @@ func (e *efsEngine) restore(ctx context.Context, data jsontext.Value, md map[str
 	}
 
 	return arn.Build("elasticfilesystem", e.region, e.accountID, "file-system/"+id), nil
+}
+
+// mdValue reads a restore metadata key case-insensitively; EFS documents PascalCase keys.
+func mdValue(md map[string]string, key string) string {
+	for k, v := range md {
+		if strings.EqualFold(k, key) {
+			return v
+		}
+	}
+
+	return ""
 }
 
 type rdsEngine struct{ svc DBInstanceService }

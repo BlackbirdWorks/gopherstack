@@ -416,7 +416,47 @@ func TestCreateLoadBalancerTwoZoneMinimum(t *testing.T) {
 				Name: aws.String("lb-zones"), Type: tt.lbType, Subnets: tt.subnets,
 			})
 			if tt.wantErr {
-				require.ErrorContains(t, err, "InvalidConfigurationRequest")
+				require.ErrorContains(t, err, "ValidationError")
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestSetSubnetsTwoZoneMinimum(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		lbType  elbv2types.LoadBalancerTypeEnum
+		wantErr bool
+	}{
+		{name: "alb narrowed to one zone", lbType: elbv2types.LoadBalancerTypeEnumApplication, wantErr: true},
+		{name: "nlb narrowed to one zone", lbType: elbv2types.LoadBalancerTypeEnumNetwork},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newResolverBackedClient(t, &placementResolver{
+				subnetAZ:  map[string]string{"subnet-a": "us-east-1c", "subnet-b": "us-east-1f"},
+				subnetVPC: map[string]string{"subnet-a": "vpc-1", "subnet-b": "vpc-1"},
+			})
+
+			lb, err := client.CreateLoadBalancer(t.Context(), &elbv2sdk.CreateLoadBalancerInput{
+				Name: aws.String("lb-set"), Type: tt.lbType, Subnets: []string{"subnet-a", "subnet-b"},
+			})
+			require.NoError(t, err)
+
+			_, err = client.SetSubnets(t.Context(), &elbv2sdk.SetSubnetsInput{
+				LoadBalancerArn: lb.LoadBalancers[0].LoadBalancerArn, Subnets: []string{"subnet-a"},
+			})
+			if tt.wantErr {
+				require.ErrorContains(t, err, "ValidationError")
 
 				return
 			}

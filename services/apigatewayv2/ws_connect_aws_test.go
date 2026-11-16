@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,16 +19,26 @@ import (
 )
 
 type wsFakeAWS struct {
-	reqs   chan apigateway.AWSServiceRequest
-	body   string
-	status int
+	deadline chan time.Duration
+	reqs     chan apigateway.AWSServiceRequest
+	body     string
+	status   int
 }
 
 func (f *wsFakeAWS) Supports(svc string) bool { return svc == "dynamodb" }
 
 func (f *wsFakeAWS) InvokeAWSService(
-	_ context.Context, r apigateway.AWSServiceRequest,
+	ctx context.Context, r apigateway.AWSServiceRequest,
 ) (apigateway.AWSServiceResponse, error) {
+	if f.deadline != nil {
+		dl, ok := ctx.Deadline()
+		if !ok {
+			dl = time.Now().Add(time.Hour)
+		}
+
+		f.deadline <- time.Until(dl)
+	}
+
 	f.reqs <- r
 
 	return apigateway.AWSServiceResponse{Body: []byte(f.body), Status: f.status}, nil
@@ -62,6 +73,7 @@ func TestWebSocket_ConnectUpstreamStatus(t *testing.T) {
 		{name: "proxy 403 rejects", typ: apigatewayv2types.IntegrationTypeHttpProxy, status: 403, wantStatus: 403},
 		{name: "proxy 204 admits", typ: apigatewayv2types.IntegrationTypeHttpProxy, status: 204},
 		{name: "http 500 rejects", typ: apigatewayv2types.IntegrationTypeHttp, status: 500, wantStatus: 500},
+		{name: "http 302 maps to 500", typ: apigatewayv2types.IntegrationTypeHttp, status: 302, wantStatus: 500},
 		{name: "http 200 admits", typ: apigatewayv2types.IntegrationTypeHttp, status: 200},
 	}
 
@@ -171,6 +183,49 @@ func TestWebSocket_AWSIntegrationService(t *testing.T) {
 				assert.JSONEq(t, `{"msg":"hi"}`, string(req.Body))
 			default:
 				require.FailNow(t, "service not invoked")
+			}
+		})
+	}
+}
+
+func TestWebSocket_AWSIntegrationBounds(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		timeout      int32
+		bodyLen      int
+		wantWithin   time.Duration
+		wantReplyLen int
+	}{
+		{name: "timeout bounds call", timeout: 2500, bodyLen: 4, wantWithin: 2500 * time.Millisecond, wantReplyLen: 4},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			fake := &wsFakeAWS{
+				reqs: make(chan apigateway.AWSServiceRequest, 2), deadline: make(chan time.Duration, 2),
+				body: strings.Repeat("x", tc.bodyLen), status: 200,
+			}
+
+			env := wsIntegrationAPI(t, "arn:aws:apigateway:us-east-1:dynamodb:action/PutItem", wsIntegrationSpec{
+				integrationType: apigatewayv2types.IntegrationTypeAws,
+				routeResponse:   true,
+				timeoutMillis:   tc.timeout,
+				responses:       []wsIntegrationResponse{{key: "/2\\d\\d/"}},
+			}, func(h *apigatewayv2.Handler) { h.SetAWSServiceInvoker(fake) })
+
+			conn, _, err := env.dial(t, "", nil)
+			require.NoError(t, err)
+			require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(`{"action":"echo"}`)))
+
+			assert.Len(t, readText(t, conn), tc.wantReplyLen)
+			remaining := <-fake.deadline
+			if tc.wantWithin > 0 {
+				assert.Positive(t, remaining)
+				assert.LessOrEqual(t, remaining, tc.wantWithin)
 			}
 		})
 	}

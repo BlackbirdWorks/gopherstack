@@ -63,10 +63,10 @@ type runningContainer struct {
 	exited   chan int
 	stopLogs context.CancelFunc
 	stopWait context.CancelFunc
+	mm       *multiModel
 	hostname string
 	baseURL  string
 	id       string
-	mm       *multiModel
 	port     int
 }
 

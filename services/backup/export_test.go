@@ -58,3 +58,10 @@ func (h *Handler) GetJanitorJobTTL() time.Duration {
 
 	return h.janitor.JobTTL
 }
+
+// LockHeld reports whether the backend's write lock is currently held.
+func (b *InMemoryBackend) LockHeld() bool {
+	held, _, _ := b.mu.GetLockStatus()
+
+	return held
+}

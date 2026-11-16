@@ -367,7 +367,12 @@ func (h *Handler) wsAdmit(c *echo.Context, s *wsSession) (bool, error) {
 
 	out, invokeErr := s.invoke(c.Request().Context(), deployment, route, s.connectEvent())
 	if rej, ok := errors.AsType[*connectRejectedError](invokeErr); ok {
-		return true, writeErr(c, rej.status, http.StatusText(rej.status))
+		status := rej.status
+		if status < http.StatusBadRequest || status > maxHTTPStatus {
+			status = http.StatusInternalServerError
+		}
+
+		return true, writeErr(c, status, http.StatusText(status))
 	}
 
 	if invokeErr != nil {

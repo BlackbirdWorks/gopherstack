@@ -95,7 +95,19 @@ func (d *modelDeployment) ensureModelLoaded(
 			"Model %s not found under %s: %v", inv.targetModel, mm.prefix, err)}
 	}
 
-	status, err := d.loadModel(ctx, rc, name, inv.targetModel)
+	if err := d.loadStaged(ctx, rc, name, inv.targetModel); err != nil {
+		_ = os.RemoveAll(filepath.Join(mm.dir, name))
+
+		return err
+	}
+
+	mm.loaded[name] = true
+
+	return nil
+}
+
+func (d *modelDeployment) loadStaged(ctx context.Context, rc *runningContainer, name, target string) error {
+	status, err := d.loadModel(ctx, rc, name, target)
 	if err != nil {
 		return err
 	}
@@ -103,19 +115,14 @@ func (d *modelDeployment) ensureModelLoaded(
 	if status == http.StatusInsufficientStorage {
 		d.unloadAll(ctx, rc)
 
-		if status, err = d.loadModel(ctx, rc, name, inv.targetModel); err != nil {
+		if status, err = d.loadModel(ctx, rc, name, target); err != nil {
 			return err
 		}
 	}
 
 	if status/100 != 2 && status != http.StatusConflict {
-		return &ModelError{
-			OriginalStatusCode: status,
-			OriginalMessage:    "container failed to load model " + inv.targetModel,
-		}
+		return &ModelError{OriginalStatusCode: status, OriginalMessage: "container failed to load model " + target}
 	}
-
-	mm.loaded[name] = true
 
 	return nil
 }
