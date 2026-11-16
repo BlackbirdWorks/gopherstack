@@ -83,6 +83,24 @@ func (p *EventSourcePoller) mskSpecFor(ctx context.Context, m *EventSourceMappin
 	spec.Consumer.RootCAPEM = conn.RootCAPEM
 	spec.Consumer.Username, spec.Consumer.Password = conn.Username, conn.Password
 
+	if conn.IAM {
+		spec.Consumer.IAMRegion = conn.IAMRegion
+		spec.Consumer.IAMCredentials = p.iamCredentials(m.FunctionARN)
+	}
+
+	if conn.MutualTLS {
+		cert, key, err := p.clientCertificate(ctx, m.SourceAccessConfigurations)
+		if err != nil {
+			logger.Load(ctx).WarnContext(ctx, "lambda: MSK mutual TLS mapping not started",
+				"uuid", m.UUID, "error", err)
+			p.lambdaBackend.setESMLastProcessingResult(m.UUID, "PROBLEM: "+err.Error())
+
+			return kafkaWorkerSpec{}, false
+		}
+
+		spec.Consumer.ClientCertPEM, spec.Consumer.ClientKeyPEM = cert, key
+	}
+
 	return spec, ok
 }
 
@@ -153,7 +171,7 @@ func (p *EventSourcePoller) reconcileKafka(ctx context.Context, mappings []*Even
 
 	p.mu.Lock("reconcileKafka")
 	for id, w := range p.kafkaWorkers {
-		if spec, ok := wanted[id]; ok && reflect.DeepEqual(spec, w.spec) {
+		if spec, ok := wanted[id]; ok && sameKafkaSpec(spec, w.spec) {
 			continue
 		}
 
@@ -170,6 +188,13 @@ func (p *EventSourcePoller) reconcileKafka(ctx context.Context, mappings []*Even
 	for id, spec := range wanted {
 		p.startKafkaWorker(ctx, id, spec)
 	}
+}
+
+// sameKafkaSpec compares worker specs; the credentials callback is a func and never DeepEqual.
+func sameKafkaSpec(a, b kafkaWorkerSpec) bool {
+	a.Consumer.IAMCredentials, b.Consumer.IAMCredentials = nil, nil
+
+	return reflect.DeepEqual(a, b)
 }
 
 func (p *EventSourcePoller) kafkaSpecForMapping(ctx context.Context, m *EventSourceMapping) (kafkaWorkerSpec, bool) {

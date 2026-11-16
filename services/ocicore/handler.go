@@ -204,6 +204,7 @@ func (h *Handler) handle(verify bool) echo.HandlerFunc {
 		}
 
 		h.Backend.Sweep()
+		h.Backend.syncLB()
 
 		if err := h.serve(q, verify); err != nil {
 			h.fail(q, err)
@@ -323,6 +324,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 			select {
 			case <-t.C:
 				h.Backend.Sweep()
+				_ = h.Backend.SyncLoadBalancers(ctx)
 			case <-stop:
 				return
 			case <-ctx.Done():
@@ -336,6 +338,8 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 
 // Shutdown stops the listener and the sweeper.
 func (h *Handler) Shutdown(ctx context.Context) {
+	h.Backend.Close()
+
 	h.srvMu.Lock("Shutdown")
 	srv, stop := h.srv, h.stop
 	h.srv, h.stop = nil, nil

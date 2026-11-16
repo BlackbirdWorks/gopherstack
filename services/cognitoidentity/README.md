@@ -9,13 +9,9 @@
 | --- | --- |
 | PARITY entries audited | 23 (23 ok) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Deferred items | 4 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- Login tokens from providers other than emulator-hosted Cognito user pools (Google, Facebook, OIDC/SAML) are not signature-verified; opaque tokens are accepted.
 
 ### Deferred
 

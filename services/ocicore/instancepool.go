@@ -43,14 +43,15 @@ type PoolPlacement struct {
 // InstancePool keeps a number of instances launched from an instance configuration.
 type InstancePool struct {
 	Base
-	InstanceConfigurationID string          `json:"instanceConfigurationId"`
-	DisplayNameFormatter    string          `json:"instanceDisplayNameFormatter,omitempty"`
-	HostnameFormatter       string          `json:"instanceHostnameFormatter,omitempty"`
-	Placements              []PoolPlacement `json:"placementConfigurations"`
-	Members                 []string        `json:"members,omitempty"`
-	Size                    int             `json:"size"`
-	CurrentSize             int             `json:"currentSize"`
-	LaunchCount             int             `json:"launchCount,omitempty"`
+	InstanceConfigurationID string             `json:"instanceConfigurationId"`
+	DisplayNameFormatter    string             `json:"instanceDisplayNameFormatter,omitempty"`
+	HostnameFormatter       string             `json:"instanceHostnameFormatter,omitempty"`
+	Placements              []PoolPlacement    `json:"placementConfigurations"`
+	Members                 []string           `json:"members,omitempty"`
+	LoadBalancers           []PoolLoadBalancer `json:"loadBalancers,omitempty"`
+	Size                    int                `json:"size"`
+	CurrentSize             int                `json:"currentSize"`
+	LaunchCount             int                `json:"launchCount,omitempty"`
 }
 
 func (v *InstanceConfiguration) vcnRef() string { return "" }
@@ -66,6 +67,11 @@ func (v *InstanceConfiguration) view() Resource {
 func (v *InstancePool) view() Resource {
 	c := *v
 	c.Internal, c.Members, c.LaunchCount = nil, nil, 0
+	c.LoadBalancers = slices.Clone(v.LoadBalancers)
+
+	for i := range c.LoadBalancers {
+		c.LoadBalancers[i].Backends = nil
+	}
 
 	return &c
 }
@@ -293,15 +299,15 @@ func checkFormatter(name, f string) *APIError {
 // CreateInstancePoolIn is the CreateInstancePool request body.
 type CreateInstancePoolIn struct {
 	TagsIn
-	Size                    *int            `json:"size"`
-	LifecycleManagement     map[string]any  `json:"lifecycleManagement"`
-	CompartmentID           string          `json:"compartmentId"`
-	DisplayName             string          `json:"displayName"`
-	InstanceConfigurationID string          `json:"instanceConfigurationId"`
-	InstanceDisplayNameFmt  string          `json:"instanceDisplayNameFormatter"`
-	InstanceHostnameFmt     string          `json:"instanceHostnameFormatter"`
-	LoadBalancers           []any           `json:"loadBalancers"`
-	Placements              []PoolPlacement `json:"placementConfigurations"`
+	Size                    *int                   `json:"size"`
+	LifecycleManagement     map[string]any         `json:"lifecycleManagement"`
+	CompartmentID           string                 `json:"compartmentId"`
+	DisplayName             string                 `json:"displayName"`
+	InstanceConfigurationID string                 `json:"instanceConfigurationId"`
+	InstanceDisplayNameFmt  string                 `json:"instanceDisplayNameFormatter"`
+	InstanceHostnameFmt     string                 `json:"instanceHostnameFormatter"`
+	LoadBalancers           []AttachLoadBalancerIn `json:"loadBalancers"`
+	Placements              []PoolPlacement        `json:"placementConfigurations"`
 }
 
 func (b *InMemoryBackend) checkPlacements(ps []PoolPlacement) *APIError {
@@ -367,8 +373,8 @@ func (b *InMemoryBackend) CreateInstancePool(in CreateInstancePoolIn) (Resource,
 		return nil, "", aerr
 	}
 
-	if len(in.LoadBalancers) > 0 || in.LifecycleManagement != nil {
-		return nil, "", errParam("loadBalancers and lifecycleManagement are not supported by instance pools here")
+	if in.LifecycleManagement != nil {
+		return nil, "", errParam("lifecycleManagement is not supported by instance pools here")
 	}
 
 	if in.Size == nil || *in.Size < 0 || *in.Size > maxPoolSize {
@@ -383,11 +389,12 @@ func (b *InMemoryBackend) CreateInstancePool(in CreateInstancePoolIn) (Resource,
 		}
 	}
 
-	if _, aerr := getLive[*InstanceConfiguration](b, in.InstanceConfigurationID); aerr != nil {
+	cfg, aerr := getLive[*InstanceConfiguration](b, in.InstanceConfigurationID)
+	if aerr != nil {
 		return nil, "", aerr
 	}
 
-	if aerr := b.checkPlacements(in.Placements); aerr != nil {
+	if aerr = b.checkPlacements(in.Placements); aerr != nil {
 		return nil, "", aerr
 	}
 
@@ -396,6 +403,11 @@ func (b *InMemoryBackend) CreateInstancePool(in CreateInstancePoolIn) (Resource,
 		InstanceConfigurationID: in.InstanceConfigurationID, Placements: in.Placements, Size: *in.Size,
 		DisplayNameFormatter: in.InstanceDisplayNameFmt, HostnameFormatter: in.InstanceHostnameFmt,
 	}
+
+	if aerr = b.newPoolAttachments(p, cfg, in.LoadBalancers); aerr != nil {
+		return nil, "", aerr
+	}
+
 	b.moveTo(p, poolProvisioning, poolRunning)
 	b.add(p)
 	b.reconcilePool(p)
@@ -532,7 +544,39 @@ func (b *InMemoryBackend) launchPoolInstance(
 	inst, _ := b.res[r.base().ID].(*Instance)
 	inst.Internal.PoolID = p.ID
 
+	if aerr = b.attachWorkerVnics(inst, configSecondaryVnics(cfg)); aerr != nil {
+		_ = b.terminateLocked(inst.ID, "", TerminateOpts{})
+
+		return nil, aerr
+	}
+
 	return inst, nil
+}
+
+// configSecondaryVnics reads the secondaryVnics of an instance configuration.
+func configSecondaryVnics(cfg *InstanceConfiguration) []WorkerVnic {
+	var out []WorkerVnic
+
+	list, _ := cfg.InstanceDetails["secondaryVnics"].([]any)
+	for _, v := range list {
+		m, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		w := WorkerVnic{}
+		w.DisplayName, _ = m["displayName"].(string)
+		w.Details, _ = m["createVnicDetails"].(map[string]any)
+
+		if n, isNum := m["nicIndex"].(float64); isNum {
+			idx := int(n)
+			w.NicIndex = &idx
+		}
+
+		out = append(out, w)
+	}
+
+	return out
 }
 
 // UpdateInstancePoolIn is the UpdateInstancePool request body.
@@ -621,6 +665,15 @@ func (b *InMemoryBackend) applyPoolUpdate(p *InstancePool, in UpdateInstancePool
 
 // TerminateInstancePool terminates the pool and its instances.
 func (b *InMemoryBackend) TerminateInstancePool(id, ifMatch string) *APIError {
+	aerr := b.terminateInstancePool(id, ifMatch)
+	if aerr == nil {
+		b.syncLB()
+	}
+
+	return aerr
+}
+
+func (b *InMemoryBackend) terminateInstancePool(id, ifMatch string) *APIError {
 	b.mu.Lock("TerminateInstancePool")
 	defer b.mu.Unlock()
 
@@ -746,6 +799,15 @@ func (b *InMemoryBackend) listPoolInstances(id string) ([]PoolInstance, *APIErro
 
 // AttachPoolInstance adds an existing instance to a pool and grows the pool by one.
 func (b *InMemoryBackend) AttachPoolInstance(poolID, instID string) (PoolInstance, *APIError) {
+	out, aerr := b.attachPoolInstance(poolID, instID)
+	if aerr == nil {
+		b.syncLB()
+	}
+
+	return out, aerr
+}
+
+func (b *InMemoryBackend) attachPoolInstance(poolID, instID string) (PoolInstance, *APIError) {
 	b.mu.Lock("AttachInstancePoolInstance")
 	defer b.mu.Unlock()
 
@@ -787,6 +849,15 @@ func (b *InMemoryBackend) AttachPoolInstance(poolID, instID string) (PoolInstanc
 
 // DetachPoolInstance removes an instance from a pool, optionally shrinking the pool and terminating it.
 func (b *InMemoryBackend) DetachPoolInstance(poolID, instID string, decrement, terminate bool) (string, *APIError) {
+	wr, aerr := b.detachPoolInstance(poolID, instID, decrement, terminate)
+	if aerr == nil {
+		b.syncLB()
+	}
+
+	return wr, aerr
+}
+
+func (b *InMemoryBackend) detachPoolInstance(poolID, instID string, decrement, terminate bool) (string, *APIError) {
 	b.mu.Lock("DetachInstancePoolInstance")
 	defer b.mu.Unlock()
 
@@ -936,10 +1007,10 @@ func instancePoolEntries() []entry {
 			"ChangeInstanceConfigurationCompartment",
 		},
 		{launchConfigOp, http.MethodPost, ic + "/actions/launch", "LaunchInstanceConfiguration"},
-		{createOp((*InMemoryBackend).CreateInstancePool), http.MethodPost, "/instancePools", "CreateInstancePool"},
+		{createPoolOp, http.MethodPost, "/instancePools", "CreateInstancePool"},
 		{listOp[*InstancePool](nil), http.MethodGet, "/instancePools", "ListInstancePools"},
 		{getOp[*InstancePool]("instancePoolId"), http.MethodGet, ip, "GetInstancePool"},
-		{updateOp("instancePoolId", (*InMemoryBackend).UpdateInstancePool), http.MethodPut, ip, "UpdateInstancePool"},
+		{updateOp("instancePoolId", (*InMemoryBackend).updatePoolAndSync), http.MethodPut, ip, "UpdateInstancePool"},
 		{func(h *Handler, q *req) error {
 			return noBody(q, h.Backend.TerminateInstancePool(q.param("instancePoolId"), q.ifMatch()))
 		}, http.MethodDelete, ip, "TerminateInstancePool"},
@@ -959,5 +1030,47 @@ func instancePoolEntries() []entry {
 		{getPoolInstanceOp, http.MethodGet, ip + "/instances/{instanceId}", "GetInstancePoolInstance"},
 		{attachPoolInstanceOp, http.MethodPost, ip + "/instances", "AttachInstancePoolInstance"},
 		{detachPoolInstanceOp, http.MethodPost, ip + "/actions/detachInstance", "DetachInstancePoolInstance"},
+		{attachLoadBalancerOp, http.MethodPost, ip + "/actions/attachLoadBalancer", "AttachLoadBalancer"},
+		{detachLoadBalancerOp, http.MethodPost, ip + "/actions/detachLoadBalancer", "DetachLoadBalancer"},
+		{
+			getPoolLoadBalancerOp, http.MethodGet,
+			idPath(ip+"/loadBalancerAttachments", "instancePoolLoadBalancerAttachmentId"),
+			"GetInstancePoolLoadBalancerAttachment",
+		},
 	}
+}
+
+func (b *InMemoryBackend) updatePoolAndSync(id, ifMatch string, in UpdateInstancePoolIn) (Resource, string, *APIError) {
+	v, etag, aerr := b.UpdateInstancePool(id, ifMatch, in)
+	if aerr == nil {
+		b.syncLB()
+	}
+
+	return v, etag, aerr
+}
+
+func createPoolOp(h *Handler, q *req) error {
+	var in CreateInstancePoolIn
+	if err := q.decode(&in); err != nil {
+		return err
+	}
+
+	if aerr := h.Backend.checkTags(in); aerr != nil {
+		return aerr
+	}
+
+	if aerr := h.Backend.checkLoadBalancerTargets(in.LoadBalancers); aerr != nil {
+		return aerr
+	}
+
+	scope, token := q.r.Method+" "+q.r.URL.Path, q.r.Header.Get(headerRetry)
+
+	v, etag, aerr := h.Backend.createOnce(scope, token, func() (Resource, string, *APIError) {
+		return h.Backend.CreateInstancePool(in)
+	})
+	if aerr == nil {
+		h.Backend.syncLB()
+	}
+
+	return send(q, v, etag, aerr)
 }

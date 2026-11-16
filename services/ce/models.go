@@ -17,7 +17,16 @@ type CostCategory struct {
 
 // CostCategoryRule represents a single cost category rule.
 type CostCategoryRule struct {
-	Value string `json:"value"`
+	Rule           *ceExpression  `json:"rule,omitempty"`
+	InheritedValue *inheritedRule `json:"inheritedValue,omitempty"`
+	Value          string         `json:"value"`
+	Type           string         `json:"type,omitempty"`
+}
+
+// inheritedRule is CostCategoryInheritedValueDimension: the value comes from a dimension or tag.
+type inheritedRule struct {
+	DimensionName string `json:"dimensionName,omitempty"`
+	DimensionKey  string `json:"dimensionKey,omitempty"`
 }
 
 // SplitChargeRule represents a cost category split charge rule.

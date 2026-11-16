@@ -92,16 +92,19 @@ type txnRec struct {
 
 // InMemoryBackend holds every document, transaction and listener under one lock.
 type InMemoryBackend struct {
-	now        func() time.Time
-	mu         *lockmetrics.RWMutex
-	docs       map[string]*docRec
-	txns       map[string]*txnRec
-	subs       map[chan struct{}]struct{}
-	lastCommit time.Time
-	lastSweep  time.Time
-	observers  []DocumentObserver
-	Audit      gcpaudit.Emitter
-	pending    []DocumentEvent
+	now          func() time.Time
+	mu           *lockmetrics.RWMutex
+	docs         map[string]*docRec
+	txns         map[string]*txnRec
+	subs         map[chan struct{}]struct{}
+	wstreams     map[string]*writeStream
+	admin        *adminState
+	Audit        gcpaudit.Emitter
+	lastCommit   time.Time
+	lastSweep    time.Time
+	observers    []DocumentObserver
+	pending      []DocumentEvent
+	wstreamOrder []string
 }
 
 // NewInMemoryBackend creates an empty backend.
@@ -112,6 +115,9 @@ func NewInMemoryBackend() *InMemoryBackend {
 		docs: make(map[string]*docRec),
 		txns: make(map[string]*txnRec),
 		subs: make(map[chan struct{}]struct{}),
+
+		wstreams: make(map[string]*writeStream),
+		admin:    newAdminState(),
 	}
 }
 
@@ -130,6 +136,8 @@ func (b *InMemoryBackend) Reset() {
 
 	b.docs = make(map[string]*docRec)
 	b.txns = make(map[string]*txnRec)
+	b.wstreams, b.wstreamOrder = make(map[string]*writeStream), nil
+	b.admin = newAdminState()
 	b.lastCommit = time.Time{}
 	b.notifyLocked()
 }

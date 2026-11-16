@@ -121,6 +121,36 @@ func (a ec2SubnetAdapter) SubnetCIDR(region, id string) (string, bool) {
 	return subnets[0].CIDRBlock, true
 }
 
+// SubnetVPC implements timestreaminfluxdb.NetworkResolver.
+func (a ec2SubnetAdapter) SubnetVPC(region, id string) (string, bool) {
+	b := a.regions.handler.BackendFor(region)
+	if b == nil {
+		return "", false
+	}
+
+	subnets := b.DescribeSubnets([]string{id})
+	if len(subnets) == 0 {
+		return "", false
+	}
+
+	return subnets[0].VPCID, true
+}
+
+// SecurityGroupVPC implements timestreaminfluxdb.NetworkResolver.
+func (a ec2SubnetAdapter) SecurityGroupVPC(region, id string) (string, bool) {
+	b := a.regions.handler.BackendFor(region)
+	if b == nil {
+		return "", false
+	}
+
+	groups := b.DescribeSecurityGroups([]string{id})
+	if len(groups) == 0 {
+		return "", false
+	}
+
+	return groups[0].VPCID, true
+}
+
 // TransitGatewayOwner implements networkfirewall.TransitGatewayResolver across every region.
 func (a ec2SubnetAdapter) TransitGatewayOwner(id string) (string, bool) {
 	if id == "" {
@@ -201,7 +231,7 @@ func wireSubnetLookups(byName map[string]service.Registerable) {
 	if h, hok := byName["NetworkFirewall"].(*networkfirewallbackend.Handler); hok {
 		h.SetSubnetResolver(adapter)
 		h.SetTransitGatewayResolver(adapter)
-		h.SetNetworkResolver(adapter)
+		h.SetNetworkResolver(firewallReferences(adapter, byName))
 	}
 
 	if h, hok := byName["GlobalAccelerator"].(*globalacceleratorbackend.Handler); hok {

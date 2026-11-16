@@ -36,15 +36,18 @@ func TestInitializeServices_TimestreamInfluxDBTagsWiring(t *testing.T) {
 	subB, err := ec2.CreateSubnet(vpc.ID, "10.0.2.0/24", "us-east-1b")
 	require.NoError(t, err)
 
+	sg, err := ec2.CreateSecurityGroup("influx", "influx", vpc.ID)
+	require.NoError(t, err)
+
 	inst, err := h.Backend.CreateDBInstance(ctx, timestreaminfluxdbbackend.InstanceInput{
 		Name: "inst", Password: "Passw0rdPassw0rd", DBInstanceType: "db.influx.medium", AllocatedStorage: 100,
-		SubnetIDs: []string{subA.ID}, SecurityGroupIDs: []string{"sg-bbb222"}, Tags: tags,
+		SubnetIDs: []string{subA.ID}, SecurityGroupIDs: []string{sg.ID}, Tags: tags,
 	})
 	require.NoError(t, err)
 
 	clusterID, _, err := h.Backend.CreateDBCluster(ctx, timestreaminfluxdbbackend.ClusterInput{
 		Name: "clu", Password: "Passw0rdPassw0rd", DBInstanceType: "db.influx.large",
-		SubnetIDs: []string{subA.ID, subB.ID}, SecurityGroupIDs: []string{"sg-bbb222"},
+		SubnetIDs: []string{subA.ID, subB.ID}, SecurityGroupIDs: []string{sg.ID},
 		DeploymentType: "MULTI_NODE_READ_REPLICAS", Tags: tags,
 	})
 	require.NoError(t, err)

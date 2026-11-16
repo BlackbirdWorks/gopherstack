@@ -2,6 +2,7 @@ package ocicore
 
 import (
 	"cmp"
+	"context"
 	"slices"
 	"strings"
 	"time"
@@ -43,16 +44,24 @@ type InMemoryBackend struct {
 	dnsResolver func(string) (string, bool)
 	retry       *ociretry.Store
 	tagLookup   ocitags.Lookup
+	lbClient    LoadBalancerClient
+	life        context.Context
+	stopLife    context.CancelFunc
+	syncGate    chan struct{}
 	// Auth is the API-key registry shared with the other OCI services.
-	Auth    *ociauth.Registry
-	seq     int64
-	ipSeq   int64
-	ipv6Seq int64
+	Auth     *ociauth.Registry
+	seq      int64
+	ipSeq    int64
+	ipv6Seq  int64
+	lbActive bool
 }
 
 // NewInMemoryBackend creates an empty backend.
 func NewInMemoryBackend() *InMemoryBackend {
-	b := &InMemoryBackend{mu: lockmetrics.New("ocicore"), now: time.Now, Auth: ociauth.NewRegistry()}
+	b := &InMemoryBackend{
+		mu: lockmetrics.New("ocicore"), now: time.Now, Auth: ociauth.NewRegistry(), syncGate: make(chan struct{}, 1),
+	}
+	b.life, b.stopLife = context.WithCancel(context.Background())
 	b.initMaps()
 
 	return b
@@ -85,6 +94,7 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	b.initMaps()
 	b.seq, b.ipSeq, b.ipv6Seq = 0, 0, 0
+	b.lbActive = false
 	b.mu.Unlock()
 	b.Auth.Reset()
 }

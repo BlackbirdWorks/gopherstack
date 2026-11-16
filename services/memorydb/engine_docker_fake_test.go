@@ -3,7 +3,6 @@ package memorydb_test
 import (
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	memorydbsdk "github.com/aws/aws-sdk-go-v2/service/memorydb"
@@ -30,37 +29,27 @@ func newDockerFakeClient(t *testing.T) (*memorydbsdk.Client, *redisdockertest.Fa
 	return newMemorydbSDKClient(t, h), fk, b
 }
 
-func waitAvailable(t *testing.T, c *memorydbsdk.Client, name string) memorydbtypes.Cluster {
+func waitAvailable(
+	t *testing.T, c *memorydbsdk.Client, b *memorydb.InMemoryBackend, name string,
+) memorydbtypes.Cluster {
 	t.Helper()
 
-	return waitAvailableFor(t, c, name, time.Minute)
-}
+	b.WaitIdle()
 
-func waitAvailableFor(t *testing.T, c *memorydbsdk.Client, name string, limit time.Duration) memorydbtypes.Cluster {
-	t.Helper()
+	out, err := c.DescribeClusters(t.Context(), &memorydbsdk.DescribeClustersInput{
+		ClusterName: aws.String(name), ShowShardDetails: aws.Bool(true),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Clusters, 1)
+	require.Equal(t, "available", aws.ToString(out.Clusters[0].Status))
 
-	var got memorydbtypes.Cluster
-
-	require.Eventually(t, func() bool {
-		out, err := c.DescribeClusters(t.Context(), &memorydbsdk.DescribeClustersInput{
-			ClusterName: aws.String(name), ShowShardDetails: aws.Bool(true),
-		})
-		if err != nil || len(out.Clusters) != 1 {
-			return false
-		}
-
-		got = out.Clusters[0]
-
-		return aws.ToString(got.Status) == "available"
-	}, limit, 20*time.Millisecond)
-
-	return got
+	return out.Clusters[0]
 }
 
 func TestDockerClusterTopologyAndEndpoints(t *testing.T) {
 	t.Parallel()
 
-	client, fk, _ := newDockerFakeClient(t)
+	client, fk, b := newDockerFakeClient(t)
 
 	_, err := client.CreateCluster(t.Context(), &memorydbsdk.CreateClusterInput{
 		ClusterName: aws.String("topo"), NodeType: aws.String("db.r6g.large"), ACLName: aws.String("open-access"),
@@ -68,7 +57,7 @@ func TestDockerClusterTopologyAndEndpoints(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	cl := waitAvailable(t, client, "topo")
+	cl := waitAvailable(t, client, b, "topo")
 
 	assert.Len(t, fk.Specs(), 4, "2 shards x (1 primary + 1 replica)")
 	require.Len(t, cl.Shards, 2)
@@ -105,14 +94,14 @@ func TestDockerClusterReportsCreatingUntilLaunched(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	waitAvailable(t, client, "early")
+	waitAvailable(t, client, b, "early")
 	assert.NotEmpty(t, b.DockerCAPEM(), "TLS clusters hand clients a CA")
 }
 
 func TestDockerACLSyncOnUserAndACLChanges(t *testing.T) {
 	t.Parallel()
 
-	client, fk, _ := newDockerFakeClient(t)
+	client, fk, b := newDockerFakeClient(t)
 	ctx := t.Context()
 
 	_, err := client.CreateUser(ctx, &memorydbsdk.CreateUserInput{
@@ -135,7 +124,7 @@ func TestDockerACLSyncOnUserAndACLChanges(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	waitAvailable(t, client, "acl")
+	waitAvailable(t, client, b, "acl")
 
 	set := fk.Cmds("ACL", "SETUSER", "app")
 	require.Len(t, set, 2, "synced to the primary and the replica before the cluster is available")
@@ -165,7 +154,7 @@ func TestDockerACLSyncOnUserAndACLChanges(t *testing.T) {
 func TestDockerSnapshotRoundTripKeepsShards(t *testing.T) {
 	t.Parallel()
 
-	client, fk, _ := newDockerFakeClient(t)
+	client, fk, b := newDockerFakeClient(t)
 	ctx := t.Context()
 
 	_, err := client.CreateCluster(ctx, &memorydbsdk.CreateClusterInput{
@@ -173,7 +162,7 @@ func TestDockerSnapshotRoundTripKeepsShards(t *testing.T) {
 		NumShards: aws.Int32(2), TLSEnabled: aws.Bool(false),
 	})
 	require.NoError(t, err)
-	waitAvailable(t, client, "src")
+	waitAvailable(t, client, b, "src")
 
 	_, err = client.CreateSnapshot(ctx, &memorydbsdk.CreateSnapshotInput{
 		ClusterName: aws.String("src"), SnapshotName: aws.String("snap"),
@@ -185,7 +174,7 @@ func TestDockerSnapshotRoundTripKeepsShards(t *testing.T) {
 		SnapshotName: aws.String("snap"), TLSEnabled: aws.Bool(false),
 	})
 	require.NoError(t, err)
-	waitAvailable(t, client, "copy")
+	waitAvailable(t, client, b, "copy")
 
 	seeded := 0
 
@@ -203,7 +192,7 @@ func TestDockerSnapshotRoundTripKeepsShards(t *testing.T) {
 func TestDockerSnapshotShapeMismatchRejected(t *testing.T) {
 	t.Parallel()
 
-	client, _, _ := newDockerFakeClient(t)
+	client, _, b := newDockerFakeClient(t)
 	ctx := t.Context()
 
 	_, err := client.CreateCluster(ctx, &memorydbsdk.CreateClusterInput{
@@ -211,7 +200,7 @@ func TestDockerSnapshotShapeMismatchRejected(t *testing.T) {
 		NumShards: aws.Int32(2), TLSEnabled: aws.Bool(false),
 	})
 	require.NoError(t, err)
-	waitAvailable(t, client, "src")
+	waitAvailable(t, client, b, "src")
 
 	_, err = client.CreateSnapshot(ctx, &memorydbsdk.CreateSnapshotInput{
 		ClusterName: aws.String("src"), SnapshotName: aws.String("snap"),
@@ -236,7 +225,7 @@ func TestDockerDeleteRemovesContainers(t *testing.T) {
 		NumReplicasPerShard: aws.Int32(1), TLSEnabled: aws.Bool(false),
 	})
 	require.NoError(t, err)
-	waitAvailable(t, client, "gone")
+	waitAvailable(t, client, b, "gone")
 
 	_, err = client.DeleteCluster(ctx, &memorydbsdk.DeleteClusterInput{ClusterName: aws.String("gone")})
 	require.NoError(t, err)

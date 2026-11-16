@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/json/v2"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/miekg/dns"
@@ -50,6 +51,7 @@ const (
 type zoneRec struct {
 	Zone    *dnsapi.ManagedZone                  `json:"zone"`
 	RRSets  map[string]*dnsapi.ResourceRecordSet `json:"rrsets"`
+	Private map[string]string                    `json:"privateKeys,omitempty"`
 	Project string                               `json:"project"`
 	Changes []*dnsapi.Change                     `json:"changes"`
 	Ops     []*dnsapi.Operation                  `json:"ops"`
@@ -69,11 +71,13 @@ type InMemoryBackend struct {
 	policies map[string]*dnsapi.Policy
 	respPols map[string]*responseRec
 	iam      *gcpiampolicy.Store
+	sigs     *sigCache
+	sink     atomic.Pointer[LogSink]
 }
 
 // NewInMemoryBackend creates an empty backend.
 func NewInMemoryBackend() *InMemoryBackend {
-	b := &InMemoryBackend{mu: lockmetrics.New("gcpdns"), now: time.Now}
+	b := &InMemoryBackend{mu: lockmetrics.New("gcpdns"), now: time.Now, sigs: newSigCache()}
 	b.resetMaps()
 
 	return b

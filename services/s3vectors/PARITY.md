@@ -35,9 +35,7 @@ families:
   Wire: {status: ok, note: "Every route is POST /<Operation> except tagging (/tags/{resourceArn}); timestamps are epoch seconds (the SDK's four deserializers use ParseEpochSeconds)."}
 gaps: []
 items_still_open:
-  - Encryption: sseType and kmsKeyArn are stored and the key is checked on data operations, but vector data is not encrypted at rest
-  - Bucket policies: stored and returned, not enforced
-  - Memory: vectors live in process memory (4 bytes per dimension plus metadata) with no spill to disk
+  - "Bucket policies: stored and returned, resource-policy evaluation is out of scope"
 structural_gaps:
   - QueryVectors in CLASSIC mode: AWS filters during an approximate search and may return fewer than topK matches; the emulator is exact in both modes
 deferred: []
@@ -57,3 +55,4 @@ Distances: euclidean is the L2 distance, cosine is `1 - cos(a, b)`.
 - Filter semantics: a missing field satisfies $ne and $nin and fails every other operator; s3-vectors-metadata-filtering.html only says '$ne: Not equal comparison' and '$nin: Match none of the values in array' and does not state how absent fields behave
 - PutVectors: a key repeated inside one batch keeps the last occurrence; API_S3VectorBuckets_PutVectors.html does not state the behaviour
 - ServiceUnavailableException: never produced; the PutVectors page ties it to a request exceeding capacity without publishing a size
+- Encryption: sseType and kmsKeyArn are stored and the key is checked on data operations; vectors live only in process memory (4 bytes per dimension plus metadata), so there is no at-rest medium to encrypt and no spill to disk.

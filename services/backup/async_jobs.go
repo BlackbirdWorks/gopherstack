@@ -58,9 +58,10 @@ func transitionalState(start, settleAt, now time.Time, first string) string {
 // settleRestoreJobLocked materializes the restored resource and finishes the job as COMPLETED or FAILED.
 func (b *InMemoryBackend) settleRestoreJobLocked(job *RestoreJob, now time.Time) {
 	job.SettleAt = nil
-	job.CompletionDate = &now
 
 	created, err := b.restoreResourceLocked(job)
+	job.CompletionDate = &now
+
 	if err != nil {
 		job.Status = statusFailed
 		job.StatusMessage = err.Error()
@@ -73,14 +74,21 @@ func (b *InMemoryBackend) settleRestoreJobLocked(job *RestoreJob, now time.Time)
 	job.CreatedResourceArn = created
 }
 
-// restoreResourceLocked recreates the resource through the wired engine for the job's resource type. A
+// restoreResourceLocked drops the backend lock around the engine call: engines call other backends, which may
+// call back into Backup (a stack with Backup resources). Callers must hold the write lock.
+// It recreates the resource through the wired engine for the job's resource type. A
 // recovery point with no captured data (untracked ARN, unwired service) keeps the synthesized ARN.
 func (b *InMemoryBackend) restoreResourceLocked(job *RestoreJob) (string, error) {
 	rp, found := b.findRecoveryPointByArn(job.RecoveryPointArn)
 	engine := b.engines[job.ResourceType]
 
 	if found && len(rp.Snapshot) > 0 && engine != nil {
-		created, err := engine.restore(context.Background(), rp.Snapshot, job.Metadata)
+		snapshot := rp.Snapshot
+
+		b.mu.Unlock()
+		created, err := engine.restore(context.Background(), snapshot, job.Metadata)
+		b.mu.Lock("restoreResource")
+
 		if err != nil {
 			return "", fmt.Errorf("restore %s: %w", job.ResourceType, err)
 		}
@@ -103,7 +111,12 @@ func (b *InMemoryBackend) captureSnapshotLocked(job *Job) (jsontext.Value, error
 		return nil, nil
 	}
 
-	data, err := engine.capture(context.Background(), job.ResourceArn)
+	resourceArn := job.ResourceArn
+
+	b.mu.Unlock()
+	data, err := engine.capture(context.Background(), resourceArn)
+	b.mu.Lock("captureSnapshot")
+
 	if err != nil {
 		return nil, fmt.Errorf("snapshot %s: %w", job.ResourceArn, err)
 	}

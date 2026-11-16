@@ -27,9 +27,7 @@ families:
   clusters: {status: ok, note: "lifecycle derived from the clock (CREATE_IN_PROGRESS, UNINITIALIZED, INITIALIZE_IN_PROGRESS, MODIFY_IN_PROGRESS, DELETE_IN_PROGRESS) plus HSM presence (INITIALIZED vs ACTIVE); EC2 subnet, security group and ENI wiring through internal/app/cloudhsmv2_wiring.go"}
   backups: {status: ok, note: "taken when an initialized cluster gains its first HSM, when it initializes with an HSM, and when its last HSM is deleted, and every 24 hours while an initialized cluster has an ACTIVE HSM (manage-backups: at least once every 24 hours; caught up lazily on the next backup call); copies and cross-account sharing via resource policy or an active RAM share"}
   tags: {status: ok, note: "cluster and backup tags; backups inherit the cluster tags at backup time"}
-items_still_open:
-  - CopyBackupToRegion: same-account copies only; the destination region is a label on the stored backup, not a separate backend
-  - "CloudFormation: AWS::CloudHSM::Cluster is provisioned; HSMs are created through the API only, as in AWS. AWS::CloudHSMV2::Backup has no writable properties in CloudFormation resource specification v268, so it is not provisioned. Cluster Fn::GetAtt SubnetMapping is not supported"
+items_still_open: []
 gaps: []
 structural_gaps:
   - Cluster.PreCoPassword: the HSM user model (PRECO, CO, CU) does not exist, so no password can be real
@@ -47,3 +45,5 @@ Account and region come from the request; resources are scoped by both, and a ba
 ## Emulator choices where the vendor is silent
 
 - CloudHsmAccessDeniedException and CloudHsmServiceException: never raised; API_ModifyCluster lists both without a trigger, and IAM denials come from the shared enforcement middleware as AccessDeniedException
+- CopyBackupToRegion copies within the account; the destination region is a label on the stored backup, not a separate backend, because the emulator runs one backend per account.
+- CloudFormation: AWS::CloudHSM::Cluster is provisioned and HSMs are created through the API only, as in AWS; AWS::CloudHSMV2::Backup has no writable properties in CloudFormation resource specification v268 so it is not provisioned; Fn::GetAtt SubnetMapping is not served because the specification lists it with no type, leaving the representation of a map attribute undefined.

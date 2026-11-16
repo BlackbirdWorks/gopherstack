@@ -311,8 +311,7 @@ families:
   authorizers_runtime: {status: ok, note: "TOKEN/REQUEST/COGNITO_USER_POOLS resolution + JWKS validation via injected JWKSProvider, TTL-bounded cache (bd gopherstack #1403 fixed prior unbounded growth)"}
   patch_semantics: {status: ok, note: "REWRITTEN this sweep — see Notes; was the single biggest gap in the service"}
 gaps: []
-items_still_open:
-  - "Cache-Control: max-age=0 invalidation is implemented; with RequireAuthorizationForCacheControl a request counts as authorized when SigV4-signed (the stage proxy performs no execute-api:InvalidateCache policy evaluation), and the Warning header text for SUCCEED_WITH_RESPONSE_HEADER is unspecified in the SDK and developer guide."
+items_still_open: []
 structural_gaps:
   - "GetSdkTypes Position: GetSdkTypesOutput has no position member, so the fixed six-entry catalog cannot be paged; GetSdk packages the OpenAPI export rather than generated client code."
 deferred:
@@ -1335,3 +1334,5 @@ Tests: execute_api_url_test.go, custom_id_test.go. Custom-domain Host routing: b
 ## Emulator choices where the vendor is silent
 
 - GetExport extensions=postman is accepted and ignored: API_GetExport.html and the export guide say only that it exports the OpenAPI document "with Postman extensions" (not a Postman Collection v2.1); the extension keys AWS emits are not documented anywhere checked, so emitting any would be invented.
+- Cache-Control: max-age=0 with RequireAuthorizationForCacheControl: the stage proxy evaluates no IAM policies anywhere, so a SigV4-signed request counts as authorized for execute-api:InvalidateCache (deliberate emulator restriction, same as the rest of the data plane).
+- The Warning header text for UnauthorizedCacheControlHeaderStrategy SUCCEED_WITH_RESPONSE_HEADER is not specified by the SDK or the developer guide, so the emulator emits a 199 warning-code header with its own wording.

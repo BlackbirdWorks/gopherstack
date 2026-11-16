@@ -39,6 +39,7 @@ type seg struct {
 type backendCfg struct {
 	Address     string
 	Translation string
+	JWTAudience string
 	Deadline    time.Duration
 	DisableAuth bool
 }
@@ -637,6 +638,7 @@ func (c *compiler) backendLimits(loc string, m map[string]any, b *backendCfg) {
 	}
 
 	b.DisableAuth, _ = m[c.field("disable_auth", "disableAuth")].(bool)
+	b.JWTAudience = str(m, c.field("jwt_audience", "jwtAudience"))
 
 	if _, aud := m[c.field("jwt_audience", "jwtAudience")]; aud && b.DisableAuth {
 		c.failf(loc, "Only one of jwt_audience and disable_auth may be set.")

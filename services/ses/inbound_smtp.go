@@ -103,6 +103,7 @@ type smtpSession struct {
 	br       *bufio.Reader
 	from     string
 	clientIP string
+	helo     string
 	rcpts    []string
 	hasFrom  bool
 	tls      bool
@@ -183,8 +184,11 @@ func (s *inboundServer) serve(ctx context.Context, conn net.Conn) {
 func (s *inboundServer) command(ctx context.Context, sess *smtpSession, verb, arg string) bool {
 	switch verb {
 	case "EHLO":
+		sess.helo = strings.TrimSpace(arg)
+
 		return s.ehlo(sess)
 	case "HELO":
+		sess.helo = strings.TrimSpace(arg)
 		sess.greeted = true
 		sess.resetTx()
 
@@ -355,7 +359,7 @@ func (s *inboundServer) data(ctx context.Context, sess *smtpSession) bool {
 	}
 
 	res := s.b.deliverInbound(ctx, inboundEnvelope{
-		from: sess.from, clientIP: sess.clientIP, rcpts: sess.rcpts, data: body, tls: sess.tls,
+		from: sess.from, helo: sess.helo, clientIP: sess.clientIP, rcpts: sess.rcpts, data: body, tls: sess.tls,
 	})
 	sess.resetTx()
 

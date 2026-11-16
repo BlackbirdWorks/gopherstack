@@ -92,9 +92,7 @@ structural_gaps:
   - "Serverless Workgroup.CrossAccountVpcs/PatchVersion/PendingTrackName/WorkgroupVersion and Endpoint.VpcEndpoints are unmodeled: they need a patch catalog, track-upgrade scheduler and real ENI allocation."
   - "CreateCluster.LoadSampleData has no SQL engine to load into; CreateCluster.AdditionalInfo and RestoreFromClusterSnapshot.AdditionalInfo are documented as Reserved."
   - "ModifyCluster.MaintenanceTrackName stays in PendingModifiedValues (as the SDK docs say): no maintenance window runs. ElasticIp is syntax-checked only (no EC2 elastic IP lookup) and MasterPasswordSecretArn is minted without a Secrets Manager secret."
-items_still_open:
-  - "DeleteClusterSnapshot, AuthorizeSnapshotAccess and RevokeSnapshotAccess SnapshotClusterIdentifier, CopyClusterSnapshot.SourceSnapshotClusterIdentifier and RestoreFromClusterSnapshot.OwnerAccount are accepted and ignored: the SDK docs say they only scope IAM resource ARNs, and the mismatch behaviour is unspecified."
-  - "Tags on CreateUsageLimit are stored and echoed but usage limits are not CreateTags/DescribeTags targets (the SDK gives no usage limit ARN shape); CopyClusterSnapshot does not carry tags and RestoreFromClusterSnapshot tag propagation is unspecified."
+items_still_open: []
 deferred: []      # all 17 prior deferred families field-diffed in the 2026-07-22 pass, see families above
 leaks: {status: clean, note: "reviewed reconciler.go: StartReconciler/StopReconciler use a WaitGroup + stop channel, idempotent, no per-cluster goroutines. New Qev2IdcApplication store.Table this pass introduces no goroutines/tickers -- registered through the existing store.Registry the same way every other table is (store_setup.go), snapshotted/restored generically via registry.SnapshotAll/RestoreAll, no bespoke persistence code added."}
 ---
@@ -2342,3 +2340,5 @@ DescribeAccountAttributes returns max-defer-maintenance-duration (45) and applie
 
 - GetReservedNodeExchangeConfigurationOptions validates ActionType/ClusterIdentifier/SnapshotIdentifier and pages, but does not narrow options by the cluster or snapshot node type: the SDK does not state the matching rule.
 - Not documented (API_CreateCluster/API_Cluster pages list only the ManageMasterPassword/MasterUserPassword, MasterPasswordSecretKmsKeyId and public-ElasticIp conflicts, not their error code): new clusters report IpAddressType ipv4 (documented values ipv4/dualstack, default unstated), ElasticIpStatus Status active, AvailabilityZoneRelocationStatus enabled/disabled, and InvalidParameterCombination for those conflicts (MaintenanceTrackName current and HsmStatus active are documented).
+- DeleteClusterSnapshot, AuthorizeSnapshotAccess and RevokeSnapshotAccess SnapshotClusterIdentifier, CopyClusterSnapshot.SourceSnapshotClusterIdentifier and RestoreFromClusterSnapshot.OwnerAccount are accepted and ignored: the SDK docs say they only scope IAM resource ARNs and name no mismatch behaviour.
+- Tags on CreateUsageLimit are stored and echoed but usage limits are not CreateTags/DescribeTags targets (the SDK gives no usage limit ARN shape); CopyClusterSnapshot does not carry tags and the SDK is silent on tag propagation for RestoreFromClusterSnapshot.

@@ -87,7 +87,7 @@ families:
   multi_region: {status: ok, note: "ReplicateKey/UpdatePrimaryRegion primary<->replica promotion verified by existing TestUpdatePrimaryRegion_RoleSwap; DescribeKey MultiRegionConfiguration built correctly for both primary and replica sides"}
 gaps: []
 items_still_open:
-  - "Grant-authorized use by identity: operations presented with a grant token do not check that the caller is the GranteePrincipal, and key-policy/IAM evaluation lives in the iam EnforcementMiddleware, which does not consult grants (gopherstack-tnqy.6)."
+  - "Grants as an authorization source in IAM policy evaluation: the iam EnforcementMiddleware (services/iam/middleware.go:87 enforceIAMPolicy) evaluates identity and key policies only and does not consult KMS grants, so a grantee with no policy allow is denied there; IAM/resource-policy evaluation is out of scope (gopherstack-tnqy.6). Tokens presented to Encrypt/Decrypt/GenerateDataKey* are validated for existence, TTL, operations and constraints (grants.go:235)."
 structural_gaps:
   - "External key store proxies are never contacted: XksProxyUriUnreachable/IncorrectAuthenticationCredential/InvalidResponse, XksKeyNotFound/XksKeyInvalidConfiguration for the external key itself, and VPC endpoint service existence checks need a real proxy or VPC."
 deferred:

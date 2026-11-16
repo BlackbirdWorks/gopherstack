@@ -39,10 +39,8 @@ families:
   MaintenanceSchedule: {status: ok, note: "LastMaintenanceTime is set when the window start passes on the backend clock; maintenance itself changes nothing in the container."}
 gaps: []
 items_still_open:
-  - DbParameterGroup: InfluxDBv3 parameter groups are stored and returned but have no matching engine, so they are not applied
-  - DbBackupConfigurations: CONTINUOUS configurations are stored but never run
-  - VpcSubnetIds: existence is checked through EC2 when wired, but all subnets belonging to one VPC and the security groups are not verified
-  - AccessDeniedException: never raised; no IAM authorization is modeled
+  - DbParameterGroup: InfluxDBv3 parameter groups are stored and returned but are not applied; blocked by the structural gap that no v3 engine runs (engine_params.go ParameterEnv reads only the InfluxDBv2 member)
+  - AccessDeniedException: never raised; IAM authorization is out of scope
 structural_gaps:
   - "InfluxDB v3 Core and Enterprise engines and multi-node clusters have no container image the emulator can run; cluster data planes cannot exist."
   - "Cluster members run as independent servers: there is no replication between them, and a cluster backup is taken from the PRIMARY member."
@@ -60,6 +58,11 @@ Errors use the modeled HTTP statuses: ResourceNotFound 404, Conflict 409, Valida
 Emulator choices the SDK does not document: ids are 10 lowercase hex characters; the endpoint is `<id>-<account>.timestream-influxdb.<region>.on.aws` (cluster reader endpoint `<id>-ro-<account>...`); quotas enforced are 50 instances, 10 clusters, 50 parameter groups, 100 backups and 50 tags; default page size is 20; the lifecycle dwell follows `TIMESTREAMINFLUXDB_LIFECYCLE_DELAY` (default 500ms).
 
 Engine settings are read from the environment by the provider: `TIMESTREAM_INFLUXDB_ENGINE` (`stub` by default, `docker` to run influxdb:2) and `TIMESTREAM_INFLUXDB_HOST` (address advertised for containers, default 127.0.0.1).
+
+## Emulator choices where the vendor is silent
+
+- CONTINUOUS backup configurations snapshot the resource hourly on the backup clock (the SDK documents the type but not how it materializes); RestoreFromDbBackup with restoreToTime restores the newest completed CONTINUOUS snapshot of that resource taken at or before the time, and is a ValidationException before the first snapshot, after now, or for a non-CONTINUOUS backup. The 100-backup quota bounds the series.
+- With EC2 wired, VpcSubnetIds must all belong to one VPC and every VpcSecurityGroupIds entry must exist in that VPC (ValidationException); the SDK documents neither rule.
 
 ## 2026-10-22 engine pass
 

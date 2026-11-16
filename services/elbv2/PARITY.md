@@ -86,8 +86,7 @@ families:
   capacity-reservation / ip-pools / resource-policy / account-limits / ssl-policies: {status: ok, note: "unchanged this pass; verified op-by-op, all accurate"}
   data-plane (HTTP forwarding): {status: ok, note: "Application LB listeners route real HTTP at /_gopherstack/elbv2/<lb-name>/... or by Host header equal to the LB DNSName (or its .elb.localhost alias); see the 2026-10-11 data plane section. Tests: services/elbv2/dataplane_test.go, dataplane_lambda_test.go."}
 gaps: []
-items_still_open:
-  - "Kept lenient for in-repo fixtures: a target group attached to no listener reports healthy (real AWS: unused/Target.NotInUse), an ALB with subnets in one AZ is accepted, and health-check defaults stay 3/3/5 because the SDK docs and observed AWS values disagree."
+items_still_open: []
 structural_gaps:
   - "Default (--elbv2-listeners=routed) data plane has no real listener sockets or TLS: HTTPS listeners are served as plain HTTP on the emulator port and the client address is the TCP peer of the emulator. --elbv2-listeners=real binds a socket per listener (see 2026-10-29 section); HTTP/2, gRPC, mTLS, UDP proxy protocol and IAM-uploaded server certificates (no private key stored) are not served even there."
   - "GetTrustStoreCaCertificatesBundle/GetTrustStoreRevocationContent return an empty Location: the real value is a presigned URL to an AWS-owned copy of the bundle, which the emulator does not store. The ops still validate TrustStoreNotFound/RevocationIdNotFound."
@@ -622,3 +621,9 @@ Restore and Close reconcile sockets; policy and certificate changes apply on the
 ## 2026-11-13
 
 - LB VpcId/AvailabilityZone from the real subnet is wired (`elbEC2ResolverAdapter.SubnetVPC/SubnetAZ`, internal/app/cli.go); the former open item was stale.
+
+## Emulator choices where the vendor is silent
+
+- Target group health-check defaults (3/3/5 healthy/unhealthy/timeout) are kept: the API docs and observed AWS values disagree and the docs give no per-type table.
+- Target health: a target group no listener or rule routes to reports unused/Target.NotInUse (API_TargetHealth.html Reason). An ALB whose resolved subnets cover fewer than two Availability Zones is rejected (API_CreateLoadBalancer.html Subnets requires two AZs); the check applies only when an EC2 resolver reports real placement.
+- The two-AZ rejection returns `ValidationError` "At least two subnets in two different Availability Zones must be specified": the API reference lists no error for it and the SDK has no matching type, but Terraform users report that exact CreateLoadBalancer message with the `ValidationError` code (discuss.hashicorp.com thread 43860). SetSubnets uses the same code by analogy; no source shows it.

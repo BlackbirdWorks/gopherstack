@@ -108,7 +108,7 @@ func TestInitializeServices_ELBv2SubnetPlacement(t *testing.T) {
 
 	out, err := client.CreateLoadBalancer(t.Context(), &elbv2sdk.CreateLoadBalancerInput{
 		Name:    aws.String("placed-lb"),
-		Type:    elbv2types.LoadBalancerTypeEnumApplication,
+		Type:    elbv2types.LoadBalancerTypeEnumNetwork,
 		Subnets: []string{subnet.ID},
 	})
 	require.NoError(t, err)

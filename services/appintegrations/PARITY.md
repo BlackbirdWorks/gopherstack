@@ -34,8 +34,7 @@ families:
   Application: {status: ok, note: "Permissions, Publications, Subscriptions, IframeConfig, AuthConfig and ApplicationConfig round-trip; the SDK at this version has no separate permission operations."}
   Tags: {status: ok, note: "Event integrations, data integrations and applications are taggable by ARN; 200 tags, keys without the aws: prefix."}
 gaps: []
-items_still_open:
-  - "DataIntegrationAssociation.LastExecutionStatus: never emitted because no AppFlow execution exists"
+items_still_open: []
 structural_gaps:
   - "No AppFlow data plane: data integrations never pull data, so executions, schedules and file configuration have no effect beyond being stored."
 deferred: []
@@ -53,3 +52,7 @@ Pass 2026-11-13: CreateDataIntegration KmsKey resolves against the KMS emulator 
 ## Emulator choices where the vendor is silent
 
 - CreateDataIntegrationAssociation duplicate: the code for a second association of one DataIntegration is not documented; the emulator uses InvalidRequestException
+
+## External effects that are recorded, not performed
+
+- DataIntegrationAssociation flow execution: there is no AppFlow service to run a flow, so CreateDataIntegrationAssociation records the association, logs the flow it would start, and LastExecutionStatus stays absent (it is optional and only exists after an execution) rather than reporting a fabricated status.

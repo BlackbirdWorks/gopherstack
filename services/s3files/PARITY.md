@@ -27,9 +27,7 @@ ops:
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "absent keys ignored"}
   UpdateMountTarget: {wire: ok, errors: ok, state: ok, persist: ok, note: "replaces security groups, 1 to 5 sg- IDs, also on the EC2 network interface"}
 gaps: []
-items_still_open:
-  - "CreateMountTarget: IPv6 is never allocated; the EC2 emulator models no requester-managed flag on the mount target network interface."
-  - "The creating/deleting dwell is zero by default and is not exposed as a CLI lifecycle setting; tests drive it with SetLifecycleDelay."
+items_still_open: []
 structural_gaps:
   - "No NFS/file data plane: files are not served from or exported to the S3 bucket, and no import or expiration rule is ever evaluated."
 deferred: []
@@ -54,3 +52,5 @@ Cross-service: bucket existence is checked against the S3 emulator and mount-tar
 - CreateFileSystem: AcceptBucketWarning is accepted but no bucket warnings exist; the error code for a missing role or key (ValidationException) is inferred, the SDK does not pin it.
 - GetSynchronizationConfiguration returns ResourceNotFoundException until a configuration is put; the real service may seed a default configuration at creation, which the SDK docs do not state.
 - ThrottlingException and InternalServerException are never returned: s3-files-quotas.html lists no request-rate limits and nothing triggers a server fault.
+- CreateMountTarget never allocates IPv6: the EC2 emulator models no requester-managed flag on the mount target network interface.
+- The creating/deleting dwell is zero by default and not a CLI lifecycle setting; tests drive it with SetLifecycleDelay.

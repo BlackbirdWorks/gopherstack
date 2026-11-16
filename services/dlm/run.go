@@ -49,6 +49,12 @@ func (b *InMemoryBackend) runPolicy(ctx context.Context, p *storedPolicy, now ti
 	}
 
 	enabled := p.State == stateEnabled
+	extend := policyExtendsDeletion(p.PolicyDetails)
+
+	var keep map[string]bool
+	if enabled {
+		keep = b.keepNewestOfDeletedSources(p)
+	}
 
 	for _, sched := range policySchedules(p.PolicyDetails) {
 		name, _ := sched["Name"].(string)
@@ -64,6 +70,11 @@ func (b *InMemoryBackend) runPolicy(ctx context.Context, p *storedPolicy, now ti
 		p.LastEvaluated[name] = now
 
 		if !enabled {
+			if rr, ok := sched["RetainRule"].(map[string]any); ok && extend {
+				b.pruneMissing(p.PolicyID, name)
+				b.expire(ctx, p.PolicyID, name, rr, sched["ArchiveRule"] != nil, now, nil)
+			}
+
 			continue
 		}
 
@@ -75,11 +86,43 @@ func (b *InMemoryBackend) runPolicy(ctx context.Context, p *storedPolicy, now ti
 		}
 
 		if rr, ok := sched["RetainRule"].(map[string]any); ok {
-			b.expire(ctx, p.PolicyID, name, rr, sched["ArchiveRule"] != nil, now)
+			b.expire(ctx, p.PolicyID, name, rr, sched["ArchiveRule"] != nil, now, keep)
 		}
 
 		b.maintain(ctx, p.PolicyID, name, sched, now)
 	}
+}
+
+func policyExtendsDeletion(details map[string]any) bool {
+	ext, _ := details["ExtendDeletion"].(bool)
+
+	return policyDetailsIsDefaultPolicy(details) && ext
+}
+
+// keepNewestOfDeletedSources lists the targets whose source resource is gone and whose newest snapshot or AMI set
+// a default policy without ExtendDeletion must keep (API_CreateLifecyclePolicy ExtendDeletion).
+func (b *InMemoryBackend) keepNewestOfDeletedSources(p *storedPolicy) map[string]bool {
+	if !policyDetailsIsDefaultPolicy(p.PolicyDetails) || policyExtendsDeletion(p.PolicyDetails) {
+		return nil
+	}
+
+	live := map[string]bool{}
+
+	for _, rt := range policyResourceTypes(p.PolicyDetails) {
+		for _, t := range b.compute.Targets(b.region, rt) {
+			live[t.ID] = true
+		}
+	}
+
+	keep := map[string]bool{}
+
+	for _, m := range b.managed.All() {
+		if m.PolicyID == p.PolicyID && !live[m.TargetID] {
+			keep[m.TargetID] = true
+		}
+	}
+
+	return keep
 }
 
 func policySchedules(details map[string]any) []map[string]any {
@@ -119,6 +162,11 @@ func (b *InMemoryBackend) createForSchedule(
 	ctx context.Context, p *storedPolicy, sched map[string]any, name string, now time.Time,
 ) {
 	images := policyCreatesImages(p.PolicyDetails)
+
+	if cr, _ := sched["CreateRule"].(map[string]any); len(asSlice(cr["Scripts"])) > 0 {
+		logger.Load(ctx).InfoContext(ctx, "dlm: would run pre/post scripts through SSM, not performed",
+			"policy", p.PolicyID, "schedule", name)
+	}
 
 	for _, rt := range policyResourceTypes(p.PolicyDetails) {
 		for _, t := range b.matchingTargets(p.PolicyDetails, rt) {
@@ -218,6 +266,10 @@ func (b *InMemoryBackend) matchingTargets(details map[string]any, resourceType s
 func excludedByDefaultPolicy(details map[string]any, t Target) bool {
 	ex, _ := details["Exclusions"].(map[string]any)
 
+	if boot, _ := ex["ExcludeBootVolumes"].(bool); boot && t.Boot {
+		return true
+	}
+
 	if slices.Contains(policyDetailsStringSlice(ex, "ExcludeVolumeTypes"), t.VolumeType) && t.VolumeType != "" {
 		return true
 	}
@@ -300,12 +352,13 @@ func (b *InMemoryBackend) standardTierSets(policyID, schedule string) map[string
 
 func (b *InMemoryBackend) expire(
 	ctx context.Context, policyID, schedule string, rule map[string]any, archive bool, now time.Time,
+	keepNewest map[string]bool,
 ) {
 	byTarget := b.standardTierSets(policyID, schedule)
 	count, byCount := numberOf(rule["Count"])
 	cutoff, byAge := retainCutoff(rule, now)
 
-	for _, sets := range byTarget {
+	for target, sets := range byTarget {
 		ordered := make([]*resourceSet, 0, len(sets))
 		for _, s := range sets {
 			ordered = append(ordered, s)
@@ -314,6 +367,10 @@ func (b *InMemoryBackend) expire(
 		sort.Slice(ordered, func(i, j int) bool { return ordered[i].createdAt.After(ordered[j].createdAt) })
 
 		for i, s := range ordered {
+			if i == 0 && keepNewest[target] {
+				continue
+			}
+
 			if (byCount && i >= int(count)) || (byAge && !byCount && !s.createdAt.After(cutoff)) {
 				if archive {
 					b.archiveSet(ctx, s, now)

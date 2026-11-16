@@ -23,6 +23,7 @@ const (
 	rankRef
 	rankGeo
 	rankArray
+	rankVector
 	rankMap
 
 	maxValueDepth = 20
@@ -48,6 +49,10 @@ func valueRank(v *firestorepb.Value) int {
 	case *firestorepb.Value_ArrayValue:
 		return rankArray
 	case *firestorepb.Value_MapValue:
+		if _, isVec := vectorOf(v); isVec {
+			return rankVector
+		}
+
 		return rankMap
 	default:
 		return rankNull
@@ -203,6 +208,11 @@ func compareValues(a, b *firestorepb.Value) int {
 		return cmp.Compare(a.GetGeoPointValue().GetLongitude(), b.GetGeoPointValue().GetLongitude())
 	case rankArray:
 		return compareArrays(a.GetArrayValue().GetValues(), b.GetArrayValue().GetValues())
+	case rankVector:
+		va, _ := vectorOf(a)
+		vb, _ := vectorOf(b)
+
+		return compareVectors(va, vb)
 	case rankMap:
 		return compareMaps(a.GetMapValue().GetFields(), b.GetMapValue().GetFields())
 	}

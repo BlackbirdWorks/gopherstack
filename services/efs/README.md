@@ -9,14 +9,9 @@
 | --- | --- |
 | PARITY entries audited | 31 (31 ok) |
 | Feature families | 9 (9 ok) |
-| Known gaps | 2 |
+| Known gaps | none |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- File systems and mount targets report available at once (the creating dwell is opt-in via the activation delay, off by default): in-repo integration and root tests create mount targets straight after CreateFileSystem.
-- NetworkInterfaceLimitExceeded is not enforced: it keys off the VPC 'Network interfaces per Region' quota (VPC User Guide), which also counts ENIs from non-EFS resources this backend does not model (NoFreeAddressesInSubnet is enforced from the subnet CIDR minus EC2 ENI and EFS mount-target addresses).
 
 ### Deferred
 

@@ -201,12 +201,18 @@ type MSKBrokerResolver interface {
 }
 
 // MSKConnection is how the poller dials an MSK cluster that is not plaintext.
-// RootCAPEM enables TLS; a username and password select SASL/SCRAM-SHA-512.
+// RootCAPEM enables TLS; a username and password select SASL/SCRAM-SHA-512; IAM selects AWS_MSK_IAM and MutualTLS
+// a client certificate.
 type MSKConnection struct {
 	Username  string
 	Password  string
+	IAMRegion string
 	Brokers   []string
 	RootCAPEM []byte
+	// IAM selects AWS_MSK_IAM with the function's execution role; MutualTLS needs the mapping's
+	// CLIENT_CERTIFICATE_TLS_AUTH secret.
+	IAM       bool
+	MutualTLS bool
 }
 
 // MSKConnectionResolver is implemented by an MSKBrokerResolver that can reach TLS and SASL/SCRAM clusters.

@@ -36,7 +36,7 @@ func (p docPath) isDoc() bool { return len(p.segs) > 0 && len(p.segs)%2 == 0 }
 
 func parsePath(name string) (docPath, error) {
 	parts := strings.Split(name, "/")
-	if len(parts) < dbParts+1 || parts[0] != "projects" || parts[2] != "databases" || parts[4] != docsSegment ||
+	if len(parts) < dbParts+1 || parts[0] != segProjects || parts[2] != segDatabases || parts[4] != docsSegment ||
 		parts[1] == "" || parts[3] == "" {
 		return docPath{}, errInvalid("Invalid resource name: %q", name)
 	}
@@ -84,7 +84,8 @@ func parseParent(name string) (docPath, error) {
 
 func validateDatabase(name string) error {
 	parts := strings.Split(name, "/")
-	if len(parts) != dbParts || parts[0] != "projects" || parts[2] != "databases" || parts[1] == "" || parts[3] == "" {
+	if len(parts) != dbParts || parts[0] != segProjects || parts[2] != segDatabases || parts[1] == "" ||
+		parts[3] == "" {
 		return errInvalid("Invalid database name: %q", name)
 	}
 

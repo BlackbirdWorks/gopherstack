@@ -2,6 +2,7 @@ package route53resolver
 
 import (
 	"context"
+	"crypto/x509"
 	"net"
 	"strings"
 	"time"
@@ -16,10 +17,11 @@ const defaultForwardTimeout = 2 * time.Second
 // DNSResolver applies Resolver rules, DNS Firewall and query logging to queries
 // reaching the embedded DNS server from a VPC.
 type DNSResolver struct {
-	b       *InMemoryBackend
-	logMu   *lockmetrics.RWMutex
-	owns    func(string) bool
-	timeout time.Duration
+	b        *InMemoryBackend
+	logMu    *lockmetrics.RWMutex
+	owns     func(string) bool
+	dohRoots *x509.CertPool
+	timeout  time.Duration
 }
 
 // NewDNSResolver builds a resolver over b. owns reports names the emulator

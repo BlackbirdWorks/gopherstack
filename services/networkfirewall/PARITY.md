@@ -86,7 +86,7 @@ ops:
   UpdateFirewallAnalysisSettings: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeRuleGroupSummary: {wire: ok, errors: ok, state: ok, persist: ok, note: "STATEFUL only; Suricata options parsed from RulesString and StatefulRules; no SummaryConfiguration selects no fields"}
   CreateContainerAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeContainerAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "ResolvedCidrCount is 0: no container runtime to resolve"}
+  DescribeContainerAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "ResolvedCidrCount counts RUNNING ECS task addresses; EKS pods are not emulated"}
   UpdateContainerAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteContainerAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
   ListContainerAssociations: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -99,8 +99,7 @@ families:
   ResourcePolicy: {status: ok, note: "Stored per policy or rule group ARN; not evaluated for cross-account sharing."}
   Tags: {status: ok, note: "Shared by all four taggable resource kinds."}
 gaps: []
-items_still_open:
-  - CapacityUsageSummary resolves only managed prefix list references; resource group, address list and container association references count 0 CIDRs because no Resource Groups, address list or container runtime backs them (bd: gopherstack-cefu7.79)
+items_still_open: []
 structural_gaps:
   - "Transit gateways shared from another account cannot exist: EC2 is single-account, so PENDING_ACCEPTANCE is reachable only when a TransitGatewayResolver reports a foreign owner (unit-tested with a fake resolver)."
   - "Rule evaluation: no packets flow, so stateless/stateful rules, TLS inspection and logging never act on traffic."
@@ -117,3 +116,4 @@ Protocol is awsjson1.0 with PascalCase members and epoch-seconds timestamps; err
 ## Emulator choices where the vendor is silent
 
 - Firewall, VPC endpoint association and proxy endpoint IDs are generated; the Network Firewall developer guide (firewall-high-level-steps) does not say these endpoints are customer-visible EC2 VPC endpoints, so none is created in EC2 (bd: gopherstack-cefu7.79)
+- CapacityUsageSummary and ResolvedCidrCount: prefix lists count their entries, resource groups the distinct private and public addresses of their EC2 instances and network interfaces, ECS container associations the RUNNING awsvpc task addresses of each monitored cluster (attribute filters match container instance attributes). EKS container associations count 0: the EKS emulator has no pods. Address lists have no operation in the pinned SDK, so no reference can resolve to one (rule-groups-ip-set-references, container-associations).

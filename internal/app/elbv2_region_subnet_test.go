@@ -44,7 +44,7 @@ func TestELBv2DefaultSubnetZoneFollowsLoadBalancerRegion(t *testing.T) {
 			t.Parallel()
 
 			lb, createErr := h.BackendFor(tt.region).CreateLoadBalancer(elbv2backend.CreateLoadBalancerInput{
-				Name: "web", Type: "application", Subnets: []string{"subnet-default"},
+				Name: "web", Type: "network", Subnets: []string{"subnet-default"},
 			})
 			require.NoError(t, createErr)
 			require.Len(t, lb.AvailabilityZones, 1)

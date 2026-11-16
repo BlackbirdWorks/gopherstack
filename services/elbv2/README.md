@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 51 (50 ok, 1 partial) |
 | Feature families | 9 (8 ok, 1 partial) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 2 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- Kept lenient for in-repo fixtures: a target group attached to no listener reports healthy (real AWS: unused/Target.NotInUse), an ALB with subnets in one AZ is accepted, and health-check defaults stay 3/3/5 because the SDK docs and observed AWS values disagree.
 
 ### Structural gaps
 

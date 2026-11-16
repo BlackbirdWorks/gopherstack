@@ -82,11 +82,15 @@ func lambdaURI(fn string) *string {
 		"arn:aws:lambda:us-east-1:000000000000:function:" + fn + "/invocations")
 }
 
-func newWSEnv(t *testing.T, lambda *wsLambda) *wsEnv {
+func newWSEnv(t *testing.T, lambda *wsLambda, opts ...func(*apigatewayv2.Handler)) *wsEnv {
 	t.Helper()
 
 	v2 := apigatewayv2.NewHandler(apigatewayv2.NewInMemoryBackend())
 	v2.SetLambdaInvoker(lambda)
+
+	for _, o := range opts {
+		o(v2)
+	}
 
 	mgmtBackend := apigatewaymanagementapi.NewInMemoryBackend()
 	v2.SetManagementAPIBackend(mgmtBackend)

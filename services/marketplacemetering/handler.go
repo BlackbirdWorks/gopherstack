@@ -123,7 +123,8 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} 
 // RouteMatcher matches the AWSMPMeteringService X-Amz-Target prefix.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		return strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), targetPrefix)
+		return strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), targetPrefix) ||
+			seedResource(c.Request()) != ""
 	}
 }
 
@@ -132,6 +133,10 @@ func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 
 // ExtractOperation returns the operation name from X-Amz-Target.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
+	if res := seedResource(c.Request()); res != "" {
+		return seedOperation(res)
+	}
+
 	return strings.TrimPrefix(c.Request().Header.Get("X-Amz-Target"), targetPrefix)
 }
 
@@ -142,6 +147,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string { return h.ExtractOper
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		ctx := c.Request().Context()
+
+		if res := seedResource(c.Request()); res != "" {
+			return h.serveSeed(c, res)
+		}
 
 		body, err := httputils.ReadBody(c.Request())
 		if err != nil {

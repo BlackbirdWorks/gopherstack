@@ -9,17 +9,14 @@
 | --- | --- |
 | PARITY entries audited | 56 (56 ok) |
 | Feature families | 8 (8 ok) |
-| Known gaps | 4 |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- AccessDeniedException: never raised; no IAM or BYOIP-ownership authorization is modeled
-- TransactionInProgressException: never raised; changes are not gated on an IN_PROGRESS accelerator
-- IpSets.IpAddressDetails: NetworkZone is not emitted, only IpAddresses and IpAddressFamily
-- CreateCrossAccountAttachment: Organizations OU/organization ARN principals are accepted but not expanded to member accounts
+- AccessDeniedException: never raised; IAM authorization is out of scope (BYOIP ownership has no ownership source to check)
 
 ### Structural gaps
 

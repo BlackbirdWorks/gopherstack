@@ -55,8 +55,7 @@ families:
   ListChannels: {wire: new, errors: ok, state: ok, persist: ok, note: "2026-09-11: implemented per api_op_ListChannels.go. MaxResults defaults to and caps at 100 ('If you specify a value greater than 100, at most 100 results are returned'); NextToken is an exclusive-start ChannelName cursor, mirroring ListStreamConsumers' existing pagination shape in this file. StreamFilter.StreamARN filters by association; StreamFilter.StreamCreationTimestamp is accepted but not applied as a filter -- see gaps."}
   UpdateChannel: {wire: new, errors: ok, state: fixed, persist: ok, note: "2026-09-11: implemented per api_op_UpdateChannel.go. Only LoggingConfiguration and the existing destination's DataFreshnessInSeconds can change ('You cannot change the destination, source stream, record format, schema, encryption configuration, or service execution role of an existing channel'); supplying the destination type the channel does NOT already have, or both destination update blocks at once, is InvalidArgumentException. 'state: fixed' documents the same disclosed synchronous-apply simplification as CreateChannel (real AWS: UPDATING then ACTIVE). Unknown ChannelARN -> ResourceNotFoundException."}
 gaps: []
-items_still_open:
-  - "Channel S3-delivery details not published (checked data-delivery-s3-about, data-delivery-s3-key-template and the SDK): where the automatic unique suffix sits in the object key, the delivered byte layout per record format and compression, and the dead-letter JSON schema and default error prefix (gopherstack-s781r)"
+items_still_open: []
 structural_gaps:
   - "Read/WriteProvisionedThroughputExceeded counts outside the FIS throughput fault, and SubscribeToShard.* metrics: no per-shard throughput model."
   - "Channel S3Tables (Iceberg) delivery is unmodeled (no services/s3tables data-file write path): such a channel accepts PutRecord but never buffers or flushes. Plain S3 delivery is real. (gopherstack-s781r)"
@@ -1146,3 +1145,7 @@ Tool false positives (cmd/zeroguard): required path/identifier members (Name, *I
 
 ## Primary-source checks (2026-11-13)
 - kinesis: channel ARN is arn:aws:kinesis:<region>:<account>:channel/<id> per API_ChannelSummary and data-delivery-s3-describe (fixed: was the channel name); the default key template matches data-delivery-s3-key-template; the guide states a unique suffix is appended to every key.
+
+## Emulator choices where the vendor is silent
+
+- Channel S3 delivery: the unique-suffix position in the object key, the delivered byte layout per record format and compression, and the dead-letter JSON schema and default error prefix are not published (data-delivery-s3-about, data-delivery-s3-key-template and the SDK checked); the emulator picks one layout and keeps it stable.

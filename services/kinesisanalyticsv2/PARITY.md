@@ -48,8 +48,7 @@ ops:
 families:
   error_mapping: {status: ok, note: "unchanged this pass; ConcurrentModificationException mapping (fixed prior pass) also now covers ConditionalToken mismatches (checkAndBumpVersionOrToken returns the same ErrConcurrentModification sentinel as version mismatches)."}
 gaps: []
-items_still_open:
-  - "DeleteApplication is synchronous (ApplicationStatusDeleting unused); without the docker Flink engine Start/Stop are instantaneous (API docs give no durations). No container runtime -> applications stay state-only (logged, not a stub: no job ever claims to run)."
+items_still_open: []
 structural_gaps:
   - "DescribeApplication.IncludeAdditionalDetails never returns JobPlanDescription: the plan comes from a real Flink job compiler."
 deferred:
@@ -635,3 +634,4 @@ With `--persist`, docker-mode ZIPFILE code lives in `<data-dir>/flink/code` (060
 
 - StopApplication without Force: API_StopApplication says a snapshot is taken on stop, but neither it nor the SDK documents the snapshot's name or whether snapshots must be enabled, so none is invented.
 - Zeppelin Glue/S3 and other ARN fields are not cross-service validated: no doc says which fields AWS existence-checks at call time.
+- DeleteApplication completes synchronously (ApplicationStatusDELETING is never observed) and, without the docker Flink engine, Start/Stop are instantaneous: the API docs give no durations. Without a container runtime applications stay state-only and no job ever claims to run.

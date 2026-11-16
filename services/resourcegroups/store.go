@@ -237,3 +237,8 @@ func paginate[T any](list []T, keyFn func(T) string, nextToken string, maxResult
 
 	return page, keyFn(page[len(page)-1])
 }
+
+// ContextWithRegion returns ctx carrying region for backend calls made outside a request.
+func ContextWithRegion(ctx context.Context, region string) context.Context {
+	return context.WithValue(ctx, regionContextKey{}, region)
+}

@@ -43,6 +43,7 @@ const (
 	evKeyIsBase64          = "isBase64Encoded"
 	jsonKeyMessage         = "message"
 	jsonKeyConnectionID    = "connectionId"
+	jsonKeyEventType       = "eventType"
 	jsonKeyRequestID       = "requestId"
 )
 
@@ -71,7 +72,7 @@ func (s *wsSession) requestContext(routeKey, eventType string) map[string]any {
 
 	rc := map[string]any{
 		"routeKey":          routeKey,
-		"eventType":         eventType,
+		jsonKeyEventType:    eventType,
 		"messageDirection":  "IN",
 		"extendedRequestId": reqID,
 		jsonKeyRequestID:    reqID,
@@ -231,9 +232,9 @@ func (s *wsSession) invokeMessage(
 			return nil, nil
 		}
 
-		return s.invokeIntegration(ctx, wsCall{integration: integration, route: route, body: body})
+		return s.invokeIntegration(ctx, wsCall{integration: integration, route: route, event: event, body: body})
 	case integrationTypeHTTPProxy, integrationTypeHTTPType, IntegrationTypeAWS:
-		return s.invokeIntegration(ctx, wsCall{integration: integration, route: route, body: body})
+		return s.invokeIntegration(ctx, wsCall{integration: integration, route: route, event: event, body: body})
 	case IntegrationTypeAWSProxy:
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedType, integration.IntegrationType)
@@ -365,6 +366,15 @@ func (h *Handler) wsAdmit(c *echo.Context, s *wsSession) (bool, error) {
 	}
 
 	out, invokeErr := s.invoke(c.Request().Context(), deployment, route, s.connectEvent())
+	if rej, ok := errors.AsType[*connectRejectedError](invokeErr); ok {
+		status := rej.status
+		if status < http.StatusBadRequest || status > maxHTTPStatus {
+			status = http.StatusInternalServerError
+		}
+
+		return true, writeErr(c, status, http.StatusText(status))
+	}
+
 	if invokeErr != nil {
 		log.Error("apigatewayv2: $connect route failed", "error", invokeErr)
 

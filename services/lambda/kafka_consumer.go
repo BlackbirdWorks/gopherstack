@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
+	mskaws "github.com/twmb/franz-go/pkg/sasl/aws"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
 )
 
@@ -16,14 +17,18 @@ const kafkaFetchMaxWait = 250 * time.Millisecond
 
 // kafkaConsumerConfig describes the group consumer an ESM worker needs.
 type kafkaConsumerConfig struct {
+	IAMCredentials   func(context.Context) (mskaws.Auth, error)
 	StartTimestamp   time.Time
 	GroupID          string
 	StartingPosition string
 	Username         string
 	Password         string
+	IAMRegion        string
 	Brokers          []string
 	Topics           []string
 	RootCAPEM        []byte
+	ClientCertPEM    []byte
+	ClientKeyPEM     []byte
 }
 
 // kafkaConsumer reads batches from a Kafka group and commits processed offsets.
@@ -52,11 +57,17 @@ func kafkaResetOffset(cfg kafkaConsumerConfig) kgo.Offset {
 	}
 }
 
+var errKafkaTLSRequired = errors.New("kafka: IAM and client certificate authentication require TLS")
+
 var errKafkaRootCA = errors.New("kafka: no certificate in broker CA PEM")
 
 // kafkaSecurityOpts adds TLS (trusting RootCAPEM) and SASL/SCRAM-SHA-512 when the config asks for them.
 func kafkaSecurityOpts(cfg kafkaConsumerConfig) ([]kgo.Opt, error) {
 	var opts []kgo.Opt
+
+	if len(cfg.RootCAPEM) == 0 && (cfg.IAMCredentials != nil || len(cfg.ClientCertPEM) > 0) {
+		return nil, errKafkaTLSRequired
+	}
 
 	if len(cfg.RootCAPEM) > 0 {
 		pool := x509.NewCertPool()
@@ -64,7 +75,22 @@ func kafkaSecurityOpts(cfg kafkaConsumerConfig) ([]kgo.Opt, error) {
 			return nil, errKafkaRootCA
 		}
 
-		opts = append(opts, kgo.DialTLSConfig(&tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}))
+		tlsCfg := &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+
+		if len(cfg.ClientCertPEM) > 0 {
+			pair, err := tls.X509KeyPair(cfg.ClientCertPEM, cfg.ClientKeyPEM)
+			if err != nil {
+				return nil, fmt.Errorf("kafka client certificate: %w", err)
+			}
+
+			tlsCfg.Certificates = []tls.Certificate{pair}
+		}
+
+		opts = append(opts, kgo.DialTLSConfig(tlsCfg))
+	}
+
+	if cfg.IAMCredentials != nil {
+		opts = append(opts, kgo.SASL(newMSKIAMMechanism(cfg.IAMRegion, cfg.IAMCredentials)))
 	}
 
 	if cfg.Username != "" {

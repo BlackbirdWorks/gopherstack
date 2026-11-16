@@ -11,6 +11,9 @@ var CRC64 = crc64Jones //nolint:gochecknoglobals // test hook
 // LZFDecompress exposes the LZF decoder for tests.
 var LZFDecompress = lzfDecompress //nolint:gochecknoglobals // test hook
 
+// GlobMatch exposes the ACL key pattern matcher for tests.
+func GlobMatch(pattern, s string) bool { return globMatch(pattern, s) }
+
 // SetClock replaces the tuner's clock and the server's TTL clock so tests control time.
 func SetClock(e *Engine, now func() time.Time) {
 	e.tuner.mu.Lock()

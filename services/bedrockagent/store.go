@@ -2,6 +2,7 @@ package bedrockagent
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"fmt"
 	"sort"
@@ -165,10 +166,24 @@ func (b *InMemoryBackend) Reset() {
 // ID/ARN helpers
 // ---------------------------------------------------------------------------
 
-func (b *InMemoryBackend) nextID(prefix string, counter *int) string {
+const (
+	idLen      = 10
+	idAlphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+)
+
+// nextID mints a 10-character alphanumeric id, the documented pattern for every Bedrock agent id.
+func (b *InMemoryBackend) nextID(_ string, counter *int) string {
 	*counter++
 
-	return fmt.Sprintf("%s-%08d", prefix, *counter)
+	raw := make([]byte, idLen)
+	_, _ = rand.Read(raw) // crypto/rand.Read never returns an error on supported platforms
+
+	out := make([]byte, idLen)
+	for i, c := range raw {
+		out[i] = idAlphabet[int(c)%len(idAlphabet)]
+	}
+
+	return string(out)
 }
 
 func (b *InMemoryBackend) buildAgentARN(region, agentID string) string {

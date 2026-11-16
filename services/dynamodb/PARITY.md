@@ -115,10 +115,7 @@ gaps: []
     instead, wire layer left fixed: same failures reproduced (fields now
     reach the SDK struct but are never read). Restored byte-identical again;
     all gates green with both layers in place."
-items_still_open:
-  - "Transaction conflicts (2026-10-30): a plain PutItem/UpdateItem/DeleteItem/BatchWriteItem is never registered in flight, so a TransactGetItems overlapping one (documented conflict) only fires through the dynamodb:transaction-conflict chaos effect, not organically; ExecuteTransaction registers each statement's item as it runs (not up front) and its SELECT-only form is not conflict-checked; BatchWriteItem reports conflicting writes as UnprocessedItems by inference (its API reference lists no TransactionConflictException)."
-  - "Vector indexes are modeled (CreateTable/UpdateTable/DescribeTable/Restore*Override/SearchVectors with real COSINE/EUCLIDEAN/DOT_PRODUCT scoring, HASH/INLINE_FILTER schema); VectorCapacity (VectorSearchRequestBytes/VectorWriteRequestBytes) and the per-write VectorIndexes capacity members are not emitted: the pinned SDK doc strings give no byte-accounting formula (re-checked 2026-10-07)."
-  - "Number precision (gopherstack-akt8j): N values compare/sort/compute exactly (pkgs/dynamonum). Not published (checked HowItWorks.NamingRulesDataTypes.html and Programming.Errors.html): the three ValidationException texts for >38 significant digits, overflow and underflow; whether DynamoDB rejects (as here) or rounds an arithmetic result needing >38 digits; that output is always plain decimal. PartiQL literals still pre-validate with strconv.ParseFloat."
+items_still_open: []
 structural_gaps:
   - "ReplicaDescription.ReplicaInaccessibleDateTime / INACCESSIBLE_ENCRYPTION_CREDENTIALS (2026-10-07): set when a replica's customer-managed KMS key becomes unusable; the replica KMSMasterKeyId is stored and echoed but dynamodb holds no live KMS key-state wiring."
   - "BackupExpiryDateTime applies to SYSTEM backups only; the emulator creates none."
@@ -810,3 +807,9 @@ last digits compared equal. They now use `pkgs/dynamonum` (normalised decimal: u
 
 ## Primary-source checks (2026-11-13)
 - dynamodb: HowItWorks.NamingRulesDataTypes.html confirms 38 digits of precision with an exception beyond it, the 1E-130 to 9.9999999999999999999999999999999999999E+125 range, and trimmed leading and trailing zeroes.
+
+## Emulator choices where the vendor is silent
+
+- Transaction conflicts: a plain PutItem/UpdateItem/DeleteItem/BatchWriteItem is atomic under the table lock and never registered in flight, so a TransactGetItems overlapping one conflicts only through the dynamodb:transaction-conflict chaos effect; ExecuteTransaction registers each statement's item as it runs and its SELECT-only form is not conflict-checked; BatchWriteItem reports conflicting writes as UnprocessedItems because its API reference lists no TransactionConflictException.
+- Vector indexes: VectorCapacity (VectorSearchRequestBytes/VectorWriteRequestBytes) and the per-write VectorIndexes capacity members are not emitted; the pinned SDK doc strings give no byte-accounting formula (re-checked 2026-10-07).
+- Number precision: N values compare, sort and compute exactly (pkgs/dynamonum). Not published (HowItWorks.NamingRulesDataTypes.html, Programming.Errors.html): the ValidationException texts for >38 significant digits, overflow and underflow; whether an arithmetic result needing >38 digits is rejected (as here) or rounded; that output is always plain decimal. PartiQL literals pre-validate with strconv.ParseFloat.

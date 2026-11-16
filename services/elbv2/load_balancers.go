@@ -222,6 +222,27 @@ func (b *InMemoryBackend) placeSubnetsIn(
 	return azs, vpcID
 }
 
+// requireTwoZonesForALB enforces the two-Availability-Zone minimum for Application Load Balancers
+// (API_CreateLoadBalancer.html, Subnets). It applies only when an EC2 resolver reported real
+// placement (vpcID set); synthesised zone names are always distinct.
+func requireTwoZonesForALB(lbType string, azs []AvailabilityZone, vpcID string) error {
+	if lbType != lbTypeApplication || vpcID == "" {
+		return nil
+	}
+
+	zones := make(map[string]struct{}, len(azs))
+	for _, az := range azs {
+		zones[az.ZoneName] = struct{}{}
+	}
+
+	if len(zones) < minALBZones {
+		return fmt.Errorf("%w: At least two subnets in two different Availability Zones must be specified",
+			ErrInvalidParameter)
+	}
+
+	return nil
+}
+
 // subnetsToMappings converts plain subnet ID strings into SubnetMapping values.
 func subnetsToMappings(subnets []string) []SubnetMapping {
 	out := make([]SubnetMapping, len(subnets))
@@ -311,6 +332,8 @@ func sameStringSet(a, b []string) bool {
 // defaultLBVpcID is the VPC reported when subnet placement cannot be resolved.
 const defaultLBVpcID = "vpc-00000000"
 
+const minALBZones = 2
+
 // CreateLoadBalancer creates a new load balancer.
 func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*LoadBalancer, error) {
 	b.mu.Lock("CreateLoadBalancer")
@@ -376,6 +399,10 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 	}
 
 	azs, vpcID := b.placeSubnets(mappings)
+	if zoneErr := requireTwoZonesForALB(lbType, azs, vpcID); zoneErr != nil {
+		return nil, zoneErr
+	}
+
 	if vpcID == "" {
 		vpcID = defaultLBVpcID
 	}
@@ -716,6 +743,11 @@ func (b *InMemoryBackend) SetSubnets(
 		return nil, netErr
 	}
 
+	azs, vpcID := b.placeSubnets(mappings)
+	if zoneErr := requireTwoZonesForALB(lb.Type, azs, vpcID); zoneErr != nil {
+		return nil, zoneErr
+	}
+
 	// An omitted flag leaves the load balancer's current value unchanged.
 	sourceNat, err := validateOnOffFlag(
 		"EnablePrefixForIpv6SourceNat", enablePrefixForIpv6SourceNat, lb.EnablePrefixForIpv6SourceNat,
@@ -733,8 +765,6 @@ func (b *InMemoryBackend) SetSubnets(
 	}
 
 	lb.EnablePrefixForIpv6SourceNat = sourceNat
-
-	azs, vpcID := b.placeSubnets(mappings)
 	lb.AvailabilityZones = azs
 
 	if vpcID != "" {

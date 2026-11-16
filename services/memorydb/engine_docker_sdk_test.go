@@ -100,7 +100,7 @@ func TestDockerRealClusterTLSACLAndSnapshotRestore(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	cl := waitAvailableFor(t, client, "real", 5*time.Minute)
+	cl := waitAvailable(t, client, b, "real")
 	assert.True(t, cl.TLSEnabled != nil && *cl.TLSEnabled)
 
 	cc := clusterClientFor(t, cl, b, "app", "passwordpassword1")
@@ -131,7 +131,7 @@ func TestDockerRealClusterTLSACLAndSnapshotRestore(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	restored := waitAvailableFor(t, client, "restored", 5*time.Minute)
+	restored := waitAvailable(t, client, b, "restored")
 	rc := clusterClientFor(t, restored, b, "app", "passwordpassword1")
 
 	for _, k := range keys {

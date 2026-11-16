@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
@@ -14,6 +15,25 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+var errConnRefused = errors.New("connect: connection refused")
+
+// upstreamClientRefusing refuses every connection to downURL by construction and sends all else through live.
+func upstreamClientRefusing(downURL string, live *http.Client) *http.Client {
+	down, _ := url.Parse(downURL)
+
+	return &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host == down.Host {
+			return nil, errConnRefused
+		}
+
+		return live.Transport.RoundTrip(r)
+	})}
+}
 
 type secretMap map[string]string
 
@@ -123,10 +143,7 @@ func TestRemoteUpstreamValidation(t *testing.T) {
 	}))
 	t.Cleanup(up.Close)
 
-	down := httptest.NewServer(http.NotFoundHandler())
-	downURL := down.URL
-
-	down.Close()
+	downURL := "http://unreachable.invalid"
 
 	tests := []struct {
 		name    string
@@ -151,6 +168,7 @@ func TestRemoteUpstreamValidation(t *testing.T) {
 			e := newEnvWith(t, "", func(b *gcpartifactregistry.InMemoryBackend) {
 				b.SetRemoteUpstreams(!tt.offline)
 				b.SetSecretResolver(secretMap{secretVersion: tt.secret})
+				b.SetUpstreamClient(upstreamClientRefusing(downURL, up.Client()))
 			})
 
 			cfg := npmUpstream(tt.url)

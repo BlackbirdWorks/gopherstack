@@ -9,14 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 8 (8 ok) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 2 |
+| Known gaps | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Policy execution covers CreateRule (Interval, Times, CronExpression), RetainRule, FastRestoreRule (Count or Interval), CrossRegionCopyRules to a Region (RetainRule, DeprecateRule, Encrypted, CmkArn, CopyTags; Outpost ARN targets are skipped), ShareRules (with unshare interval), ArchiveRule and DeprecateRule (Count or Interval) for EBS snapshot, AMI and default policies; event-based policies, pre/post scripts (Parameters), the 500-snapshot FSR quota (no published source), and default-policy Exclusions.ExcludeBootVolumes/ExtendDeletion are accepted and stored but not executed or enforced
-- Snapshots are created as completed instantly and AMIs are created without backing snapshots because the EC2 backend models them that way; the creation window AWS spreads over an hour after the scheduled time is not modeled
+- Event-based (cross-account copy event) policies are accepted and stored but never run: they need a snapshot-shared event from the EC2 emulator and ModifySnapshotAttribute emits none.
 
 ## More
 

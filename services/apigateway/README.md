@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 123 (123 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 2 |
 | Resource leaks | fixed |
-
-### Known gaps
-
-- Cache-Control: max-age=0 invalidation is implemented; with RequireAuthorizationForCacheControl a request counts as authorized when SigV4-signed (the stage proxy performs no execute-api:InvalidateCache policy evaluation), and the Warning header text for SUCCEED_WITH_RESPONSE_HEADER is unspecified in the SDK and developer guide.
 
 ### Structural gaps
 

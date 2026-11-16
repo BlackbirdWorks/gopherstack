@@ -6,6 +6,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/aws-sdk-go-v2/service/timestreaminfluxdb"
 	"github.com/aws/aws-sdk-go-v2/service/timestreaminfluxdb/types"
@@ -38,11 +39,20 @@ func TestTimestreamInfluxDBAuthSecretWiring(t *testing.T) {
 			require.NoError(t, err)
 			require.NotEmpty(t, subnets.Subnets)
 
+			groups, err := ec2.NewFromConfig(fx.cfg).
+				DescribeSecurityGroups(t.Context(), &ec2.DescribeSecurityGroupsInput{
+					Filters: []ec2types.Filter{
+						{Name: aws.String("vpc-id"), Values: []string{aws.ToString(subnets.Subnets[0].VpcId)}},
+					},
+				})
+			require.NoError(t, err)
+			require.NotEmpty(t, groups.SecurityGroups)
+
 			in := &timestreaminfluxdb.CreateDbInstanceInput{
 				Name: aws.String("wired-db"), Password: aws.String("Passw0rdPassw0rd"),
 				DbInstanceType: types.DbInstanceTypeDbInfluxMedium, AllocatedStorage: aws.Int32(100),
 				VpcSubnetIds:        []string{aws.ToString(subnets.Subnets[0].SubnetId)},
-				VpcSecurityGroupIds: []string{"sg-bbb222"},
+				VpcSecurityGroupIds: []string{aws.ToString(groups.SecurityGroups[0].GroupId)},
 			}
 			if tt.user != "" {
 				in.Username, in.Organization = aws.String(tt.user), aws.String(tt.org)

@@ -9,15 +9,14 @@
 | --- | --- |
 | PARITY entries audited | 95 (92 ok, 3 partial) |
 | Feature families | 29 (27 ok, 2 partial) |
-| Known gaps | 2 |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- AttachmentState PENDING_NETWORK_UPDATE/PENDING_TAG_ACCEPTANCE/FAILED are never entered. The SDK does not say when AWS enters them and they need attachment-policy evaluation (tag conditions, segment assignment), which is not modelled. UPDATING is entered on Update*Attachment.
-- Change sets cover 5 of 14 ChangeType values; ATTACHMENT_MAPPING/ATTACHMENT_ROUTE_*/ROUTING_POLICY_* need attachment-to-segment membership from attachment-policy evaluation, which is not modelled.
+- Change sets cover 13 of the 14 ChangeType values; SEGMENTS_CONFIGURATION is not emitted: the SDK and the Cloud WAN policy pages (cloudwan-policies-json) name the type but do not say which policy edits produce it, and segment add/modify/remove is already reported as CORE_NETWORK_SEGMENT
 
 ### Structural gaps
 

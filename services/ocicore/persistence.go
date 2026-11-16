@@ -131,6 +131,20 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Replicas:      typed[*BlockVolumeReplica](b.res),
 		BootReplicas:  typed[*BootVolumeReplica](b.res),
 		GroupReplicas: typed[*VolumeGroupReplica](b.res),
+		Byoips:        typed[*ByoipRange](b.res),
+		PublicPools:   typed[*PublicIPPool](b.res),
+		Byoasns:       typed[*Byoasn](b.res),
+		Vtaps:         typed[*Vtap](b.res),
+		CaptureFlts:   typed[*CaptureFilter](b.res),
+		DrgNatPols:    typed[*DrgNatPolicy](b.res),
+		Reservations:  typed[*CapacityReservation](b.res),
+		Dvhs:          typed[*DedicatedVMHost](b.res),
+		Clusters:      typed[*ComputeCluster](b.res),
+		Vlans:         typed[*Vlan](b.res),
+		InstanceCfgs:  typed[*InstanceConfiguration](b.res),
+		InstancePools: typed[*InstancePool](b.res),
+		ConsoleConns:  typed[*InstanceConsoleConnection](b.res),
+		ConsoleHists:  typed[*ConsoleHistory](b.res),
 		WorkReqs:      b.workReqs,
 		IPInvReqs:     b.ipInvReqs,
 		Retry:         b.retry.Entries(),
@@ -201,6 +215,12 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.seq, b.ipSeq, b.ipv6Seq = snap.Seq, snap.IPSeq, snap.IPv6Seq
 	b.retry.Load(snap.Retry)
 	b.Auth.Load(snap.Auth)
+
+	b.lbActive = false
+
+	for _, pool := range snap.InstancePools {
+		b.lbActive = b.lbActive || len(pool.LoadBalancers) > 0
+	}
 
 	return nil
 }

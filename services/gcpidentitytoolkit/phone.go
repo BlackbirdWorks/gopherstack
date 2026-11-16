@@ -91,8 +91,16 @@ func (b *InMemoryBackend) SendVerificationCode(ctx context.Context, c call, r *a
 		return nil, idtk("INVALID_PHONE_NUMBER", "Invalid format.")
 	}
 
+	if err = recaptchaGate(sc, true, r); err != nil {
+		return nil, err
+	}
+
 	if !hasClientIdentifier(r) {
 		return nil, idtk("MISSING_CLIENT_IDENTIFIER")
+	}
+
+	if err = b.smsAllowedLocked(sc, phone); err != nil {
+		return nil, err
 	}
 
 	code, ok := sc.testPhones[phone]
@@ -131,7 +139,7 @@ func (b *InMemoryBackend) phoneLocked(sc *scope, r *authRequest) (string, error)
 		}
 
 		if subtle.ConstantTimeCompare([]byte(rec.VerifyCode), []byte(r.Code)) != 1 {
-			return "", idtk("INVALID_CODE")
+			return "", wrongGuessLocked(sc, r.SessionInfo, rec)
 		}
 
 		delete(sc.proj.Codes, r.SessionInfo)
@@ -209,7 +217,7 @@ func (b *InMemoryBackend) SignInWithPhoneNumber(c call, r *authRequest) (*PhoneS
 		u.Phone = phone
 		syncProviders(u)
 	} else if u = sc.byPhone(phone); u == nil {
-		u, err = b.createUserLocked(sc, newUser{phone: phone}, false)
+		u, err = b.createClientUserLocked(sc, newUser{phone: phone}, phoneProv, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -264,7 +272,7 @@ func (b *InMemoryBackend) VerificationCodes(project, tenant string) ([]Verificat
 	var list []entry
 
 	for session, rec := range sc.proj.Codes {
-		if rec.RequestType == reqPhoneSession && rec.TenantID == tenant {
+		if (rec.RequestType == reqPhoneSession || rec.RequestType == reqMfaPhone) && rec.TenantID == tenant {
 			list = append(list, entry{rec, session})
 		}
 	}

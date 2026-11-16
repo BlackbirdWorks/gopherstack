@@ -78,10 +78,19 @@ func newGraphQLError(err error) graphqlError {
 	}
 
 	if de, ok := errors.AsType[*DynamoDBError](err); ok {
-		return graphqlError{Message: de.Error(), ErrorType: "DynamoDB:" + de.Code, Data: de.Result}
+		return graphqlError{Message: de.Error(), ErrorType: ddbErrorType(de.Code), Data: de.Result}
 	}
 
 	return graphqlError{Message: err.Error()}
+}
+
+func ddbErrorType(code string) string {
+	switch code {
+	case errCodeConflictUnhandled, errCodeMaxConflicts, errCodeDeltaSyncWrite:
+		return code
+	}
+
+	return "DynamoDB:" + code
 }
 
 // executeGraphQL parses and executes the GraphQL query.
@@ -717,7 +726,7 @@ func invokeDynamoDBDataSource(
 
 	ctx = withRegion(ctx, firstNonEmpty(ds.DynamoDBConfig.AWSRegion, backend.region))
 
-	result, err := executeDDBRequest(ctx, backend.ddbBackend, ds.DynamoDBConfig, request)
+	result, err := executeDDBRequest(ctx, backend.ddbBackend, ds.DynamoDBConfig, ds.Name, request)
 	if err != nil {
 		return nil, err
 	}

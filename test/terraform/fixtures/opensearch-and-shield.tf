@@ -204,8 +204,9 @@ resource "aws_vpc" "opsh_shield" {
 }
 
 resource "aws_subnet" "opsh_shield_a" {
-  vpc_id     = aws_vpc.opsh_shield.id
-  cidr_block = "10.203.1.0/24"
+  vpc_id            = aws_vpc.opsh_shield.id
+  cidr_block        = "10.203.1.0/24"
+  availability_zone = "us-east-1a"
 
   tags = {
     Name = "opsh-shield-subnet-a"
@@ -213,8 +214,9 @@ resource "aws_subnet" "opsh_shield_a" {
 }
 
 resource "aws_subnet" "opsh_shield_b" {
-  vpc_id     = aws_vpc.opsh_shield.id
-  cidr_block = "10.203.2.0/24"
+  vpc_id            = aws_vpc.opsh_shield.id
+  cidr_block        = "10.203.2.0/24"
+  availability_zone = "us-east-1b"
 
   tags = {
     Name = "opsh-shield-subnet-b"

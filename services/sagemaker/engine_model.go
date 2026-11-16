@@ -37,7 +37,7 @@ const (
 )
 
 var (
-	errModelPackageContainer = errors.New("model package containers are not supported by the container engine")
+	errContainerImageMissing = errors.New("container defines neither an Image nor a ModelPackageName")
 	errNoContainers          = errors.New("model defines no containers")
 	errContainerExited       = errors.New("container exited")
 )
@@ -63,6 +63,7 @@ type runningContainer struct {
 	exited   chan int
 	stopLogs context.CancelFunc
 	stopWait context.CancelFunc
+	mm       *multiModel
 	hostname string
 	baseURL  string
 	id       string
@@ -164,7 +165,7 @@ func (e *engineState) startContainer(
 	ctx context.Context, in modelStart, d *modelDeployment, idx int, def ContainerDefinition,
 ) (*runningContainer, error) {
 	if def.Image == "" {
-		return nil, &startError{reason: errModelPackageContainer.Error(), cause: errModelPackageContainer}
+		return nil, &startError{reason: errContainerImageMissing.Error(), cause: errContainerImageMissing}
 	}
 
 	modelDir := filepath.Join(d.dir, "c"+strconv.Itoa(idx), "model")
@@ -172,7 +173,21 @@ func (e *engineState) startContainer(
 		return nil, &startError{reason: err.Error(), cause: err}
 	}
 
-	if def.ModelDataURL != "" {
+	mounts := []string{modelDir + ":" + modelDirInContainer}
+
+	var mm *multiModel
+
+	if def.Mode == modeMultiModel {
+		modelsDir := filepath.Join(d.dir, "c"+strconv.Itoa(idx), "models")
+		if err := mkSharedDir(modelsDir); err != nil {
+			return nil, &startError{reason: err.Error(), cause: err}
+		}
+
+		mounts = append(mounts, modelsDir+":"+modelsDirInContainer)
+		mm = newMultiModel(def.ModelDataURL, modelsDir)
+	}
+
+	if def.ModelDataURL != "" && mm == nil {
 		if err := e.stageModelData(ctx, def.ModelDataURL, modelDir); err != nil {
 			reason := fmt.Sprintf("Unable to load model data %s: %v", def.ModelDataURL, err)
 
@@ -195,7 +210,7 @@ func (e *engineState) startContainer(
 
 		return container.Spec{
 			Image: def.Image, Name: name, Env: env, Cmd: []string{"serve"},
-			Mounts: []string{modelDir + ":" + modelDirInContainer},
+			Mounts: mounts,
 			Ports:  []string{container.PortSpec(loopbackHost, strconv.Itoa(p), modelContainerPort)},
 		}, nil
 	}, func() { portalloc.ReleaseEphemeral(port) })
@@ -207,7 +222,7 @@ func (e *engineState) startContainer(
 	}
 
 	rc := &runningContainer{
-		hostname: def.ContainerHostname, id: id, port: port, exited: make(chan int, 1),
+		hostname: def.ContainerHostname, id: id, port: port, exited: make(chan int, 1), mm: mm,
 		baseURL: "http://" + loopbackHost + ":" + strconv.Itoa(port),
 	}
 
@@ -378,7 +393,14 @@ func (d *modelDeployment) post(ctx context.Context, rc *runningContainer, inv in
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rc.baseURL+"/invocations", bytes.NewReader(inv.body))
+	invokePath, err := d.invocationPath(ctx, rc, inv)
+	if err != nil {
+		cancel()
+
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rc.baseURL+invokePath, bytes.NewReader(inv.body))
 	if err != nil {
 		cancel()
 

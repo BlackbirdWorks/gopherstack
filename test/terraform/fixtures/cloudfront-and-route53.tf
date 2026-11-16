@@ -253,8 +253,9 @@ resource "aws_vpc" "cfvpc" {
 }
 
 resource "aws_subnet" "cfa" {
-  vpc_id     = aws_vpc.cfvpc.id
-  cidr_block = "10.118.1.0/24"
+  vpc_id            = aws_vpc.cfvpc.id
+  cidr_block        = "10.118.1.0/24"
+  availability_zone = "us-east-1a"
 
   tags = {
     Name = "cfr5-cf-subnet-a"
@@ -262,8 +263,9 @@ resource "aws_subnet" "cfa" {
 }
 
 resource "aws_subnet" "cfb" {
-  vpc_id     = aws_vpc.cfvpc.id
-  cidr_block = "10.118.2.0/24"
+  vpc_id            = aws_vpc.cfvpc.id
+  cidr_block        = "10.118.2.0/24"
+  availability_zone = "us-east-1b"
 
   tags = {
     Name = "cfr5-cf-subnet-b"

@@ -49,14 +49,8 @@ import (
 	"time"
 )
 
-// knowledgeBaseResourceArnPattern matches AWS's documented resourceArn
-// pattern for this operation family:
-// arn:aws(-[^:]+)?:bedrock:{region}:{account}:knowledge-base/{id}. The ID
-// character class is widened to "[0-9a-zA-Z-]+" (AWS's docs specify pure
-// alphanumeric, no hyphen) because this backend's own CreateKnowledgeBase
-// mints hyphenated IDs like "kb-00000001" (see knowledge_bases.go) --
-// narrowing to the documented class would make every gopherstack-issued KB
-// ARN unmatchable by its own resource-policy API.
+// knowledgeBaseResourceArnPattern matches the documented knowledge-base resourceArn; the id class keeps "-" so
+// snapshots minted with hyphenated ids still resolve.
 var knowledgeBaseResourceArnPattern = regexp.MustCompile(
 	`^arn:aws[a-z0-9-]*:bedrock:[a-z0-9-]*:\d{12}:knowledge-base/([0-9a-zA-Z-]+)$`,
 )

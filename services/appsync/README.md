@@ -9,16 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 74 (74 ok) |
 | Feature families | 15 (15 ok) |
-| Known gaps | 3 |
+| Known gaps | 2 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 2 |
 | Resource leaks | bugs found |
 
 ### Known gaps
 
-- OpenSearch/Elasticsearch data sources run in-process against services/opensearch domains matched by endpoint host (requests are not SigV4-signed; AMAZON_ELASTICSEARCH resolves against OpenSearch domains only, not services/elasticsearch); EventBridge and RDS (Data API) run in-process; the RDS JS select/insert/update/remove builders are a documented subset (no joins/groupBy/aggregates), MySQL returning is emulated with a follow-up SELECT. 2026-10-20.
-- Not implemented (docs do not define them or need delta-sync state): util.transform.toElasticsearchQueryDSL has no APPSYNC_JS equivalent in the developer guide; DynamoDB Sync with lastSync (delta table) needs conflict-detection/delta-sync writes that PutItem/UpdateItem/DeleteItem do not maintain (base-table Sync works); the @aws-appsync/utils/dynamodb batch/transact JS helpers are not in the documented module (write the request object by hand). Resolver-cache keys without cachingKeys use arguments+source+identity (AWS key composition unverified). 2026-10-25.
-- EvaluateCode codeErrors: LINT_ERROR is never produced (SDK CodeError docs name LINT_ERROR and PARSER_ERROR as examples, not an exhaustive list); not published: checked SDK types.CodeError / CodeErrorLocation and API_CodeError.html, which give no errorType for runtime exceptions and no span value for syntax errors (emulator: span -1, innermost-frame location, no errorType); toElasticsearchQueryDSL field order and single-operator wrapping are not published in devguide resolver-util-reference.html, built-in-util-js.html or resolver-reference-elasticsearch.html (emulator emits sorted field order)
+- AMAZON_ELASTICSEARCH data sources resolve against services/opensearch domains only: services/elasticsearch has no document data plane to serve the request
+- Versioned DynamoDB data sources (ddb_versioned.go) reject a stale _version (optimistic concurrency) but do not run the resolver SyncConfig AUTOMERGE or LAMBDA conflict handlers, and do not support the customPartitionKey/populateIndexFields delta layouts or Sync basePartitionKey/deltaIndexName (rejected as unsupported)
 
 ### Structural gaps
 

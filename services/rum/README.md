@@ -9,16 +9,14 @@
 | --- | --- |
 | PARITY entries audited | 20 (20 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 3 |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- PutRumEvents: the app monitor resource policy and its rum:alias condition are stored but not enforced
-- DeobfuscationConfiguration: source map settings are stored; stack traces are never unminified
-- AccessDeniedException and ThrottlingException: never raised; no IAM or throttling is modeled
+- IAM / resource-policy evaluation: the app monitor resource policy and its rum:alias condition are stored but not enforced, and AccessDeniedException is never raised
 
 ### Structural gaps
 

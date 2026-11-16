@@ -9,17 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 24 (24 ok) |
 | Feature families | 7 (7 ok) |
-| Known gaps | 4 |
+| Known gaps | 2 |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- DbParameterGroup: InfluxDBv3 parameter groups are stored and returned but have no matching engine, so they are not applied
-- DbBackupConfigurations: CONTINUOUS configurations are stored but never run
-- VpcSubnetIds: existence is checked through EC2 when wired, but all subnets belonging to one VPC and the security groups are not verified
-- AccessDeniedException: never raised; no IAM authorization is modeled
+- DbParameterGroup: InfluxDBv3 parameter groups are stored and returned but are not applied; blocked by the structural gap that no v3 engine runs (engine_params.go ParameterEnv reads only the InfluxDBv2 member)
+- AccessDeniedException: never raised; IAM authorization is out of scope
 
 ### Structural gaps
 

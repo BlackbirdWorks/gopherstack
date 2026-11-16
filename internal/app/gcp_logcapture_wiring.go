@@ -2,6 +2,7 @@ package app
 
 import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	gcpdnsbackend "github.com/blackbirdworks/gopherstack/services/gcpdns"
 	gcpfunctionsbackend "github.com/blackbirdworks/gopherstack/services/gcpfunctions"
 	gcploggingbackend "github.com/blackbirdworks/gopherstack/services/gcplogging"
 	gcprunbackend "github.com/blackbirdworks/gopherstack/services/gcprun"
@@ -20,5 +21,9 @@ func wireGCPLogCapture(byName map[string]service.Registerable) {
 
 	if fns, isFn := byName["GCPFunctions"].(*gcpfunctionsbackend.Handler); isFn {
 		fns.Backend.SetLogSink(logH.Backend)
+	}
+
+	if dnsH, isDNS := byName["GCPDNS"].(*gcpdnsbackend.Handler); isDNS {
+		dnsH.Backend.SetLogSink(logH.Backend)
 	}
 }

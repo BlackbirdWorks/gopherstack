@@ -10,8 +10,10 @@ import (
 	"encoding/json/v2"
 	"encoding/pem"
 	"math/big"
+	"net/http"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	idtkv2 "google.golang.org/api/identitytoolkit/v2"
@@ -63,6 +65,7 @@ type userRec struct {
 	Salt          []byte        `json:"salt,omitempty"`
 	CustomAttrs   string        `json:"customAttributes,omitempty"`
 	Providers     []providerRec `json:"providers,omitempty"`
+	MFA           []mfaRec      `json:"mfa,omitempty"`
 	CreatedAt     int64         `json:"createdAt"`
 	LastLoginAt   int64         `json:"lastLoginAt,omitempty"`
 	LastRefreshAt int64         `json:"lastRefreshAt,omitempty"`
@@ -82,8 +85,22 @@ type oobRec struct {
 	Link        string `json:"link"`
 	Phone       string `json:"phoneNumber,omitempty"`
 	VerifyCode  string `json:"verificationCode,omitempty"`
+	UID         string `json:"uid,omitempty"`
+	Provider    string `json:"provider,omitempty"`
+	Secret      string `json:"secret,omitempty"`
 	Created     int64  `json:"created"`
 	Expires     int64  `json:"expires"`
+	attempts    int
+}
+
+type mfaRec struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"displayName,omitempty"`
+	Kind        string `json:"kind"`
+	Phone       string `json:"phone,omitempty"`
+	Secret      string `json:"secret,omitempty"`
+	EnrolledAt  int64  `json:"enrolledAt"`
+	lastStep    int64
 }
 
 type projectRec struct {
@@ -91,7 +108,12 @@ type projectRec struct {
 	Tenants map[string]*idtkv2.GoogleCloudIdentitytoolkitAdminV2Tenant `json:"tenants"`
 	Users   map[string]map[string]*userRec                             `json:"users"`
 	Codes   map[string]*oobRec                                         `json:"codes"`
-	Hash    hashSpec                                                   `json:"hash"`
+
+	DefaultIdps map[string]*defaultIdp `json:"defaultIdps,omitempty"`
+	OAuthIdps   map[string]*oauthIdp   `json:"oauthIdps,omitempty"`
+	SamlIdps    map[string]*samlIdp    `json:"samlIdps,omitempty"`
+	signUps     map[string][]int64
+	Hash        hashSpec `json:"hash"`
 }
 
 type keyRec struct {
@@ -106,19 +128,22 @@ type CustomTokenKeys func(email string) []*rsa.PublicKey
 
 // InMemoryBackend holds all Identity Platform state under one lock.
 type InMemoryBackend struct {
-	now            func() time.Time
-	mu             *lockmetrics.RWMutex
-	projects       map[string]*projectRec
-	keys           *keyRec
-	priv           *rsa.PrivateKey
-	customKeys     CustomTokenKeys
-	defaultProject string
+	now             func() time.Time
+	mu              *lockmetrics.RWMutex
+	projects        map[string]*projectRec
+	keys            *keyRec
+	priv            *rsa.PrivateKey
+	customKeys      CustomTokenKeys
+	blockingClient  *http.Client
+	defaultProject  string
+	allowExternalFn atomic.Bool
 }
 
 // NewInMemoryBackend creates an empty backend.
 func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{mu: lockmetrics.New("gcpidentitytoolkit"), now: time.Now, defaultProject: DefaultProject}
 	b.projects = map[string]*projectRec{}
+	b.blockingClient = newBlockingClient(b.allowExternalFn.Load)
 
 	return b
 }
@@ -129,6 +154,14 @@ func (b *InMemoryBackend) SetClock(now func() time.Time) {
 	defer b.mu.Unlock()
 
 	b.now = now
+}
+
+// SetDefaultProject sets the project that requests naming none resolve to.
+func (b *InMemoryBackend) SetDefaultProject(id string) {
+	b.mu.Lock("SetDefaultProject")
+	defer b.mu.Unlock()
+
+	b.defaultProject = id
 }
 
 // SetCustomTokenKeys installs the resolver used to verify RS256 custom tokens.
@@ -193,6 +226,7 @@ type scope struct {
 	testPhones map[string]string
 	users      map[string]*userRec
 	policy     *idtkv2.GoogleCloudIdentitytoolkitAdminV2PasswordPolicyConfig
+	mfa        *idtkv2.GoogleCloudIdentitytoolkitAdminV2MultiFactorAuthConfig
 	project    string
 	tenant     string
 	password   bool
@@ -220,6 +254,7 @@ func (b *InMemoryBackend) scopeLocked(project, tenant string) (*scope, error) {
 		s.testPhones = phoneTestNumbers(in)
 		s.privacy = p.Config.EmailPrivacyConfig != nil && p.Config.EmailPrivacyConfig.EnableImprovedEmailPrivacy
 		s.policy = p.Config.PasswordPolicyConfig
+		s.mfa = p.Config.Mfa
 
 		return s, nil
 	}
@@ -238,6 +273,7 @@ func (b *InMemoryBackend) scopeLocked(project, tenant string) (*scope, error) {
 	s.phone = true
 	s.privacy = t.EmailPrivacyConfig != nil && t.EmailPrivacyConfig.EnableImprovedEmailPrivacy
 	s.policy = t.PasswordPolicyConfig
+	s.mfa = t.MfaConfig
 
 	return s, nil
 }

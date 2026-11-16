@@ -440,6 +440,7 @@ var errCodeLookup = []struct {
 	status int
 }{
 	{ErrClusterNotFound, "ClusterNotFoundFault", http.StatusBadRequest},
+	{ErrShardNotFound, "ShardNotFoundFault", http.StatusBadRequest},
 	{ErrClusterAlreadyExists, "ClusterAlreadyExistsFault", http.StatusBadRequest},
 	{ErrACLInUse, "InvalidACLStateFault", http.StatusBadRequest},
 	{ErrACLNotFound, "ACLNotFoundFault", http.StatusBadRequest},

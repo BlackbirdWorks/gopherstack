@@ -100,6 +100,10 @@ func (e *Engine) Tune(s Settings) error {
 		return err
 	}
 
+	if e.guard != nil {
+		return fmt.Errorf("%w: tuning cannot be combined with user access", ErrInvalidSettings)
+	}
+
 	if e.tuner == nil {
 		t, err := newTuner(e.Mini, e.auth)
 		if err != nil {

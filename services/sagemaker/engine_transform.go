@@ -110,8 +110,13 @@ func (b *InMemoryBackend) runTransform(
 		return fmt.Errorf("ClientError: %w", err)
 	}
 
+	resolved, err := b.resolveModelPackages(region, *model)
+	if err != nil {
+		return fmt.Errorf("ClientError: %w", err)
+	}
+
 	md, err := eng.startModel(ctx, modelStart{
-		model: *model, region: region, label: tj.TransformJobName, variant: transformVariant, env: tj.Environment,
+		model: resolved, region: region, label: tj.TransformJobName, variant: transformVariant, env: tj.Environment,
 		logGroup: transformLogGroup, logStreamBase: tj.TransformJobName + "/model",
 	})
 	if err != nil {

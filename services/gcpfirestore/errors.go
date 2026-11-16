@@ -28,3 +28,7 @@ func errAborted() error {
 func errPrecondition(format string, a ...any) error {
 	return status.Error(codes.FailedPrecondition, fmt.Sprintf(format, a...))
 }
+
+func errAlreadyExists(format string, a ...any) error {
+	return status.Error(codes.AlreadyExists, fmt.Sprintf(format, a...))
+}

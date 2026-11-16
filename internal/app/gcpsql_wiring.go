@@ -20,5 +20,16 @@ func wireGCPSQL(byName map[string]service.Registerable) {
 
 	if sm, isSM := byName["GCPSecretManager"].(*gcpsecretmanagerbackend.Handler); isSM {
 		sqlH.Backend.SetSecretReader(cloudBuildSecrets{b: sm.Backend})
+		sm.Backend.SetSQLPasswordSetter(sqlUserPasswords{b: sqlH.Backend})
 	}
+}
+
+type sqlUserPasswords struct {
+	b *gcpsqlbackend.InMemoryBackend
+}
+
+func (s sqlUserPasswords) SetUserPassword(project, instance, user, password string) error {
+	_, err := s.b.UpdateUser(project, instance, user, "", gcpsqlbackend.UserInput{Password: password})
+
+	return err
 }

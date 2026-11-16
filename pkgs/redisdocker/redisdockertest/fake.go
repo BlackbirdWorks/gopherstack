@@ -29,11 +29,18 @@ type Cmd struct {
 
 // Fake is a runtime and control plane that records everything and answers like a healthy cluster.
 type Fake struct {
-	tlsSeen map[string]bool
-	specs   []container.Spec
-	removed []string
-	cmds    []Cmd
-	mu      sync.Mutex
+	// BeforeCreate, when set, runs before each container start; tests block it to hold an operation mid-flight.
+	BeforeCreate func()
+	// BeforeRemove, when set, runs before each container removal.
+	BeforeRemove func(id string)
+	// CreateErr, when set, fails the container start whose zero-based index it is given with the returned error.
+	CreateErr func(index int) error
+	tlsSeen   map[string]bool
+	roles     map[string]string
+	specs     []container.Spec
+	removed   []string
+	cmds      []Cmd
+	mu        sync.Mutex
 }
 
 // New returns a Fake and an Engine wired to it.
@@ -66,8 +73,18 @@ func Ports(start, end int) PortRange { return PortRange{Start: start, End: end} 
 
 // CreateAndStart implements redisdocker.Runtime.
 func (f *Fake) CreateAndStart(_ context.Context, spec container.Spec) (string, error) {
+	if hook := f.BeforeCreate; hook != nil {
+		hook()
+	}
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
+	if f.CreateErr != nil {
+		if err := f.CreateErr(len(f.specs)); err != nil {
+			return "", err
+		}
+	}
 
 	f.specs = append(f.specs, spec)
 
@@ -93,6 +110,10 @@ func (f *Fake) CreateAndStart(_ context.Context, spec container.Spec) (string, e
 
 // StopAndRemove implements redisdocker.Runtime.
 func (f *Fake) StopAndRemove(_ context.Context, id string) error {
+	if hook := f.BeforeRemove; hook != nil {
+		hook(id)
+	}
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -250,8 +271,14 @@ func (a *admin) Do(_ context.Context, args ...any) (any, error) {
 	case "PING":
 		return "PONG", nil
 	case "INFO":
-		return "role:slave\r\nmaster_link_status:up\r\n", nil
+		return "role:" + a.f.role(a.target.Addr) + "\r\nmaster_link_status:up\r\n", nil
+	case "REPLICAOF":
+		a.f.setRole(a.target.Addr, strings.ToUpper(fmt.Sprint(args[1])) != "NO")
 	case "CLUSTER":
+		if len(args) > 1 && fmt.Sprint(args[1]) == "FAILOVER" {
+			a.f.setRole(a.target.Addr, false)
+		}
+
 		return a.cluster(args), nil
 	}
 
@@ -272,3 +299,29 @@ func (a *admin) cluster(args []any) any {
 }
 
 func (a *admin) Close() error { return nil }
+
+// role reports "slave" until a node is promoted by REPLICAOF NO ONE or CLUSTER FAILOVER.
+func (f *Fake) role(addr string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if r, ok := f.roles[addr]; ok {
+		return r
+	}
+
+	return "slave"
+}
+
+func (f *Fake) setRole(addr string, replica bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.roles == nil {
+		f.roles = map[string]string{}
+	}
+
+	f.roles[addr] = "master"
+	if replica {
+		f.roles[addr] = "slave"
+	}
+}

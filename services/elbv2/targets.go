@@ -339,12 +339,16 @@ const (
 	healthStateUnused   = "unused"
 )
 
-// effectiveTargetHealthLocked downgrades an instance target to unused when its EC2 instance is
-// stopped or terminated. A target group attached to no listener still reports healthy rather than
-// Target.NotInUse, which many in-repo fixtures rely on. Caller must hold b.mu.
+// effectiveTargetHealthLocked reports unused/Target.NotInUse for a target group no listener or
+// rule routes to, and unused/Target.InvalidState for an instance target whose EC2 instance is
+// stopped or terminated. Caller must hold b.mu.
 func (b *InMemoryBackend) effectiveTargetHealthLocked(
 	tg *TargetGroup, t Target, state, reason string,
 ) (string, string, string) {
+	if !b.isTGInUseLocked(tg.TargetGroupArn) {
+		return healthStateUnused, reasonNotInUse, ""
+	}
+
 	if tg.TargetType == targetTypeInstance {
 		if r, ok := b.ec2Resolver.(InstanceStateResolver); ok {
 			if name, found := r.InstanceStateName(t.ID); found && instanceNotServing(name) {

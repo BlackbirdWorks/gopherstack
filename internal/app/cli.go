@@ -5211,6 +5211,7 @@ func registerCloudFormationAndDashboard(
 	wireServiceCatalogEngine(byName["ServiceCatalog"], cfnSvc)
 	wireGlobalAcceleratorCloudFormation(byName["GlobalAccelerator"], cfnSvc)
 	wireCodePipelineCloudFormation(byName["CodePipeline"], cfnSvc)
+	wireBackupStacks(byName["Backup"], cfnSvc)
 
 	// Wire CloudFormation -> Organizations so SERVICE_MANAGED StackSets can
 	// expand DeploymentTargets.OrganizationalUnitIds against the real OU

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -117,6 +118,7 @@ type Group struct {
 	dir      string
 	aclUsers []string
 	nodes    []*node
+	ops      chan struct{}
 	spec     Spec
 	mu       sync.Mutex
 	closed   bool
@@ -131,8 +133,11 @@ type Endpoint struct {
 // Addr formats the endpoint as host:port.
 func (e Endpoint) Addr() string { return net.JoinHostPort(e.Host, strconv.Itoa(e.Port)) }
 
-// Endpoints lists each shard's nodes, primary first.
+// Endpoints lists each shard's nodes in launch order; Primary names the current primary.
 func (g *Group) Endpoints() [][]Endpoint {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
 	out := make([][]Endpoint, len(g.spec.Shards))
 
 	for _, n := range g.nodes {
@@ -140,6 +145,20 @@ func (g *Group) Endpoints() [][]Endpoint {
 	}
 
 	return out
+}
+
+func (g *Group) allNodes() []*node {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	return slices.Clone(g.nodes)
+}
+
+func (g *Group) shardCount() []ShardSpec {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	return g.spec.Shards
 }
 
 // ClusterMode reports whether the group runs Redis Cluster.
@@ -166,7 +185,7 @@ func (e *Engine) Launch(ctx context.Context, spec Spec) (*Group, error) {
 		return nil, ErrNoCA
 	}
 
-	g := &Group{engine: e, spec: spec, admin: randomHex(adminPasswordBytes)}
+	g := &Group{engine: e, spec: spec, admin: randomHex(adminPasswordBytes), ops: make(chan struct{}, 1)}
 
 	lctx, cancel := context.WithTimeout(ctx, e.cfg.StartTimeout)
 	defer cancel()
@@ -233,6 +252,19 @@ func (g *Group) startNode(ctx context.Context, n *node) error {
 	n.containerID = id
 
 	g.mu.Lock()
+
+	if g.closed {
+		g.mu.Unlock()
+
+		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stopTimeout)
+		defer cancel()
+
+		_ = cfg.Runtime.StopAndRemove(sctx, id)
+		portalloc.ReleaseTo(cfg.Ports, n.port)
+
+		return ErrGroupClosed
+	}
+
 	g.nodes = append(g.nodes, n)
 	g.mu.Unlock()
 
@@ -249,7 +281,8 @@ func (g *Group) Close() {
 	}
 
 	g.closed = true
-	nodes := append([]*node(nil), g.nodes...)
+	nodes := g.nodes
+	g.nodes = nil
 	g.mu.Unlock()
 
 	ctx, cancel := context.WithTimeout(context.Background(), stopTimeout)

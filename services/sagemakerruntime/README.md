@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 3 (3 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- InferenceComponentName invocations, multi-model TargetModel loading and ModelPackage-defined containers are not served by the container engine (see services/sagemaker PARITY.md)
 
 ### Structural gaps
 

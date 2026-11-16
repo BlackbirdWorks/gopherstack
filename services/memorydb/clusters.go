@@ -649,7 +649,12 @@ func (b *InMemoryBackend) UpdateCluster(ctx context.Context, req *updateClusterR
 	}
 
 	changed := clusterSpecChanged(c, req)
+	oldReplicas := c.NumReplicasPerShard
 	applyClusterUpdates(c, req)
+
+	if c.NumReplicasPerShard != oldReplicas {
+		b.resizeDockerReplicasLocked(region, c, int(c.NumReplicasPerShard))
+	}
 
 	if changed {
 		b.startUpdatingLocked(c)
@@ -671,15 +676,37 @@ func (b *InMemoryBackend) UpdateCluster(ctx context.Context, req *updateClusterR
 
 // -- ACL operations --------------------------------------------------------------
 
-// FailoverShard simulates a shard failover for a cluster, returning the cluster state.
+// FailoverShard fails over a shard: docker clusters promote a real replica, others record the event.
 func (b *InMemoryBackend) FailoverShard(ctx context.Context, clusterName, shardName string) (*Cluster, error) {
 	b.mu.Lock("FailoverShard")
-	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
 
 	c, ok := b.clustersStore(region).Get(clusterName)
 	if !ok {
+		b.mu.Unlock()
+
+		return nil, ErrClusterNotFound
+	}
+
+	d, idx := c.dock, shardIndex(c, shardName)
+	running := d != nil && d.group != nil
+	b.mu.Unlock()
+
+	if running {
+		if idx < 0 {
+			return nil, fmt.Errorf("shard %q: %w", shardName, ErrShardNotFound)
+		}
+
+		if err := b.failoverDocker(d, idx); err != nil {
+			return nil, err
+		}
+	}
+
+	b.mu.Lock("FailoverShard")
+	defer b.mu.Unlock()
+
+	if cur, found := b.clustersStore(region).Get(clusterName); !found || cur != c {
 		return nil, ErrClusterNotFound
 	}
 

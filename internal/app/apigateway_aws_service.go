@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
+	apigwv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
 
 const (
@@ -73,6 +74,10 @@ func (a *apigwServiceInvoker) InvokeAWSService(
 
 	switch {
 	case req.Service == "s3" && req.Kind == "path":
+		if !validS3IntegrationPath(req.Spec) {
+			return apigwbackend.AWSServiceResponse{Status: http.StatusBadRequest}, nil
+		}
+
 		method, path, signing = req.Method, "/"+strings.TrimPrefix(req.Spec, "/"), "s3"
 	case req.Kind == "action":
 		t := apigwJSONTargets[req.Service]
@@ -100,13 +105,29 @@ func (a *apigwServiceInvoker) InvokeAWSService(
 	return apigwbackend.AWSServiceResponse{Body: rec.Body.Bytes(), Status: rec.Code}, nil
 }
 
+// validS3IntegrationPath keeps an S3 path integration inside the bucket namespace: bucket names never start
+// with an underscore, so emulator-internal paths such as /_gopherstack/ stay unreachable.
+func validS3IntegrationPath(spec string) bool {
+	for i, seg := range strings.Split(strings.TrimPrefix(spec, "/"), "/") {
+		if seg == "." || seg == ".." || (i == 0 && strings.HasPrefix(seg, "_")) {
+			return false
+		}
+	}
+
+	return !strings.ContainsAny(spec, "?#")
+}
+
 // wireAPIGatewayAWSServiceInvoker lets API Gateway AWS integrations reach every JSON-protocol
 // service (and s3 path style) in-process.
 func wireAPIGatewayAWSServiceInvoker(e http.Handler, services []service.Registerable) {
-	apigwH, ok := serviceByName(services)["APIGateway"].(*apigwbackend.Handler)
-	if !ok {
-		return
+	byName := serviceByName(services)
+	inv := &apigwServiceInvoker{handler: e}
+
+	if apigwH, ok := byName["APIGateway"].(*apigwbackend.Handler); ok {
+		apigwH.SetAWSServiceInvoker(inv)
 	}
 
-	apigwH.SetAWSServiceInvoker(&apigwServiceInvoker{handler: e})
+	if v2H, ok := byName["APIGatewayV2"].(*apigwv2backend.Handler); ok {
+		v2H.SetAWSServiceInvoker(inv)
+	}
 }

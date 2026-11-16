@@ -45,7 +45,6 @@ families:
   auth: {status: partial, note: "No control-plane request is authenticated or authorised."}
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; RPC failures are logged at debug."}
 items_still_open:
-  - "The Cloud Run / Functions gateway-to-backend identity token (Authorization: Bearer ID token, jwt_audience) is not minted: the original Authorization header is moved to X-Forwarded-Authorization and the backend gets none."
   - "gRPC API configs (grpc_services, managed_service_configs), more than one OpenAPI document per config, h2 and WebSocket backends, x-google-allow, x-google-parameter, x-google-model-router, x-google-mcp-tool, AI and MCP blocks, and the 2.0 jwt locations extension are not supported."
 leaks: {status: clean, note: "The only background resources are the grpc.Server and its serve goroutine, joined by Shutdown, and the pooled backend client, closed there."}
 ---
@@ -73,3 +72,4 @@ Verification pass (2026-10-30) against primary sources:
 ## External effects that are recorded, not performed
 
 - API keys are checked for presence only; validation against API Keys and Service Usage is logged at debug as "would validate" because neither service exists in the emulator.
+- Unless disable_auth is set, the backend gets Authorization: Bearer with an unsigned test ID token (pkgs/gcpdispatch.OIDCToken, same as Cloud Scheduler) whose audience is jwt_audience, or the address for *.run.app and *.cloudfunctions.net backends, and whose email is the config gateway_service_account; the caller's Authorization moves to X-Forwarded-Authorization (ESPv2 backend authentication). Other backends without jwt_audience get no Authorization header.

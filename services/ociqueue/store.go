@@ -31,23 +31,31 @@ type KeyChecker func(keyID string) (state string, found bool)
 
 // InMemoryBackend holds every queue and work request under one lock.
 type InMemoryBackend struct {
-	mu         *lockmetrics.RWMutex
-	now        func() time.Time
-	after      func(time.Duration) <-chan time.Time
-	queues     map[string]*Queue
-	workReqs   map[string]*WorkRequest
-	retry      *ociretry.Store
-	Auth       *ociauth.Registry
-	keyChecker KeyChecker
-	tagLookup  ocitags.Lookup
-	transition time.Duration
-	seq        int64
+	mu           *lockmetrics.RWMutex
+	now          func() time.Time
+	after        func(time.Duration) <-chan time.Time
+	queues       map[string]*Queue
+	workReqs     map[string]*WorkRequest
+	retry        *ociretry.Store
+	Auth         *ociauth.Registry
+	keyChecker   KeyChecker
+	tagLookup    ocitags.Lookup
+	transition   time.Duration
+	lim          limits
+	seq          int64
+	enforceRates bool
 }
 
 // NewInMemoryBackend creates an empty backend.
 func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{
-		mu: lockmetrics.New("ociqueue"), now: time.Now, after: time.After, transition: defaultTransition,
+		mu: lockmetrics.New(
+			"ociqueue",
+		),
+		now:        time.Now,
+		after:      time.After,
+		transition: defaultTransition,
+		lim:        defaultLimits(),
 	}
 	b.resetMaps()
 	b.Auth = ociauth.NewRegistry()

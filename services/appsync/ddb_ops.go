@@ -50,9 +50,15 @@ func isCondFailed(err error) bool {
 // executeDDBRequest runs one AppSync DynamoDB request object against ddb and
 // returns the plain-JSON result AppSync exposes as $ctx.result.
 func executeDDBRequest(
-	ctx context.Context, ddb DynamoDBBackend, cfg *DynamoDBDataSourceConfig, req map[string]any,
+	ctx context.Context, ddb DynamoDBBackend, cfg *DynamoDBDataSourceConfig, dsName string, req map[string]any,
 ) (any, error) {
 	operation, _ := req["operation"].(string)
+
+	vs := versionedSource{ddb: ddb, cfg: cfg, dsName: dsName}
+	if res, handled, err := executeVersioned(ctx, vs, operation, req); handled {
+		return res, err
+	}
+
 	table := cfg.TableName
 
 	switch operation {
@@ -76,7 +82,7 @@ func executeDDBRequest(
 	case ddbOpBatchPutItem, ddbOpBatchDeleteItem:
 		return ddbBatchWrite(ctx, ddb, req, operation == ddbOpBatchPutItem)
 	case ddbOpSync:
-		return ddbSync(ctx, ddb, cfg, req)
+		return nil, fmt.Errorf("%w: Sync requires a versioned DynamoDB data source", ErrValidation)
 	case ddbOpTransactGet:
 		return ddbTransactGet(ctx, ddb, req)
 	case ddbOpTransactWrite:
@@ -84,6 +90,32 @@ func executeDDBRequest(
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedDynamoDBOp, operation)
 	}
+}
+
+// executeVersioned runs the operations a versioned data source treats specially; handled is false for the rest.
+// Batch writes and TransactWriteItems are rejected (AppSync developer guide, "Conflict detection and resolution",
+// UnsupportedOperation).
+func executeVersioned(
+	ctx context.Context, vs versionedSource, operation string, req map[string]any,
+) (any, bool, error) {
+	if !vs.cfg.Versioned {
+		return nil, false, nil
+	}
+
+	switch operation {
+	case ddbOpBatchPutItem, ddbOpBatchDeleteItem, ddbOpTransactWrite:
+		return nil, true, fmt.Errorf("%w: %s on a versioned data source", ErrUnsupportedDynamoDBOp, operation)
+	case ddbOpPutItem, ddbOpUpdateItem, ddbOpDeleteItem:
+		res, err := versionedWrite(ctx, vs, req, operation)
+
+		return res, true, err
+	case ddbOpSync:
+		res, err := ddbSync(ctx, vs, req)
+
+		return res, true, err
+	}
+
+	return nil, false, nil
 }
 
 func mapOf(v any) map[string]any {
@@ -253,6 +285,33 @@ func intOf(v any) int {
 		i, _ := n.Int64()
 
 		return clampInt32(i)
+	default:
+		return 0
+	}
+}
+
+// int64Of reads a JSON number without the int32 clamp intOf applies.
+func int64Of(v any) int64 {
+	switch n := v.(type) {
+	case float64:
+		if n > math.MaxInt64 || n < math.MinInt64 {
+			return 0
+		}
+
+		return int64(n)
+	case int:
+		return int64(n)
+	case int64:
+		return n
+	case jsonx.Number:
+		i, err := n.Int64()
+		if err != nil {
+			f, _ := n.Float64()
+
+			return int64(f)
+		}
+
+		return i
 	default:
 		return 0
 	}

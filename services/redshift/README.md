@@ -9,15 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 9 (9 ok) |
 | Feature families | 34 (33 ok, 1 partial) |
-| Known gaps | 2 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 5 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- DeleteClusterSnapshot, AuthorizeSnapshotAccess and RevokeSnapshotAccess SnapshotClusterIdentifier, CopyClusterSnapshot.SourceSnapshotClusterIdentifier and RestoreFromClusterSnapshot.OwnerAccount are accepted and ignored: the SDK docs say they only scope IAM resource ARNs, and the mismatch behaviour is unspecified.
-- Tags on CreateUsageLimit are stored and echoed but usage limits are not CreateTags/DescribeTags targets (the SDK gives no usage limit ARN shape); CopyClusterSnapshot does not carry tags and RestoreFromClusterSnapshot tag propagation is unspecified.
 
 ### Structural gaps
 

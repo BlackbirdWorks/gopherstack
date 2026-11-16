@@ -6,6 +6,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
@@ -152,21 +153,38 @@ func transactFailure(err error, field string) error {
 }
 
 type syncToken struct {
-	Key       map[string]any `json:"k"`
+	Key       map[string]any `json:"k,omitempty"`
+	Day       string         `json:"d,omitempty"`
 	StartedAt int64          `json:"t"`
 }
 
-// ddbSync reads the base table of a versioned data source. A lastSync (delta
-// table read) is rejected: delta-sync writes are not maintained.
-func ddbSync(ctx context.Context, ddb DynamoDBBackend, cfg *DynamoDBDataSourceConfig, req map[string]any) (any, error) {
-	if !cfg.Versioned {
-		return nil, fmt.Errorf("%w: Sync requires a versioned DynamoDB data source", ErrValidation)
+// decodeSyncToken returns the zero token when the request has none.
+func decodeSyncToken(req map[string]any) (syncToken, error) {
+	var st syncToken
+
+	tok, _ := req["nextToken"].(string)
+	if tok == "" {
+		return st, nil
 	}
 
-	if _, has := req["lastSync"]; has && req["lastSync"] != nil {
-		return nil, fmt.Errorf("%w: Sync with lastSync (delta table) is not supported", ErrUnsupportedDynamoDBOp)
+	raw, err := base64.RawURLEncoding.DecodeString(tok)
+
+	if err != nil || json.Unmarshal(raw, &st, jsonx.V1()) != nil || (len(st.Key) == 0 && st.Day == "") {
+		return syncToken{}, fmt.Errorf("%w: invalid nextToken", ErrValidation)
 	}
 
+	return st, nil
+}
+
+func encodeSyncToken(st syncToken) string {
+	b, _ := json.Marshal(st, jsonx.V1())
+
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// ddbSync reads a versioned data source: the base table, or, when lastSync is within the delta table's
+// retention, the delta table (AppSync developer guide, "Using DynamoDB sync operations on versioned data sources").
+func ddbSync(ctx context.Context, vs versionedSource, req map[string]any) (any, error) {
 	limit := ddbSyncDefaultLimit
 	if n := intOf(req["limit"]); n > 0 {
 		limit = n
@@ -176,9 +194,41 @@ func ddbSync(ctx context.Context, ddb DynamoDBBackend, cfg *DynamoDBDataSourceCo
 		return nil, fmt.Errorf("%w: Sync limit is at most %d", ErrValidation, ddbSyncMaxLimit)
 	}
 
+	if req["basePartitionKey"] != nil || req["deltaIndexName"] != nil {
+		return nil, fmt.Errorf("%w: Sync on a custom partition key delta layout", ErrUnsupportedDynamoDBOp)
+	}
+
+	st, err := decodeSyncToken(req)
+	if err != nil {
+		return nil, err
+	}
+
+	startedAt := time.Now().UnixMilli()
+	if st.StartedAt != 0 {
+		startedAt = st.StartedAt
+	}
+
+	if last := int64Of(req["lastSync"]); req["lastSync"] != nil && vs.deltaReadable(last, startedAt) {
+		return ddbSyncDelta(ctx, vs, req, last, limit, startedAt, st)
+	}
+
+	return ddbSyncBase(ctx, vs, req, limit, startedAt, st)
+}
+
+func (vs versionedSource) deltaReadable(lastSync, now int64) bool {
+	if _, ok := vs.delta(); !ok {
+		return false
+	}
+
+	return now-lastSync <= vs.deltaTTLMinutes()*millisPerMinute
+}
+
+func ddbSyncBase(
+	ctx context.Context, vs versionedSource, req map[string]any, limit int, startedAt int64, st syncToken,
+) (any, error) {
 	q := &DDBQuery{
-		Table:  cfg.TableName,
-		Limit:  int32(limit),
+		Table:  vs.cfg.TableName,
+		Limit:  int32Of(limit),
 		Names:  map[string]string{},
 		Values: map[string]any{},
 	}
@@ -186,37 +236,114 @@ func ddbSync(ctx context.Context, ddb DynamoDBBackend, cfg *DynamoDBDataSourceCo
 	q.Filter = f.Expression
 	q.Names, q.Values = f.Names, f.Values
 
-	startedAt := time.Now().UnixMilli()
+	q.StartKey = st.Key
 
-	if tok, _ := req["nextToken"].(string); tok != "" {
-		raw, err := base64.RawURLEncoding.DecodeString(tok)
-
-		var st syncToken
-		if err != nil || json.Unmarshal(raw, &st, jsonx.V1()) != nil || len(st.Key) == 0 {
-			return nil, fmt.Errorf("%w: invalid nextToken", ErrValidation)
-		}
-
-		q.StartKey, startedAt = st.Key, st.StartedAt
-	}
-
-	page, err := ddb.ScanRaw(ctx, q)
+	page, err := vs.ddb.ScanRaw(ctx, q)
 	if err != nil {
 		return nil, err
 	}
 
-	items := make([]any, len(page.Items))
-	for i, it := range page.Items {
+	var next any
+	if len(page.LastKey) > 0 {
+		next = encodeSyncToken(syncToken{Key: page.LastKey, StartedAt: startedAt})
+	}
+
+	return syncResult(page.Items, next, page.ScannedCount, startedAt), nil
+}
+
+func syncResult(rows []map[string]any, next any, scanned int, startedAt int64) map[string]any {
+	items := make([]any, len(rows))
+	for i, it := range rows {
 		items[i] = ddbPlainItem(it)
 	}
 
-	var next any
+	return map[string]any{
+		ddbResultItems: items, "nextToken": next, "scannedCount": scanned, "startedAt": startedAt,
+	}
+}
 
-	if len(page.LastKey) > 0 {
-		b, _ := json.Marshal(syncToken{Key: page.LastKey, StartedAt: startedAt}, jsonx.V1())
-		next = base64.RawURLEncoding.EncodeToString(b)
+// deltaDays lists the UTC dates from lastSync through startedAt, the delta partitions a sync must read.
+func deltaDays(lastSync, startedAt int64) []string {
+	from := time.UnixMilli(lastSync).UTC().Truncate(deltaPartitionSpan)
+	to := time.UnixMilli(startedAt).UTC()
+
+	var days []string
+
+	for d := from; !d.After(to); d = d.AddDate(0, 0, 1) {
+		days = append(days, d.Format(deltaDayLayout))
 	}
 
-	return map[string]any{
-		ddbResultItems: items, "nextToken": next, "scannedCount": page.ScannedCount, "startedAt": startedAt,
-	}, nil
+	return days
+}
+
+func ddbSyncDelta(
+	ctx context.Context, vs versionedSource, req map[string]any, lastSync int64, limit int, startedAt int64,
+	st syncToken,
+) (any, error) {
+	table, _ := vs.delta()
+	days := deltaDays(lastSync, startedAt)
+
+	startKey := st.Key
+
+	if i := indexOf(days, st.Day); i >= 0 {
+		days = days[i:]
+	}
+
+	var (
+		rows    []map[string]any
+		scanned int
+	)
+
+	for i, day := range days {
+		q := vs.deltaQuery(table, day, req, lastSync, limit-len(rows), startKey)
+
+		page, err := vs.ddb.QueryRaw(ctx, q)
+		if err != nil {
+			return nil, err
+		}
+
+		rows, scanned, startKey = append(rows, page.Items...), scanned+page.ScannedCount, nil
+
+		switch {
+		case len(page.LastKey) > 0:
+			return syncResult(rows, encodeSyncToken(syncToken{Key: page.LastKey, Day: day, StartedAt: startedAt}),
+				scanned, startedAt), nil
+		case len(rows) >= limit && i+1 < len(days):
+			return syncResult(rows, encodeSyncToken(syncToken{Day: days[i+1], StartedAt: startedAt}),
+				scanned, startedAt), nil
+		}
+	}
+
+	return syncResult(rows, nil, scanned, startedAt), nil
+}
+
+func indexOf(list []string, v string) int {
+	for i, s := range list {
+		if s == v {
+			return i
+		}
+	}
+
+	return -1
+}
+
+func (vs versionedSource) deltaQuery(
+	table, day string, req map[string]any, lastSync int64, limit int, startKey map[string]any,
+) *DDBQuery {
+	f := exprOf(req["filter"])
+	names := map[string]string{nameChanged: attrLastChanged}
+	values := map[string]any{":__pk": strAttr(vs.dsName + ":" + day), ":__ls": numAttr(lastSync)}
+
+	maps.Copy(names, f.Names)
+	maps.Copy(values, f.Values)
+
+	filter := nameChanged + " > :__ls"
+	if f.Expression != "" {
+		filter = "(" + f.Expression + ") AND " + filter
+	}
+
+	return &DDBQuery{
+		Table: table, KeyCondition: attrDeltaPK + " = :__pk", Filter: filter,
+		Names: names, Values: values, Limit: int32Of(limit), StartKey: startKey,
+	}
 }

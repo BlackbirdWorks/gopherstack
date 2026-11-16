@@ -9,16 +9,14 @@
 | --- | --- |
 | PARITY entries audited | 21 (21 ok) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 3 |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Encryption: sseType and kmsKeyArn are stored and the key is checked on data operations, but vector data is not encrypted at rest
-- Bucket policies: stored and returned, not enforced
-- Memory: vectors live in process memory (4 bytes per dimension plus metadata) with no spill to disk
+- Bucket policies: stored and returned, resource-policy evaluation is out of scope
 
 ### Structural gaps
 

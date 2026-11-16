@@ -76,6 +76,15 @@ type StoredUsage struct {
 	Quantity             int32             `json:"quantity"`
 }
 
+// License is a granted license that BatchMeterUsage records name through LicenseArn.
+type License struct {
+	ActivatedAt          awstime.EpochTime  `json:"activatedAt"`
+	ExpiresAt            *awstime.EpochTime `json:"expiresAt,omitempty"`
+	Arn                  string             `json:"arn"`
+	ProductCode          string             `json:"productCode"`
+	CustomerAWSAccountID string             `json:"customerAwsAccountId"`
+}
+
 // Registration is a RegisterUsage call.
 type Registration struct {
 	RegisteredAt     awstime.EpochTime `json:"registeredAt"`
@@ -102,5 +111,7 @@ func usageKey(v *StoredUsage) string {
 }
 
 func meterUsageSlot(t time.Time) int64 { return t.UTC().Truncate(time.Hour).Unix() }
+
+func licenseKey(v *License) string { return v.Arn }
 
 func registrationKey(v *Registration) string { return v.ID }

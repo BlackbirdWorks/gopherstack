@@ -226,6 +226,10 @@ func (b *InMemoryBackend) CreateJob(req *schedulerpb.CreateJobRequest) (*schedul
 		return nil, err
 	}
 
+	if err := checkRegion(req.GetParent()); err != nil {
+		return nil, err
+	}
+
 	if req.GetJob() == nil {
 		return nil, errInvalid("job must be specified.")
 	}

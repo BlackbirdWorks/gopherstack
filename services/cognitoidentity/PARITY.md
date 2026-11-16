@@ -42,8 +42,7 @@ ops:
 families: {}
   open_id_token_jwt: {status: ok, note: "2026-10-07: OpenID tokens are now JWT-shaped (open_id_token.go) with iss/aud(pool)/sub(identity)/amr/iat/exp; GetOpenIdToken is valid 10 minutes and GetOpenIdTokenForDeveloperIdentity honors TokenDuration (default 15 minutes) via exp, so services/sts AssumeRoleWithWebIdentity rejects an expired token; PrincipalTags are emitted as the https://aws.amazon.com/tags claim that STS reads. Guarded by TestDeveloperOpenIDTokenClaims/TestOpenIDTokenTenMinutes."}
 gaps: []
-items_still_open:
-  - "Login tokens from providers other than emulator-hosted Cognito user pools (Google, Facebook, OIDC/SAML) are not signature-verified; opaque tokens are accepted."
+items_still_open: []
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - HTTP status code choice for NotAuthorizedException (403 here) vs AWS's actual per-exception status (SDK error-type resolution is body-driven, not status-code-driven, so this doesn't break aws-sdk-go-v2 clients; only relevant to tooling that inspects raw HTTP status).
   - "ALREADY COVERED BY CHAOS (verified gopherstack-tqdj): ConcurrentModificationException (SetIdentityPoolRoles, UpdateIdentityPool per deserializers.go) is not emulated: there is no optimistic-concurrency/version token in this backend's resource model to make a genuine concurrent-write collision detectable, and fabricating one that never fires (or fires on arbitrary heuristics) would be worse than omitting it. Would need a real revision-counter field added to IdentityPool/IdentityRoles to do properly -- out of scope for an error-taxonomy pass. Concretely verified this pass: cognitoidentity.Handler implements ChaosServiceName() -> \"cognito-identity\" and ChaosOperations() -> h.GetSupportedOperations() (handler.go), and pkgs/chaos.Middleware is wired globally via registry.Use(chaos.Middleware(faultStore)) in internal/app/cli.go, matching purely on the request's SigV4 service name + X-Amz-Target operation + region and injecting an arbitrary caller-specified FaultError{Code, StatusCode} without touching backend state -- a fault rule such as {\"service\":\"cognito-identity\",\"operation\":\"UpdateIdentityPool\",\"error\":{\"code\":\"ConcurrentModificationException\",\"statusCode\":400}} deterministically returns that exact typed error to a real client with zero backend code changes."
@@ -509,3 +508,7 @@ Audited for region isolation: same-named resources in two regions coexist and li
 ## 2026-10-05 (gopherstack-uox6 pass 7, value semantics)
 
 UpdateIdentityPool resets omitted members to defaults as api_op_UpdateIdentityPool.go documents (test added). IdentityPoolTags omitted on Update is left untouched: the SDK is silent on whether tags reset.
+
+## Emulator choices where the vendor is silent
+
+- Login tokens from issuers the emulator does not host (Google, Facebook, external OIDC/SAML) are not signature-verified and opaque tokens are accepted: verifying them needs outbound JWKS/discovery fetches to arbitrary issuer URLs, which the emulator deliberately does not perform; expiry and audience checks still apply to JWTs, and tokens from emulator-hosted user pools are RS256-verified.

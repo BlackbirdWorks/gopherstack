@@ -54,6 +54,8 @@ func (b *InMemoryBackend) AdminCreate(c call, r *authRequest) (map[string]any, e
 		return nil, err
 	}
 
+	u.MFA = b.enrollmentsFromWire(r.MfaInfo)
+
 	return map[string]any{keyKind: "identitytoolkit#SignupNewUserResponse", "localId": u.UID}, nil
 }
 
@@ -453,7 +455,7 @@ func (b *InMemoryBackend) OOBCodes(project, tenant string) ([]OOBCode, error) {
 	var list []entry
 
 	for code, rec := range sc.proj.Codes {
-		if rec.TenantID == tenant && rec.RequestType != reqPhoneSession && rec.RequestType != reqPhoneProof {
+		if rec.TenantID == tenant && !nonOobType(rec.RequestType) {
 			list = append(list, entry{rec, code})
 		}
 	}
@@ -707,6 +709,7 @@ func (b *InMemoryBackend) DeleteTenant(project, id string) error {
 
 	delete(p.Tenants, id)
 	delete(p.Users, id)
+	deleteTenantIdps(p, id)
 
 	for code, rec := range p.Codes {
 		if rec.TenantID == id {
@@ -715,4 +718,13 @@ func (b *InMemoryBackend) DeleteTenant(project, id string) error {
 	}
 
 	return nil
+}
+
+func nonOobType(t string) bool {
+	switch t {
+	case reqPhoneSession, reqPhoneProof, reqMfaPending, reqMfaTotp, reqMfaPhone:
+		return true
+	}
+
+	return false
 }

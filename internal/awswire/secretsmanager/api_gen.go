@@ -96,6 +96,26 @@ func (c *Client) DescribeSecret(ctx context.Context, in *DescribeSecretInput) (*
 	return awswire.Do[DescribeSecretOutput](ctx, c.core, "DescribeSecret", in)
 }
 
+type GetRandomPasswordInput struct {
+	ExcludeCharacters       *string
+	ExcludeLowercase        *bool
+	ExcludeNumbers          *bool
+	ExcludePunctuation      *bool
+	ExcludeUppercase        *bool
+	IncludeSpace            *bool
+	PasswordLength          *int64
+	RequireEachIncludedType *bool
+}
+
+type GetRandomPasswordOutput struct {
+	RandomPassword *string
+}
+
+// GetRandomPassword calls the GetRandomPassword operation.
+func (c *Client) GetRandomPassword(ctx context.Context, in *GetRandomPasswordInput) (*GetRandomPasswordOutput, error) {
+	return awswire.Do[GetRandomPasswordOutput](ctx, c.core, "GetRandomPassword", in)
+}
+
 type GetResourcePolicyInput struct {
 	SecretId *string
 }

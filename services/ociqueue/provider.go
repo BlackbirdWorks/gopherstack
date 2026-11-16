@@ -34,7 +34,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		settings = cp.GetOCIQueueSettings()
 	}
 
-	handler := NewHandler(NewInMemoryBackend())
+	backend := NewInMemoryBackend()
+	backend.SetEnforceRateLimits(settings.EnforceRateLimits)
+
+	handler := NewHandler(backend)
 	handler.Port = settings.Port
 	handler.EnforceAuth = settings.EnforceAuth
 

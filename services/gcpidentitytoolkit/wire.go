@@ -55,6 +55,7 @@ type userWire struct {
 	Email             string         `json:"email,omitempty"`
 	LastRefreshAt     string         `json:"lastRefreshAt,omitempty"`
 	ProviderUserInfo  []providerWire `json:"providerUserInfo,omitempty"`
+	MfaInfo           []mfaWire      `json:"mfaInfo,omitempty"`
 	ValidSince        flexInt        `json:"validSince,omitempty"`
 	CreatedAt         flexInt        `json:"createdAt,omitempty"`
 	LastLoginAt       flexInt        `json:"lastLoginAt,omitempty"`
@@ -89,49 +90,61 @@ func (u userWire) MarshalJSON() ([]byte, error) {
 	return json.Marshal(aux, jsonx.V1())
 }
 
+type mfaUpdate struct {
+	Enrollments []mfaWire `json:"enrollments"`
+}
+
 // authRequest is the union of the request fields the account operations read.
 type authRequest struct {
-	DisplayName       *string        `json:"displayName"`
-	DisableUser       *bool          `json:"disableUser"`
-	EmailVerified     *bool          `json:"emailVerified"`
-	Disabled          *bool          `json:"disabled"`
-	LinkProvider      *providerWire  `json:"linkProviderUserInfo"`
-	ReturnSecureToken *bool          `json:"returnSecureToken"`
-	CustomAttributes  *string        `json:"customAttributes"`
-	PhotoURL          *string        `json:"photoUrl"`
-	ContinueURI       string         `json:"continueUri"`
-	SessionInfo       string         `json:"sessionInfo"`
-	Code              string         `json:"code"`
-	TemporaryProof    string         `json:"temporaryProof"`
-	RecaptchaToken    string         `json:"recaptchaToken"`
-	CaptchaResponse   string         `json:"captchaResponse"`
-	PlayIntegrity     string         `json:"playIntegrityToken"`
-	SafetyNetToken    string         `json:"safetyNetToken"`
-	IOSReceipt        string         `json:"iosReceipt"`
-	IOSSecret         string         `json:"iosSecret"`
-	NewPassword       string         `json:"newPassword"`
-	ProviderID        string         `json:"providerId"`
-	Identifier        string         `json:"identifier"`
-	Password          string         `json:"password"`
-	IDToken           string         `json:"idToken"`
-	TenantID          string         `json:"tenantId"`
-	ContinueURL       string         `json:"continueUrl"`
-	NewEmail          string         `json:"newEmail"`
-	RequestType       string         `json:"requestType"`
-	OobCode           string         `json:"oobCode"`
-	Token             string         `json:"token"`
-	DeleteAttribute   []string       `json:"deleteAttribute"`
-	LocalID           flexStrings    `json:"localId"`
-	PhoneNumber       flexStrings    `json:"phoneNumber"`
-	FederatedUserID   []providerWire `json:"federatedUserId"`
-	Email             flexStrings    `json:"email"`
-	Provider          []string       `json:"provider"`
-	DeleteProvider    []string       `json:"deleteProvider"`
-	ValidSince        flexInt        `json:"validSince"`
-	CreatedAt         flexInt        `json:"createdAt"`
-	LastLoginAt       flexInt        `json:"lastLoginAt"`
-	ValidDuration     flexInt        `json:"validDuration"`
-	ReturnOobLink     bool           `json:"returnOobLink"`
+	DisplayName       *string       `json:"displayName"`
+	DisableUser       *bool         `json:"disableUser"`
+	EmailVerified     *bool         `json:"emailVerified"`
+	Disabled          *bool         `json:"disabled"`
+	LinkProvider      *providerWire `json:"linkProviderUserInfo"`
+	ReturnSecureToken *bool         `json:"returnSecureToken"`
+	CustomAttributes  *string       `json:"customAttributes"`
+	PhotoURL          *string       `json:"photoUrl"`
+	MfaInfo           []mfaWire     `json:"mfaInfo"`
+	Mfa               *mfaUpdate    `json:"mfa"`
+	ContinueURI       string        `json:"continueUri"`
+	RequestURI        string        `json:"requestUri"`
+	PostBody          string        `json:"postBody"`
+	PendingIDToken    string        `json:"pendingIdToken"`
+	AutoCreate        *bool         `json:"autoCreate"`
+
+	SessionInfo     string         `json:"sessionInfo"`
+	Code            string         `json:"code"`
+	TemporaryProof  string         `json:"temporaryProof"`
+	RecaptchaToken  string         `json:"recaptchaToken"`
+	CaptchaResponse string         `json:"captchaResponse"`
+	PlayIntegrity   string         `json:"playIntegrityToken"`
+	SafetyNetToken  string         `json:"safetyNetToken"`
+	IOSReceipt      string         `json:"iosReceipt"`
+	IOSSecret       string         `json:"iosSecret"`
+	NewPassword     string         `json:"newPassword"`
+	ProviderID      string         `json:"providerId"`
+	Identifier      string         `json:"identifier"`
+	Password        string         `json:"password"`
+	IDToken         string         `json:"idToken"`
+	TenantID        string         `json:"tenantId"`
+	ContinueURL     string         `json:"continueUrl"`
+	NewEmail        string         `json:"newEmail"`
+	RequestType     string         `json:"requestType"`
+	OobCode         string         `json:"oobCode"`
+	Token           string         `json:"token"`
+	DeleteAttribute []string       `json:"deleteAttribute"`
+	LocalID         flexStrings    `json:"localId"`
+	PhoneNumber     flexStrings    `json:"phoneNumber"`
+	FederatedUserID []providerWire `json:"federatedUserId"`
+	Email           flexStrings    `json:"email"`
+	Provider        []string       `json:"provider"`
+	DeleteProvider  []string       `json:"deleteProvider"`
+	ValidSince      flexInt        `json:"validSince"`
+	CreatedAt       flexInt        `json:"createdAt"`
+	LastLoginAt     flexInt        `json:"lastLoginAt"`
+	ValidDuration   flexInt        `json:"validDuration"`
+	ReturnOobLink   bool           `json:"returnOobLink"`
+	ReturnIdpCred   bool           `json:"returnIdpCredential"`
 }
 
 // flexStrings decodes a string or an array of strings.
@@ -171,8 +184,11 @@ type tokenResponse struct {
 	IDToken      string `json:"idToken,omitempty"`
 	RefreshToken string `json:"refreshToken,omitempty"`
 	ExpiresIn    string `json:"expiresIn,omitempty"`
-	Registered   bool   `json:"registered,omitempty"`
-	IsNewUser    bool   `json:"isNewUser,omitempty"`
+
+	MfaPendingCredential string    `json:"mfaPendingCredential,omitempty"`
+	MfaInfo              []mfaWire `json:"mfaInfo,omitempty"`
+	Registered           bool      `json:"registered,omitempty"`
+	IsNewUser            bool      `json:"isNewUser,omitempty"`
 }
 
 type setAccountResponse struct {

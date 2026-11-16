@@ -28,7 +28,6 @@ families:
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; RPC failures are logged at debug. gRPC calls are not fed to the shared telemetry operation metrics."}
 items_still_open:
   - "STANDARD_HA and read replicas are metadata only: one server serves both the primary and read endpoint (read_endpoint equals host), and failover swaps zone labels. Real replicas need a replication path (miniredis registers no REPLICAOF or PSYNC), a second port per instance from the shared pool (engine.go bindEngine publishes one host and port) and READONLY enforcement on the replica."
-  - "RDB persistence_config is recorded but no periodic snapshots are taken (the emulator's own snapshot persistence covers restarts)."
   - "After a restore every instance starts on a new port and, for TLS, a new CA: pkgs/portalloc has no acquire-specific-port call (Reserve marks the port reserved for good) and pkgs/devtls.CA cannot serialise its private key."
   - "Cross-region replication, customer-managed keys, maintenance_version and suspension reasons are stored or empty but not modelled."
 leaks: {status: clean, note: "Background resources are the grpc.Server, per-instance Redis servers and operation jobs, all stopped and joined by Shutdown and Reset."}
@@ -60,3 +59,4 @@ RDB reading and writing follow rdb.h and rdb.c of the redis 8.0 source (RDB_TYPE
 
 - activedefrag and the lazyfree-lazy-* settings are applied to the server's settings and nothing else: the emulator has no allocator fragmentation to defragment and frees keys synchronously, so INFO memory reports active_defrag_running:0 and lazyfree_pending_objects:0.
 - maxmemory-clients is stored; client output buffers are not measured, so no client is evicted for memory.
+- RDB persistence_config is stored and returned; no periodic RDB snapshots are written because the Redis engine keeps its keyspace in memory and the emulator's own snapshot persistence covers restarts.

@@ -9,15 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 71 (69 ok, 2 partial) |
 | Feature families | 21 (21 ok) |
-| Known gaps | 2 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- Inbound SMTP: WorkMail/Connect actions are recorded only (no delivery path); spam/virus verdicts are PASS or DISABLED by ScanEnabled alone (no content scanner).
-- Inbound SMTP: SPF a/mx/ptr/exists mechanisms (with macros, dual CIDR, the 10-lookup and 2-void-lookup limits) need a resolver implementing InboundDNSResolver (the app wires Route 53 hosted zones); a TXT-only resolver skips those mechanisms. The exp modifier, HELO identity checks and the %{p} macro are not evaluated (the HELO and %{h} fall back to the MAIL FROM domain).
 
 ### Structural gaps
 

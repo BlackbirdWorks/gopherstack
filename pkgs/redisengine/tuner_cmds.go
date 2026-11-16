@@ -62,7 +62,7 @@ func loadCommandTable() map[string]cmdInfo {
 
 		for _, flag := range replyStrings(f[2]) {
 			switch flag {
-			case "write":
+			case categoryWrite:
 				info.write = true
 			case "denyoom":
 				info.denyOOM = true

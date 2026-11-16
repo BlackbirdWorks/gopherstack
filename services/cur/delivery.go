@@ -75,7 +75,7 @@ func (b *InMemoryBackend) DeliverDue(ctx context.Context) {
 		}
 	}
 
-	objects, costs, account := b.objects, b.costs, b.accountID
+	objects, costs, cats, account := b.objects, b.costs, b.categories, b.accountID
 	b.mu.RUnlock()
 
 	if objects == nil {
@@ -85,7 +85,7 @@ func (b *InMemoryBackend) DeliverDue(ctx context.Context) {
 	slices.SortFunc(due, func(x, y Report) int { return strings.Compare(x.ReportName, y.ReportName) })
 
 	for i := range due {
-		status := deliver(ctx, objects, costs, &due[i], account, now)
+		status := deliver(ctx, objects, costs, cats, &due[i], account, now)
 
 		b.mu.Lock("DeliverDue")
 		if cur, ok := b.reports.Get(due[i].ReportName); ok {
@@ -101,7 +101,7 @@ func (b *InMemoryBackend) DeliverDue(ctx context.Context) {
 const lastDeliveryLayout = "20060102T150405Z"
 
 func deliver(
-	ctx context.Context, objects billingexport.ObjectStore, costs billingexport.CostSource,
+	ctx context.Context, objects billingexport.ObjectStore, costs billingexport.CostSource, cats CostCategorizer,
 	r *Report, account string, now time.Time,
 ) string {
 	if !billingexport.BucketExists(ctx, objects, r.S3Bucket) {
@@ -120,7 +120,7 @@ func deliver(
 		ctx,
 		objects,
 		r,
-		buildTable(r, lines, billStart, billEnd, account),
+		buildTable(r, lines, billStart, billEnd, account, cats),
 		billStart,
 		billEnd,
 		account,

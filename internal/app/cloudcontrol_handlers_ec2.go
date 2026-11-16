@@ -295,7 +295,9 @@ func (h *ccSubnet) Create(ctx context.Context, desired map[string]any) (string, 
 	vpc, cidr := ccString(desired, ccKeyVpcID), ccString(desired, "CidrBlock")
 	native, _ := ccBool(desired, "Ipv6Native")
 
-	if vpc == "" || (cidr == "" && !native) {
+	pooled := ccString(desired, "Ipv4IpamPoolId") != ""
+
+	if vpc == "" || (cidr == "" && !native && !pooled) {
 		return "", fmt.Errorf("%w: VpcId and CidrBlock are required", cloudcontrolbackend.ErrValidation)
 	}
 
@@ -310,6 +312,14 @@ func (h *ccSubnet) Create(ctx context.Context, desired map[string]any) (string, 
 	ccSetStr(in, "AvailabilityZone", ccString(desired, "AvailabilityZone"))
 	ccSetStr(in, "AvailabilityZoneId", ccString(desired, "AvailabilityZoneId"))
 	ccSetStr(in, "OutpostArn", ccString(desired, "OutpostArn"))
+	ccSetStr(in, "Ipv4IpamPoolId", ccString(desired, "Ipv4IpamPoolId"))
+	ccSetStr(in, "Ipv6IpamPoolId", ccString(desired, "Ipv6IpamPoolId"))
+
+	for _, k := range []string{"Ipv4NetmaskLength", "Ipv6NetmaskLength"} {
+		if n, ok := ccInt32(desired, k); ok {
+			in[k] = float64(n)
+		}
+	}
 
 	if ts := ccEC2TagSpec("subnet", tags); ts != nil {
 		in["TagSpecifications"] = ts

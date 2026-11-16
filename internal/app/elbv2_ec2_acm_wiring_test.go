@@ -68,6 +68,9 @@ func TestInitializeServices_ELBv2EC2ACMWiring(t *testing.T) {
 	subnet, err := ec2H.Backend.CreateSubnet(vpc.ID, "10.0.1.0/24", "us-east-1a")
 	require.NoError(t, err)
 
+	subnet2, err := ec2H.Backend.CreateSubnet(vpc.ID, "10.0.2.0/24", "us-east-1b")
+	require.NoError(t, err)
+
 	cert, err := acmH.Backend.RequestCertificate(
 		ctx, "wired-elbv2.example.com", "AMAZON_ISSUED", "DNS", "", "", "", "", nil,
 	)
@@ -106,7 +109,7 @@ func TestInitializeServices_ELBv2EC2ACMWiring(t *testing.T) {
 	_, err = client.CreateLoadBalancer(ctx, &elbv2sdk.CreateLoadBalancerInput{
 		Name:           aws.String("wired-elbv2-lb"),
 		Type:           elbv2types.LoadBalancerTypeEnumApplication,
-		Subnets:        []string{subnet.ID},
+		Subnets:        []string{subnet.ID, subnet2.ID},
 		SecurityGroups: []string{"sg-does-not-exist"},
 	})
 	require.Error(t, err,
@@ -115,7 +118,7 @@ func TestInitializeServices_ELBv2EC2ACMWiring(t *testing.T) {
 	lbOut, err := client.CreateLoadBalancer(ctx, &elbv2sdk.CreateLoadBalancerInput{
 		Name:           aws.String("wired-elbv2-lb"),
 		Type:           elbv2types.LoadBalancerTypeEnumApplication,
-		Subnets:        []string{subnet.ID},
+		Subnets:        []string{subnet.ID, subnet2.ID},
 		SecurityGroups: []string{sg.ID},
 	})
 	require.NoError(t, err, "a real EC2-backed subnet and security group must be accepted")

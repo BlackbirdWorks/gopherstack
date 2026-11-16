@@ -25,6 +25,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/services/apigateway"
 	"github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
 )
 
@@ -102,6 +103,7 @@ type Handler struct {
 	Backend               StorageBackend
 	jwksProvider          JWKSProvider
 	lambdaInvoker         LambdaInvoker
+	awsInvoker            apigateway.AWSServiceInvoker
 	managementAPI         apigatewaymanagementapi.StorageBackend
 	managementAPIFor      func(region string) apigatewaymanagementapi.StorageBackend
 	metrics               cwmetric.Sink
@@ -129,6 +131,7 @@ func (h *Handler) EnableRegions() {
 		p := NewHandler(nb)
 		p.region = region
 		p.lambdaInvoker, p.jwksProvider = h.lambdaInvoker, h.jwksProvider
+		p.awsInvoker = h.awsInvoker
 		p.managementAPI, p.httpClient = h.managementAPI, h.httpClient
 		p.managementAPIFor = h.managementAPIFor
 
@@ -217,6 +220,11 @@ func (h *Handler) getHTTPClient() *http.Client {
 // SetLambdaInvoker configures the Lambda invoker for AWS_PROXY integrations.
 func (h *Handler) SetLambdaInvoker(lambda LambdaInvoker) {
 	h.lambdaInvoker = lambda
+}
+
+// SetAWSServiceInvoker routes non-Lambda WebSocket AWS integrations to in-process services.
+func (h *Handler) SetAWSServiceInvoker(inv apigateway.AWSServiceInvoker) {
+	h.awsInvoker = inv
 }
 
 // SetJWKSProvider configures the JWKS provider used to verify JWT authorizer signatures.

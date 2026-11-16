@@ -1,6 +1,9 @@
 package app
 
 import (
+	"errors"
+	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -32,6 +35,7 @@ func wireOCILoadBalancer(byName map[string]service.Registerable) {
 
 			return ref.CidrBlock, live
 		})
+		coreH.Backend.SetLoadBalancerClient(poolLoadBalancers{b: lbH.Backend})
 	}
 
 	if logH, found := byName["OCILogging"].(*ocilogging.Handler); found {
@@ -41,4 +45,36 @@ func wireOCILoadBalancer(byName map[string]service.Registerable) {
 			})
 		})
 	}
+}
+
+// poolLoadBalancers lets OCI Core instance pools register their instances as load balancer backends.
+type poolLoadBalancers struct {
+	b *ociloadbalancer.InMemoryBackend
+}
+
+func (p poolLoadBalancers) HasBackendSet(lbID, set string) bool { return p.b.HasBackendSet(lbID, set) }
+
+func (p poolLoadBalancers) ApplyBackends(lbID string, changes []ocicorebackend.BackendChange) error {
+	conv := make([]ociloadbalancer.BackendChange, len(changes))
+
+	for i, c := range changes {
+		conv[i] = ociloadbalancer.BackendChange{Set: c.Set}
+
+		for _, a := range c.Add {
+			conv[i].Add = append(conv[i].Add, ociloadbalancer.BackendAddr{IP: a.IP, Port: a.Port})
+		}
+
+		for _, r := range c.Remove {
+			conv[i].Remove = append(conv[i].Remove, ociloadbalancer.BackendAddr{IP: r.IP, Port: r.Port})
+		}
+	}
+
+	err := p.b.ApplyBackends(lbID, conv)
+
+	var apiErr *ociloadbalancer.APIError
+	if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound {
+		return fmt.Errorf("%w: %w", ocicorebackend.ErrTargetGone, err)
+	}
+
+	return err
 }

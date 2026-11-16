@@ -9,13 +9,12 @@
 | --- | --- |
 | PARITY entries audited | 16 (11 ok, 5 partial) |
 | Feature families | 10 (9 ok, 1 partial) |
-| Known gaps | 2 |
+| Known gaps | 1 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- Signed deliveries (X-OCI-NS-Signature, X-OCI-NS-Timestamp, X-OCI-NS-SignatureVersion, X-OCI-NS-SigningCertURL): the overview lists the headers but not the signed string or the certificate format, so they are not emitted; the friendly-formatting setting is not implemented.
 - IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified.
 
 ## More

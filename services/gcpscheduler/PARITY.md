@@ -7,7 +7,7 @@ overall: B
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  CreateJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "Job ID [a-zA-Z0-9_-]{1,500}, auto numeric name when unset (emulator-chosen); exactly one of http_target, app_engine_http_target, pubsub_target, each validated; unix-cron or App Engine cron schedule and IANA time_zone (default Etc/UTC) parsed; retry_config defaults filled (retry_count 0, min 5s, max 3600s, max_doublings 5; zero means unset); attempt_deadline 15s-30m (HTTP/Pub/Sub) or 15s-24h (App Engine), default 3m. Output-only fields are reset: state ENABLED, schedule_time = next fire, user_update_time = now. Duplicate is ALREADY_EXISTS. The location is not checked against the region catalog."}
+  CreateJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "Job ID [a-zA-Z0-9_-]{1,500}, auto numeric name when unset (emulator-chosen); exactly one of http_target, app_engine_http_target, pubsub_target, each validated; unix-cron or App Engine cron schedule and IANA time_zone (default Etc/UTC) parsed; retry_config defaults filled (retry_count 0, min 5s, max 3600s, max_doublings 5; zero means unset); attempt_deadline 15s-30m (HTTP/Pub/Sub) or 15s-24h (App Engine), default 3m. Output-only fields are reset: state ENABLED, schedule_time = next fire, user_update_time = now. Duplicate is ALREADY_EXISTS."}
   GetJob: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListJobs: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Sorted by name, paged via pkgs/page; page_size default and cap 500."}
   UpdateJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "Field-mask driven via protoreflect: description, schedule, time_zone, retry_config(.*), attempt_deadline, http_target/app_engine_http_target/pubsub_target (and sub-fields). Empty mask replaces every mutable field. name, state, status, schedule_time, last_attempt_time and user_update_time are INVALID_ARGUMENT; the merged job is fully revalidated and a failure changes nothing. A missing job is NOT_FOUND (no upsert). Enabled jobs get schedule_time recomputed from now."}
@@ -27,11 +27,7 @@ families:
   routing_isolation: {status: ok, note: "Own gRPC server bound in StartWorker to --gcp-scheduler-port / GCP_SCHEDULER_PORT (default 8124, fails fast if taken); never registered on the shared AWS router. cli.go reserves the port in the shared PortAlloc pool. The official client has no emulator variable: use option.WithEndpoint with insecure credentials."}
   auth: {status: partial, note: "No request is authenticated or authorised; there is no IAM policy surface in the v1 Cloud Scheduler API."}
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; attempts that will not be retried are logged at warn. gRPC calls are not fed to the shared telemetry operation metrics."}
-items_still_open:
-  - "Job state DISABLED and UPDATE_FAILED are never produced (updates are applied atomically); ResumeJob and PauseJob refuse them if they appear."
-  - "CreateJob does not validate the location against the supported-region catalog or the project against any registry."
-  - "Persisted in-flight attempts are not resumed mid-flight; after a restore the next cron slot or the persisted retry time applies."
-  - "Cloud Scheduler job-level max_doublings default is 5 (schedulerpb RetryConfig); whether the live service echoes that default on unset retry configs is not published (checked schedulerpb job.pb.go RetryConfig)"
+items_still_open: []
 leaks: {status: clean, note: "Background resources are the grpc.Server, the dispatcher ticker goroutine and in-flight delivery goroutines; Shutdown cancels the run context and joins all of them (goleak in TestMain)."}
 ---
 
@@ -39,3 +35,9 @@ Initial implementation (2026-10-18): google.cloud.scheduler.v1 CloudScheduler an
 
 ## Primary-source checks (2026-11-13)
 - gcpscheduler: schedulerpb job.pb.go RetryConfig documents the max_doublings default of 5.
+
+## Emulator choices where the vendor is silent
+- Job states DISABLED and UPDATE_FAILED are never produced because updates are applied atomically; ResumeJob and PauseJob refuse them with FAILED_PRECONDITION if a snapshot carries them.
+- An attempt in flight at shutdown is not resumed after a restore; the next cron slot or the persisted retry time applies.
+- CreateJob in a location outside the 40-region catalog is NOT_FOUND, matching GetLocation; the vendor gives no error code. The project is not checked against any registry.
+- Whether the live service echoes the max_doublings default of 5 on unset retry configs is not published (schedulerpb job.pb.go RetryConfig documents the default); the emulator echoes it.

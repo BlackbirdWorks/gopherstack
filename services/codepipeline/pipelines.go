@@ -438,6 +438,11 @@ func (b *InMemoryBackend) StartPipelineExecutionWith(
 	}
 
 	now := time.Now().UTC()
+	trigger := triggerTypeStartExecution
+	if opts.TriggerType != "" {
+		trigger = opts.TriggerType
+	}
+
 	exec := &PipelineExecution{
 		PipelineName:        pipelineName,
 		PipelineExecutionID: uuid.NewString(),
@@ -445,7 +450,7 @@ func (b *InMemoryBackend) StartPipelineExecutionWith(
 		PipelineVersion:     p.Declaration.Version,
 		ExecutionMode:       p.Declaration.ExecutionMode,
 		ExecutionType:       executionTypeStandard,
-		Trigger:             triggerTypeStartExecution,
+		Trigger:             trigger,
 		StartTime:           now,
 		LastUpdateTime:      now,
 		Variables:           resolveVariables(p.Declaration.Variables, opts.Variables),

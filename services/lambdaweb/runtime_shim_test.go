@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -159,16 +160,21 @@ func TestRuntimeShim_HeaderLineLimit(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "preload.cjs"), lambdaweb.PreloadScript(), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "server.js"), []byte(`
 const http = require('node:http');
-http.createServer((req, res) => res.end('ok')).listen(Number(process.env.PORT), '127.0.0.1');
+const srv = http.createServer((req, res) => res.end('ok'));
+srv.listen(0, '127.0.0.1', () => process.stdout.write(srv.address().port + '\n'));
 `), 0o600))
-
-	port := freeLocalPort(t)
 
 	cmd := exec.CommandContext(t.Context(), node, "--max-http-header-size=131072", "--require",
 		filepath.Join(dir, "preload.cjs"), filepath.Join(dir, "server.js"))
-	cmd.Env = append(os.Environ(), "PORT="+port)
+	stdout, err := cmd.StdoutPipe()
+	require.NoError(t, err)
 	require.NoError(t, cmd.Start())
 	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+
+	port, err := bufio.NewReader(stdout).ReadString('\n')
+	require.NoError(t, err)
+
+	port = strings.TrimSpace(port)
 
 	client := httpclient.New(10 * time.Second)
 
@@ -185,25 +191,19 @@ http.createServer((req, res) => res.end('ok')).listen(Number(process.env.PORT), 
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			require.Eventually(t, func() bool {
-				req, rerr := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:"+port+"/", nil)
-				if rerr != nil {
-					return false
-				}
+			req, rerr := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:"+port+"/", nil)
+			require.NoError(t, rerr)
 
-				for i := range tc.headers {
-					req.Header.Set("X-H"+strconv.Itoa(i), "v")
-				}
+			for i := range tc.headers {
+				req.Header.Set("X-H"+strconv.Itoa(i), "v")
+			}
 
-				resp, derr := client.Do(req)
-				if derr != nil {
-					return false
-				}
+			resp, derr := client.Do(req)
+			require.NoError(t, derr)
 
-				defer resp.Body.Close()
+			defer resp.Body.Close()
 
-				return resp.StatusCode == tc.want
-			}, 10*time.Second, 50*time.Millisecond)
+			assert.Equal(t, tc.want, resp.StatusCode)
 		})
 	}
 }

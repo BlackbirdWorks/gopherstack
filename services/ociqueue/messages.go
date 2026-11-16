@@ -169,8 +169,12 @@ func (b *InMemoryBackend) PutMessages(queueID string, in putMessagesIn) ([]PutMe
 	b.mu.Lock("PutMessages")
 	defer b.mu.Unlock()
 
-	q, aerr := b.dataQueue(queueID)
+	q, aerr := b.dataQueueFor(queueID, "PutMessages", totalsOf(in).bytes)
 	if aerr != nil {
+		return nil, aerr
+	}
+
+	if aerr = b.admitPut(q, in); aerr != nil {
 		return nil, aerr
 	}
 
@@ -220,7 +224,7 @@ type pollResult struct {
 }
 
 // pollOnce delivers up to limit visible messages, or reports how long until the next one becomes visible.
-func (b *InMemoryBackend) pollOnce(queueID string, p GetParams) (pollResult, error) {
+func (b *InMemoryBackend) pollOnce(queueID string, p GetParams, first bool) (pollResult, error) {
 	b.mu.Lock("GetMessages")
 	defer b.mu.Unlock()
 
@@ -229,14 +233,26 @@ func (b *InMemoryBackend) pollOnce(queueID string, p GetParams) (pollResult, err
 		return pollResult{}, aerr
 	}
 
+	if first {
+		if aerr = b.throttle(q, "GetMessages", 0); aerr != nil {
+			return pollResult{}, aerr
+		}
+	}
+
 	ln, aerr := q.laneFor(p.ConsumerGroup)
 	if aerr != nil {
 		return pollResult{}, aerr
 	}
 
-	vis, limit := def(p.Visibility, q.Visibility), def(p.Limit, defaultGetLimit)
-	res := pollResult{timeout: def(p.Timeout, q.Timeout), after: b.after, wake: q.waiter(), until: -1}
 	now := b.nowUTC()
+
+	room, aerr := b.inFlightRoom(q, now)
+	if aerr != nil {
+		return pollResult{}, aerr
+	}
+
+	vis, limit := def(p.Visibility, q.Visibility), min(def(p.Limit, defaultGetLimit), room)
+	res := pollResult{timeout: def(p.Timeout, q.Timeout), after: b.after, wake: q.waiter(), until: -1}
 	res.msgs = []GetMessageWire{}
 
 	for _, m := range *ln.msgs {
@@ -266,6 +282,10 @@ func (b *InMemoryBackend) pollOnce(queueID string, p GetParams) (pollResult, err
 		q.notify()
 	}
 
+	for _, m := range res.msgs {
+		b.chargeEgress(q, "GetMessages", int64(len(m.Content)))
+	}
+
 	return res, nil
 }
 
@@ -283,8 +303,8 @@ func (b *InMemoryBackend) GetMessages(
 
 	var deadline <-chan time.Time
 
-	for {
-		res, err := b.pollOnce(queueID, p)
+	for first := true; ; first = false {
+		res, err := b.pollOnce(queueID, p, first)
 		if err != nil {
 			return nil, err
 		}
@@ -358,7 +378,7 @@ func (b *InMemoryBackend) UpdateMessage(queueID, group, receipt string, vis *int
 	b.mu.Lock("UpdateMessage")
 	defer b.mu.Unlock()
 
-	q, aerr := b.dataQueue(queueID)
+	q, aerr := b.dataQueueFor(queueID, "UpdateMessage", 0)
 	if aerr != nil {
 		return UpdatedWire{}, aerr
 	}
@@ -413,7 +433,7 @@ func (b *InMemoryBackend) UpdateMessages(queueID, group string, in receiptsIn) (
 	b.mu.Lock("UpdateMessages")
 	defer b.mu.Unlock()
 
-	q, aerr := b.dataQueue(queueID)
+	q, aerr := b.dataQueueFor(queueID, "UpdateMessages", 0)
 	if aerr != nil {
 		return BatchResultWire{}, aerr
 	}
@@ -455,7 +475,7 @@ func (b *InMemoryBackend) DeleteMessage(queueID, group, receipt string) error {
 	b.mu.Lock("DeleteMessage")
 	defer b.mu.Unlock()
 
-	q, aerr := b.dataQueue(queueID)
+	q, aerr := b.dataQueueFor(queueID, "DeleteMessage", 0)
 	if aerr != nil {
 		return aerr
 	}
@@ -483,7 +503,7 @@ func (b *InMemoryBackend) DeleteMessages(queueID, group string, in receiptsIn) (
 	b.mu.Lock("DeleteMessages")
 	defer b.mu.Unlock()
 
-	q, aerr := b.dataQueue(queueID)
+	q, aerr := b.dataQueueFor(queueID, "DeleteMessages", 0)
 	if aerr != nil {
 		return BatchResultWire{}, aerr
 	}
@@ -535,7 +555,7 @@ func (b *InMemoryBackend) GetStats(queueID, group, channel string) (QueueStatsWi
 	b.mu.Lock("GetStats")
 	defer b.mu.Unlock()
 
-	q, aerr := b.dataQueue(queueID)
+	q, aerr := b.dataQueueFor(queueID, "GetStats", 0)
 	if aerr != nil {
 		return QueueStatsWire{}, aerr
 	}
@@ -555,7 +575,7 @@ func (b *InMemoryBackend) ListChannels(queueID, group, filter string, o ListOpts
 	b.mu.Lock("ListChannels")
 	defer b.mu.Unlock()
 
-	q, aerr := b.dataQueue(queueID)
+	q, aerr := b.dataQueueFor(queueID, "ListChannels", 0)
 	if aerr != nil {
 		return page.Page[string]{}, aerr
 	}

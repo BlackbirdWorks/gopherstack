@@ -189,16 +189,63 @@ func (b *InMemoryBackend) capacityUsageLocked(r *firewallRecord) *CapacityUsageS
 	}}
 }
 
-// resolvedCIDRs counts the entries of a referenced managed prefix list; other reference kinds resolve to none.
+// ReferenceResolver counts the addresses behind resource group and container cluster references.
+type ReferenceResolver interface {
+	ResourceGroupCIDRCount(groupARN string) (count int, ok bool)
+	ECSClusterCIDRCount(clusterARN string, attributeFilters map[string]string) (count int, ok bool)
+}
+
+// resolvedCIDRs counts the addresses behind an IP set reference: a managed prefix list, a resource
+// group or a container association. Unresolvable references count 0.
 func (b *InMemoryBackend) resolvedCIDRs(referenceARN string) int32 {
-	if b.nets == nil || !strings.Contains(referenceARN, ":prefix-list/") {
+	if b.nets == nil {
 		return 0
 	}
 
-	n, ok := b.nets.PrefixListCIDRCount(referenceARN)
+	var (
+		n  int
+		ok bool
+	)
+
+	switch {
+	case strings.Contains(referenceARN, ":prefix-list/"):
+		n, ok = b.nets.PrefixListCIDRCount(referenceARN)
+	case strings.Contains(referenceARN, ":group/"):
+		if r, isRef := b.nets.(ReferenceResolver); isRef {
+			n, ok = r.ResourceGroupCIDRCount(referenceARN)
+		}
+	case strings.Contains(referenceARN, ":"+kindContainer+"/"):
+		if rec, found := b.containers.Get(referenceARN); found {
+			n, ok = b.containerCIDRs(rec), true
+		}
+	}
+
 	if !ok {
 		return 0
 	}
 
 	return toInt32(min(n, maxReferencedCIDRs))
+}
+
+// containerCIDRs sums the running task addresses of every ECS monitoring configuration.
+func (b *InMemoryBackend) containerCIDRs(r *containerRecord) int {
+	res, ok := b.nets.(ReferenceResolver)
+	if !ok || r.Type != "ECS" {
+		return 0
+	}
+
+	total := 0
+
+	for _, c := range r.Configs {
+		filters := make(map[string]string, len(c.AttributeFilters))
+		for _, f := range c.AttributeFilters {
+			filters[f.Key] = f.Value
+		}
+
+		if n, found := res.ECSClusterCIDRCount(c.ClusterArn, filters); found {
+			total += n
+		}
+	}
+
+	return total
 }

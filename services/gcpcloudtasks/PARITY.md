@@ -38,8 +38,7 @@ families:
   routing_isolation: {status: ok, note: "Own gRPC server bound in StartWorker to --gcp-cloudtasks-port / GCP_CLOUDTASKS_PORT (default 8123, fails fast if taken); never registered on the shared AWS router. cli.go reserves the port in the shared PortAlloc pool. The official client has no emulator variable: use option.WithEndpoint with insecure credentials."}
   auth: {status: partial, note: "No request is authenticated or authorised; IAM policies are stored but not enforced."}
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; dropped tasks are logged at warn. gRPC calls are not fed to the shared telemetry operation metrics."}
-items_still_open:
-  - "Persisted in-flight attempts are not resumed mid-flight: after a restore the task is simply due again and its attempt count keeps the interrupted attempt."
+items_still_open: []
 leaks: {status: clean, note: "Background resources are the grpc.Server, the dispatcher ticker goroutine and in-flight delivery goroutines; Shutdown cancels the run context and joins all of them (goleak in TestMain)."}
 ---
 
@@ -48,3 +47,4 @@ Initial implementation (2026-10-18): google.cloud.tasks.v2 CloudTasks gRPC verif
 ## Emulator choices where the vendor is silent
 
 - Queue max_burst_size is an emulator-chosen derivation; real Cloud Tasks burst sizing is not documented.
+- A task whose delivery was in flight at shutdown is due again after a restore and its attempt count keeps the interrupted attempt; Cloud Tasks documents at-least-once delivery with retries and nothing about mid-attempt resumption.

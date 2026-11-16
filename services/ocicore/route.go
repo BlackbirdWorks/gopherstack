@@ -63,6 +63,7 @@ var resourceParams = []string{ //nolint:gochecknoglobals // immutable
 	"blockVolumeReplicaId",
 	"instanceConfigurationId",
 	"instancePoolId",
+	"instancePoolLoadBalancerAttachmentId",
 	"vlanId",
 	"capacityReservationId",
 	"dedicatedVmHostId",

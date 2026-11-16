@@ -19,9 +19,9 @@ var emulatorMACKey = []byte("gopherstack-marketplace-metering-v1") //nolint:goch
 
 // ProductSpec declares a product; a declared product enforces its dimensions and customer subscriptions.
 type ProductSpec struct {
-	Code             string
-	Dimensions       []Dimension
-	PublicKeyVersion int32
+	Code             string      `json:"code"`
+	Dimensions       []Dimension `json:"dimensions,omitempty"`
+	PublicKeyVersion int32       `json:"publicKeyVersion,omitempty"`
 }
 
 // ResolvedCustomer is the ResolveCustomer result.

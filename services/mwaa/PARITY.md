@@ -34,9 +34,7 @@ families:
   errors: {status: ok, note: "error taxonomy unchanged from the prior pass (7 real exception types, confirmed again against types/errors.go); ErrEnvironmentAlreadyExists's Go error message text no longer contains the literal string \"AlreadyExistsException\" (it was leaking the fabricated exception name into the wire response's \"message\" field even though \"__type\" was already correctly ValidationException)"}
 persistence: {status: ok, note: "Snapshot/Restore round-trips verified unaffected by this pass's field/validation changes (NetworkConfiguration, status constants, WorkerReplacementStrategy removal all covered by existing + new tests); no persistence.go edits were needed since none of the fixed fields had bespoke DTO mapping"}
 gaps: []
-items_still_open:
-  - "docker engine: startup-script output stays in container logs (CloudWatch Logs is not modelled by MWAA); MinWorkers/MaxWorkers/Schedulers/EnvironmentClass are ignored (airflow standalone, single process)."
-  - "docker engine: Airflow 3.x auth (JWT REST, simple auth manager login) is implemented but verified only against a fake; 2.10.3 verified in docker."
+items_still_open: []
 structural_gaps:
   - "Without --mwaa-engine=docker (or no container runtime) InvokeRestApi always returns 200 with an empty RestApiResponse and CreateCliToken/CreateWebLoginToken return synthetic tokens: no Apache Airflow webserver exists. With the docker engine all three reach a real container; see the 2026-10-20 section."
 deferred:
@@ -594,3 +592,5 @@ Round trips clean. Recorded, unchanged (SDK silent): UpdateEnvironment replaces 
 
 - CreateWebLoginToken populates IamIdentity from the caller ARN but not AirflowIdentity (UNVERIFIABLE): mwaa@v1.43.4 only says "user name of the Apache Airflow identity" with no IAM-to-Airflow mapping.
 - MethodNotAllowedException (405) for verb mismatches is not in the MWAA model (UNVERIFIABLE): the real gateway response is not documented, and no conformant SDK client sends a wrong verb.
+- Docker engine: startup-script output stays in container logs because CloudWatch Logs is not modelled by MWAA; MinWorkers/MaxWorkers/Schedulers/EnvironmentClass are ignored (airflow standalone, single process).
+- Docker engine: Airflow 3.x auth (JWT REST, simple auth manager login) is implemented and exercised against a fake; Airflow 2.10.3 is exercised in Docker.

@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 33 (31 ok, 1 partial, 1 deferred) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- DeleteApplication is synchronous (ApplicationStatusDeleting unused); without the docker Flink engine Start/Stop are instantaneous (API docs give no durations). No container runtime -> applications stay state-only (logged, not a stub: no job ever claims to run).
 
 ### Structural gaps
 

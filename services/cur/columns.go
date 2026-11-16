@@ -28,6 +28,7 @@ type rowCtx struct {
 	end       time.Time
 	billStart time.Time
 	billEnd   time.Time
+	cats      CostCategorizer
 	payer     string
 	line      billingexport.CostLine
 	frac      float64
@@ -144,7 +145,7 @@ func rateString(cost, usage float64) any {
 	return fmt.Sprintf("%.10f", v)
 }
 
-func columnsFor(elements, tagKeys []string) []colDef {
+func columnsFor(elements, tagKeys, categoryNames []string) []colDef {
 	cols := baseColumns()
 
 	if slices.Contains(elements, schemaDiscount) {
@@ -155,6 +156,12 @@ func columnsFor(elements, tagKeys []string) []colDef {
 
 	for _, k := range tagKeys {
 		cols = append(cols, col("resourceTags", "user:"+k, typeString, func(r *rowCtx) any { return r.line.Tags[k] }))
+	}
+
+	for _, name := range categoryNames {
+		cols = append(cols, col("costCategory", name, typeString, func(r *rowCtx) any {
+			return r.cats.CostCategoryValue(name, &r.line)
+		}))
 	}
 
 	for _, e := range elements {
@@ -184,8 +191,14 @@ func buildTable(
 	lines []billingexport.CostLine,
 	billStart, billEnd time.Time,
 	payer string,
+	cats CostCategorizer,
 ) *billingexport.Table {
-	defs := columnsFor(r.AdditionalSchemaElements, tagKeysOf(lines))
+	var categoryNames []string
+	if cats != nil {
+		categoryNames = cats.CostCategoryNames()
+	}
+
+	defs := columnsFor(r.AdditionalSchemaElements, tagKeysOf(lines), categoryNames)
 	t := &billingexport.Table{Columns: make([]billingexport.Column, len(defs))}
 
 	for i, d := range defs {
@@ -203,7 +216,7 @@ func buildTable(
 
 	for _, ln := range lines {
 		for _, rc := range intervals(r.TimeUnit, &ln, billEnd) {
-			rc.billStart, rc.billEnd, rc.payer = billStart, billEnd, payer
+			rc.billStart, rc.billEnd, rc.payer, rc.cats = billStart, billEnd, payer, cats
 			row := make([]any, len(defs))
 
 			for i, d := range defs {

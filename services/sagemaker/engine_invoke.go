@@ -43,6 +43,7 @@ type InvokeRequest struct {
 	TargetVariant           string
 	TargetContainerHostname string
 	TargetModel             string
+	InferenceComponentName  string
 	ContentType             string
 	Accept                  string
 	CustomAttributes        string
@@ -87,12 +88,7 @@ func (b *InMemoryBackend) invokeRaw(ctx context.Context, req InvokeRequest) (*ht
 		return nil, "", err
 	}
 
-	ed := eng.deployment(engineKey("endpoint", region, req.EndpointName))
-	if ed == nil {
-		return nil, "", fmt.Errorf("%w: %s", ErrEndpointNotRunning, req.EndpointName)
-	}
-
-	md, variant, err := ed.choose(ep, req.TargetVariant)
+	md, variant, err := b.chooseDeployment(eng, region, ep, req)
 	if err != nil {
 		return nil, "", err
 	}
@@ -117,6 +113,21 @@ func (b *InMemoryBackend) invokeRaw(ctx context.Context, req InvokeRequest) (*ht
 	}
 
 	return resp, variant, nil
+}
+
+func (b *InMemoryBackend) chooseDeployment(
+	eng *engineState, region string, ep *Endpoint, req InvokeRequest,
+) (*modelDeployment, string, error) {
+	if req.InferenceComponentName != "" {
+		return b.inferenceComponentDeployment(eng, region, req.EndpointName, req.InferenceComponentName)
+	}
+
+	ed := eng.deployment(engineKey("endpoint", region, req.EndpointName))
+	if ed == nil {
+		return nil, "", fmt.Errorf("%w: %s", ErrEndpointNotRunning, req.EndpointName)
+	}
+
+	return ed.choose(ep, req.TargetVariant)
 }
 
 // InvokeEndpoint runs one request through the endpoint's model container.

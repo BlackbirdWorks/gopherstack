@@ -49,6 +49,7 @@ type InMemoryBackend struct {
 	subscriptions *store.Table[Subscription]
 	usage         *store.Table[StoredUsage]
 	registrations *store.Table[Registration]
+	licenses      *store.Table[License]
 	registry      *store.Registry
 	mu            *lockmetrics.RWMutex
 	now           func() time.Time
@@ -71,6 +72,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b.subscriptions = store.Register(b.registry, "subscriptions", store.New(subscriptionKey))
 	b.usage = store.Register(b.registry, "usage", store.New(usageKey))
 	b.registrations = store.Register(b.registry, "registrations", store.New(registrationKey))
+	b.licenses = store.Register(b.registry, "licenses", store.New(licenseKey))
 
 	return b
 }

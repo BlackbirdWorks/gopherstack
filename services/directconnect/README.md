@@ -8,14 +8,10 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 73 (72 ok, 1 partial) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 8 |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- UpdateConnectionsBillingMode: Connection.billingMode is only reported once set (no default PayAsYouGo on create), and the Connection prefixPool* members are not modeled.
 
 ### Structural gaps
 

@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -52,7 +51,7 @@ func TestUpdateSecurity_RelaunchesBroker(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			rt := &fakeBrokerRuntime{}
+			rt := &fakeBrokerRuntime{removedC: make(chan string, 8)}
 			f := newBrokerFixture(t, rt, 0)
 			f.ready.Store(true)
 
@@ -94,10 +93,7 @@ func TestUpdateSecurity_RelaunchesBroker(t *testing.T) {
 			assert.Equal(t, tt.wantOp, done.OperationState)
 			assert.NotEmpty(t, done.EndTime)
 
-			require.Eventually(t, func() bool {
-				return len(rt.removedIDs()) >= 1
-			}, 10*time.Second, 5*time.Millisecond)
-			assert.Equal(t, "ctr-1", rt.removedIDs()[0])
+			assert.Equal(t, "ctr-1", <-rt.removedC)
 
 			if tt.startErr != nil {
 				return
@@ -270,6 +266,8 @@ func TestClientEndpointFor(t *testing.T) {
 		wantUser   string
 		wantOK     bool
 		wantRootCA bool
+		wantIAM    bool
+		wantMTLS   bool
 	}{
 		{name: "plaintext", mode: "PLAINTEXT", wantOK: true},
 		{name: "tls_only", mode: "TLS", auth: &kafka.ClientAuthentication{TLS: &kafka.TLSSettings{Enabled: true}},
@@ -278,9 +276,13 @@ func TestClientEndpointFor(t *testing.T) {
 			auth: &kafka.ClientAuthentication{Sasl: &kafka.SaslSettings{Scram: &kafka.SaslScram{Enabled: true}}}},
 		{name: "scram_without_secret_falls_back_to_tls", mode: "TLS", wantOK: true, wantRootCA: true,
 			auth: &kafka.ClientAuthentication{Sasl: &kafka.SaslSettings{Scram: &kafka.SaslScram{Enabled: true}}}},
-		{name: "mutual_tls_only", mode: "TLS", auth: &kafka.ClientAuthentication{TLS: &kafka.TLSSettings{
-			Enabled: true, CertificateAuthorityArnList: []string{"arn:aws:acm-pca:us-east-1:1:certificate-authority/x"},
-		}}},
+		{name: "mutual_tls_only", mode: "TLS", wantOK: true, wantRootCA: true, wantMTLS: true,
+			auth: &kafka.ClientAuthentication{TLS: &kafka.TLSSettings{
+				Enabled:                     true,
+				CertificateAuthorityArnList: []string{"arn:aws:acm-pca:us-east-1:1:certificate-authority/x"},
+			}}},
+		{name: "iam_only", mode: "TLS", wantOK: true, wantRootCA: true, wantIAM: true,
+			auth: &kafka.ClientAuthentication{Sasl: &kafka.SaslSettings{Iam: &kafka.SaslIam{Enabled: true}}}},
 	}
 
 	for _, tt := range tests {
@@ -302,10 +304,21 @@ func TestClientEndpointFor(t *testing.T) {
 			require.NoError(t, err)
 			f.awaitState(t, c.ClusterArn, kafka.ClusterStateActive)
 
+			if tt.wantIAM {
+				managed, _ := f.backend.ManagedEndpointsFor(c.ClusterArn)
+				require.NotEmpty(t, managed.SaslIam)
+			}
+
 			ep, ok := f.backend.ClientEndpointFor(t.Context(), c.ClusterArn, tt.secret)
 			assert.Equal(t, tt.wantOK, ok)
 			assert.Equal(t, tt.wantUser, ep.Username)
 			assert.Equal(t, tt.wantRootCA, len(ep.RootCAPEM) > 0)
+			assert.Equal(t, tt.wantIAM, ep.IAM)
+			assert.Equal(t, tt.wantMTLS, ep.MutualTLS)
+
+			if tt.wantIAM {
+				assert.Equal(t, strings.Split(c.ClusterArn, ":")[3], ep.Region)
+			}
 
 			if tt.wantOK {
 				assert.Len(t, ep.Brokers, 1)

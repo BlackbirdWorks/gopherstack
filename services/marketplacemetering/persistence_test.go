@@ -60,3 +60,26 @@ func TestRestoreRejectsMalformedSnapshot(t *testing.T) {
 
 	require.Error(t, newFixture(t).handler.Restore(t.Context(), []byte("{")))
 }
+
+func TestSnapshotRestoreLicenses(t *testing.T) {
+	t.Parallel()
+
+	src := newFixture(t)
+	lic, err := src.backend.RegisterLicense(mm.LicenseSpec{
+		ProductCode: "lic-persisted", CustomerAWSAccountID: testAccount,
+	})
+	require.NoError(t, err)
+
+	dst := newFixture(t)
+	require.NoError(t, dst.handler.Restore(t.Context(), src.handler.Snapshot(t.Context())))
+
+	out, err := dst.client.BatchMeterUsage(t.Context(), &sdk.BatchMeterUsageInput{
+		UsageRecords: []types.UsageRecord{{
+			Dimension: aws.String("Users"), Quantity: new(int32(1)), Timestamp: aws.Time(dst.now()),
+			LicenseArn: aws.String(lic.Arn),
+		}},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Results, 1)
+	assert.Equal(t, types.UsageRecordResultStatusSuccess, out.Results[0].Status)
+}

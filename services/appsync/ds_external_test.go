@@ -193,6 +193,11 @@ export function request(ctx) {
     case 'pg_insert': return createPgStatement(insert({ table: 't', values: { a: 1 }, returning: ['a'] }));
     case 'my_update': return createMySQLStatement(update({
       table: 't', values: { a: 2 }, where: { id: { eq: 1 } }, returning: '*' }));
+    case 'documented': return createPgStatement(select({
+      table: 'private.persons', columns: ['id', 'persons.name'], limit: 10, offset: 40,
+      orderBy: [{ column: 'name' }, { column: 'id', dir: 'DESC' }],
+      where: { not: [{ name: { eq: 'x' } }, { id: { gt: 10 } }], title: { size: { gt: 3 } } },
+    }));
     default: return createPgStatement(remove({ table: 't', where: { id: { eq: 1 } } }));
   }
 }
@@ -205,15 +210,24 @@ export function response(ctx) { return ctx.result; }`
 	}{
 		{"sql", `["select * from t where id = :P0 and d = :P1"]`, `{":P0":7,":P1":"2020-01-01"}`},
 		{
-			"select", `["SELECT a FROM t WHERE id = :P0 AND ((n > :P1) OR (n IN (:P2, :P3))) LIMIT :P4"]`,
-			`{":P0":7,":P1":1,":P2":1,":P3":2,":P4":5}`,
+			"select",
+			`["SELECT \"a\" FROM \"t\" WHERE \"id\" = :ID AND ((\"n\" > :N) OR (\"n\" IN (:N_1, :N_2))) ` +
+				`LIMIT :LIMIT"]`,
+			`{":ID":7,":N":1,":N_1":1,":N_2":2,":LIMIT":5}`,
 		},
-		{"pg_insert", `["INSERT INTO t (a) VALUES (:P0) RETURNING a"]`, `{":P0":1}`},
+		{"pg_insert", `["INSERT INTO \"t\"(\"a\") VALUES(:A) RETURNING \"a\""]`, `{":A":1}`},
 		{
-			"my_update", `["UPDATE t SET a = :P0 WHERE id = :P1","SELECT * FROM t WHERE id = :P2"]`,
-			`{":P0":2,":P1":1,":P2":1}`,
+			"my_update", "[\"UPDATE `t` SET `a` = :A WHERE `id` = :ID\",\"SELECT * FROM `t` WHERE `id` = :ID_1\"]",
+			`{":A":2,":ID":1,":ID_1":1}`,
 		},
-		{"remove", `["DELETE FROM t WHERE id = :P0"]`, `{":P0":1}`},
+		{
+			"documented",
+			`["SELECT \"id\", \"persons\".\"name\" FROM \"private\".\"persons\" ` +
+				`WHERE NOT ((\"name\" = :NAME) AND (\"id\" > :ID)) AND LENGTH(\"title\") > :TITLE ` +
+				`ORDER BY \"name\", \"id\" DESC LIMIT :LIMIT OFFSET :OFFSET"]`,
+			`{":NAME":"x",":ID":10,":TITLE":3,":LIMIT":10,":OFFSET":40}`,
+		},
+		{"remove", `["DELETE FROM \"t\" WHERE \"id\" = :ID"]`, `{":ID":1}`},
 	}
 
 	for _, tt := range tests {

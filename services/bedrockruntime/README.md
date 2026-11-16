@@ -9,15 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 11 (10 ok, 1 partial) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 2 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 5 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- chaos.FaultError cannot carry ModelErrorException's OriginalStatusCode/ResourceName: needs a per-service extension point in shared pkgs/chaos, outside this service (bd: gopherstack-ayfw).
-- Ollama backend (GOPHERSTACK_BEDROCK_BACKEND=ollama): stopReason stop_sequence is never reported (Ollama says done_reason=stop for stop-sequence hits), toolChoice is accepted but not enforced (no Ollama equivalent), Converse documents are limited to txt/md/csv/html, InvokeModel families are Anthropic Claude (messages and legacy prompt), Titan text/embed-text, Nova text, Llama, Mistral, Cohere Embed (float) and Command R; other families (AI21, Stability, Titan image/multimodal, Cohere Command text) return ValidationException; InvokeModelWithBidirectionalStream and CountTokens stay mock/estimated.
 
 ### Structural gaps
 

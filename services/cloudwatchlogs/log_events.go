@@ -242,6 +242,8 @@ func (b *InMemoryBackend) PutLogEvents(
 	var filtersForDelivery []*SubscriptionFilter
 	var metricMatches []metricFilterMatch
 	var emitter cwmetric.Emitter
+	var auditPolicies []auditPolicy
+	var groupARN string
 
 	func() {
 		b.mu.Lock("PutLogEvents")
@@ -299,6 +301,8 @@ func (b *InMemoryBackend) PutLogEvents(
 		filtersForDelivery = cloneSubscriptionFilters(filters)
 		metricMatches = b.matchingMetricFilters(region, groupName, acceptedEvents)
 		emitter = b.metricEmitter
+		groupARN = group.Arn
+		auditPolicies = b.auditPoliciesLocked(groupName, group.Arn)
 	}()
 	if lockErr != nil {
 		return nil, lockErr
@@ -310,6 +314,7 @@ func (b *InMemoryBackend) PutLogEvents(
 	}
 
 	b.scheduleFilterDelivery(groupName, streamName, eventsForDelivery, filtersForDelivery)
+	b.scheduleAuditDelivery(region, groupName, groupARN, auditPolicies, eventsForDelivery)
 
 	return &PutLogEventsResult{
 		NextSequenceToken:     nextToken,

@@ -27,6 +27,13 @@ type SubnetResolver interface {
 	SubnetCIDR(region, subnetID string) (string, bool)
 }
 
+// NetworkResolver reports the VPC of a subnet or security group; a resolver that also implements it
+// lets the backend check that every subnet and security group of a request share one VPC.
+type NetworkResolver interface {
+	SubnetVPC(region, subnetID string) (string, bool)
+	SecurityGroupVPC(region, groupID string) (string, bool)
+}
+
 // InMemoryBackend is the Timestream for InfluxDB state; one coarse lock guards every table.
 type InMemoryBackend struct {
 	resolver      SubnetResolver
@@ -201,7 +208,7 @@ func (b *InMemoryBackend) purgeLocked() {
 	}
 }
 
-func (b *InMemoryBackend) checkSubnets(sc scope, subnets []string) error {
+func (b *InMemoryBackend) checkNetwork(sc scope, subnets, groups []string) error {
 	if b.resolver == nil {
 		return nil
 	}
@@ -212,7 +219,47 @@ func (b *InMemoryBackend) checkSubnets(sc scope, subnets []string) error {
 		}
 	}
 
+	nr, ok := b.resolver.(NetworkResolver)
+	if !ok {
+		return nil
+	}
+
+	vpc, err := b.subnetsVPC(nr, sc, subnets)
+	if err != nil || vpc == "" {
+		return err
+	}
+
+	for _, g := range groups {
+		gv, found := nr.SecurityGroupVPC(sc.region, g)
+		if !found {
+			return invalid("security group %s does not exist", g)
+		}
+
+		if gv != vpc {
+			return invalid("security group %s does not belong to VPC %s", g, vpc)
+		}
+	}
+
 	return nil
+}
+
+func (b *InMemoryBackend) subnetsVPC(nr NetworkResolver, sc scope, subnets []string) (string, error) {
+	vpc := ""
+
+	for _, s := range subnets {
+		v, ok := nr.SubnetVPC(sc.region, s)
+		if !ok {
+			continue
+		}
+
+		if vpc != "" && v != vpc {
+			return "", invalid("subnets must all belong to the same VPC; %s is in %s, not %s", s, v, vpc)
+		}
+
+		vpc = v
+	}
+
+	return vpc, nil
 }
 
 func lowerEq(a, b string) bool { return strings.EqualFold(a, b) }

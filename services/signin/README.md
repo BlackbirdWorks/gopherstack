@@ -8,16 +8,14 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 11 (11 ok) |
-| Known gaps | 3 |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Policy evaluation: permission statements are stored and rendered by GetResourcePolicy but never evaluated; the emulator has no console sign-in path they could gate.
-- DPoP key binding of refresh tokens (cnf.jkt) is not modelled; the CreateOAuth2Token SDK shape carries no proof header.
-- Not published (checked the signin SDK doc comments and the AWS CLI cli-configure-sign-in page): the authorization code lifetime (10 min here), the id_token JWT lifetime (1 h here) and the error HTTP statuses (401 for expired tokens, 403 for other access denials)
+- IAM / resource-policy evaluation: permission statements are stored and rendered by GetResourcePolicy but never evaluated (out of scope).
 
 ### Structural gaps
 

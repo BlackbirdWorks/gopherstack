@@ -29,7 +29,7 @@ ops:
   CreateVirtualNodePool: {wire: ok, errors: ok, state: ok, persist: ok, note: "Needs compartmentId, clusterId (ACTIVE), displayName, size 0..1000 (at most 9 virtual nodes per region, else 400 LimitExceeded), placementConfigurations (subnet and AD checked against OCI Core) and podConfiguration (subnetId, a shape from ListPodShapes); 409 NotAuthorizedOrResourceAlreadyExists for a duplicate displayName in the cluster; opc-retry-token honoured; pool and virtual nodes start CREATING, nodes spread across placements with unique private IPs, work request VIRTUALNODEPOOL_CREATE."}
   GetVirtualNodePool: {wire: ok, errors: ok, state: ok, persist: n/a, note: "etag header; DELETED pools stay readable."}
   ListVirtualNodePools: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Bare array; compartmentId required; clusterId, name, lifecycleState filters; sortBy ID, NAME, TIME_CREATED."}
-  UpdateVirtualNodePool: {wire: ok, errors: ok, state: ok, persist: ok, note: "displayName, size (adds or removes virtual nodes), placements, podConfiguration, labels, taints, nsgIds, tags, virtualNodeTags, cycling; If-Match; pool UPDATING, work request VIRTUALNODEPOOL_UPDATE."}
+  UpdateVirtualNodePool: {wire: ok, errors: ok, state: ok, persist: ok, note: "displayName, size (adds or removes virtual nodes), placements, podConfiguration, labels, taints, nsgIds, tags, virtualNodeTags, cycling (with isVirtualNodeCyclingEnabled, virtual nodes created from out-of-date pod configuration, nsgIds, labels, taints, tags or version are replaced within the transition window; maximumSurge and maximumUnavailable are validated and echoed only); If-Match; pool UPDATING, work request VIRTUALNODEPOOL_UPDATE."}
   DeleteVirtualNodePool: {wire: ok, errors: ok, state: ok, persist: ok, note: "Pool and nodes DELETING then DELETED; overrideEvictionGraceDurationVnp must be PT0M to PT60M; work request VIRTUALNODEPOOL_DELETE; deleting the cluster cascades."}
   ListVirtualNodes: {wire: ok, errors: ok, state: ok, persist: n/a, note: "name filter; sortBy ID, NAME, TIME_CREATED; paged."}
   GetVirtualNode: {wire: ok, errors: ok, state: ok, persist: n/a, note: "By pool and node id."}
@@ -65,7 +65,6 @@ families:
   observability: {status: ok, note: "telemetry.WrapEchoHandler feeds ExtractOperation/ExtractResource; one lockmetrics.RWMutex guards all state."}
 items_still_open:
   - "IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified (pkgs/ociauth/ociauth.go Verify). Blocker: services/ociidentity stores and parses policy statements (grammar.go) but no OCI service has a policy evaluator, group or dynamic-group resolution, or token issuer to call."
-  - "Virtual node pool cycling settings (virtualNodePoolCyclingDetails) are validated, stored and echoed but replace no virtual nodes on update; node pool cycling is applied."
 ---
 
 ## Version rules

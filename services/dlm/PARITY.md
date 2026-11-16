@@ -17,8 +17,7 @@ families:
   routing: {status: ok, note: "FIXED this sweep: RouteMatcher's /tags/{arn} branch hardcoded an \"arn:aws:dlm:\" prefix check, but pkgs/arn.Build (used by this same backend's CreateLifecyclePolicy to mint PolicyArn) derives the ARN partition from the region (aws-us-gov, aws-cn, aws-iso, aws-iso-b via arn.PartitionForRegion) -- a backend constructed with a GovCloud/China/ISO region produced PolicyArn values the router would then refuse to accept on TagResource/UntagResource/ListTagsForResource, a self-inconsistency within the service (Create/Get worked, Tag* silently 404/unrouted). Replaced with isDLMResourceARN, a partition-agnostic arn:<partition>:dlm:... check. classifyPath/RouteMatcher otherwise correctly disambiguate GET /policies (list) vs GET /policies/{id} (get), and PATCH for UpdateLifecyclePolicy, per generated serializers.go opPath templates."}
 gaps: []
 items_still_open:
-  - "Policy execution covers CreateRule (Interval, Times, CronExpression), RetainRule, FastRestoreRule (Count or Interval), CrossRegionCopyRules to a Region (RetainRule, DeprecateRule, Encrypted, CmkArn, CopyTags; Outpost ARN targets are skipped), ShareRules (with unshare interval), ArchiveRule and DeprecateRule (Count or Interval) for EBS snapshot, AMI and default policies; event-based policies, pre/post scripts (Parameters), the 500-snapshot FSR quota (no published source), and default-policy Exclusions.ExcludeBootVolumes/ExtendDeletion are accepted and stored but not executed or enforced"
-  - "Snapshots are created as completed instantly and AMIs are created without backing snapshots because the EC2 backend models them that way; the creation window AWS spreads over an hour after the scheduled time is not modeled"
+  - "Event-based (cross-account copy event) policies are accepted and stored but never run: they need a snapshot-shared event from the EC2 emulator and ModifySnapshotAttribute emits none."
 deferred: []
 leaks: {status: clean, note: "one scheduler ticker goroutine per region handler (scheduler.go) started via worker.SingleRun in StartWorker and stopped in Shutdown; store.Table + lockmetrics.RWMutex only; TagResource/UntagResource/ListTagsForResource operate on the policy's own Tags map (no secondary tag-store row to leak on delete) -- DeleteLifecyclePolicy removes the whole storedPolicy row, tags included"}
 ---
@@ -229,3 +228,13 @@ CreateLifecyclePolicy with DefaultPolicy now stores the documented defaults Copy
 
 - FastRestoreRule.AvailabilityZoneIds resolve to the region's zone names and are enabled like AvailabilityZones; FastRestoreRule bounds follow API_FastRestoreRule.html (Count 1-1000, 1-10 zones, name/ID patterns).
 - RetentionArchiveTier follows API_RetentionArchiveTier.html: exactly one of Count (1-1000) or Interval+IntervalUnit, and at least 90 days in the archive tier (Count checked against an Interval-based CreateRule; cron schedules are not checked). Violations answer InvalidRequestException; the page names no code.
+
+## Emulator choices where the vendor is silent
+
+- Snapshots are created as completed instantly and AMIs are created without backing snapshots because the EC2 backend models them that way; the creation window AWS spreads over an hour after the scheduled time is not modeled.
+- The 500-snapshot fast-snapshot-restore quota is not enforced: no AWS documentation page publishes a per-policy number for it.
+- Default-policy Exclusions.ExcludeBootVolumes excludes a volume attached at the instance's root device name; ExtendDeletion=false keeps the newest set of a deleted source and a disabled policy stops expiring, ExtendDeletion=true removes both limits (API_CreateLifecyclePolicy.html ExtendDeletion).
+
+## External effects that are recorded, not performed
+
+- CreateRule.Scripts (pre/post scripts run through SSM) are stored with the policy and logged as would-run at each due schedule; no SSM command is sent.

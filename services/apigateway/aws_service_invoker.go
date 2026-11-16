@@ -38,6 +38,17 @@ type AWSServiceInvoker interface {
 	InvokeAWSService(ctx context.Context, req AWSServiceRequest) (AWSServiceResponse, error)
 }
 
+// ParseAWSIntegrationURI splits an arn:aws:apigateway:{region}:{service}:path|action/{api} URI;
+// all results are empty when uri has another shape.
+func ParseAWSIntegrationURI(uri string) (string, string, string, string) {
+	return awsIntegrationTarget(uri)
+}
+
+// AWSIntegrationKindsValid reports whether kind is a service_api style the invoker understands.
+func AWSIntegrationKindsValid(kind string) bool {
+	return kind == awsKindAction || kind == awsKindPath
+}
+
 func (h *Handler) canInvokeAWSService(service, kind, spec string) bool {
 	if h.awsInvoker == nil || service == "" || spec == "" || (kind != awsKindAction && kind != awsKindPath) {
 		return false

@@ -26,6 +26,7 @@ type Engine struct {
 	Gate          *Gate
 	auth          string
 	tuner         *tuner
+	guard         *aclGuard
 	Host          string
 	Port          int
 	AllocatedPort int

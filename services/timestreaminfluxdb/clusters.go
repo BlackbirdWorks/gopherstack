@@ -135,7 +135,7 @@ func (b *InMemoryBackend) CreateDBCluster(ctx context.Context, in ClusterInput) 
 
 	b.purgeLocked()
 
-	if err := b.checkSubnets(sc, in.SubnetIDs); err != nil {
+	if err := b.checkNetwork(sc, in.SubnetIDs, in.SecurityGroupIDs); err != nil {
 		return "", "", err
 	}
 

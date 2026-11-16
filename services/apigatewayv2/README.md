@@ -8,15 +8,10 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 77 (77 ok) |
-| Known gaps | 2 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- WebSocket data plane: AWS-type (non-proxy) integrations support Lambda URIs only (no other AWS service URIs), a $connect route on an HTTP/HTTP_PROXY integration does not reject on a non-2xx upstream status, and a non-JSON $disconnect-time context is not implemented (gopherstack-49qct.58).
-- A stage with no deployment still serves live routes, and authorizer/CORS config is resolved live rather than from the deployment snapshot: the developer guide says a deployment is a snapshot and changes need deploying, but not what an undeployed stage returns or whether authorizers/CORS are frozen (live serving is a deliberate dev-flow choice, gopherstack-cfr1).
 
 ### Structural gaps
 

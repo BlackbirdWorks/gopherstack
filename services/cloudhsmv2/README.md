@@ -9,15 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 18 (18 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 2 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- CopyBackupToRegion: same-account copies only; the destination region is a label on the stored backup, not a separate backend
-- CloudFormation: AWS::CloudHSM::Cluster is provisioned; HSMs are created through the API only, as in AWS. AWS::CloudHSMV2::Backup has no writable properties in CloudFormation resource specification v268, so it is not provisioned. Cluster Fn::GetAtt SubnetMapping is not supported
 
 ### Structural gaps
 

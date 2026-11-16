@@ -7,15 +7,16 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 355 (155 ok, 200 partial) |
+| PARITY entries audited | 358 (156 ok, 202 partial) |
 | Feature families | 7 (6 ok, 1 partial) |
-| Known gaps | 3 |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- Instance pool load balancer attachments and lifecycle management hooks (loadBalancers, lifecycleManagement, terminationProceed) answer 400, and cluster networks (the ClusterNetwork operations of ComputeManagementClient) are not implemented. Blocker: pools do not call OCI Load Balancer or OCI Events.
+- InstancePoolInstance.loadBalancerBackends (per-instance backend health from the load balancer) is not reported by ListInstancePoolInstances and GetInstancePoolInstance.
+- Instance pool lifecycle management hooks (lifecycleManagement, terminationProceed) answer 400, and cluster networks (the ClusterNetwork operations of ComputeManagementClient) are not implemented. Blocker: pools do not call OCI Events.
 - Cross-tenancy local peering and cross-tenancy DRG attachments need the tenancy of a compartment and cross-tenancy IAM policy evaluation: ocicore only has SetCompartmentChecker (a membership test, services/ocicore/store.go) and OCI Identity exposes no endorse or admit policy decision to it.
 - Resource principals and instance principals are not applied: pkgs/ociauth verifies draft-cavage API-key signatures only (pkgs/ociauth/ociauth.go:58 reports other keyId shapes as unparsed), and nothing in the repo serves the X.509 federation token exchange (/v1/x509) or issues security tokens; it needs a token store in pkgs/ociauth and a federation handler in OCI Identity.
 

@@ -326,3 +326,79 @@ func TestDataPlane_ACLChangeResyncs(t *testing.T) {
 
 	assert.True(t, strings.HasPrefix(dialResp(t, addr).do(t, "GET", "k"), "-NOAUTH"))
 }
+
+func TestDataPlane_AccessStringEnforced(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantPrefix string
+		cmd        []string
+	}{
+		{name: "read_allowed_key", cmd: []string{"GET", "app:1"}, wantPrefix: "$-1"},
+		{name: "write_denied", cmd: []string{"SET", "app:1", "v"}, wantPrefix: "-NOPERM"},
+		{name: "read_denied_key", cmd: []string{"GET", "other"}, wantPrefix: "-NOPERM"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newDataPlaneHandler(t, memorydb.EngineEmbedded)
+
+			rec := doRequest(t, h, "CreateUser", map[string]any{
+				"UserName": "carol", "AccessString": "on ~app:* +@read",
+				"AuthenticationMode": map[string]any{"Type": "password", "Passwords": []string{dpPassword}},
+			})
+			require.Equal(t, 200, rec.Code, rec.Body.String())
+			rec = doRequest(t, h, "CreateACL", map[string]any{"ACLName": "limited", "UserNames": []string{"carol"}})
+			require.Equal(t, 200, rec.Code, rec.Body.String())
+
+			cl := createClusterObj(t, h, map[string]any{
+				"ClusterName": "dp-access", "NodeType": "db.r6g.large", "ACLName": "limited",
+			})
+			c := dialResp(t, connectAddr(t, cl))
+			require.Equal(t, "+OK", c.do(t, "AUTH", "carol", dpPassword))
+			assert.True(t, strings.HasPrefix(c.do(t, tt.cmd...), tt.wantPrefix))
+
+			rec = doRequest(t, h, "UpdateUser", map[string]any{"UserName": "carol", "AccessString": "on ~* +@all"})
+			require.Equal(t, 200, rec.Code, rec.Body.String())
+			assert.Equal(t, "+OK", c.do(t, "SET", "other", "v"))
+		})
+	}
+}
+
+func TestDataPlane_UnenforceableAccessStringLocksUserOut(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		access     string
+		wantPrefix string
+	}{
+		{name: "unsupported", access: "on ~* +@all -@slow", wantPrefix: "-WRONGPASS"},
+		{name: "supported", access: "on ~* +@all", wantPrefix: "+OK"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newDataPlaneHandler(t, memorydb.EngineEmbedded)
+
+			rec := doRequest(t, h, "CreateUser", map[string]any{
+				"UserName": "dave", "AccessString": tt.access,
+				"AuthenticationMode": map[string]any{"Type": "password", "Passwords": []string{dpPassword}},
+			})
+			require.Equal(t, 200, rec.Code, rec.Body.String())
+			rec = doRequest(t, h, "CreateACL", map[string]any{"ACLName": "locked", "UserNames": []string{"dave"}})
+			require.Equal(t, 200, rec.Code, rec.Body.String())
+
+			cl := createClusterObj(t, h, map[string]any{
+				"ClusterName": "dp-locked", "NodeType": "db.r6g.large", "ACLName": "locked",
+			})
+			c := dialResp(t, connectAddr(t, cl))
+			assert.True(t, strings.HasPrefix(c.do(t, "AUTH", "dave", dpPassword), tt.wantPrefix))
+		})
+	}
+}

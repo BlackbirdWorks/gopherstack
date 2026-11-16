@@ -128,13 +128,15 @@ func (g *Group) ApplyACL(ctx context.Context, policy ACLPolicy) error {
 		return err
 	}
 
+	nodes := g.allNodes()
+
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
 	wanted := policy.names()
 	stale := slices.DeleteFunc(slices.Clone(g.aclUsers), func(n string) bool { return slices.Contains(wanted, n) })
 
-	for _, n := range g.nodes {
+	for _, n := range nodes {
 		if err = g.syncNodeACL(ctx, n, cmds, stale); err != nil {
 			return err
 		}

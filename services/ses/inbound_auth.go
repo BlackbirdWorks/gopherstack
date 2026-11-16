@@ -43,7 +43,7 @@ func evaluateAuth(ctx context.Context, res InboundTXTResolver, env inboundEnvelo
 		return grayVerdicts()
 	}
 
-	spfRes := checkSPF(ctx, res, env.from, env.clientIP)
+	spfRes := checkSPF(ctx, res, env.from, env.helo, env.clientIP)
 	dkimRes, dkimDomains := checkDKIM(ctx, res, env.data)
 	dmarcRes, policy := checkDMARC(ctx, res, env, spfRes, dkimDomains)
 

@@ -9,16 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 4 (4 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 3 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- License-based metering (LicenseArn / concurrent agreements): BatchMeterUsage needs a ProductCode and LicenseArn is only echoed; there is no license catalog
-- Seeding is Go-API only (RegisterProduct, Subscribe, IssueRegistrationToken); there is no HTTP or config surface to declare products for out-of-process clients
-- InvalidRegionException, InvalidEndpointRegionException, PlatformNotSupportedException, DisabledApiException, InvalidLicenseException and ThrottlingException are never raised
 
 ### Structural gaps
 

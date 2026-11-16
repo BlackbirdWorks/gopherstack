@@ -151,9 +151,13 @@ func kafkaIAMAuthConfig(iamH *iambackend.Handler, stsH *stsbackend.Handler, enfo
 	return cfg
 }
 
-const scramSourceAccessType = "SASL_SCRAM_512_AUTH"
+const (
+	scramSourceAccessType = "SASL_SCRAM_512_AUTH"
+	defaultMSKRegion      = "us-east-1"
+)
 
-// kafkaLambdaResolver lets Lambda MSK event source mappings reach plaintext, TLS and SASL/SCRAM clusters.
+// kafkaLambdaResolver lets Lambda MSK event source mappings reach plaintext, TLS, SASL/SCRAM, AWS_MSK_IAM and
+// mutual-TLS clusters.
 type kafkaLambdaResolver struct {
 	bk *kafka.InMemoryBackend
 }
@@ -178,7 +182,13 @@ func (r kafkaLambdaResolver) MSKConnection(
 		return lambdabackend.MSKConnection{}, false
 	}
 
+	region := ep.Region
+	if region == "" {
+		region = defaultMSKRegion
+	}
+
 	return lambdabackend.MSKConnection{
 		Brokers: ep.Brokers, RootCAPEM: ep.RootCAPEM, Username: ep.Username, Password: ep.Password,
+		IAM: ep.IAM, IAMRegion: region, MutualTLS: ep.MutualTLS,
 	}, true
 }

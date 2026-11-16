@@ -54,15 +54,8 @@ func (g *Group) onNode(n *node, fn func(Admin) (bool, error)) (bool, error) {
 }
 
 func (g *Group) awaitNodes(ctx context.Context) error {
-	for _, n := range g.nodes {
-		err := g.poll(ctx, "node "+strconv.Itoa(n.port)+" accepting commands", func(ctx context.Context) (bool, error) {
-			return g.onNode(n, func(a Admin) (bool, error) {
-				res, err := a.Do(ctx, "PING")
-
-				return err == nil && asString(res) == "PONG", err
-			})
-		})
-		if err != nil {
+	for _, n := range g.allNodes() {
+		if err := g.awaitNode(ctx, n); err != nil {
 			return err
 		}
 	}
@@ -70,10 +63,20 @@ func (g *Group) awaitNodes(ctx context.Context) error {
 	return nil
 }
 
+func (g *Group) awaitNode(ctx context.Context, n *node) error {
+	return g.poll(ctx, "node "+strconv.Itoa(n.port)+" accepting commands", func(ctx context.Context) (bool, error) {
+		return g.onNode(n, func(a Admin) (bool, error) {
+			res, err := a.Do(ctx, "PING")
+
+			return err == nil && asString(res) == "PONG", err
+		})
+	})
+}
+
 func (g *Group) shardNodes(shard int) []*node {
 	var out []*node
 
-	for _, n := range g.nodes {
+	for _, n := range g.allNodes() {
 		if n.shard == shard {
 			out = append(out, n)
 		}
@@ -83,23 +86,31 @@ func (g *Group) shardNodes(shard int) []*node {
 }
 
 func (g *Group) resolveIPs(ctx context.Context) error {
-	for _, n := range g.nodes {
-		res, err := g.engine.cfg.Runtime.Exec(ctx, n.containerID, []string{"hostname", "-i"})
-		if err != nil {
-			return fmt.Errorf("resolve node address: %w", err)
+	for _, n := range g.allNodes() {
+		if err := g.resolveIP(ctx, n); err != nil {
+			return err
 		}
+	}
 
-		for f := range strings.FieldsSeq(res.Stdout) {
-			if ip := net.ParseIP(f); ip != nil && ip.To4() != nil {
-				n.ip = f
+	return nil
+}
 
-				break
-			}
+func (g *Group) resolveIP(ctx context.Context, n *node) error {
+	res, err := g.engine.cfg.Runtime.Exec(ctx, n.containerID, []string{"hostname", "-i"})
+	if err != nil {
+		return fmt.Errorf("resolve node address: %w", err)
+	}
+
+	for f := range strings.FieldsSeq(res.Stdout) {
+		if ip := net.ParseIP(f); ip != nil && ip.To4() != nil {
+			n.ip = f
+
+			break
 		}
+	}
 
-		if n.ip == "" {
-			return errNoIP
-		}
+	if n.ip == "" {
+		return errNoIP
 	}
 
 	return nil
@@ -290,9 +301,10 @@ func subtractSlots(want, owned []SlotRange) ([]SlotRange, error) {
 
 // awaitKnown waits until every node has met every other node.
 func (g *Group) awaitKnown(ctx context.Context) error {
-	want := strconv.Itoa(len(g.nodes))
+	all := g.allNodes()
+	want := strconv.Itoa(len(all))
 
-	for _, n := range g.nodes {
+	for _, n := range all {
 		err := g.poll(ctx, "cluster gossip", func(ctx context.Context) (bool, error) {
 			return g.onNode(n, func(a Admin) (bool, error) {
 				res, err := a.Do(ctx, "CLUSTER", "INFO")
@@ -348,7 +360,7 @@ func (g *Group) nodeID(ctx context.Context, n *node) (string, error) {
 }
 
 func (g *Group) awaitClusterOK(ctx context.Context) error {
-	for _, n := range g.nodes {
+	for _, n := range g.allNodes() {
 		err := g.poll(ctx, "cluster state", func(ctx context.Context) (bool, error) {
 			return g.onNode(n, func(a Admin) (bool, error) {
 				res, err := a.Do(ctx, "CLUSTER", "INFO")
@@ -384,7 +396,7 @@ func (g *Group) replicasVisible(ctx context.Context, a Admin) (bool, error) {
 		return false, err
 	}
 
-	want, slaves := len(g.nodes)-len(g.spec.Shards), 0
+	want, slaves := len(g.allNodes())-len(g.shardCount()), 0
 
 	for line := range strings.SplitSeq(asString(res), "\n") {
 		fields := strings.Fields(line)

@@ -16,7 +16,7 @@
 
 ### Known gaps
 
-- Restore recreates DynamoDB tables (schema, indexes, items), S3 buckets (objects) and EBS volumes (shape only); EC2 instances, EFS, RDS and other types keep the synthesized CreatedResourceArn. Recovery-point snapshots are held in memory and persisted with the recovery point, so large buckets inflate state.
+- Restore still keeps the synthesized CreatedResourceArn for Aurora, DocumentDB, Neptune, Redshift, FSx and Storage Gateway recovery points: no resource engine is wired for them (resource_engines_compute.go wires EC2, EFS, RDS instances, CloudFormation stacks and Timestream tables). Storage Gateway has no emulator under services/; FSx file creation takes an unexported input type (services/fsx/file_systems.go:530); the cluster types need a snapshot-restore path that carries the master credentials, which the DocumentDB (services/docdb/db_clusters.go:85), Neptune (services/neptune/db_clusters.go:125) and Redshift (services/redshift/store.go:335) create paths do not offer.
 
 ### Structural gaps
 

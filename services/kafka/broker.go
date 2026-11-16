@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -670,13 +671,16 @@ func (b *InMemoryBackend) relaunchBrokersLocked() {
 type ClientEndpoint struct {
 	Username  string
 	Password  string
+	Region    string
 	Brokers   []string
 	RootCAPEM []byte
+	// IAM means the broker wants AWS_MSK_IAM, MutualTLS a client certificate trusted by the cluster's CA.
+	IAM       bool
+	MutualTLS bool
 }
 
 // ClientEndpointFor picks the endpoint an in-process consumer can use: plaintext if offered,
-// else SASL/SCRAM when scramSecretArn names a credential, else server-TLS. Mutual-TLS-only and
-// AWS_MSK_IAM-only clusters report false.
+// else SASL/SCRAM when scramSecretArn names a credential, else AWS_MSK_IAM, else server-TLS, else mutual TLS.
 func (b *InMemoryBackend) ClientEndpointFor(
 	ctx context.Context, clusterArn, scramSecretArn string,
 ) (ClientEndpoint, bool) {
@@ -711,9 +715,29 @@ func (b *InMemoryBackend) ClientEndpointFor(
 		return ClientEndpoint{
 			Brokers: []string{ep.SaslScram}, RootCAPEM: ca, Username: cred.Username, Password: cred.Password,
 		}, true
+	case ep.SaslIam != "":
+		return ClientEndpoint{
+			Brokers: []string{ep.SaslIam}, RootCAPEM: ca, IAM: true, Region: arnRegion(clusterArn),
+		}, true
 	case ep.TLS != "" && !mtls:
 		return ClientEndpoint{Brokers: []string{ep.TLS}, RootCAPEM: ca}, true
+	case ep.TLS != "" && mtls:
+		return ClientEndpoint{Brokers: []string{ep.TLS}, RootCAPEM: ca, MutualTLS: true}, true
 	}
 
 	return ClientEndpoint{}, false
+}
+
+func arnRegion(arn string) string {
+	const (
+		regionField = 3
+		arnFields   = 6
+	)
+
+	parts := strings.SplitN(arn, ":", arnFields)
+	if len(parts) <= regionField {
+		return ""
+	}
+
+	return parts[regionField]
 }

@@ -364,12 +364,12 @@ func (b *InMemoryBackend) CreateZone(project string, in *dnsapi.ManagedZone) (*d
 	})
 
 	if zoneState(z) != stateOff {
-		keys, err := generateKeys(z, 0, z.CreationTime)
+		keys, private, err := generateKeys(z, 0, z.CreationTime)
 		if err != nil {
 			return nil, err
 		}
 
-		rec.Keys = keys
+		rec.Keys, rec.Private = keys, private
 	}
 
 	b.zones[key(project, z.Name)] = rec
@@ -521,14 +521,14 @@ func (b *InMemoryBackend) transitionDNSSEC(rec *zoneRec, old, nz *dnsapi.Managed
 
 	switch {
 	case was == stateOff && now != stateOff:
-		keys, err := generateKeys(nz, 0, b.stamp())
+		keys, private, err := generateKeys(nz, 0, b.stamp())
 		if err != nil {
 			return err
 		}
 
-		rec.Keys = keys
+		rec.Keys, rec.Private = keys, private
 	case was != stateOff && now == stateOff:
-		rec.Keys = nil
+		rec.Keys, rec.Private = nil, nil
 	}
 
 	return nil
