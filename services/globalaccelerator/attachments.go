@@ -252,8 +252,37 @@ func (b *InMemoryBackend) DeleteCrossAccountAttachment(arn string) error {
 	return nil
 }
 
-func (a *Attachment) sharedWith(caller string) bool {
-	return slices.Contains(a.Principals, caller)
+func (b *InMemoryBackend) sharedWithLocked(a *Attachment, caller string) bool {
+	for _, p := range a.Principals {
+		if p == caller || b.orgPrincipalHasLocked(p, caller) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (b *InMemoryBackend) orgPrincipalHasLocked(principal, account string) bool {
+	if b.orgs == nil {
+		return false
+	}
+
+	idx := strings.LastIndex(principal, "/")
+	if idx < 0 || !principalRE.MatchString(principal) {
+		return false
+	}
+
+	id := principal[idx+1:]
+
+	var members []string
+
+	if strings.Contains(principal, ":organization/") {
+		members = b.orgs.OrganizationAccountIDs(id)
+	} else {
+		members = b.orgs.OUAccountIDs(id)
+	}
+
+	return slices.Contains(members, account)
 }
 
 // ListCrossAccountResourceAccounts returns the owners of attachments shared with caller.
@@ -264,7 +293,7 @@ func (b *InMemoryBackend) ListCrossAccountResourceAccounts(caller string) []stri
 	owners := []string{}
 
 	for _, a := range b.sortedAttachmentsLocked() {
-		if a.sharedWith(caller) && !slices.Contains(owners, a.OwnerAccountID) {
+		if b.sharedWithLocked(a, caller) && !slices.Contains(owners, a.OwnerAccountID) {
 			owners = append(owners, a.OwnerAccountID)
 		}
 	}
@@ -302,7 +331,7 @@ func (b *InMemoryBackend) ListCrossAccountResources(
 	var all []CrossAccountResource
 
 	for _, a := range b.sortedAttachmentsLocked() {
-		if a.OwnerAccountID != owner || !a.sharedWith(caller) {
+		if a.OwnerAccountID != owner || !b.sharedWithLocked(a, caller) {
 			continue
 		}
 

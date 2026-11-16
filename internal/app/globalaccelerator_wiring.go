@@ -8,6 +8,7 @@ import (
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
 	globalacceleratorbackend "github.com/blackbirdworks/gopherstack/services/globalaccelerator"
+	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	rgtapibackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 )
 
@@ -45,11 +46,55 @@ func (r globalAcceleratorEndpoints) loadBalancerExists(lbARN string) bool {
 	return err == nil && len(lbs) > 0
 }
 
+// globalAcceleratorOrgBackend is the slice of the Organizations backend the directory needs.
+type globalAcceleratorOrgBackend interface {
+	DescribeOrganization() (*organizationsbackend.Organization, error)
+	ListAccounts() ([]*organizationsbackend.Account, error)
+	ResolveAccountIDsUnderParent(parentID string) ([]string, error)
+}
+
+// globalAcceleratorOrgDirectory implements globalaccelerator.OrgDirectory over the Organizations backend.
+type globalAcceleratorOrgDirectory struct{ org globalAcceleratorOrgBackend }
+
+func (d globalAcceleratorOrgDirectory) OrganizationAccountIDs(orgID string) []string {
+	o, err := d.org.DescribeOrganization()
+	if err != nil || o.ID != orgID {
+		return nil
+	}
+
+	accts, err := d.org.ListAccounts()
+	if err != nil {
+		return nil
+	}
+
+	ids := make([]string, 0, len(accts))
+	for _, a := range accts {
+		ids = append(ids, a.ID)
+	}
+
+	return ids
+}
+
+func (d globalAcceleratorOrgDirectory) OUAccountIDs(ouID string) []string {
+	ids, err := d.org.ResolveAccountIDsUnderParent(ouID)
+	if err != nil {
+		return nil
+	}
+
+	return ids
+}
+
 // wireGlobalAcceleratorIntegrations gives Global Accelerator its ELBv2/EC2 endpoint lookups.
 func wireGlobalAcceleratorIntegrations(byName map[string]service.Registerable) {
 	gaH, ok := byName["GlobalAccelerator"].(*globalacceleratorbackend.Handler)
 	if !ok {
 		return
+	}
+
+	if orgH, ook := byName["Organizations"].(*organizationsbackend.Handler); ook {
+		if orgs, bok := orgH.Backend.(globalAcceleratorOrgBackend); bok {
+			gaH.Backend.SetOrgDirectory(globalAcceleratorOrgDirectory{org: orgs})
+		}
 	}
 
 	if ec2H, eok := byName["EC2"].(*ec2backend.Handler); eok {

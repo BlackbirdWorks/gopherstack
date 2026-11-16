@@ -72,10 +72,7 @@ families:
   Tags: {status: ok, note: "Accelerators (either kind) and attachments are taggable; listener and endpoint group ARNs are rejected with InvalidArgumentException."}
 gaps: []
 items_still_open:
-  - AccessDeniedException: never raised; no IAM or BYOIP-ownership authorization is modeled
-  - TransactionInProgressException: never raised; changes are not gated on an IN_PROGRESS accelerator
-  - IpSets.IpAddressDetails: NetworkZone is not emitted, only IpAddresses and IpAddressFamily
-  - CreateCrossAccountAttachment: Organizations OU/organization ARN principals are accepted but not expanded to member accounts
+  - AccessDeniedException: never raised; IAM authorization is out of scope (BYOIP ownership has no ownership source to check)
 structural_gaps:
   - "No data plane: nothing listens on the anycast addresses or DnsName, custom routing port mappings route no packets, and endpoint health is modeled (INITIAL then HEALTHY after the dwell) because no health checker or real endpoint exists."
   - "BYOIP authorization context is not cryptographically verified and FAILED_* states are never entered: there is no RIR/ROA source to fail against."
@@ -97,4 +94,7 @@ Emulator choices the SDK does not document, kept here so a later audit can re-ch
 - Accelerator Events text for IP address type changes is the emulator's wording.
 - Quotas enforced: 20 accelerators per kind, 10 listeners per accelerator, 10 port ranges per listener, 10 endpoints per group, 50 tags, 20 attachments.
 - Custom routing endpoints resolve the subnet CIDR through the EC2 backend (`internal/app/subnet_wiring.go`); a standalone backend without a resolver accepts any `subnet-` ID but maps no sockets.
+- TransactionInProgressException is never raised: UpdateAccelerator and its Errors list name it without saying which states trigger it (API_UpdateAccelerator), so changes are not gated on an IN_PROGRESS accelerator.
+- IpSets.IpAddressDetails is omitted: API_IpAddressDetail documents NetworkZone only as a string of at most 24 characters with no values, so none is fabricated.
+- Organizations principals of a cross-account attachment (organization and OU ARNs) expand to member accounts through the Organizations backend when it is wired; without it only exact account IDs match.
 - ListCrossAccountResources with AcceleratorArn returns only the resources that accelerator already uses; the SDK doc does not say which way the filter points.

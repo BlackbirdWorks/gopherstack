@@ -1,5 +1,7 @@
 package route53resolver
 
+import "crypto/x509"
+
 // EndpointCount returns the number of resolver endpoints across all regions (test helper).
 func EndpointCount(b *InMemoryBackend) int {
 	b.mu.RLock("EndpointCount")
@@ -98,3 +100,6 @@ func RuleAssociationCount(b *InMemoryBackend) int {
 func HandlerOpsLen(h *Handler) int {
 	return len(h.ops)
 }
+
+// SetDoHRootCAs sets the roots a DoH forward target's certificate is verified against.
+func SetDoHRootCAs(r *DNSResolver, pool *x509.CertPool) { r.dohRoots = pool }

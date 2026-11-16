@@ -177,7 +177,7 @@ func (b *InMemoryBackend) CreateDBInstance(ctx context.Context, in InstanceInput
 
 	b.purgeLocked()
 
-	if err := b.checkSubnets(sc, in.SubnetIDs); err != nil {
+	if err := b.checkNetwork(sc, in.SubnetIDs, in.SecurityGroupIDs); err != nil {
 		return wInstance{}, err
 	}
 

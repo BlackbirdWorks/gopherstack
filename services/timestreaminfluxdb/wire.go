@@ -259,7 +259,7 @@ func nextBackup(now time.Time, kind string) time.Time {
 	now = now.UTC()
 
 	switch kind {
-	case "HOURLY":
+	case "HOURLY", backupContinuous:
 		return now.Truncate(time.Hour).Add(time.Hour)
 	case "DAILY":
 		return time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)

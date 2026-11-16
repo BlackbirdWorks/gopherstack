@@ -13,6 +13,7 @@ var customScheduleRE = regexp.MustCompile(`^cron\(\S+ \S+ \S+ \S+ \S+ \S+\)$`)
 
 const (
 	backupCustomSchedule = "CUSTOM_SCHEDULE"
+	backupContinuous     = "CONTINUOUS"
 
 	cronFieldCount     = 6
 	cronSearchYears    = 8

@@ -28,6 +28,12 @@ type EndpointResolver interface {
 	EndpointExists(region, endpointID string) bool
 }
 
+// OrgDirectory expands Organizations principals of a cross-account attachment to member accounts.
+type OrgDirectory interface {
+	OrganizationAccountIDs(orgID string) []string
+	OUAccountIDs(ouID string) []string
+}
+
 // InMemoryBackend is the Global Accelerator state; one coarse lock guards every table.
 type InMemoryBackend struct {
 	accelerators   *store.Table[Accelerator]
@@ -40,6 +46,7 @@ type InMemoryBackend struct {
 	now            func() time.Time
 	resolver       SubnetResolver
 	endpoints      EndpointResolver
+	orgs           OrgDirectory
 	accountID      string
 	region         string
 	seq            int64
@@ -93,6 +100,14 @@ func (b *InMemoryBackend) SetEndpointResolver(r EndpointResolver) {
 	defer b.mu.Unlock()
 
 	b.endpoints = r
+}
+
+// SetOrgDirectory wires the Organizations lookup used to expand organization and OU principals.
+func (b *InMemoryBackend) SetOrgDirectory(o OrgDirectory) {
+	b.mu.Lock("SetOrgDirectory")
+	defer b.mu.Unlock()
+
+	b.orgs = o
 }
 
 // Reset clears every table.

@@ -53,6 +53,7 @@ const (
 	sigV4RegionalAlgo = "AWS4-HMAC-SHA256"
 	sigV4aAlgo        = "AWS4-ECDSA-P256-SHA256"
 	sigV4ServiceIdx   = 3
+	sigV4aServiceIdx  = 2
 	maxHeaderBytes    = 128 * 1024
 )
 
@@ -303,14 +304,14 @@ func (b *InMemoryBackend) validSignature(r *http.Request, ep *Endpoint, auth str
 		return false
 	}
 
+	b.mu.RLock("sigV4Secret")
+	secret := b.sigV4Secret
+	b.mu.RUnlock()
+
 	switch {
 	case ep.Type == endpointMultiRegion:
-		return strings.HasPrefix(auth, sigV4aAlgo+" ")
+		return strings.HasPrefix(auth, sigV4aAlgo+" ") && httputils.NewSigV4Validator(secret).VerifyV4a(r) == nil
 	case strings.HasPrefix(auth, sigV4RegionalAlgo+" "):
-		b.mu.RLock("sigV4Secret")
-		secret := b.sigV4Secret
-		b.mu.RUnlock()
-
 		return httputils.NewSigV4Validator(secret).Verify(r) == nil
 	}
 
@@ -326,8 +327,13 @@ func sigService(auth string) string {
 	cred, _, _ := strings.Cut(after, ",")
 	parts := strings.Split(strings.TrimSpace(cred), "/")
 
-	if len(parts) > sigV4ServiceIdx {
-		return parts[sigV4ServiceIdx]
+	idx := sigV4ServiceIdx
+	if strings.HasPrefix(auth, sigV4aAlgo+" ") {
+		idx = sigV4aServiceIdx
+	}
+
+	if len(parts) > idx {
+		return parts[idx]
 	}
 
 	return ""

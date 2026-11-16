@@ -330,15 +330,14 @@ func (b *InMemoryBackend) RestoreFromDBBackup(ctx context.Context, in RestoreInp
 		return RestoreResult{}, err
 	}
 
-	if st := b.backupState(bk); st != backupCompleted {
-		return RestoreResult{}, conflict("DB backup %s is %s", bk.ID, st)
+	if in.RestoreToTime != nil {
+		if bk, err = b.pointInTimeBackupLocked(sc, bk, *in.RestoreToTime); err != nil {
+			return RestoreResult{}, err
+		}
 	}
 
-	if in.RestoreToTime != nil &&
-		(bk.Type != "CONTINUOUS" || in.RestoreToTime.Before(bk.CreatedAt) || in.RestoreToTime.After(b.now())) {
-		return RestoreResult{}, invalid(
-			"restoreToTime is only valid for a continuous backup, within its recovery window",
-		)
+	if st := b.backupState(bk); st != backupCompleted {
+		return RestoreResult{}, conflict("DB backup %s is %s", bk.ID, st)
 	}
 
 	if in.RestoreMode == restoreReplace {
@@ -346,6 +345,32 @@ func (b *InMemoryBackend) RestoreFromDBBackup(ctx context.Context, in RestoreInp
 	}
 
 	return b.restoreNewLocked(sc, bk, in)
+}
+
+// pointInTimeBackupLocked picks the newest completed snapshot of bk's continuous series taken at or before t.
+func (b *InMemoryBackend) pointInTimeBackupLocked(sc scope, bk *DBBackup, t time.Time) (*DBBackup, error) {
+	if bk.Type != backupContinuous || t.After(b.now()) {
+		return nil, invalid("restoreToTime is only valid for a continuous backup, within its recovery window")
+	}
+
+	var best *DBBackup
+
+	for _, c := range b.backups.All() {
+		if c.ResourceID != bk.ResourceID || c.Type != backupContinuous || !sc.owns(c.AccountID, c.Region) ||
+			b.gone(c.Pending) || c.CreatedAt.After(t) || b.backupState(c) != backupCompleted {
+			continue
+		}
+
+		if best == nil || c.CreatedAt.After(best.CreatedAt) {
+			best = c
+		}
+	}
+
+	if best == nil {
+		return nil, invalid("restoreToTime is only valid for a continuous backup, within its recovery window")
+	}
+
+	return best, nil
 }
 
 func (b *InMemoryBackend) restoreInPlaceLocked(sc scope, bk *DBBackup) (RestoreResult, error) {
@@ -445,7 +470,7 @@ func (b *InMemoryBackend) restoreNewLocked(sc scope, bk *DBBackup, in RestoreInp
 		}
 	}
 
-	if err := b.checkSubnets(sc, p.SubnetIDs); err != nil {
+	if err := b.checkNetwork(sc, p.SubnetIDs, p.SecurityGroupIDs); err != nil {
 		return RestoreResult{}, err
 	}
 

@@ -128,7 +128,7 @@ func (v *SigV4Validator) Verify(r *http.Request) *SigV4Error {
 	amzDate := HeaderValue(r.Header, "X-Amz-Date")
 	if amzDate == "" {
 		return &SigV4Error{
-			Code:    "IncompleteSignatureException",
+			Code:    codeIncompleteSignature,
 			Message: "Authorization header requires existence of either a 'X-Amz-Date' or a 'Date' header.",
 			Status:  http.StatusBadRequest,
 		}
@@ -136,7 +136,7 @@ func (v *SigV4Validator) Verify(r *http.Request) *SigV4Error {
 
 	canonicalReq := buildCanonicalRequest(r, parsed.signedHeaders, payloadHash)
 	credentialScope := strings.Join(
-		[]string{parsed.date, parsed.region, parsed.service, "aws4_request"}, "/")
+		[]string{parsed.date, parsed.region, parsed.service, sigV4TerminalScope}, "/")
 	stringToSign := buildStringToSign(amzDate, credentialScope, canonicalReq)
 
 	signingKey := deriveSigningKey(v.secretKey, parsed.date, parsed.region, parsed.service)
@@ -162,7 +162,7 @@ func parseAuthorizationHeader(auth string) (parsedAuthHeader, *SigV4Error) {
 	var p parsedAuthHeader
 
 	malformed := &SigV4Error{
-		Code:    "IncompleteSignatureException",
+		Code:    codeIncompleteSignature,
 		Message: "Authorization header requires 'Credential', 'Signature' and 'SignedHeaders' parameters.",
 		Status:  http.StatusBadRequest,
 	}
