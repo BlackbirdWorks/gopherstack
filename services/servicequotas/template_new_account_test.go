@@ -51,3 +51,20 @@ func TestTemplateAppliesToNewAccounts(t *testing.T) {
 		})
 	}
 }
+
+func TestTemplateApplyIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	const member = "222222222222"
+
+	f := newFixture(t)
+	f.backend.SetOrgDirectory(fakeOrgs{awsmeta.DefaultAccount: goodOrg(), member: goodOrg()})
+	putItem(t, f, 50)
+
+	_, err := f.client.AssociateServiceQuotaTemplate(t.Context(), &sqsdk.AssociateServiceQuotaTemplateInput{})
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, f.backend.ApplyTemplateToNewAccount(member))
+	assert.Equal(t, 0, f.backend.ApplyTemplateToNewAccount(member))
+	assert.Equal(t, 1, f.backend.RequestCount())
+}

@@ -38,6 +38,7 @@ const (
 type pgLoader struct {
 	st     *opencypher.Store
 	job    *loadJob
+	ids    *pgIDSpaces
 	res    *feedResult
 	hdr    *pgHeader
 	uri    string
@@ -144,7 +145,7 @@ func (rs *rdfService) readPGFeed(
 	cypher := job.pg == pgOpenCypher
 
 	_ = rs.graph.Update(ctx, func(st *opencypher.Store) error {
-		l := &pgLoader{st: st, job: job, res: &res, uri: uri, cypher: cypher}
+		l := &pgLoader{st: st, job: job, ids: &rs.pgIDs, res: &res, uri: uri, cypher: cypher}
 		l.run(data)
 
 		return nil
@@ -347,33 +348,45 @@ func (l *pgLoader) nodeID(space, id string) string {
 		return id
 	}
 
-	j := l.job
+	ids := l.ids
 	key := idSpaceKey(space, id)
 
-	if stored, ok := j.idSpaces[key]; ok {
+	if stored, ok := ids.stored[key]; ok {
 		return stored
 	}
 
 	stored := space + id
-	for owner, taken := j.idOwners[stored]; taken && owner != space; owner, taken = j.idOwners[stored] {
+	for _, taken := ids.owners[stored]; taken; _, taken = ids.owners[stored] {
 		stored = space + ":" + stored
 	}
 
-	if j.idSpaces == nil {
-		j.idSpaces, j.idOwners = map[string]string{}, map[string]string{}
+	if ids.stored == nil {
+		ids.stored, ids.owners = map[string]string{}, map[string]string{}
 	}
 
-	j.idSpaces[key], j.idOwners[stored] = stored, space
+	ids.stored[key], ids.owners[stored] = stored, space
 
 	return stored
 }
 
+// lookupNodeID resolves a relationship endpoint; an ID space not seen since startup falls back to the plain
+// namespace plus ID form.
 func (l *pgLoader) lookupNodeID(space, id string) string {
-	if stored, ok := l.job.idSpaces[idSpaceKey(space, id)]; ok && space != "" {
+	if space == "" {
+		return id
+	}
+
+	if stored, ok := l.ids.stored[idSpaceKey(space, id)]; ok {
 		return stored
 	}
 
-	return id
+	return space + id
+}
+
+// pgIDSpaces maps (ID space, ID) to the stored node ID for every bulk load of a cluster; guarded by the graph lock.
+type pgIDSpaces struct {
+	stored map[string]string
+	owners map[string]string
 }
 
 func idSpaceKey(space, id string) string { return strconv.Itoa(len(space)) + ":" + space + id }

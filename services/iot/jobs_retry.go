@@ -1,5 +1,7 @@
 package iot
 
+import "fmt"
+
 const (
 	retryFailureFailed   = "FAILED"
 	retryFailureTimedOut = "TIMED_OUT"
@@ -63,4 +65,36 @@ func (b *InMemoryBackend) retryJobExecutionLocked(job *Job, e *JobExecution, now
 
 	b.jobExecutions.Put(next)
 	b.notifyJob(e.ThingName)
+}
+
+const (
+	maxRetryCriteria   = 2
+	maxNumberOfRetries = 10
+)
+
+// validateRetryConfig enforces the documented RetryCriteria/JobExecutionsRetryConfig constraints
+// (docs.aws.amazon.com/iot/latest/apireference/API_RetryCriteria.html: failureType FAILED|TIMED_OUT|ALL,
+// numberOfRetries 0-10; API_JobExecutionsRetryConfig.html: 1-2 criteria).
+func validateRetryConfig(cfg *JobExecutionsRetryConfig) error {
+	if cfg == nil {
+		return nil
+	}
+
+	if n := len(cfg.CriteriaList); n < 1 || n > maxRetryCriteria {
+		return fmt.Errorf("%w: retry criteriaList must contain 1 to %d items", ErrValidation, maxRetryCriteria)
+	}
+
+	for _, c := range cfg.CriteriaList {
+		switch c.FailureType {
+		case retryFailureFailed, retryFailureTimedOut, retryFailureAll:
+		default:
+			return fmt.Errorf("%w: invalid retry failureType %q", ErrValidation, c.FailureType)
+		}
+
+		if c.NumberOfRetries < 0 || c.NumberOfRetries > maxNumberOfRetries {
+			return fmt.Errorf("%w: numberOfRetries must be between 0 and %d", ErrValidation, maxNumberOfRetries)
+		}
+	}
+
+	return nil
 }

@@ -25,6 +25,11 @@ func TestVariableLengthPropertyPredicate(t *testing.T) {
 		{name: "negative constant", query: "MATCH (x)-[:route*1..2 {dist:-1}]->(y) RETURN x"},
 		{name: "parameter", query: "MATCH (x)-[:route*1..2 {dist:$d}]->(y) RETURN x", params: map[string]any{"d": 1}},
 		{name: "list constant", query: "MATCH (x)-[:route*1..2 {dist:[1,2]}]->(y) RETURN x"},
+		{name: "string constant", query: "MATCH (x)-[:route*1..2 {code:'a'}]->(y) RETURN x"},
+		{name: "boolean constant", query: "MATCH (x)-[:route*1..2 {ok:true}]->(y) RETURN x"},
+		{name: "null constant", query: "MATCH (x)-[:route*1..2 {ok:null}]->(y) RETURN x"},
+		{name: "float constant", query: "MATCH (x)-[:route*1..2 {w:-1.5}]->(y) RETURN x"},
+		{name: "map constant", query: "MATCH (x)-[:route*1..2 {m:{a:1,b:[2]}}]->(y) RETURN x"},
 		{
 			name:    "property of node",
 			query:   "MATCH (x)-[:route*1..2 {dist:33, code:x.name}]->(y) RETURN x",

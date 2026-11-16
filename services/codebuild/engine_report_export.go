@@ -37,7 +37,7 @@ func (r *buildRunner) exportReport(base string, files []string, exp reportExport
 		return
 	}
 
-	objs, err := readReportFiles(base, files)
+	objs, err := readReportFiles(base, files, maxReportExportBytes)
 	if err != nil {
 		r.log.write(r.ctx, marker("Report export failed: %v", err))
 
@@ -72,7 +72,7 @@ func (r *buildRunner) exportReport(base string, files []string, exp reportExport
 }
 
 // readReportFiles reads files through os.Root so a symlink cannot leave the base directory.
-func readReportFiles(base string, files []string) (map[string][]byte, error) {
+func readReportFiles(base string, files []string, limit int) (map[string][]byte, error) {
 	root, err := os.OpenRoot(base)
 	if err != nil {
 		return nil, fmt.Errorf("open report base: %w", err)
@@ -88,7 +88,7 @@ func readReportFiles(base string, files []string) (map[string][]byte, error) {
 			return nil, fmt.Errorf("read %s: %w", f, oerr)
 		}
 
-		data, rerr := io.ReadAll(io.LimitReader(fh, int64(maxReportExportBytes-total)+1))
+		data, rerr := io.ReadAll(io.LimitReader(fh, int64(limit-total)+1))
 		_ = fh.Close()
 
 		if rerr != nil {
@@ -96,8 +96,8 @@ func readReportFiles(base string, files []string) (map[string][]byte, error) {
 		}
 
 		total += len(data)
-		if total > maxReportExportBytes {
-			return nil, fmt.Errorf("%w: report files exceed %d bytes", errUnsafePath, maxReportExportBytes)
+		if total > limit {
+			return nil, fmt.Errorf("%w: report files exceed %d bytes", errUnsafePath, limit)
 		}
 
 		out[f] = data

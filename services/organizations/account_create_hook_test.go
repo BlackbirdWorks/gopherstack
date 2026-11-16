@@ -46,3 +46,19 @@ func TestAccountCreateHook(t *testing.T) {
 		})
 	}
 }
+
+func TestAccountCreateHookPanicIsolated(t *testing.T) {
+	t.Parallel()
+
+	b, _ := newOrgBackend(t)
+
+	calls := 0
+
+	b.OnAccountCreate(func(string) { panic("boom") })
+	b.OnAccountCreate(func(string) { calls++ })
+
+	st, err := b.CreateAccount("acct", "a@example.com", "", "", nil)
+	require.NoError(t, err)
+	assert.NotEmpty(t, st.AccountID)
+	assert.Equal(t, 1, calls)
+}

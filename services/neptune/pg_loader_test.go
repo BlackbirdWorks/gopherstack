@@ -216,3 +216,76 @@ func mustJSON(t *testing.T, v any) string {
 
 	return string(b)
 }
+
+func TestPropertyGraphLoaderIDSpaceAcrossLoads(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		files map[string]string
+		loads []string
+		query string
+		want  []any
+	}{
+		{
+			name: "relationships in a later load find nodes of an earlier load",
+			files: map[string]string{
+				"n/a.csv": "name:ID(person),:LABEL\nx,person\n",
+				"n/b.csv": "name:ID(software),:LABEL\nx,software\n",
+				"r/r.csv": ":ID,:START_ID(person),:END_ID(software),:TYPE\ne1,x,x,created\n",
+			},
+			loads: []string{"s3://lake/n/", "s3://lake/r/"},
+			query: "MATCH (a:person)-[r:created]->(b:software) RETURN count(r) AS c",
+			want:  []any{map[string]any{"c": float64(1)}},
+		},
+		{
+			name: "concatenation collisions stay distinct nodes",
+			files: map[string]string{
+				"n/a.csv": "name:ID(a),:LABEL\nbc,l\n",
+				"n/b.csv": "name:ID(ab),:LABEL\nc,l\n",
+			},
+			loads: []string{"s3://lake/n/"},
+			query: "MATCH (n) RETURN count(n) AS c",
+			want:  []any{map[string]any{"c": float64(2)}},
+		},
+		{
+			name: "collisions across loads stay distinct nodes",
+			files: map[string]string{
+				"n1/a.csv": "name:ID(a),:LABEL\nbc,l\n",
+				"n2/b.csv": "name:ID(ab),:LABEL\nc,l\n",
+			},
+			loads: []string{"s3://lake/n1/", "s3://lake/n2/"},
+			query: "MATCH (n) RETURN count(n) AS c",
+			want:  []any{map[string]any{"c": float64(2)}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := newLoaderCluster(t, tt.files)
+
+			for _, src := range tt.loads {
+				code, env, raw := loaderStart(t, c,
+					`{"source":"`+src+`","format":"opencypher","iamRoleArn":"arn:aws:iam::000000000000:role/r"}`)
+				require.Equal(t, http.StatusOK, code, raw)
+
+				id, _ := env.Payload["loadId"].(string)
+				got := loaderWait(t, c, id, "?errors=TRUE&details=TRUE")
+				require.Equal(t, "LOAD_COMPLETED", overall(got)["status"], "%v", got.Payload)
+			}
+
+			res := sparqlDo(t, c, http.MethodPost, "/openCypher", "application/json", "",
+				mustJSON(t, map[string]any{"query": tt.query}))
+			require.Equal(t, http.StatusOK, res.status, res.body)
+
+			var out struct {
+				Results []any `json:"results"`
+			}
+
+			require.NoError(t, json.Unmarshal([]byte(res.body), &out, jsonx.V1()))
+			assert.Equal(t, tt.want, out.Results)
+		})
+	}
+}

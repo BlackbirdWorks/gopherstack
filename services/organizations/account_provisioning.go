@@ -1,11 +1,13 @@
 package organizations
 
 import (
+	"context"
 	"encoding/json/v2"
 	"fmt"
 	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const defaultAccessRoleName = "OrganizationAccountAccessRole"
@@ -44,6 +46,17 @@ func accessRoleTrustPolicy(managementAccountID string) string {
 	return string(doc)
 }
 
+// runCreateHook isolates a panicking hook so it cannot fail the CreateAccount request or skip other hooks.
+func runCreateHook(fn func(accountID string), accountID string) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Load(context.Background()).Error("organizations: account create hook panicked", "panic", r)
+		}
+	}()
+
+	fn(accountID)
+}
+
 // flushProvisions runs queued role provisioning outside the backend lock.
 func (b *InMemoryBackend) flushProvisions() {
 	b.mu.Lock("flushProvisions")
@@ -57,7 +70,7 @@ func (b *InMemoryBackend) flushProvisions() {
 	defer func() {
 		for _, r := range queue {
 			for _, fn := range hooks {
-				fn(r.accountID)
+				runCreateHook(fn, r.accountID)
 			}
 		}
 	}()

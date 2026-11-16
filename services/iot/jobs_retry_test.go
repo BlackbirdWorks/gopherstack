@@ -149,3 +149,87 @@ func TestJobRetryStateSurvivesRestore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, iot.JobExecFailed, restored.ListJobExecutionsForJob("j")[0].Status)
 }
+
+func TestRetryConfigValidation(t *testing.T) {
+	t.Parallel()
+
+	crit := func(typ string, n int32) iot.RetryCriteria {
+		return iot.RetryCriteria{FailureType: typ, NumberOfRetries: n}
+	}
+
+	tests := []struct {
+		name    string
+		list    []iot.RetryCriteria
+		wantErr bool
+	}{
+		{name: "zero retries ok", list: []iot.RetryCriteria{crit("FAILED", 0)}},
+		{name: "max retries ok", list: []iot.RetryCriteria{crit("ALL", 10), crit("FAILED", 1)}},
+		{name: "eleven", list: []iot.RetryCriteria{crit("FAILED", 11)}, wantErr: true},
+		{name: "negative", list: []iot.RetryCriteria{crit("FAILED", -1)}, wantErr: true},
+		{name: "bad type", list: []iot.RetryCriteria{crit("REJECTED", 1)}, wantErr: true},
+		{name: "empty list", list: []iot.RetryCriteria{}, wantErr: true},
+		{
+			name:    "three criteria",
+			list:    []iot.RetryCriteria{crit("FAILED", 1), crit("TIMED_OUT", 1), crit("ALL", 1)},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := iot.NewInMemoryBackend()
+			cfg := &iot.JobExecutionsRetryConfig{CriteriaList: tt.list}
+
+			_, err := b.CreateJob(&iot.CreateJobInput{JobID: "j", Document: `{}`, JobExecutionsRetryConfig: cfg})
+			upErr := b.UpdateJob("j", &iot.UpdateJobInput{JobExecutionsRetryConfig: cfg})
+			_, tErr := b.CreateJobTemplate(&iot.CreateJobTemplateInput{
+				JobTemplateID: "t", Document: `{}`, JobExecutionsRetryConfig: cfg,
+			})
+
+			if tt.wantErr {
+				require.ErrorIs(t, err, iot.ErrValidation)
+				require.Error(t, upErr)
+				require.ErrorIs(t, tErr, iot.ErrValidation)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.NoError(t, upErr)
+			require.NoError(t, tErr)
+		})
+	}
+}
+
+func TestRetryNotAfterJobCanceled(t *testing.T) {
+	t.Parallel()
+
+	b := iot.NewInMemoryBackend()
+	_, err := b.CreateThing(&iot.CreateThingInput{ThingName: "dev"})
+	require.NoError(t, err)
+
+	_, err = b.CreateJob(&iot.CreateJobInput{
+		JobID: "j", Document: `{}`, Targets: []string{"arn:aws:iot:us-east-1:000000000000:thing/dev"},
+		JobExecutionsRetryConfig: &iot.JobExecutionsRetryConfig{
+			CriteriaList: []iot.RetryCriteria{{FailureType: "FAILED", NumberOfRetries: 3}},
+		},
+	})
+	require.NoError(t, err)
+
+	_, _, err = b.StartNextPendingJobExecution("dev", nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.CancelJob("j", "", "", false)
+	require.NoError(t, err)
+
+	_, err = b.UpdateDeviceJobExecution(
+		&iot.UpdateDeviceJobExecutionInput{JobID: "j", ThingName: "dev", Status: "FAILED"},
+	)
+	require.NoError(t, err)
+
+	execs := b.ListJobExecutionsForJob("j")
+	require.Len(t, execs, 1)
+	assert.Equal(t, iot.JobExecFailed, execs[0].Status)
+}

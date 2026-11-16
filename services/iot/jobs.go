@@ -368,6 +368,10 @@ func (b *InMemoryBackend) CreateJob(input *CreateJobInput) (*Job, error) {
 }
 
 func (b *InMemoryBackend) createJobLocked(input *CreateJobInput) (*Job, error) {
+	if err := validateRetryConfig(input.JobExecutionsRetryConfig); err != nil {
+		return nil, err
+	}
+
 	if b.jobs.Has(input.JobID) {
 		return nil, fmt.Errorf("job %q already exists: %w", input.JobID, ErrAlreadyExists)
 	}
@@ -630,6 +634,11 @@ func (b *InMemoryBackend) UpdateJob(jobID string, input *UpdateJobInput) error {
 	if !ok {
 		return fmt.Errorf("job %q not found: %w", jobID, ErrResourceNotFound)
 	}
+
+	if err := validateRetryConfig(input.JobExecutionsRetryConfig); err != nil {
+		return err
+	}
+
 	if input.Description != nil {
 		j.Description = *input.Description
 	}
@@ -1025,6 +1034,10 @@ type CreateJobTemplateInput struct {
 func (b *InMemoryBackend) CreateJobTemplate(input *CreateJobTemplateInput) (*JobTemplate, error) {
 	b.mu.Lock("CreateJobTemplate")
 	defer b.mu.Unlock()
+
+	if err := validateRetryConfig(input.JobExecutionsRetryConfig); err != nil {
+		return nil, err
+	}
 
 	if b.jobTemplates.Has(input.JobTemplateID) {
 		return nil, fmt.Errorf(

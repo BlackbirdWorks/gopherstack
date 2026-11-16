@@ -45,3 +45,36 @@ func TestLogSourceStatus(t *testing.T) {
 		})
 	}
 }
+
+func TestLogSourceStatusRedactsCredentials(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		location string
+		target   string
+	}{
+		{name: "userinfo token", location: "https://ghp_SECRET@github.com/o/r.git", target: "https://ci.example/b"},
+		{name: "user and password", location: "https://u:SECRET@github.com/o/r.git", target: "https://ci.example/b"},
+		{name: "query token", location: "https://github.com/o/r.git", target: "https://ci.example/b?token=SECRET"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var buf bytes.Buffer
+
+			ctx := logger.Save(t.Context(), slog.New(slog.NewTextHandler(&buf, nil)))
+			src := &ProjectSource{
+				Type: sourceTypeGitHub, Location: tt.location, ReportBuildStatus: true,
+				BuildStatusConfig: &BuildStatusConfig{TargetURL: tt.target},
+			}
+			r := &buildRunner{ctx: ctx, build: Build{ID: "proj:1", Source: src}}
+			r.logSourceStatus("SUCCEEDED")
+
+			assert.Contains(t, buf.String(), "would report build status")
+			assert.NotContains(t, buf.String(), "SECRET")
+		})
+	}
+}

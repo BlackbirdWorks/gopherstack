@@ -2,6 +2,8 @@ package sparql
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -72,6 +74,58 @@ func TestUpdateRemoteIOOutsideStoreLock(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, 1, calls)
 			assert.Equal(t, tt.wantIns, res.Inserted)
+		})
+	}
+}
+
+func TestUpdatePrefetchBoundsFetchCount(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		loads     int
+		wantCalls int
+		wantErr   bool
+	}{
+		{name: "at cap", loads: maxPrefetchFetches, wantCalls: maxPrefetchFetches},
+		{name: "over cap", loads: maxPrefetchFetches + 5, wantCalls: maxPrefetchFetches, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var sb strings.Builder
+
+			for i := range tt.loads {
+				if i > 0 {
+					sb.WriteString(" ; ")
+				}
+
+				fmt.Fprintf(&sb, "LOAD <http://remote/d%d.nt>", i)
+			}
+
+			calls := 0
+			s := NewStore()
+
+			_, err := s.Update(t.Context(), sb.String(), UpdateOptions{
+				Fetch: func(_ context.Context, src string) ([]byte, error) {
+					calls++
+
+					return []byte("<urn:a> <urn:b> <" + src + "> ."), nil
+				},
+			})
+
+			assert.Equal(t, tt.wantCalls, calls)
+
+			if tt.wantErr {
+				require.ErrorIs(t, err, errTooManyFetches)
+				assert.Zero(t, s.Len())
+
+				return
+			}
+
+			require.NoError(t, err)
 		})
 	}
 }

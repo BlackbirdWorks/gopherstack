@@ -49,6 +49,14 @@ func TestEngineReportExport(t *testing.T) {
 			cfg:      &cbtypes.ReportExportConfig{ExportConfigType: cbtypes.ReportExportConfigTypeNoExport},
 			wantKeys: 0,
 		},
+		{
+			name: "no export ignores a leftover destination",
+			cfg: &cbtypes.ReportExportConfig{
+				ExportConfigType: cbtypes.ReportExportConfigTypeNoExport,
+				S3Destination:    &cbtypes.S3ReportExportConfig{Bucket: aws.String("exp")},
+			},
+			wantKeys: 0,
+		},
 	}
 
 	for _, tt := range tests {
@@ -185,7 +193,7 @@ func TestReadReportFilesConfinement(t *testing.T) {
 				require.NoError(t, os.WriteFile(filepath.Join(base, "r.xml"), []byte("ok"), 0o600))
 			}
 
-			got, err := readReportFiles(base, []string{"r.xml"})
+			got, err := readReportFiles(base, []string{"r.xml"}, maxReportExportBytes)
 			if tt.wantErr {
 				require.Error(t, err)
 
@@ -194,6 +202,39 @@ func TestReadReportFilesConfinement(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, "ok", string(got["r.xml"]))
+		})
+	}
+}
+
+func TestReadReportFilesCap(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		limit   int
+		wantErr bool
+	}{
+		{name: "exact fit", limit: 8},
+		{name: "one byte over", limit: 7, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "a"), []byte("1234"), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "b"), []byte("5678"), 0o600))
+
+			got, err := readReportFiles(dir, []string{"a", "b"}, tt.limit)
+			if tt.wantErr {
+				require.ErrorIs(t, err, errUnsafePath)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Len(t, got, 2)
 		})
 	}
 }

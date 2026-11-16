@@ -77,8 +77,6 @@ type loadJob struct {
 	startTime    time.Time
 	cancel       context.CancelFunc
 	skip         map[string]bool
-	idSpaces     map[string]string
-	idOwners     map[string]string
 	status       string
 	id           string
 	graph        string
