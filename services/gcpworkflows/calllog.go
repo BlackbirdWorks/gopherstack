@@ -169,10 +169,21 @@ const (
 	redactDepth   = 32
 )
 
-// redact hides Authorization headers (docs.cloud.google.com/workflows/docs/log-workflow).
+// secretKey names the headers and arguments whose values never reach the log; Authorization is documented at
+// docs.cloud.google.com/workflows/docs/log-workflow, the rest are credential carriers of the same kind.
+func secretKey(k string) bool {
+	switch strings.ToLower(k) {
+	case "authorization", "proxy-authorization", "cookie", "set-cookie", "x-goog-api-key", "x-api-key":
+		return true
+	}
+
+	return false
+}
+
+// redact hides credential headers; structure nested deeper than redactDepth is dropped rather than logged raw.
 func redact(v any, depth int) any {
 	if depth > redactDepth {
-		return v
+		return redactedValue
 	}
 
 	switch x := v.(type) {
@@ -180,7 +191,7 @@ func redact(v any, depth int) any {
 		out := make(map[string]any, len(x))
 
 		for k, e := range x {
-			if strings.EqualFold(k, "authorization") {
+			if secretKey(k) {
 				out[k] = redactedValue
 
 				continue

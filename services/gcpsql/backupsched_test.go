@@ -106,3 +106,26 @@ func TestBackupSchedulerStopsOnClose(t *testing.T) {
 	e.backend.Reset()
 	e.backend.Close()
 }
+
+func TestScheduledBackupsSkipStoppedInstances(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	e.createInstance(t, "b3", "POSTGRES_16", backupSettings(true, "02:00", 7))
+
+	op, err := e.svc.Instances.Patch(project, "b3", &sqladmin.DatabaseInstance{
+		Settings: &sqladmin.Settings{ActivationPolicy: "NEVER"},
+	}).Context(t.Context()).Do()
+	e.mustWait(t, op, err)
+
+	at := time.Date(2026, 5, 1, 3, 0, 0, 0, time.UTC)
+	assert.Equal(t, 0, e.backend.RunScheduledBackups(at), "a stopped instance takes no automated backup")
+
+	op, err = e.svc.Instances.Patch(project, "b3", &sqladmin.DatabaseInstance{
+		Settings: &sqladmin.Settings{ActivationPolicy: "ALWAYS"},
+	}).Context(t.Context()).Do()
+	e.mustWait(t, op, err)
+
+	assert.Equal(t, 1, e.backend.RunScheduledBackups(at), "the missed window runs once the instance is back")
+	e.backend.Drain()
+}

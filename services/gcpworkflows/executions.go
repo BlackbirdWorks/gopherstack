@@ -21,30 +21,50 @@ const (
 	maxFullPage     = 100
 )
 
+// dropExecLocked removes one execution and records the region whose load it changed.
+func (b *InMemoryBackend) dropExecLocked(name string, rec *execRec, regions map[string]bool) {
+	if rec.cancel != nil {
+		rec.cancel()
+	}
+
+	if rec.stopTimer != nil {
+		rec.stopTimer()
+	}
+
+	if rec.done != nil {
+		close(rec.done)
+		rec.done = nil
+	}
+
+	switch rec.pb.GetState() {
+	case executionspb.Execution_ACTIVE:
+		b.loadLocked(regionOf(name)).active--
+
+		regions[regionOf(name)] = true
+	case executionspb.Execution_QUEUED:
+		regions[regionOf(name)] = true
+	default:
+	}
+
+	delete(b.execs, name)
+}
+
 func (b *InMemoryBackend) dropExecutionsLocked(prefix string) {
 	regions := map[string]bool{}
 
 	for name, rec := range b.execs {
 		if strings.HasPrefix(name, prefix) {
-			if rec.cancel != nil {
-				rec.cancel()
-			}
+			b.dropExecLocked(name, rec, regions)
+		}
+	}
 
-			if rec.stopTimer != nil {
-				rec.stopTimer()
-			}
+	for key := range regions {
+		if ld, ok := b.load[key]; ok {
+			ld.queue = slices.DeleteFunc(ld.queue, func(n string) bool {
+				_, live := b.execs[n]
 
-			if rec.done != nil {
-				close(rec.done)
-				rec.done = nil
-			}
-
-			if rec.pb.GetState() == executionspb.Execution_ACTIVE {
-				b.loadLocked(regionOf(name)).active--
-				regions[regionOf(name)] = true
-			}
-
-			delete(b.execs, name)
+				return !live
+			})
 		}
 	}
 
@@ -381,6 +401,10 @@ func (b *InMemoryBackend) endLocked(
 	name string, rec *execRec, state executionspb.Execution_State, result string, errPB *executionspb.Execution_Error,
 ) {
 	wasActive := rec.pb.GetState() == executionspb.Execution_ACTIVE
+	if rec.pb.GetState() == executionspb.Execution_QUEUED {
+		b.dequeueLocked(name)
+	}
+
 	rec.pending = nil
 
 	if rec.done != nil {

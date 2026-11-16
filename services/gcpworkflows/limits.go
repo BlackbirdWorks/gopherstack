@@ -1,6 +1,7 @@
 package gcpworkflows
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -87,6 +88,22 @@ func (b *InMemoryBackend) admitLocked(
 	ld.queue = append(ld.queue, name)
 
 	return nil
+}
+
+// dequeueLocked removes a cancelled or dropped execution from its region backlog.
+func (b *InMemoryBackend) dequeueLocked(name string) {
+	key := regionOf(name)
+
+	ld, ok := b.load[key]
+	if !ok {
+		return
+	}
+
+	ld.queue = slices.DeleteFunc(ld.queue, func(n string) bool { return n == name })
+
+	if ld.active == 0 && len(ld.queue) == 0 {
+		delete(b.load, key)
+	}
 }
 
 // promoteLocked starts queued executions while the region has free capacity.

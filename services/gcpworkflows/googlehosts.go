@@ -52,3 +52,10 @@ func (t emulatedHosts) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	return t.next.RoundTrip(out)
 }
+
+// CloseIdleConnections releases the pooled connections of the wrapped transport.
+func (t emulatedHosts) CloseIdleConnections() {
+	if ci, ok := t.next.(interface{ CloseIdleConnections() }); ok {
+		ci.CloseIdleConnections()
+	}
+}

@@ -196,3 +196,30 @@ func TestFinishedExecutionsExpireAfterRetention(t *testing.T) {
 		})
 	}
 }
+
+func TestCancelledQueuedExecutionsFreeBacklog(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	e.clock.holdSleeps()
+	e.handler.Backend.SetExecutionLimits(1, 2)
+
+	w := e.createWorkflow(t, "backlog", sleeper)
+	e.execute(t, w.GetName(), "")
+
+	for range 5 {
+		q := e.execute(t, w.GetName(), "").GetName()
+
+		_, err := e.ex.CancelExecution(t.Context(), &executionspb.CancelExecutionRequest{Name: q})
+		require.NoError(t, err)
+	}
+
+	first := e.execute(t, w.GetName(), "").GetName()
+	second := e.execute(t, w.GetName(), "").GetName()
+
+	assert.Equal(t, executionspb.Execution_QUEUED, e.state(t, first))
+	assert.Equal(t, executionspb.Execution_QUEUED, e.state(t, second))
+
+	_, err := e.ex.CreateExecution(t.Context(), &executionspb.CreateExecutionRequest{Parent: w.GetName()})
+	assert.Equal(t, codes.ResourceExhausted, code(err))
+}

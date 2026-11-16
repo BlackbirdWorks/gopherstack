@@ -1,9 +1,11 @@
 package gcpsql
 
 import (
+	"crypto/pbkdf2"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +15,8 @@ import (
 const (
 	complexityDefault   = "COMPLEXITY_DEFAULT"
 	maxPasswordHistory  = 100
+	historySaltBytes    = 16
+	historyIterations   = 4096
 	maxPasswordBytes    = 1024
 	policyKey           = "passwordValidationPolicy"
 	passwordChangedFmt  = time.RFC3339Nano
@@ -89,10 +93,44 @@ func validatePasswordPolicy(settings map[string]any) error {
 	return nil
 }
 
-func passwordHash(user, pw string) string {
-	sum := sha256.Sum256([]byte(user + "\x00" + pw))
+// historyEntry is "salt$hash" in hex: PBKDF2-HMAC-SHA256 over the password with a random per-entry salt.
+func historyEntry(user, pw string) string {
+	salt := make([]byte, historySaltBytes)
+	_, _ = rand.Read(salt)
 
-	return hex.EncodeToString(sum[:])
+	return hex.EncodeToString(salt) + "$" + hex.EncodeToString(historyKey(user, pw, salt))
+}
+
+func historyKey(user, pw string, salt []byte) []byte {
+	key, err := pbkdf2.Key(sha256.New, user+"\x00"+pw, salt, historyIterations, sha256.Size)
+	if err != nil {
+		return nil
+	}
+
+	return key
+}
+
+// historyMatches reports whether any entry was made from pw, comparing in constant time.
+func historyMatches(entries []string, user, pw string) bool {
+	found := 0
+
+	for _, e := range entries {
+		saltHex, sumHex, ok := strings.Cut(e, "$")
+		if !ok {
+			continue
+		}
+
+		salt, serr := hex.DecodeString(saltHex)
+		sum, herr := hex.DecodeString(sumHex)
+
+		if serr != nil || herr != nil {
+			continue
+		}
+
+		found |= subtle.ConstantTimeCompare(sum, historyKey(user, pw, salt))
+	}
+
+	return found == 1
 }
 
 func complexEnough(pw string) bool {
@@ -128,7 +166,7 @@ func checkPassword(p passwordPolicy, u *userRec, pw string, pg bool, now time.Ti
 		return err
 	}
 
-	if p.reuse > 0 && slices.Contains(lastN(u.History, p.reuse), passwordHash(u.User.Name, pw)) {
+	if p.reuse > 0 && historyMatches(lastN(u.History, p.reuse), u.User.Name, pw) {
 		return errInvalid("Password validation failed: the password was used recently and cannot be reused.")
 	}
 
@@ -172,7 +210,7 @@ func recordPassword(u *userRec, pw string, now time.Time) {
 		return
 	}
 
-	u.History = append(u.History, passwordHash(u.User.Name, pw))
+	u.History = append(u.History, historyEntry(u.User.Name, pw))
 	if len(u.History) > maxPasswordHistory {
 		u.History = u.History[len(u.History)-maxPasswordHistory:]
 	}

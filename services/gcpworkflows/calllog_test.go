@@ -1,6 +1,7 @@
 package gcpworkflows_test
 
 import (
+	"strings"
 	"testing"
 
 	"cloud.google.com/go/workflows/apiv1/workflowspb"
@@ -122,4 +123,65 @@ func TestExecutionCallLevelOverridesWorkflow(t *testing.T) {
 	defer sink.mu.Unlock()
 
 	assert.Empty(t, sink.entries)
+}
+
+const redactSource = `
+main:
+  steps:
+    - deep:
+        assign: [{d: {Authorization: "Bearer deepsecret"}}]
+    - nest:
+        for:
+          value: i
+          range: [1, 40]
+          steps:
+            - wrap:
+                assign: [{d: {n: '${d}'}}]
+    - a:
+        call: add
+        args:
+          x: 1
+          headers:
+            Cookie: "sid=cookiesecret"
+            X-Goog-Api-Key: apikeysecret
+            Proxy-Authorization: "Basic proxysecret"
+            Keep: visible
+          deep: ${d}
+add:
+  params: [x, headers, deep]
+  steps:
+    - s:
+        return: ${x}
+`
+
+func TestCallLogRedactsCredentials(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	sink := &captureSink{}
+	e.handler.Backend.SetLogSink(sink)
+
+	w := e.createWorkflow(t, "redact", redactSource, func(w *workflowspb.Workflow) {
+		w.CallLogLevel = workflowspb.Workflow_LOG_ALL_CALLS
+	})
+	ex := e.await(t, e.execute(t, w.GetName(), "").GetName())
+	require.Equal(t, executionspb.Execution_SUCCEEDED, ex.GetState(), ex.GetError().GetPayload())
+
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+
+	require.NotEmpty(t, sink.entries)
+
+	var sb strings.Builder
+	for _, en := range sink.entries {
+		sb.WriteString(en.GetJsonPayload().String())
+	}
+
+	all := sb.String()
+
+	for _, secret := range []string{"cookiesecret", "apikeysecret", "proxysecret", "deepsecret"} {
+		assert.NotContains(t, all, secret)
+	}
+
+	assert.Contains(t, all, "visible")
 }

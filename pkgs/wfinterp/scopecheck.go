@@ -29,16 +29,6 @@ func (s *scopeInfo) has(name string) bool {
 	return false
 }
 
-func (s *scopeInfo) assigned(name string) bool {
-	for cur := s; cur != nil; cur = cur.parent {
-		if cur.seen[name] {
-			return true
-		}
-	}
-
-	return false
-}
-
 func (s *scopeInfo) define(name string) {
 	s.defs[name] = true
 	s.seen[name] = true
@@ -86,13 +76,20 @@ func collectDefs(b *block, si *scopeInfo) {
 	}
 }
 
+// defineWhole records only whole-variable assignments: a path write cannot create its root.
+func defineWhole(si *scopeInfo, lv *lvalue) {
+	if len(lv.path) == 0 {
+		si.defs[lv.root] = true
+	}
+}
+
 func collectStepDefs(s *step, si *scopeInfo) {
 	for _, a := range s.assigns {
-		si.defs[a.target.root] = true
+		defineWhole(si, a.target)
 	}
 
 	if s.call != nil && s.call.result != nil {
-		si.defs[s.call.result.root] = true
+		defineWhole(si, s.call.result)
 	}
 
 	if s.nested != nil {
@@ -158,7 +155,7 @@ func (sc *scopeChecker) write(s *step, lv *lvalue, si *scopeInfo) error {
 			quote(lv.root))
 	}
 
-	if len(lv.path) > 0 && !si.assigned(lv.root) {
+	if len(lv.path) > 0 && !si.has(lv.root) {
 		return sc.fail(s, "variable %s is not defined", quote(lv.root))
 	}
 
