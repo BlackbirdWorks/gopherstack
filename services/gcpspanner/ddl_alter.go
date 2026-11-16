@@ -12,10 +12,12 @@ type tableText struct {
 	items []string
 	names []string
 	toks  [][]ddlTok
+
+	postgres bool
 }
 
-func parseTableText(text string) (*tableText, bool) {
-	toks, err := tokenizeDDL(text)
+func parseTableText(text string, postgres bool) (*tableText, bool) {
+	toks, err := tokenizeDDL(text, postgres)
 	if err != nil {
 		return nil, false
 	}
@@ -33,7 +35,7 @@ func parseTableText(text string) (*tableText, bool) {
 		return nil, false
 	}
 
-	t := &tableText{head: text[:toks[at].start], tail: text[toks[closeIdx].end:]}
+	t := &tableText{head: text[:toks[at].start], tail: text[toks[closeIdx].end:], postgres: postgres}
 
 	for _, it := range splitTop(toks, at, closeIdx) {
 		if len(it) == 0 {
@@ -63,7 +65,7 @@ func (t *tableText) constraint(name string) int {
 }
 
 func (t *tableText) inPrimaryKey(name string) bool {
-	toks, err := tokenizeDDL(t.tail)
+	toks, err := tokenizeDDL(t.tail, t.postgres)
 	if err != nil {
 		return false
 	}
@@ -71,6 +73,9 @@ func (t *tableText) inPrimaryKey(name string) bool {
 	for i, tk := range toks {
 		if tk.is("PRIMARY") && i+posName < len(toks) && toks[i+posName].text == "(" {
 			end := matchParen(toks, i+posName)
+			if end < 0 {
+				return false
+			}
 
 			for _, k := range splitTop(toks, i+posName, end) {
 				if len(k) > 0 && foldKey(identName(k[0])) == foldKey(name) {
@@ -90,8 +95,7 @@ func (s *ddlSchema) alter(stmt string, toks []ddlTok) error {
 		return nil
 	}
 
-	at := 2
-	at, _ = skipIf(toks, at, "IF", "EXISTS")
+	at, ifExists := skipIf(toks, posName, "IF", "EXISTS")
 
 	name, at, err := objectName(toks, at)
 	if err != nil {
@@ -100,10 +104,14 @@ func (s *ddlSchema) alter(stmt string, toks []ddlTok) error {
 
 	i := s.find(kindTable, name)
 	if i < 0 {
+		if ifExists {
+			return nil
+		}
+
 		return errNotFound("Table not found: %s.", name)
 	}
 
-	tt, ok := parseTableText(s.objs[i].text)
+	tt, ok := parseTableText(s.objs[i].text, s.postgres)
 	if !ok || at >= len(toks) {
 		s.objs = append(s.objs, ddlObject{text: stmt})
 
@@ -152,16 +160,27 @@ func startsWith(toks []ddlTok, words ...string) bool {
 
 func (s *ddlSchema) columnAction(tt *tableText, stmt string, act []ddlTok) (bool, error) {
 	switch {
-	case startsWith(act, "ADD", "COLUMN"),
-		!s.postgres && startsWith(act, "ADD") && act[1].word && !isConstraintStart(act[1]):
+	case startsWith(act, "ADD", "COLUMN"), s.bareAddColumn(act):
 		return true, addColumn(tt, stmt, act)
 	case startsWith(act, "DROP", "COLUMN"):
-		return true, tt.dropColumn(identName(act[posName]))
-	case startsWith(act, "ALTER", "COLUMN") && len(act) > posType && !act[posType].is("SET") && !act[posType].is("DROP"):
+		at, _ := skipIf(act, posName, "IF", "EXISTS")
+		if at >= len(act) {
+			return true, errInvalid("Syntax error: expected a column name.")
+		}
+
+		return true, tt.dropColumn(identName(act[at]))
+	case !s.postgres && startsWith(act, "ALTER", "COLUMN") && len(act) > posType && act[posName].word &&
+		!act[posType].is("SET") && !act[posType].is("DROP"):
 		return true, tt.alterColumn(stmt, act)
 	}
 
 	return false, nil
+}
+
+// bareAddColumn is GoogleSQL's ADD name type without the COLUMN keyword, as opposed to the other ADD actions.
+func (s *ddlSchema) bareAddColumn(act []ddlTok) bool {
+	return !s.postgres && startsWith(act, "ADD") && len(act) > posName && act[1].word &&
+		!isConstraintStart(act[1]) && !act[1].is("ROW") && !act[1].is("SYNONYM")
 }
 
 func constraintAction(tt *tableText, stmt string, act []ddlTok) (bool, error) {
@@ -293,7 +312,7 @@ func (t *tableText) setOnDelete(_ string, act []ddlTok) error {
 		return errInvalid("Syntax error: expected CASCADE or NO ACTION.")
 	}
 
-	toks, err := tokenizeDDL(t.tail)
+	toks, err := tokenizeDDL(t.tail, t.postgres)
 	if err != nil {
 		return err
 	}
@@ -305,7 +324,7 @@ func (t *tableText) setOnDelete(_ string, act []ddlTok) error {
 	for i, k := range toks {
 		if k.is("ON") && i+1 < len(toks) && toks[i+1].is("DELETE") {
 			end := i + posType
-			if toks[i+2].is("NO") {
+			if i+posName < len(toks) && toks[i+posName].is("NO") {
 				end++
 			}
 

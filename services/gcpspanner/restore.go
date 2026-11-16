@@ -81,8 +81,9 @@ func (b *InMemoryBackend) RestoreDatabase(
 		return nil, err
 	}
 
+	var cfg string
+
 	if enc != nil {
-		var cfg string
 		if inst, gerr := b.GetInstance(in.GetParent()); gerr == nil {
 			cfg = inst.GetConfig()
 		}
@@ -109,7 +110,7 @@ func (b *InMemoryBackend) RestoreDatabase(
 		Source: &databasepb.RestoreDatabaseRequest_Backup{Backup: in.GetBackup()},
 	})
 	if err != nil {
-		return nil, err //nolint:wrapcheck // emulator status passes through
+		return nil, explainUnimplemented("google.spanner.admin.database.v1.DatabaseAdmin/RestoreDatabase", err)
 	}
 
 	if err = waitOp(ctx, cc, op); err != nil {
@@ -128,7 +129,12 @@ func (b *InMemoryBackend) RestoreDatabase(
 		pb.DatabaseDialect = db.GetDatabaseDialect()
 	}
 
-	if err = b.insertDatabase(in.GetParent(), id, &dbRec{pb: pb, ddl: b.emulatorDDL(ctx, cc, name, nil)}); err != nil {
+	if err = b.insertDatabase(
+		in.GetParent(),
+		id,
+		&dbRec{pb: pb, ddl: b.emulatorDDL(ctx, cc, name, nil)},
+		cfg,
+	); err != nil {
 		return nil, err
 	}
 

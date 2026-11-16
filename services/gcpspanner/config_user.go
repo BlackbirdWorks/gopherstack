@@ -64,6 +64,15 @@ func (b *InMemoryBackend) lookupConfigLocked(name string) (*instancepb.InstanceC
 	return cloneIC(c), true
 }
 
+// configGoneLocked reports an instance configuration that was deleted after the caller resolved it.
+func (b *InMemoryBackend) configGoneLocked(name string) error {
+	if _, ok := b.lookupConfigLocked(name); !ok {
+		return errNotFound("Instance config not found: %s", name)
+	}
+
+	return nil
+}
+
 func replicaKey(r *instancepb.ReplicaInfo) string {
 	return r.GetType().String() + "/" + r.GetLocation()
 }

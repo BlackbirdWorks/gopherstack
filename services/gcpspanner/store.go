@@ -58,6 +58,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		userConfigs: make(map[string]*instancepb.InstanceConfig),
 	}
 	b.emu = newEmulator(b, nil)
+	b.ops.SetClock(func() time.Time { return b.now() })
 
 	return b
 }

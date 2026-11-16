@@ -66,6 +66,10 @@ func (b *InMemoryBackend) insertInstance(rec *instRec) error {
 	b.mu.Lock("CreateInstance")
 	defer b.mu.Unlock()
 
+	if err := b.configGoneLocked(rec.pb.GetConfig()); err != nil {
+		return err
+	}
+
 	name := rec.pb.GetName()
 	if _, exists := b.instances[name]; exists {
 		return errExists("Instance already exists: %s", name)

@@ -20,9 +20,10 @@ type ddlTok struct {
 
 func (t ddlTok) is(kw string) bool { return t.word && strings.EqualFold(t.text, kw) }
 
-func skipQuoted(s string, i int, q byte) (int, bool) {
-	triple := q != '`' && strings.HasPrefix(s[i:], strings.Repeat(string(q), tripleQuote))
-	if triple {
+// skipQuoted returns the end of the quoted token opened at s[i]. A doubled quote is part of the token; backslash
+// escapes and triple quotes exist only in GoogleSQL, and only GoogleSQL forbids a raw newline.
+func skipQuoted(s string, i int, q byte, postgres bool) (int, bool) {
+	if !postgres && q != '`' && strings.HasPrefix(s[i:], strings.Repeat(string(q), tripleQuote)) {
 		end := strings.Index(s[i+tripleQuote:], strings.Repeat(string(q), tripleQuote))
 		if end < 0 {
 			return 0, false
@@ -32,14 +33,14 @@ func skipQuoted(s string, i int, q byte) (int, bool) {
 	}
 
 	for j := i + 1; j < len(s); j++ {
-		switch s[j] {
-		case '\\':
-			if q != '`' {
-				j++
-			}
-		case q:
+		switch {
+		case s[j] == '\\' && !postgres:
+			j++
+		case s[j] == q && j+1 < len(s) && s[j+1] == q:
+			j++
+		case s[j] == q:
 			return j + 1, true
-		case '\n':
+		case s[j] == '\n' && !postgres:
 			return 0, false
 		}
 	}
@@ -47,9 +48,9 @@ func skipQuoted(s string, i int, q byte) (int, bool) {
 	return 0, false
 }
 
-func skipComment(s string, i int) (int, bool, bool) {
+func skipComment(s string, i int, postgres bool) (int, bool, bool) {
 	switch {
-	case s[i] == '#' || strings.HasPrefix(s[i:], "--"):
+	case s[i] == '#' && !postgres || strings.HasPrefix(s[i:], "--"):
 		if nl := strings.IndexByte(s[i:], '\n'); nl >= 0 {
 			return i + nl + 1, true, true
 		}
@@ -72,17 +73,17 @@ func isWordByte(c byte) bool {
 }
 
 // nextDDLToken reads the token at s[i]; i must not be whitespace or a comment.
-func nextDDLToken(s string, i int) (ddlTok, error) {
+func nextDDLToken(s string, i int, postgres bool) (ddlTok, error) {
 	c := s[i]
 
 	switch {
 	case c == '\'' || c == '"' || c == '`':
-		end, ok := skipQuoted(s, i, c)
+		end, ok := skipQuoted(s, i, c, postgres)
 		if !ok {
 			return ddlTok{}, errInvalid("Syntax error: unterminated quoted string or identifier.")
 		}
 
-		return ddlTok{text: s[i:end], start: i, end: end, word: c == '`' || c == '"'}, nil
+		return ddlTok{text: s[i:end], start: i, end: end, word: c == '`' || c == '"' && postgres}, nil
 	case isWordByte(c):
 		j := i
 		for j < len(s) && isWordByte(s[j]) {
@@ -97,13 +98,13 @@ func nextDDLToken(s string, i int) (ddlTok, error) {
 
 // tokenizeDDL splits a DDL statement into words, quoted identifiers, string literals and punctuation, skipping
 // comments. Parentheses must balance within maxDDLDepth.
-func tokenizeDDL(s string) ([]ddlTok, error) {
+func tokenizeDDL(s string, postgres bool) ([]ddlTok, error) {
 	var toks []ddlTok
 
 	depth := 0
 
 	for i := 0; i < len(s); {
-		if next, isComment, ok := skipComment(s, i); isComment {
+		if next, isComment, ok := skipComment(s, i, postgres); isComment {
 			if !ok {
 				return nil, errInvalid("Syntax error: unterminated comment.")
 			}
@@ -119,7 +120,7 @@ func tokenizeDDL(s string) ([]ddlTok, error) {
 			continue
 		}
 
-		tok, err := nextDDLToken(s, i)
+		tok, err := nextDDLToken(s, i, postgres)
 		if err != nil {
 			return nil, err
 		}
@@ -158,7 +159,9 @@ func parenDelta(t string) int {
 // identName unquotes an identifier token.
 func identName(t ddlTok) string {
 	if len(t.text) >= 2 && (t.text[0] == '`' || t.text[0] == '"') {
-		return t.text[1 : len(t.text)-1]
+		q := string(t.text[0])
+
+		return strings.ReplaceAll(t.text[1:len(t.text)-1], q+q, q)
 	}
 
 	return t.text

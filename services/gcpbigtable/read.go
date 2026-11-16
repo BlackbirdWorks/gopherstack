@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"slices"
 	"sort"
+	"time"
 
 	btpb "cloud.google.com/go/bigtable/apiv2/bigtablepb"
 )
@@ -177,7 +178,41 @@ func (b *InMemoryBackend) SampleRowKeys(req *btpb.SampleRowKeysRequest) ([]*btpb
 		return nil, err
 	}
 
-	return sampleKeys(t), nil
+	return b.cachedSamples(t), nil
+}
+
+// sampleTTL is how long the size-based samples of an unchanged key set are reused: the response is approximate by
+// definition, and a full scan per call would be quadratic for clients that poll it.
+const sampleTTL = 10 * time.Second
+
+type sampleCache struct {
+	at     time.Time
+	out    []*btpb.SampleRowKeysResponse
+	gen    uint64
+	splits int
+}
+
+func (b *InMemoryBackend) cachedSamples(t *tableRec) []*btpb.SampleRowKeysResponse {
+	now := b.now()
+
+	if c := t.samples; c != nil && c.gen == t.keyGen && c.splits == len(t.splits) && now.Sub(c.at) < sampleTTL &&
+		!now.Before(c.at) {
+		return cloneSamples(c.out)
+	}
+
+	out := sampleKeys(t)
+	t.samples = &sampleCache{at: now, out: out, gen: t.keyGen, splits: len(t.splits)}
+
+	return cloneSamples(out)
+}
+
+func cloneSamples(in []*btpb.SampleRowKeysResponse) []*btpb.SampleRowKeysResponse {
+	out := make([]*btpb.SampleRowKeysResponse, len(in))
+	for i, r := range in {
+		out[i] = clone(r)
+	}
+
+	return out
 }
 
 // sampleStride is how many bytes of row data lie between two size-based samples.

@@ -244,7 +244,7 @@ func restoreTablesAndBackups(rec *instRec, s instSnap) error {
 			return fmt.Errorf("deleted table %q: %w", id, err)
 		}
 
-		rec.deleted[id] = &deletedTable{table: t, at: time.UnixMicro(ds.DeletedAt), cmek: ds.CMEK}
+		rec.deleted[id] = &deletedTable{table: t, at: time.UnixMicro(ds.DeletedAt), size: tableBytes(t), cmek: ds.CMEK}
 	}
 
 	for id, ts := range s.Tables {

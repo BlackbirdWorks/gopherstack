@@ -148,6 +148,10 @@ func (b *InMemoryBackend) CreateInstancePartition(
 }
 
 func (b *InMemoryBackend) insertPartitionLocked(rec *instRec, id string, pb *instancepb.InstancePartition) error {
+	if err := b.configGoneLocked(pb.GetConfig()); err != nil {
+		return err
+	}
+
 	if _, dup := rec.parts[id]; dup {
 		return errExists("Instance partition already exists: %s", pb.GetName())
 	}

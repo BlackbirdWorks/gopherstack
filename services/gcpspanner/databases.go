@@ -11,6 +11,7 @@ import (
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/admin/instance/apiv1/instancepb"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -175,7 +176,7 @@ func (b *InMemoryBackend) CreateDatabase(
 	default:
 		var folded []string
 
-		folded, err = foldDDL(nil, ddl, in.GetDatabaseDialect() == databasepb.DatabaseDialect_POSTGRESQL)
+		folded, _, err = foldDDL(nil, ddl, in.GetDatabaseDialect() == databasepb.DatabaseDialect_POSTGRESQL)
 		if err != nil {
 			return nil, err
 		}
@@ -185,7 +186,7 @@ func (b *InMemoryBackend) CreateDatabase(
 
 	pb := b.newDatabase(name, in.GetDatabaseDialect())
 	pb.EncryptionConfig = in.GetEncryptionConfig()
-	if err = b.insertDatabase(in.GetParent(), id, &dbRec{pb: pb, ddl: ddl}); err != nil {
+	if err = b.insertDatabase(in.GetParent(), id, &dbRec{pb: pb, ddl: ddl}, instanceConfig); err != nil {
 		return nil, err
 	}
 
@@ -210,13 +211,19 @@ func (b *InMemoryBackend) newDatabase(name string, dialect databasepb.DatabaseDi
 	}
 }
 
-func (b *InMemoryBackend) insertDatabase(instance, id string, d *dbRec) error {
+// insertDatabase stores d. A customer-managed key was checked against checkedConfig outside the lock, so the
+// instance must still use it.
+func (b *InMemoryBackend) insertDatabase(instance, id string, d *dbRec, checkedConfig string) error {
 	b.mu.Lock("insertDatabase")
 	defer b.mu.Unlock()
 
 	rec, err := b.instanceLocked(instance)
 	if err != nil {
 		return err
+	}
+
+	if d.pb.GetEncryptionConfig() != nil && rec.pb.GetConfig() != checkedConfig {
+		return status.Error(codes.Aborted, "The instance configuration changed while the encryption keys were checked.")
 	}
 
 	if _, dup := rec.dbs[id]; dup {
@@ -395,7 +402,12 @@ func (b *InMemoryBackend) UpdateDatabaseDdl(
 		return nil, err
 	}
 
-	stamps := make([]*timestamppb.Timestamp, len(in.GetStatements()))
+	applied := len(in.GetStatements())
+	if res.failure != nil {
+		applied = min(res.applied, applied)
+	}
+
+	stamps := make([]*timestamppb.Timestamp, applied)
 	for i := range stamps {
 		stamps[i] = b.ts()
 	}
@@ -416,7 +428,10 @@ func (b *InMemoryBackend) UpdateDatabaseDdl(
 }
 
 // ddlResult carries the DDL failure, if any, to report on the operation.
-type ddlResult struct{ failure *status.Status }
+type ddlResult struct {
+	failure *status.Status
+	applied int
+}
 
 // applyDDL runs the statements; the returned status is the DDL failure to report on the operation.
 func (b *InMemoryBackend) applyDDL(
@@ -444,11 +459,14 @@ func (b *InMemoryBackend) emulatorUpdate(
 		return ddlResult{}, err //nolint:wrapcheck // emulator status passes through
 	}
 
-	opErr := waitOp(ctx, cc, op)
+	final, opErr := waitOpDone(ctx, cc, op)
 	b.setDDL(in.GetDatabase(), b.emulatorDDL(ctx, cc, in.GetDatabase(), b.currentDDL(in.GetDatabase())))
 
 	if opErr != nil {
-		return ddlResult{failure: statusOf(opErr)}, nil
+		meta := &databasepb.UpdateDatabaseDdlMetadata{}
+		_ = final.GetMetadata().UnmarshalTo(meta)
+
+		return ddlResult{failure: statusOf(opErr), applied: len(meta.GetCommitTimestamps())}, nil
 	}
 
 	return ddlResult{}, nil
@@ -464,14 +482,17 @@ func (b *InMemoryBackend) currentDDL(db string) []string {
 
 // foldStored applies stmts to the stored DDL of db; the first failing statement stops the batch and is reported.
 func (b *InMemoryBackend) foldStored(db string, stmts []string) ddlResult {
-	var failure error
+	var (
+		failure error
+		applied int
+	)
 
 	b.mutateDB(db, func(d *dbRec) {
-		d.ddl, failure = foldDDL(d.ddl, stmts, databaseIsPostgres(d.pb))
+		d.ddl, applied, failure = foldDDL(d.ddl, stmts, databaseIsPostgres(d.pb))
 	})
 
 	if failure != nil {
-		return ddlResult{failure: statusOf(failure)}
+		return ddlResult{failure: statusOf(failure), applied: applied}
 	}
 
 	return ddlResult{}

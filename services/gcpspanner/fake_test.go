@@ -29,6 +29,9 @@ type fakeEmulator struct {
 	backups   map[string]*databasepb.Backup
 	tables    map[string][]fakeTable
 	commits   []fakeCommit
+	requires  map[string]string
+	failing   map[string]codes.Code
+	deleted   []string
 	sqls      []string
 	headers   []string
 	dropped   []string
@@ -380,7 +383,21 @@ func (s fakeSpanner) Commit(_ context.Context, in *spannerpb.CommitRequest) (*sp
 	defer s.f.mu.Unlock()
 
 	for _, m := range in.GetMutations() {
+		if d := m.GetDelete(); d != nil {
+			s.f.deleted = append(s.f.deleted, d.GetTable())
+
+			continue
+		}
+
 		w := m.GetInsertOrUpdate()
+		if code, bad := s.f.failing[w.GetTable()]; bad {
+			return nil, status.Error(code, "injected")
+		}
+
+		if need, ok := s.f.requires[w.GetTable()]; ok && !s.f.committedLocked(need) {
+			return nil, status.Error(codes.FailedPrecondition, "referenced key missing in "+need)
+		}
+
 		c := fakeCommit{db: dbOfSession(in.GetSession()), table: w.GetTable(), columns: w.GetColumns()}
 
 		for _, r := range w.GetValues() {
@@ -403,4 +420,43 @@ func (f *fakeEmulator) queries() []string {
 	defer f.mu.Unlock()
 
 	return append([]string(nil), f.sqls...)
+}
+
+func (f *fakeEmulator) committedLocked(table string) bool {
+	for _, c := range f.commits {
+		if c.table == table {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (f *fakeEmulator) require(table, other string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.requires == nil {
+		f.requires = map[string]string{}
+	}
+
+	f.requires[table] = other
+}
+
+func (f *fakeEmulator) failCommits(table string, code codes.Code) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.failing == nil {
+		f.failing = map[string]codes.Code{}
+	}
+
+	f.failing[table] = code
+}
+
+func (f *fakeEmulator) deletedTables() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return append([]string(nil), f.deleted...)
 }

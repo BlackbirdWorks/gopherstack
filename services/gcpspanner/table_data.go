@@ -11,6 +11,8 @@ import (
 
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/structpb"
 
@@ -22,7 +24,9 @@ const (
 	maxPersistBytes  = 64 << 20
 	maxPersistTables = 1000
 	dumpBudget       = 20 * time.Second
+	recvSlack        = 1 << 20
 	commitCells      = 20_000
+	commitBytes      = 8 << 20
 	maxDepth         = 32
 )
 
@@ -96,12 +100,17 @@ func (b *InMemoryBackend) collectData(ctx context.Context) map[string]dbDataSnap
 	log := logger.Load(ctx)
 
 	for _, n := range names {
-		d, err := dumpDatabase(ctx, spannerpb.NewSpannerClient(cc), n, dialects[n], budget)
+		attempt := *budget
+
+		d, err := dumpDatabase(ctx, spannerpb.NewSpannerClient(cc), n, dialects[n], &attempt)
 		if err != nil {
-			log.WarnContext(ctx, "gcpspanner: table data not persisted", "database", n, "error", err)
+			log.WarnContext(ctx, "gcpspanner: table data not persisted, database kept schema-only",
+				"database", n, "error", err)
 
 			continue
 		}
+
+		*budget = attempt
 
 		if len(d.Tables) > 0 {
 			out[n] = d
@@ -142,11 +151,17 @@ func dumpDatabase(
 		return dbDataSnap{}, err
 	}
 
+	out := tables[:0]
+
 	for i := range tables {
 		rows, rerr := c.Read(ctx, &spannerpb.ReadRequest{
 			Session: sess.GetName(), Transaction: sel, Table: tables[i].Name, Columns: tables[i].Columns,
 			KeySet: &spannerpb.KeySet{All: true}, Limit: int64(maxPersistRows - budget.rows + 1),
-		})
+		}, grpc.MaxCallRecvMsgSize(maxPersistBytes-budget.bytes+recvSlack))
+		if status.Code(rerr) == codes.ResourceExhausted {
+			return dbDataSnap{}, fmt.Errorf("%w: %s", errPersistLimit, tables[i].Name)
+		}
+
 		if rerr != nil {
 			return dbDataSnap{}, fmt.Errorf("read %s: %w", tables[i].Name, rerr)
 		}
@@ -168,10 +183,15 @@ func dumpDatabase(
 			return dbDataSnap{}, fmt.Errorf("%w: %s", errPersistLimit, tables[i].Name)
 		}
 
+		if len(raw) == 0 {
+			continue
+		}
+
 		tables[i].Rows = raw
+		out = append(out, tables[i])
 	}
 
-	return dbDataSnap{Tables: tables}, nil
+	return dbDataSnap{Tables: out}, nil
 }
 
 var errRowShape = errors.New("stored row does not match its columns")
@@ -307,27 +327,95 @@ func loadDatabase(ctx context.Context, c spannerpb.SpannerClient, db string, d d
 		return fmt.Errorf("create session: %w", err)
 	}
 
+	name := sess.GetName()
+
 	defer func() {
-		_, _ = c.DeleteSession(context.WithoutCancel(ctx), &spannerpb.DeleteSessionRequest{Name: sess.GetName()})
+		_, _ = c.DeleteSession(context.WithoutCancel(ctx), &spannerpb.DeleteSessionRequest{Name: name})
 	}()
 
-	for _, t := range parentFirst(d.Tables) {
-		if err = loadTable(ctx, c, sess.GetName(), t); err != nil {
-			return err
+	if err = loadTables(ctx, c, name, parentFirst(d.Tables)); err != nil {
+		if cerr := clearTables(context.WithoutCancel(ctx), c, name, d.Tables); cerr != nil {
+			err = errors.Join(err, fmt.Errorf("clear partial restore: %w", cerr))
 		}
+
+		return err
 	}
 
 	return nil
 }
 
+// loadTables writes tables in order and retries those rejected by a foreign key until a pass makes no progress.
+func loadTables(ctx context.Context, c spannerpb.SpannerClient, sess string, tables []tableSnap) error {
+	for len(tables) > 0 {
+		var deferred []tableSnap
+
+		var last error
+
+		for _, t := range tables {
+			err := loadTable(ctx, c, sess, t)
+			if status.Code(err) == codes.FailedPrecondition {
+				deferred, last = append(deferred, t), err
+
+				continue
+			}
+
+			if err != nil {
+				return err
+			}
+		}
+
+		if len(deferred) == len(tables) {
+			return last
+		}
+
+		tables = deferred
+	}
+
+	return nil
+}
+
+// clearTables deletes every row of tables in one commit so a failed replay leaves the database empty.
+func clearTables(ctx context.Context, c spannerpb.SpannerClient, sess string, tables []tableSnap) error {
+	muts := make([]*spannerpb.Mutation, 0, len(tables))
+
+	for _, t := range tables {
+		muts = append(muts, &spannerpb.Mutation{Operation: &spannerpb.Mutation_Delete_{
+			Delete: &spannerpb.Mutation_Delete{Table: t.Name, KeySet: &spannerpb.KeySet{All: true}},
+		}})
+	}
+
+	_, err := c.Commit(ctx, commitRequest(sess, muts))
+
+	return err //nolint:wrapcheck // wrapped by the caller
+}
+
+func commitRequest(sess string, muts []*spannerpb.Mutation) *spannerpb.CommitRequest {
+	return &spannerpb.CommitRequest{
+		Session: sess,
+		Transaction: &spannerpb.CommitRequest_SingleUseTransaction{
+			SingleUseTransaction: &spannerpb.TransactionOptions{
+				Mode: &spannerpb.TransactionOptions_ReadWrite_{
+					ReadWrite: &spannerpb.TransactionOptions_ReadWrite{},
+				},
+			},
+		},
+		Mutations: muts,
+	}
+}
+
 func loadTable(ctx context.Context, c spannerpb.SpannerClient, sess string, t tableSnap) error {
 	per := max(commitCells/max(len(t.Columns), 1), 1)
 
-	for from := 0; from < len(t.Rows); from += per {
-		batch := t.Rows[from:min(from+per, len(t.Rows))]
-		vals := make([]*structpb.ListValue, 0, len(batch))
+	for from := 0; from < len(t.Rows); {
+		to, size := from, 0
+		for to < len(t.Rows) && to-from < per && (to == from || size+len(t.Rows[to]) <= commitBytes) {
+			size += len(t.Rows[to])
+			to++
+		}
 
-		for _, raw := range batch {
+		vals := make([]*structpb.ListValue, 0, to-from)
+
+		for _, raw := range t.Rows[from:to] {
 			lv := &structpb.ListValue{}
 			if err := (protojson.UnmarshalOptions{}).Unmarshal(raw, lv); err != nil {
 				return fmt.Errorf("decode row of %s: %w", t.Name, err)
@@ -346,22 +434,17 @@ func loadTable(ctx context.Context, c spannerpb.SpannerClient, sess string, t ta
 			vals = append(vals, lv)
 		}
 
-		_, err := c.Commit(ctx, &spannerpb.CommitRequest{
-			Session: sess,
-			Transaction: &spannerpb.CommitRequest_SingleUseTransaction{
-				SingleUseTransaction: &spannerpb.TransactionOptions{
-					Mode: &spannerpb.TransactionOptions_ReadWrite_{
-						ReadWrite: &spannerpb.TransactionOptions_ReadWrite{},
-					},
-				},
-			},
-			Mutations: []*spannerpb.Mutation{{Operation: &spannerpb.Mutation_InsertOrUpdate{
+		_, err := c.Commit(
+			ctx,
+			commitRequest(sess, []*spannerpb.Mutation{{Operation: &spannerpb.Mutation_InsertOrUpdate{
 				InsertOrUpdate: &spannerpb.Mutation_Write{Table: t.Name, Columns: t.Columns, Values: vals},
-			}}},
-		})
+			}}}),
+		)
 		if err != nil {
 			return fmt.Errorf("restore %s: %w", t.Name, err)
 		}
+
+		from = to
 	}
 
 	return nil

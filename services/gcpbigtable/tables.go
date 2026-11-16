@@ -479,6 +479,7 @@ func (b *InMemoryBackend) DropRowRange(in *adminpb.DropRowRangeRequest) (*emptyp
 		}
 
 		t.rows, t.keys, t.dirty = make(map[string]*rowRec), nil, false
+		t.keyGen++
 	default:
 		return nil, errInvalid("One of row_key_prefix or delete_all_data_from_table is required.")
 	}

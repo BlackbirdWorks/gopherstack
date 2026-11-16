@@ -89,6 +89,10 @@ func (b *InMemoryBackend) MoveInstance(
 }
 
 func (b *InMemoryBackend) moveLocked(name string, target *instancepb.InstanceConfig) error {
+	if err := b.configGoneLocked(target.GetName()); err != nil {
+		return err
+	}
+
 	rec, err := b.instanceLocked(name)
 	if err != nil {
 		return err

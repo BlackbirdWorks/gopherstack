@@ -26,12 +26,14 @@ type rowRec struct {
 }
 
 type tableRec struct {
-	pb     *adminpb.Table
-	policy *iampb.Policy
-	rows   map[string]*rowRec
-	splits []string
-	keys   []string
-	dirty  bool
+	pb      *adminpb.Table
+	policy  *iampb.Policy
+	samples *sampleCache
+	rows    map[string]*rowRec
+	splits  []string
+	keys    []string
+	keyGen  uint64
+	dirty   bool
 }
 
 type backupRec struct {
@@ -69,22 +71,27 @@ func newTableRec(pb *adminpb.Table) *tableRec {
 
 // InMemoryBackend holds all Cloud Bigtable state under one lock.
 type InMemoryBackend struct {
-	now       func() time.Time
-	mu        *lockmetrics.RWMutex
-	ops       *gcplro.Store
-	instances map[string]*instRec
-	keys      cmek.Checker
-	seq       uint64
+	now        func() time.Time
+	mu         *lockmetrics.RWMutex
+	ops        *gcplro.Store
+	instances  map[string]*instRec
+	keys       cmek.Checker
+	deletedCap int64
+	seq        uint64
 }
 
 // NewInMemoryBackend creates an empty backend.
 func NewInMemoryBackend() *InMemoryBackend {
-	return &InMemoryBackend{
-		mu:        lockmetrics.New("gcpbigtable"),
-		now:       time.Now,
-		ops:       gcplro.New("gcpbigtable"),
-		instances: make(map[string]*instRec),
+	b := &InMemoryBackend{
+		mu:         lockmetrics.New("gcpbigtable"),
+		now:        time.Now,
+		deletedCap: maxDeletedBytes,
+		ops:        gcplro.New("gcpbigtable"),
+		instances:  make(map[string]*instRec),
 	}
+	b.ops.SetClock(func() time.Time { return b.now() })
+
+	return b
 }
 
 func (b *InMemoryBackend) ts() *timestamppb.Timestamp { return timestamppb.New(b.now()) }

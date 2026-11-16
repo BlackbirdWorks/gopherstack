@@ -1,16 +1,20 @@
 package gcpbigtable
 
 import (
+	"context"
 	"time"
 
 	"cloud.google.com/go/bigtable/admin/apiv2/adminpb"
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
 	maxCopyExpiry   = 30 * 24 * time.Hour
 	maxDeletedTable = 100
+	maxDeletedBytes = 256 << 20
 	tableRetention  = 7 * 24 * time.Hour
 	percentDone     = 100
 )
@@ -101,10 +105,21 @@ func (b *InMemoryBackend) CopyBackup(in *adminpb.CopyBackupRequest) (*longrunnin
 type deletedTable struct {
 	table *tableRec
 	at    time.Time
+	size  int64
 	cmek  bool
 }
 
-// retainDeletedLocked remembers a deleted table for tableRetention, evicting the oldest beyond maxDeletedTable.
+func tableBytes(t *tableRec) int64 {
+	var n int64
+	for _, r := range t.rows {
+		n += r.size()
+	}
+
+	return n
+}
+
+// retainDeletedLocked remembers a deleted table for tableRetention. The oldest are evicted beyond maxDeletedTable
+// tables or maxDeletedBytes of row data per instance; a table larger than the byte budget is not retained.
 func (b *InMemoryBackend) retainDeletedLocked(rec *instRec, id string, t *tableRec) {
 	now := b.now()
 
@@ -114,7 +129,17 @@ func (b *InMemoryBackend) retainDeletedLocked(rec *instRec, id string, t *tableR
 		}
 	}
 
-	if _, replaced := rec.deleted[id]; !replaced && len(rec.deleted) >= maxDeletedTable {
+	delete(rec.deleted, id)
+
+	size := tableBytes(t)
+	if size > b.deletedCap {
+		logger.Load(context.Background()).Warn("gcpbigtable: deleted table too large to keep for UndeleteTable",
+			"table", t.pb.GetName(), "bytes", size, "limit", b.deletedCap)
+
+		return
+	}
+
+	for len(rec.deleted) > 0 && (len(rec.deleted) >= maxDeletedTable || deletedBytes(rec)+size > b.deletedCap) {
 		var oldest string
 
 		for k, d := range rec.deleted {
@@ -132,7 +157,16 @@ func (b *InMemoryBackend) retainDeletedLocked(rec *instRec, id string, t *tableR
 		cmek = cmek || c.GetEncryptionConfig().GetKmsKeyName() != ""
 	}
 
-	rec.deleted[id] = &deletedTable{table: t, at: now, cmek: cmek}
+	rec.deleted[id] = &deletedTable{table: t, at: now, size: size, cmek: cmek}
+}
+
+func deletedBytes(rec *instRec) int64 {
+	var n int64
+	for _, d := range rec.deleted {
+		n += d.size
+	}
+
+	return n
 }
 
 // UndeleteTable restores a table deleted within the last seven days. The table comes back with deletion

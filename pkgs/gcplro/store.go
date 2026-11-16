@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"google.golang.org/grpc/codes"
@@ -21,18 +22,98 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
-const defaultPageSize = 100
+const (
+	defaultPageSize = 100
+
+	// DefaultMaxOperations bounds the finished operations a Store keeps; the oldest are dropped first.
+	DefaultMaxOperations = 10_000
+	// DefaultMaxAge is how long a finished operation is kept.
+	DefaultMaxAge = 7 * 24 * time.Hour
+
+	sweepEvery = time.Hour
+	keepRatio  = 10
+)
 
 // Store holds operations by full name and serves them over the Operations gRPC API.
 type Store struct {
 	longrunningpb.UnimplementedOperationsServer
-	mu  *lockmetrics.RWMutex
-	ops map[string]*longrunningpb.Operation
+	mu        *lockmetrics.RWMutex
+	ops       map[string]*longrunningpb.Operation
+	at        map[string]time.Time
+	now       func() time.Time
+	lastSweep time.Time
+	maxOps    int
+	maxAge    time.Duration
 }
 
 // New creates an empty Store.
 func New(name string) *Store {
-	return &Store{mu: lockmetrics.New(name + ".lro"), ops: make(map[string]*longrunningpb.Operation)}
+	return &Store{
+		mu:  lockmetrics.New(name + ".lro"),
+		ops: make(map[string]*longrunningpb.Operation), at: make(map[string]time.Time),
+		now: time.Now, maxOps: DefaultMaxOperations, maxAge: DefaultMaxAge,
+	}
+}
+
+// SetClock makes retention follow now instead of the wall clock.
+func (s *Store) SetClock(now func() time.Time) {
+	s.mu.Lock("SetClock")
+	defer s.mu.Unlock()
+
+	s.now = now
+}
+
+// SetLimits replaces the retention bounds for finished operations.
+func (s *Store) SetLimits(maxOps int, maxAge time.Duration) {
+	s.mu.Lock("SetLimits")
+	defer s.mu.Unlock()
+
+	s.maxOps, s.maxAge = maxOps, maxAge
+}
+
+// trimLocked drops finished operations older than maxAge and, over maxOps, the oldest down to a tenth below the
+// cap so the sort is amortised. Unfinished operations are never dropped.
+func (s *Store) trimLocked() {
+	now := s.now()
+
+	if now.Sub(s.lastSweep) >= sweepEvery {
+		s.lastSweep = now
+
+		for n, op := range s.ops {
+			if op.GetDone() && now.Sub(s.at[n]) > s.maxAge {
+				s.dropLocked(n)
+			}
+		}
+	}
+
+	if len(s.ops) <= s.maxOps {
+		return
+	}
+
+	done := make([]string, 0, len(s.ops))
+
+	for n, op := range s.ops {
+		if op.GetDone() {
+			done = append(done, n)
+		}
+	}
+
+	slices.SortFunc(done, func(a, b string) int {
+		if c := s.at[a].Compare(s.at[b]); c != 0 {
+			return c
+		}
+
+		return strings.Compare(a, b)
+	})
+
+	for _, n := range done[:min(len(done), len(s.ops)-s.maxOps+s.maxOps/keepRatio)] {
+		s.dropLocked(n)
+	}
+}
+
+func (s *Store) dropLocked(name string) {
+	delete(s.ops, name)
+	delete(s.at, name)
 }
 
 // Done builds a successfully finished operation.
@@ -64,6 +145,8 @@ func (s *Store) Put(op *longrunningpb.Operation) *longrunningpb.Operation {
 	defer s.mu.Unlock()
 
 	s.ops[op.GetName()] = clone(op)
+	s.at[op.GetName()] = s.now()
+	s.trimLocked()
 
 	return clone(op)
 }
@@ -100,6 +183,7 @@ func (s *Store) Reset() {
 	defer s.mu.Unlock()
 
 	s.ops = make(map[string]*longrunningpb.Operation)
+	s.at = make(map[string]time.Time)
 }
 
 // Snapshot serialises every operation as protojson.
@@ -134,7 +218,13 @@ func (s *Store) Restore(snap map[string]jsontext.Value) error {
 	s.mu.Lock("Restore")
 	defer s.mu.Unlock()
 
-	s.ops = ops
+	s.ops, s.at = ops, make(map[string]time.Time, len(ops))
+
+	for n := range ops {
+		s.at[n] = s.now()
+	}
+
+	s.trimLocked()
 
 	return nil
 }
@@ -216,7 +306,7 @@ func (s *Store) DeleteOperation(_ context.Context, in *longrunningpb.DeleteOpera
 		return nil, notFound(in.GetName())
 	}
 
-	delete(s.ops, in.GetName())
+	s.dropLocked(in.GetName())
 
 	return &emptypb.Empty{}, nil
 }
