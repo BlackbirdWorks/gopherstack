@@ -45,6 +45,14 @@ func NewInMemoryBackend() *InMemoryBackend {
 	}
 }
 
+// SetClock replaces the backend clock; snapshot provisioning and retention follow it.
+func (b *InMemoryBackend) SetClock(now func() time.Time) {
+	b.mu.Lock("SetClock")
+	defer b.mu.Unlock()
+
+	b.now = now
+}
+
 // Reset drops all state.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")

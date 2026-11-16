@@ -4,6 +4,7 @@ import (
 	"encoding/json/v2"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -12,6 +13,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/azureappconfig"
 )
+
+const snapshotSettle = 3 * time.Second
 
 const (
 	acPxBase = "/dashboard/api/v1/azure/appconfig/stores/store1"
@@ -22,7 +25,10 @@ const (
 func newAppConfigEnv(t *testing.T) (*dashboard.DashboardHandler, string) {
 	t.Helper()
 
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	b := azureappconfig.NewInMemoryBackend()
+	b.SetClock(func() time.Time { return now })
+
 	_, err := b.PutStore("store1")
 	require.NoError(t, err)
 
@@ -47,6 +53,8 @@ func newAppConfigEnv(t *testing.T) (*dashboard.DashboardHandler, string) {
 		Filters: []azureappconfig.Filter{{Key: "app/*"}}, Composition: "key",
 	})
 	require.NoError(t, err)
+
+	now = now.Add(snapshotSettle)
 
 	keys, err := b.AccessKeys("store1")
 	require.NoError(t, err)
