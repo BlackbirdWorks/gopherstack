@@ -281,7 +281,8 @@ func (g *Group) Close() {
 	}
 
 	g.closed = true
-	nodes := append([]*node(nil), g.nodes...)
+	nodes := g.nodes
+	g.nodes = nil
 	g.mu.Unlock()
 
 	ctx, cancel := context.WithTimeout(context.Background(), stopTimeout)

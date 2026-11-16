@@ -119,7 +119,7 @@ func (r *userRules) apply(tok string) error {
 	case '~', '%':
 		return r.addKey(tok)
 	case '+', '-':
-		r.addCommand(tok)
+		return r.addCommand(tok)
 	default:
 		return fmt.Errorf("%w: unrecognized access rule %q", ErrInvalidSettings, tok)
 	}
@@ -192,18 +192,31 @@ func (r *userRules) addKey(tok string) error {
 	return nil
 }
 
-func (r *userRules) addCommand(tok string) {
+func (r *userRules) addCommand(tok string) error {
 	allow := tok[0] == '+'
 	body := strings.ToLower(tok[1:])
 
 	if cat, ok := strings.CutPrefix(body, "@"); ok {
+		if !knownCategory(cat) {
+			return fmt.Errorf("%w: unsupported ACL category %q", ErrInvalidSettings, tok)
+		}
+
 		r.rules = append(r.rules, aclRule{cat: cat, allow: allow})
 
-		return
+		return nil
 	}
 
 	cmd, sub, _ := strings.Cut(body, "|")
 	r.rules = append(r.rules, aclRule{cmd: cmd, sub: sub, allow: allow})
+
+	return nil
+}
+
+// ValidateAccessString reports whether SetUserAccess can enforce the access string.
+func ValidateAccessString(s string) error {
+	_, err := parseAccessString(s)
+
+	return err
 }
 
 func (r *userRules) commandAllowed(cmd string, args []string, info cmdInfo) bool {
@@ -292,9 +305,11 @@ func (g *aclGuard) login(p *server.Peer, user string) {
 }
 
 const (
-	wrongPass    = "WRONGPASS invalid username-password pair or user is disabled."
-	authWithUser = 2
-	escapeLen    = 2
+	noAuth        = "NOAUTH Authentication required."
+	wrongPass     = "WRONGPASS invalid username-password pair or user is disabled."
+	authWithUser  = 2
+	escapeLen     = 2
+	sortLimitArgs = 2
 )
 
 // credentials extracts the AUTH/HELLO credentials of a command.
@@ -327,7 +342,7 @@ func (g *aclGuard) hook(p *server.Peer, cmd string, args ...string) bool {
 		return g.authenticate(p, user, pass)
 	}
 
-	if cmd == "HELLO" || cmd == "QUIT" {
+	if cmd == "QUIT" {
 		return false
 	}
 
@@ -338,8 +353,18 @@ func (g *aclGuard) hook(p *server.Peer, cmd string, args ...string) bool {
 		return false
 	}
 
+	if !r.on {
+		p.WriteError(noAuth)
+
+		return true
+	}
+
+	if cmd == "HELLO" {
+		return false
+	}
+
 	if msg := r.denial(user, cmd, args); msg != "" {
-		p.WriteError("NOPERM " + msg)
+		p.WriteError(msg)
 
 		return true
 	}
@@ -369,25 +394,56 @@ func (r *userRules) denial(user, cmd string, args []string) string {
 	info := commandTable()[strings.ToLower(cmd)]
 
 	if !r.commandAllowed(cmd, args, info) {
-		return fmt.Sprintf("User %s has no permissions to run the '%s' command", user, strings.ToLower(cmd))
+		return fmt.Sprintf("NOPERM User %s has no permissions to run the '%s' command", user, strings.ToLower(cmd))
 	}
 
 	if isScripting(cmd) && !r.scriptSafe() {
-		return fmt.Sprintf("User %s has no permissions to run the '%s' command: scripts run unchecked", user,
+		return fmt.Sprintf("NOPERM User %s has no permissions to run the '%s' command: scripts run unchecked", user,
 			strings.ToLower(cmd))
+	}
+
+	if msg := r.sortDenial(cmd, args); msg != "" {
+		return msg
 	}
 
 	keys, write := aclKeys(info, cmd, args)
 
 	for _, k := range keys {
 		if !r.keyAllowed(k, write) {
-			return fmt.Sprintf("No permissions to access a key (%s)", user)
+			return fmt.Sprintf("NOPERM No permissions to access a key (%s)", user)
 		}
 	}
 
 	for _, ch := range channelsOf(cmd, args) {
 		if !r.channelAllowed(ch.name, ch.literal) {
-			return fmt.Sprintf("User %s has no permissions to access the '%s' channel", user, ch.name)
+			return fmt.Sprintf("NOPERM User %s has no permissions to access the '%s' channel", user, ch.name)
+		}
+	}
+
+	return ""
+}
+
+// sortDenial refuses SORT BY/GET patterns for users without full key access: the patterns name keys that
+// cannot be checked up front, and Redis rejects them the same way.
+func (r *userRules) sortDenial(cmd string, args []string) string {
+	if r.allKeys || (cmd != cmdSort && cmd != cmdSortRO) {
+		return ""
+	}
+
+	for i := 1; i < len(args); i++ {
+		switch strings.ToUpper(args[i]) {
+		case "LIMIT":
+			i += sortLimitArgs
+		case "STORE":
+			i++
+		case "BY":
+			if i+1 < len(args) && strings.Contains(args[i+1], "*") {
+				return "ERR BY option of SORT denied due to insufficient ACL permissions."
+			}
+
+			i++
+		case "GET":
+			return "ERR GET option of SORT denied due to insufficient ACL permissions."
 		}
 	}
 

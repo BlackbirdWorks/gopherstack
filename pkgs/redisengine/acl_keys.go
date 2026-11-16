@@ -6,6 +6,8 @@ import (
 )
 
 const (
+	cmdSort      = "SORT"
+	cmdSortRO    = "SORT_RO"
 	migrateFixed = 5
 	keysFrom     = 2
 )
@@ -39,7 +41,7 @@ func aclKeys(info cmdInfo, cmd string, args []string) ([]string, bool) {
 		return first(args, twoKeys), false
 	case "TOUCH":
 		return args, false
-	case "SORT", "SORT_RO", "GEORADIUS", "GEORADIUSBYMEMBER":
+	case cmdSort, cmdSortRO, "GEORADIUS", "GEORADIUSBYMEMBER":
 		return storeKeys(cmd, args), cmd != "SORT_RO"
 	case "MEMORY":
 		if len(args) > 1 && strings.EqualFold(args[0], "USAGE") {
@@ -75,7 +77,7 @@ func storeKeys(cmd string, args []string) []string {
 	keys := first(args, 1)
 
 	for i := 1; i+1 < len(args); i++ {
-		if strings.EqualFold(args[i], "STORE") || (cmd != "SORT" && strings.EqualFold(args[i], "STOREDIST")) {
+		if strings.EqualFold(args[i], "STORE") || (cmd != cmdSort && strings.EqualFold(args[i], "STOREDIST")) {
 			keys = append(keys, args[i+1])
 		}
 	}

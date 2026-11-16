@@ -31,12 +31,16 @@ type Cmd struct {
 type Fake struct {
 	// BeforeCreate, when set, runs before each container start; tests block it to hold an operation mid-flight.
 	BeforeCreate func()
-	tlsSeen      map[string]bool
-	roles        map[string]string
-	specs        []container.Spec
-	removed      []string
-	cmds         []Cmd
-	mu           sync.Mutex
+	// BeforeRemove, when set, runs before each container removal.
+	BeforeRemove func(id string)
+	// CreateErr, when set, fails the container start whose zero-based index it is given with the returned error.
+	CreateErr func(index int) error
+	tlsSeen   map[string]bool
+	roles     map[string]string
+	specs     []container.Spec
+	removed   []string
+	cmds      []Cmd
+	mu        sync.Mutex
 }
 
 // New returns a Fake and an Engine wired to it.
@@ -76,6 +80,12 @@ func (f *Fake) CreateAndStart(_ context.Context, spec container.Spec) (string, e
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	if f.CreateErr != nil {
+		if err := f.CreateErr(len(f.specs)); err != nil {
+			return "", err
+		}
+	}
+
 	f.specs = append(f.specs, spec)
 
 	if f.tlsSeen == nil {
@@ -100,6 +110,10 @@ func (f *Fake) CreateAndStart(_ context.Context, spec container.Spec) (string, e
 
 // StopAndRemove implements redisdocker.Runtime.
 func (f *Fake) StopAndRemove(_ context.Context, id string) error {
+	if hook := f.BeforeRemove; hook != nil {
+		hook(id)
+	}
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 

@@ -218,10 +218,19 @@ func (g *Group) SetReplicas(ctx context.Context, shard, replicas int) error {
 }
 
 func (g *Group) addReplicas(ctx context.Context, nodes []*node, count int) error {
+	var fresh []*node
+
+	err := g.growReplicas(ctx, nodes, count, &fresh)
+	if err != nil {
+		g.rollbackReplicas(ctx, fresh)
+	}
+
+	return err
+}
+
+func (g *Group) growReplicas(ctx context.Context, nodes []*node, count int, started *[]*node) error {
 	primary := nodes[0]
 	next := nodes[len(nodes)-1].replica + 1
-
-	var fresh []*node
 
 	for i := range count {
 		n := &node{shard: primary.shard, replica: next + i}
@@ -229,8 +238,10 @@ func (g *Group) addReplicas(ctx context.Context, nodes []*node, count int) error
 			return err
 		}
 
-		fresh = append(fresh, n)
+		*started = append(*started, n)
 	}
+
+	fresh := *started
 
 	for _, n := range fresh {
 		if err := g.awaitNode(ctx, n); err != nil {
@@ -296,27 +307,65 @@ func (g *Group) joinReplicas(ctx context.Context, primary *node, fresh []*node) 
 
 func (g *Group) removeReplicas(ctx context.Context, drop []*node) error {
 	for _, n := range drop {
+		if g.isClosed() {
+			return ErrGroupClosed
+		}
+
 		if g.spec.ClusterMode {
 			if err := g.forget(ctx, n); err != nil {
 				return err
 			}
 		}
 
-		g.mu.Lock()
-		g.nodes = slices.DeleteFunc(g.nodes, func(x *node) bool { return x == n })
-		g.mu.Unlock()
-
-		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stopTimeout)
-		if err := g.engine.cfg.Runtime.StopAndRemove(sctx, n.containerID); err != nil {
-			logger.Load(sctx).WarnContext(sctx, "redis group: container removal failed",
-				"container", n.containerID, "error", err)
-		}
-
-		cancel()
-		portalloc.ReleaseTo(g.engine.cfg.Ports, n.port)
+		g.removeNode(ctx, n)
 	}
 
 	return nil
+}
+
+func (g *Group) isClosed() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	return g.closed
+}
+
+// removeNode stops n and frees its port, but only when it still belongs to the group: Close takes ownership
+// of every node it finds, so a node it already claimed is never released twice.
+func (g *Group) removeNode(ctx context.Context, n *node) {
+	g.mu.Lock()
+	before := len(g.nodes)
+	g.nodes = slices.DeleteFunc(g.nodes, func(x *node) bool { return x == n })
+	owned := len(g.nodes) != before
+	g.mu.Unlock()
+
+	if !owned {
+		return
+	}
+
+	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stopTimeout)
+	defer cancel()
+
+	if err := g.engine.cfg.Runtime.StopAndRemove(sctx, n.containerID); err != nil {
+		logger.Load(sctx).WarnContext(sctx, "redis group: container removal failed",
+			"container", n.containerID, "error", err)
+	}
+
+	portalloc.ReleaseTo(g.engine.cfg.Ports, n.port)
+}
+
+// rollbackReplicas discards replicas of a failed grow so the group matches its spec.
+func (g *Group) rollbackReplicas(ctx context.Context, fresh []*node) {
+	for _, n := range fresh {
+		if g.spec.ClusterMode && n.ip != "" {
+			fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stopTimeout)
+			_ = g.forget(fctx, n)
+
+			cancel()
+		}
+
+		g.removeNode(ctx, n)
+	}
 }
 
 // forget makes every remaining node drop n from the cluster view.

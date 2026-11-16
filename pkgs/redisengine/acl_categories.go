@@ -6,7 +6,10 @@ import (
 	"sync"
 )
 
-const categoryAll = "all"
+const (
+	categoryAll   = "all"
+	categoryWrite = "write"
+)
 
 // categories lists the commands of each ACL category that cannot be derived from the COMMAND table.
 var categories = sync.OnceValue(func() map[string][]string { //nolint:gochecknoglobals // immutable catalog
@@ -38,13 +41,29 @@ var prefixCategories = map[string]string{ //nolint:gochecknoglobals // immutable
 	"hash": "h", "sortedset": "z", "stream": "x", "hyperloglog": "pf", "geo": "geo",
 }
 
+// knownCategory reports whether cat is an ACL category inCategory can evaluate; @fast and @slow need the
+// command catalog's per-command categories, which the COMMAND table lacks, so they are rejected.
+func knownCategory(cat string) bool {
+	if cat == categoryAll || cat == categoryWrite || cat == "read" {
+		return true
+	}
+
+	if _, ok := prefixCategories[cat]; ok {
+		return true
+	}
+
+	_, ok := categories()[cat]
+
+	return ok
+}
+
 // inCategory reports whether cmd (lower-case) belongs to the ACL category cat. @read and @write follow the
-// command's key access flags; @fast and @slow are not modelled and match nothing.
+// command's key access flags.
 func inCategory(cat, cmd string, info cmdInfo) bool {
 	switch cat {
 	case categoryAll:
 		return true
-	case "write":
+	case categoryWrite:
 		return info.write
 	case "read":
 		return !info.write && info.first > 0

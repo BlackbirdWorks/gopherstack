@@ -2,7 +2,9 @@ package redisdocker_test
 
 import (
 	"context"
+	"errors"
 	"strconv"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -178,4 +180,105 @@ func TestTopologyChangesAreSerialised(t *testing.T) {
 	close(release)
 	require.NoError(t, <-done)
 	assert.Len(t, g.Endpoints()[0], 2)
+}
+
+var errBoom = errors.New("boom")
+
+func TestCloseDuringShrinkReleasesEachNodeOnce(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		cluster bool
+	}{
+		{name: "cluster", cluster: true},
+		{name: "standalone"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			eng, fk := newTestEngine(t)
+
+			g, err := eng.Launch(t.Context(), redisdocker.Spec{
+				ClusterMode: tt.cluster, Shards: []redisdocker.ShardSpec{{Replicas: 2}},
+			})
+			require.NoError(t, err)
+
+			t.Cleanup(g.Close)
+
+			entered, release := make(chan struct{}), make(chan struct{})
+
+			var once sync.Once
+
+			fk.BeforeRemove = func(id string) {
+				if id != "c2" {
+					return
+				}
+
+				once.Do(func() {
+					close(entered)
+					<-release
+				})
+			}
+
+			done := make(chan error, 1)
+
+			go func() { done <- g.SetReplicas(t.Context(), 0, 0) }()
+
+			<-entered
+			g.Close()
+			close(release)
+
+			<-done
+
+			removed := fk.Removed()
+			assert.ElementsMatch(t, []string{"c1", "c2", "c3"}, removed, "every container is removed exactly once")
+		})
+	}
+}
+
+func TestSetReplicasGrowFailureLeavesNoStrayNodes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		cluster bool
+	}{
+		{name: "cluster", cluster: true},
+		{name: "standalone"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			eng, fk := newTestEngine(t)
+
+			g, err := eng.Launch(t.Context(), redisdocker.Spec{
+				ClusterMode: tt.cluster, Shards: []redisdocker.ShardSpec{{}},
+			})
+			require.NoError(t, err)
+
+			t.Cleanup(g.Close)
+
+			fk.CreateErr = func(index int) error {
+				if index == 2 {
+					return errBoom
+				}
+
+				return nil
+			}
+
+			require.ErrorIs(t, g.SetReplicas(t.Context(), 0, 2), errBoom)
+
+			assert.Len(t, g.Endpoints()[0], 1, "the replica that did start is rolled back")
+			assert.Equal(t, []string{"c2"}, fk.Removed())
+
+			fk.CreateErr = nil
+			require.NoError(t, g.SetReplicas(t.Context(), 0, 1))
+			assert.Len(t, g.Endpoints()[0], 2)
+		})
+	}
 }

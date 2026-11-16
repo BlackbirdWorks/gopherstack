@@ -125,13 +125,27 @@ func (b *InMemoryBackend) syncAuthLocked(c *Cluster) {
 		c.authUsers = append(c.authUsers, u.Name)
 		access = append(
 			access,
-			redisengine.UserAccess{Name: u.Name, Password: u.Passwords[0], AccessString: u.AccessString},
+			redisengine.UserAccess{Name: u.Name, Password: u.Passwords[0], AccessString: enforceableAccess(c, u)},
 		)
 	}
 
 	if err := c.engine.SetUserAccess(access); err != nil {
 		logger.Load(context.Background()).Warn("memorydb: access string not enforced", "cluster", c.Name, "error", err)
 	}
+}
+
+// enforceableAccess returns the user's access string, or "off" when the engine cannot enforce it so the user is
+// locked out rather than silently unrestricted.
+func enforceableAccess(c *Cluster, u *User) string {
+	err := redisengine.ValidateAccessString(u.AccessString)
+	if err == nil {
+		return u.AccessString
+	}
+
+	logger.Load(context.Background()).Warn("memorydb: access string not enforceable; user disabled",
+		"cluster", c.Name, "user", u.Name, "error", err)
+
+	return "off"
 }
 
 // dataEndpoint returns the real server address for the cluster, or nil when none is running.
