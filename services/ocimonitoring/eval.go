@@ -125,22 +125,34 @@ func (b *InMemoryBackend) step(a *Alarm, hits []firing, prev []map[string]string
 		return b.transition(a, statusOK, noticeTypeOK, now, nil, prev)
 	}
 
-	out := b.streamChanges(a, hits, prev, now)
-
-	if repeat, ok := parseISODuration(
-		a.RepeatNotification,
-	); ok && a.LastNotified != nil &&
-		now.Sub(*a.LastNotified) >= repeat {
-		return append(out, b.notices(a, noticeTypeRepeat, now, hits, prev)...)
+	due := false
+	if repeat, ok := parseISODuration(a.RepeatNotification); ok && a.LastNotified != nil {
+		due = now.Sub(*a.LastNotified) >= repeat
 	}
 
-	return out
+	out, started := b.streamChanges(a, hits, prev, now)
+	if !due {
+		return out
+	}
+
+	rest := hits
+	if len(started) > 0 {
+		rest = slices.DeleteFunc(slices.Clone(hits), func(h firing) bool { return started[streamID(h.dims)] })
+	}
+
+	if len(rest) == 0 {
+		return out
+	}
+
+	return append(out, b.notices(a, noticeTypeRepeat, now, rest, prev)...)
 }
 
 // streamChanges sends split messages for streams that start or stop breaching while the alarm keeps firing.
-func (b *InMemoryBackend) streamChanges(a *Alarm, hits []firing, prev []map[string]string, now time.Time) []notice {
+func (b *InMemoryBackend) streamChanges(
+	a *Alarm, hits []firing, prev []map[string]string, now time.Time,
+) ([]notice, map[string]bool) {
 	if a.PerDimension == nil || !*a.PerDimension {
-		return nil
+		return nil, nil
 	}
 
 	was := map[string]bool{}
@@ -155,9 +167,12 @@ func (b *InMemoryBackend) streamChanges(a *Alarm, hits []firing, prev []map[stri
 
 	var started []firing
 
+	startedIDs := map[string]bool{}
+
 	for _, h := range hits {
 		if !was[streamID(h.dims)] {
 			started = append(started, h)
+			startedIDs[streamID(h.dims)] = true
 		}
 	}
 
@@ -179,7 +194,7 @@ func (b *InMemoryBackend) streamChanges(a *Alarm, hits []firing, prev []map[stri
 		out = append(out, b.notices(a, noticeTypeOK, now, nil, stopped)...)
 	}
 
-	return out
+	return out, startedIDs
 }
 
 func (b *InMemoryBackend) transition(

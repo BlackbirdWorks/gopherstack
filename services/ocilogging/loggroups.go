@@ -163,6 +163,8 @@ func (b *InMemoryBackend) ListLogGroupsIn(
 		return page.Page[LogGroupWire]{}, errMissing("compartmentId is required")
 	}
 
+	selected := b.compartmentFilter(compartment, subtree)
+
 	b.mu.Lock("ListLogGroups")
 	defer b.mu.Unlock()
 
@@ -171,7 +173,7 @@ func (b *InMemoryBackend) ListLogGroupsIn(
 	var all []*LogGroup
 
 	for _, g := range b.groups {
-		if b.inCompartment(g.CompartmentID, compartment, subtree) && (name == "" || g.Name == name) {
+		if selected(g.CompartmentID) && (name == "" || g.Name == name) {
 			all = append(all, g)
 		}
 	}

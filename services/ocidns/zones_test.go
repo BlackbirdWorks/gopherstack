@@ -565,6 +565,7 @@ func TestZoneUnicodeNameBecomesPunycode(t *testing.T) {
 		{"bücher.example", "bücher.example", "xn--bcher-kva.example", true},
 		{"ünï.example.", "XN--N-NGA1B.example", "xn--n-nga1b.example", true},
 		{"ascii.example", "ascii.example", "ascii.example", true},
+		{"STRAßE.Example.", "straße.example.", "xn--strae-oqa.example", true},
 		{"bad name.é.example", "", "", false},
 	}
 

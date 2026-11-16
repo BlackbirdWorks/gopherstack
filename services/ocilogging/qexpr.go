@@ -68,20 +68,24 @@ func (e binExpr) value(r *row) (any, bool) {
 		return nil, false
 	}
 
+	var out float64
+
 	switch e.op {
 	case '+':
-		return l + rv, true
+		out = l + rv
 	case '-':
-		return l - rv, true
+		out = l - rv
 	case '*':
-		return l * rv, true
+		out = l * rv
+	default:
+		if rv == 0 {
+			return nil, false
+		}
+
+		out = l / rv
 	}
 
-	if rv == 0 {
-		return nil, false
-	}
-
-	return l / rv, true
+	return out, !math.IsInf(out, 0)
 }
 
 func numVal(e vexpr, r *row) (float64, bool) {

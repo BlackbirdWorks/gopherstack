@@ -1,7 +1,9 @@
 package ocimonitoring_test
 
 import (
+	"context"
 	"encoding/json/v2"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	oci "github.com/blackbirdworks/gopherstack/services/ocimonitoring"
 )
 
 type alarmMsg struct {
@@ -21,6 +24,50 @@ type alarmMsg struct {
 		Dimensions         []map[string]string `json:"dimensions"`
 		TotalMetricsFiring int                 `json:"totalMetricsFiring"`
 	} `json:"alarmMetaData"`
+}
+
+type recorder struct {
+	bodies []string
+	mu     sync.Mutex
+}
+
+func (r *recorder) all() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return append([]string(nil), r.bodies...)
+}
+
+// recordMessages delivers alarm messages straight to the test: delivery runs inside the request that swept the
+// alarms, so assertions never wait on a network hop.
+func recordMessages(e *env) *recorder {
+	r := &recorder{}
+
+	e.backend.SetPublisher(func(_ context.Context, _, _, body string, _ bool) error {
+		r.mu.Lock()
+		r.bodies = append(r.bodies, body)
+		r.mu.Unlock()
+
+		return nil
+	})
+	e.backend.SetTopicChecker(func(string) bool { return true })
+
+	return r
+}
+
+func decodeMsgs(t *testing.T, raw []string) []alarmMsg {
+	t.Helper()
+
+	out := make([]alarmMsg, 0, len(raw))
+
+	for _, b := range raw {
+		var m alarmMsg
+
+		require.NoError(t, json.Unmarshal([]byte(b), &m, jsonx.V1()))
+		out = append(out, m)
+	}
+
+	return out
 }
 
 func TestAlarmMessagesPerMetricStream(t *testing.T) {
@@ -43,8 +90,8 @@ func TestAlarmMessagesPerMetricStream(t *testing.T) {
 			t.Parallel()
 
 			e := newEnv(t, envOpts{})
-			o := newONS(t, e)
-			a := e.mkAlarm(t, o.topicID, func(d *monitoring.CreateAlarmDetails) {
+			rec := recordMessages(e)
+			a := e.mkAlarm(t, topicOCID, func(d *monitoring.CreateAlarmDetails) {
 				d.IsNotificationsPerMetricDimensionEnabled = new(tt.perStream)
 			})
 
@@ -52,13 +99,13 @@ func TestAlarmMessagesPerMetricStream(t *testing.T) {
 			e.post(t, ns, metric, map[string]string{"host": "b"}, pt{0, 96, 0})
 			assert.Equal(t, monitoring.AlarmStatusSummaryStatusFiring, e.status(t))
 
+			msgs := decodeMsgs(t, rec.all())
+			require.Len(t, msgs, tt.messages)
+
 			keys := map[string]bool{}
 			hosts := map[string]bool{}
 
-			for range tt.messages {
-				var m alarmMsg
-
-				require.NoError(t, json.Unmarshal([]byte(o.sink.next(t).body), &m, jsonx.V1()))
+			for _, m := range msgs {
 				assert.Equal(t, "OK_TO_FIRING", m.Type)
 				require.Len(t, m.AlarmMetaData, 1)
 				assert.Equal(t, tt.kind, m.NotificationType)
@@ -71,7 +118,6 @@ func TestAlarmMessagesPerMetricStream(t *testing.T) {
 				}
 			}
 
-			assert.True(t, o.sink.none(t))
 			assert.Len(t, keys, tt.messages, "one dedupe key per message")
 			assert.Equal(t, tt.hosts, hosts)
 
@@ -82,15 +128,51 @@ func TestAlarmMessagesPerMetricStream(t *testing.T) {
 			e.clock.Advance(5 * time.Minute)
 			assert.Equal(t, monitoring.AlarmStatusSummaryStatusOk, e.status(t))
 
-			for range tt.messages {
-				var m alarmMsg
+			msgs = decodeMsgs(t, rec.all()[tt.messages:])
+			require.Len(t, msgs, tt.messages)
 
-				require.NoError(t, json.Unmarshal([]byte(o.sink.next(t).body), &m, jsonx.V1()))
+			for _, m := range msgs {
 				assert.Equal(t, "FIRING_TO_OK", m.Type)
 				assert.Equal(t, 0, m.AlarmMetaData[0].TotalMetricsFiring)
 			}
-
-			assert.True(t, o.sink.none(t))
 		})
 	}
+}
+
+func TestSplitNewStreamAtRepeatIsNotDuplicated(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	rec := recordMessages(e)
+	e.mkAlarm(t, topicOCID, func(d *monitoring.CreateAlarmDetails) {
+		d.IsNotificationsPerMetricDimensionEnabled = new(true)
+		d.RepeatNotificationDuration = new("PT2M")
+		d.Query = new(metric + "[3m].max() > 80")
+	})
+
+	e.post(t, ns, metric, map[string]string{"host": "a"}, pt{0, 95, 0})
+	e.status(t)
+	require.Len(t, rec.all(), 1)
+
+	e.clock.Advance(2 * time.Minute)
+
+	now, val := e.clock.Now(), 96.0
+	_, err := e.backend.PostMetricData(oci.PostMetricDataIn{MetricData: []oci.MetricDataIn{{
+		Namespace: ns, CompartmentID: testCompartment, Name: metric, Dimensions: map[string]string{"host": "b"},
+		Datapoints: []oci.DatapointIn{{Timestamp: &now, Value: &val}},
+	}}})
+	require.NoError(t, err)
+	e.status(t)
+
+	perHost := map[string][]string{}
+
+	for _, m := range decodeMsgs(t, rec.all()[1:]) {
+		require.Len(t, m.AlarmMetaData, 1)
+
+		for _, d := range m.AlarmMetaData[0].Dimensions {
+			perHost[d["host"]] = append(perHost[d["host"]], m.Type)
+		}
+	}
+
+	assert.Equal(t, map[string][]string{"a": {"REPEAT"}, "b": {"OK_TO_FIRING"}}, perHost)
 }

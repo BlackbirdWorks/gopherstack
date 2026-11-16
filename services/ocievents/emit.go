@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // Delivery statuses.
@@ -157,7 +158,7 @@ func (b *InMemoryBackend) Emit(ev Event) {
 
 	for _, j := range jobs {
 		if sink != nil {
-			sink(RuleExecution{
+			notifyRuleSink(sink, RuleExecution{
 				Time: j.rec.Time, RuleID: j.ruleID, CompartmentID: j.compartment, EventID: id, Source: j.source,
 				Target: j.rec.TargetID,
 			})
@@ -184,6 +185,17 @@ func (b *InMemoryBackend) clockNow() time.Time {
 	defer b.mu.RUnlock()
 
 	return b.nowUTC()
+}
+
+// notifyRuleSink hands x to the sink; a panicking sink must not stop the event from being delivered.
+func notifyRuleSink(sink func(RuleExecution), x RuleExecution) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Load(context.Background()).Warn("ocievents: rule execution sink panicked", "panic", r)
+		}
+	}()
+
+	sink(x)
 }
 
 func (b *InMemoryBackend) plan(ev Event, id string, raw []byte, generic map[string]any) ([]job, func(func())) {

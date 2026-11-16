@@ -59,6 +59,11 @@ func (b *InMemoryBackend) steeredAnswers(p *SteeringPolicy, q steerQuery) []map[
 		pick = randIntN
 	}
 
+	for i := len(answers) - 1; i > 0; i-- {
+		j := min(max(pick(i+1), 0), i)
+		answers[i], answers[j] = answers[j], answers[i]
+	}
+
 	for _, r := range p.Rules {
 		answers = applySteerRule(r, answers, q, pick)
 	}
@@ -252,7 +257,7 @@ func steerWeighted(
 			total += it.w
 		}
 
-		r := pick(total)
+		r := min(max(pick(total), 0), total-1)
 		for i, it := range pool {
 			if r < it.w {
 				out = append(out, it.a)

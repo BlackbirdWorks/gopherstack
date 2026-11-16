@@ -247,6 +247,8 @@ func (b *InMemoryBackend) ListAgentConfigs(f AgentFilter, o ListOpts) (page.Page
 		return page.Page[agentSummaryWire]{}, errMissing("compartmentId is required")
 	}
 
+	selected := b.compartmentFilter(f.Compartment, f.Subtree)
+
 	b.mu.Lock("ListAgentConfigs")
 	defer b.mu.Unlock()
 
@@ -255,7 +257,7 @@ func (b *InMemoryBackend) ListAgentConfigs(f AgentFilter, o ListOpts) (page.Page
 	var all []*AgentConfig
 
 	for _, a := range b.agents {
-		if !b.inCompartment(a.CompartmentID, f.Compartment, f.Subtree) || (f.Name != "" && a.Name != f.Name) ||
+		if !selected(a.CompartmentID) || (f.Name != "" && a.Name != f.Name) ||
 			(f.State != "" && !strs.Equal(a.State, f.State)) ||
 			(f.LogID != "" && !bytes.Contains(a.ServiceConfig, []byte(`"`+f.LogID+`"`))) ||
 			(f.GroupID != "" && !strs.ContainsFold(a.Groups, f.GroupID)) {

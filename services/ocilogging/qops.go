@@ -1,7 +1,9 @@
 package ocilogging
 
 import (
+	"math"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -251,21 +253,14 @@ func (o qop) runDedup(rows []*row) []*row {
 	seen := map[string]bool{}
 
 	return slices.DeleteFunc(rows, func(r *row) bool {
-		var sb strings.Builder
+		vals := make([]any, len(o.cols))
+		oks := make([]bool, len(o.cols))
 
-		for _, c := range o.cols {
-			v, ok := c.e.value(r)
-			if ok {
-				sb.WriteString("1")
-				sb.WriteString(scalarString(v))
-			} else {
-				sb.WriteString("0")
-			}
-
-			sb.WriteByte(0)
+		for i, c := range o.cols {
+			vals[i], oks[i] = c.e.value(r)
 		}
 
-		k := sb.String()
+		k := groupKey(vals, oks)
 		if seen[k] {
 			return true
 		}
@@ -325,14 +320,22 @@ func (s *aggState) result(fn string) (any, bool) {
 
 	switch fn {
 	case "sum":
-		return s.sum, true
+		return finiteOrNone(s.sum)
 	case "avg":
-		return s.sum / float64(s.n), true
+		return finiteOrNone(s.sum / float64(s.n))
 	case "min":
 		return s.min, true
 	}
 
 	return s.max, true
+}
+
+func finiteOrNone(f float64) (any, bool) {
+	if math.IsInf(f, 0) || math.IsNaN(f) {
+		return nil, false
+	}
+
+	return f, true
 }
 
 type group struct {
@@ -347,13 +350,14 @@ func groupKey(vals []any, oks []bool) string {
 
 	for i, v := range vals {
 		if oks[i] {
+			str := scalarString(v)
 			sb.WriteString("1")
-			sb.WriteString(scalarString(v))
+			sb.WriteString(strconv.Itoa(len(str)))
+			sb.WriteByte(':')
+			sb.WriteString(str)
 		} else {
 			sb.WriteString("0")
 		}
-
-		sb.WriteByte(0)
 	}
 
 	return sb.String()

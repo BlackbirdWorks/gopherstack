@@ -72,9 +72,37 @@ func (b *InMemoryBackend) SetCompartmentTree(within func(id, ancestor string) bo
 	b.mu.Unlock()
 }
 
-// inCompartment reports whether a resource in have is selected by a compartmentId filter; the caller holds the lock.
-func (b *InMemoryBackend) inCompartment(have, want string, subtree bool) bool {
-	return have == want || subtree && b.within != nil && b.within(have, want)
+// compartmentFilter returns the predicate behind a compartmentId filter. With subtree set it asks the compartment tree
+// about every stored compartment before the caller takes the write lock, so no foreign lock is taken under b.mu.
+func (b *InMemoryBackend) compartmentFilter(want string, subtree bool) func(have string) bool {
+	if !subtree {
+		return func(have string) bool { return have == want }
+	}
+
+	b.mu.RLock("compartmentFilter")
+
+	within := b.within
+	seen := map[string]struct{}{}
+
+	for _, g := range b.groups {
+		seen[g.CompartmentID] = struct{}{}
+	}
+
+	for _, a := range b.agents {
+		seen[a.CompartmentID] = struct{}{}
+	}
+
+	b.mu.RUnlock()
+
+	nested := map[string]bool{}
+
+	if within != nil {
+		for id := range seen {
+			nested[id] = id != want && within(id, want)
+		}
+	}
+
+	return func(have string) bool { return have == want || nested[have] }
 }
 
 // SetTagLookup wires defined-tag validation against a tag namespace source (OCI Identity); nil accepts any namespace.

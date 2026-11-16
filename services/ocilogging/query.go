@@ -4,7 +4,7 @@ import (
 	"cmp"
 	"encoding/json/v2"
 	"fmt"
-	"regexp"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -649,13 +649,30 @@ func scalarString(v any) string {
 	return string(b)
 }
 
+// wildcard matches s against a pattern in which * stands for any run of characters.
 func wildcard(pattern, s string) bool {
 	parts := strings.Split(pattern, "*")
-	for i := range parts {
-		parts[i] = regexp.QuoteMeta(parts[i])
+	if len(parts) == 1 {
+		return pattern == s
 	}
 
-	return regexp.MustCompile("(?s)^" + strings.Join(parts, ".*") + "$").MatchString(s)
+	first, last := parts[0], parts[len(parts)-1]
+	if len(s) < len(first)+len(last) || !strings.HasPrefix(s, first) || !strings.HasSuffix(s, last) {
+		return false
+	}
+
+	rest := s[len(first) : len(s)-len(last)]
+
+	for _, mid := range parts[1 : len(parts)-1] {
+		i := strings.Index(rest, mid)
+		if i < 0 {
+			return false
+		}
+
+		rest = rest[i+len(mid):]
+	}
+
+	return true
 }
 
 func equalVal(v, lit any) bool {
@@ -686,7 +703,7 @@ func toFloat(v any) (float64, bool) {
 	case string:
 		f, err := strconv.ParseFloat(x, 64)
 
-		return f, err == nil
+		return f, err == nil && !math.IsNaN(f) && !math.IsInf(f, 0)
 	}
 
 	return 0, false

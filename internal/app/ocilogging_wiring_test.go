@@ -216,7 +216,9 @@ func TestRuleExecutionLogger(t *testing.T) {
 			now := time.Now()
 			out, _, err := b.SearchLogs(ocilogging.SearchIn{
 				TimeStart: new(now.Add(-time.Hour)), TimeEnd: new(now.Add(time.Hour)),
-				SearchQuery: `search "` + wireCompartment + `/g/ev" | where data.message = 'Rule has matched event'`,
+				SearchQuery: `search "` + wireCompartment + `/g/ev" | where data.message = 'Rule has matched event'` +
+					` and data.ruleId = 'ocid1.eventrule.oc1..rule' and data.eventId = 'e-1'` +
+					` and data.target = 'ocid1.onstopic.oc1..t' and type = '` + eventsLogType + `'`,
 			}, "", 0)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantHits, out.Summary.ResultCount)

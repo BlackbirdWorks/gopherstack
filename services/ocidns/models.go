@@ -123,6 +123,9 @@ type ZoneRevision struct {
 // maxZoneRevisions bounds the earlier versions kept per zone.
 const maxZoneRevisions = 20
 
+// maxArchivedRRSets bounds the rrsets retained across a zone's earlier versions (memory and snapshot size).
+const maxArchivedRRSets = 200000
+
 // archive keeps the current records as an earlier version before they change.
 func (z *Zone) archive() {
 	rev := ZoneRevision{Version: z.Version, Records: make(map[string]*RRSet, len(z.Records))}
@@ -136,6 +139,16 @@ func (z *Zone) archive() {
 	z.History = append(z.History, rev)
 	if len(z.History) > maxZoneRevisions {
 		z.History = slices.Delete(z.History, 0, len(z.History)-maxZoneRevisions)
+	}
+
+	kept := 0
+	for _, r := range z.History {
+		kept += len(r.Records)
+	}
+
+	for kept > maxArchivedRRSets && len(z.History) > 0 {
+		kept -= len(z.History[0].Records)
+		z.History = slices.Delete(z.History, 0, 1)
 	}
 }
 
