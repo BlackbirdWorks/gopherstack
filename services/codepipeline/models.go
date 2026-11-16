@@ -394,6 +394,7 @@ type SourceRevision struct {
 type StartExecutionOptions struct {
 	Variables          map[string]string
 	ClientRequestToken string
+	TriggerType        string
 	SourceRevisions    []SourceRevision
 }
 

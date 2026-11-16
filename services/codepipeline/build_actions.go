@@ -215,6 +215,7 @@ func (b *InMemoryBackend) settleBuild(ctx context.Context, runner CodeBuildRunne
 func (h *Handler) StartWorker(ctx context.Context) error {
 	g := worker.NewGroup(ctx, "codepipeline")
 	g.Ticker(buildPollComponent, buildPollInterval, 0, h.Backend.reconcileBuildActions)
+	g.Ticker(sourcePollComponent, sourcePollInterval, 0, h.Backend.PollSourceChanges)
 
 	go func() {
 		<-ctx.Done()

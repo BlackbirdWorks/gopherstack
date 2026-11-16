@@ -24,10 +24,7 @@ families:
   Sink: {status: ok, note: "Sinks belong to the monitoring account and Region; links to a sink are looked up by sink ARN across accounts."}
   Link: {status: ok, note: "Links belong to the source account and Region; filters are parsed (IN, NOT IN, LIKE, NOT LIKE joined by AND/OR) and must match the link's resource types."}
   SinkPolicy: {status: ok, note: "Statements are filtered by Principal and passed to services/iam EvaluatePolicies with oam:resourcetypes and aws:principalorgid in the condition context."}
-items_still_open:
-  - "SinkPolicyDenied: a policy that does not allow the caller is reported as InvalidParameterException; not published: API_PutSinkPolicy.html and API_CreateLink.html model no access-denied exception and do not say which code a sink-policy denial returns"
-  - "Quotas: one link per source account, Region and sink (ConflictException) is not published: API_CreateLink.html states only the 100,000 and five account limits"
-  - LabelTemplate: without an Organizations directory $AccountName, $AccountEmail and $AccountEmailNoDomain all resolve to the account ID
+items_still_open: []
 gaps: []
 structural_gaps:
   - "No cross-account data plane: linked metrics, log groups and traces are not shared into the monitoring account because the emulated CloudWatch, Logs and X-Ray backends have no cross-account query path."
@@ -43,3 +40,9 @@ Sink and link IDs are UUIDs; ARNs are `arn:aws:oam:<region>:<account>:sink/<id>`
 
 ## Primary-source checks (2026-11-13)
 - oam: API_CreateSink and CloudWatch-Unified-Cross-Account.html confirm one sink per account and Region; API_CreateLink.html limits a monitoring account to 100,000 source accounts and a source account to five monitoring accounts (now enforced as ServiceQuotaExceededException).
+
+## Emulator choices where the vendor is silent
+
+- Sink policy denial in CreateLink is reported as InvalidParameterException: API_PutSinkPolicy.html and API_CreateLink.html model no access-denied exception and do not say which code a denial returns.
+- One link per source account, Region and sink is enforced as ConflictException; API_CreateLink.html states only the 100,000 and five account limits.
+- LabelTemplate: $AccountName, $AccountEmail and $AccountEmailNoDomain resolve from Organizations, then from the standalone Account service for its own account; any other account resolves to the account ID.

@@ -17,6 +17,7 @@ var (
 	ErrInternalServiceError      = errors.New("internal service error")
 	ErrInvalidCustomerIdentifier = errors.New("invalid customer identifier")
 	ErrInvalidProductCode        = errors.New("invalid product code")
+	ErrInvalidLicense            = errors.New("invalid license")
 	ErrInvalidPublicKeyVersion   = errors.New("invalid public key version")
 	ErrInvalidTag                = errors.New("invalid tag")
 	ErrInvalidToken              = errors.New("invalid token")
@@ -45,6 +46,7 @@ func errorTable() map[error]awserr.APIError {
 		ErrInternalServiceError:       apiErr("InternalServiceErrorException", http.StatusInternalServerError),
 		ErrInvalidCustomerIdentifier:  apiErr("InvalidCustomerIdentifierException", http.StatusBadRequest),
 		ErrInvalidProductCode:         apiErr("InvalidProductCodeException", http.StatusBadRequest),
+		ErrInvalidLicense:             apiErr("InvalidLicenseException", http.StatusBadRequest),
 		ErrInvalidPublicKeyVersion:    apiErr("InvalidPublicKeyVersionException", http.StatusBadRequest),
 		ErrInvalidTag:                 apiErr("InvalidTagException", http.StatusBadRequest),
 		ErrInvalidToken:               apiErr("InvalidTokenException", http.StatusBadRequest),

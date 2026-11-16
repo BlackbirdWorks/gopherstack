@@ -116,9 +116,9 @@ gaps: []
   #     a best-effort placeholder; gopherstack has no cross-account VPC-connection
   #     ownership model to draw a different value from.
 items_still_open:
-  - "UpdateSecurity relaunches the broker as a fresh container: topics and messages written before the update are lost (no persistent log dir)."
-  - "Per-API IAM: ListGroups, DescribeCluster, DescribeLogDirs and transactional/ACL APIs are not gated; a partially denied multi-topic request is rejected as a whole; denied AlterConfigs/CreatePartitions/DescribeConfigs/OffsetFetch/DescribeGroups/DeleteGroups requests close the connection instead of returning an authorization error; Metadata with a null topic list is not filtered."
-  - "Lambda MSK event source mappings reach plaintext, server-TLS and SASL/SCRAM clusters; AWS_MSK_IAM-only and mutual-TLS-only clusters are still not polled (no function-role credentials or client certificate plumbed into the poller)."
+  - "UpdateSecurity relaunches the docker broker as a fresh container: topics and messages written before the update are lost (BrokerRuntime in broker.go has no volume support, so there is no persistent log dir to carry across the relaunch)"
+  - "IAM / resource-policy evaluation: ListGroups, DescribeCluster, DescribeLogDirs and transactional/ACL APIs are not gated by the per-API IAM check; a partially denied multi-topic request is rejected as a whole; denied AlterConfigs/CreatePartitions/DescribeConfigs/OffsetFetch/DescribeGroups/DeleteGroups requests close the connection instead of returning an authorization error; Metadata with a null topic list is not filtered"
+  - "Lambda MSK event source mappings reach plaintext, server-TLS and SASL/SCRAM clusters; AWS_MSK_IAM-only and mutual-TLS-only clusters are not polled because the poller lives in services/lambda and has no function-role credentials or client certificate plumbed in"
 structural_gaps:
   - "Docker engine (--kafka-engine=docker) runs ONE single-node KRaft broker per provisioned cluster (apache/kafka 3.9.1); serverless clusters and the MSK Topic API metadata are not backed by a real multi-broker cluster. Clusters with no explicit encryption/auth settings keep the original single plaintext listener; any explicit EncryptionInfo or ClientAuthentication switches to MSK-style listeners (see 2026-10-18 section)."
 deferred: []

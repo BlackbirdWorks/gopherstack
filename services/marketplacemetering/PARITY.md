@@ -14,10 +14,7 @@ families:
   Subscriptions: {status: ok, note: "Created by ResolveCustomer or Subscribe; CustomerIdentifier is a stable hash of product and account. They feed the Entitlement Service backend through EntitlementSink."}
   Usage: {status: ok, note: "Accepted records are stored and readable with Backend.UsageRecords(product); RegisterUsage calls with Backend.Registrations(product)."}
 gaps: []
-items_still_open:
-  - "License-based metering (LicenseArn / concurrent agreements): BatchMeterUsage needs a ProductCode and LicenseArn is only echoed; there is no license catalog"
-  - "Seeding is Go-API only (RegisterProduct, Subscribe, IssueRegistrationToken); there is no HTTP or config surface to declare products for out-of-process clients"
-  - "InvalidRegionException, InvalidEndpointRegionException, PlatformNotSupportedException, DisabledApiException, InvalidLicenseException and ThrottlingException are never raised"
+items_still_open: []
 structural_gaps:
   - "No EC2 instance, ECS task or EKS pod identity exists to bind a product code to, so the region/platform checks of MeterUsage and RegisterUsage have no data source."
   - "No billing system: metered usage is stored and queryable but never invoiced."
@@ -38,6 +35,9 @@ MeterUsage rounds Timestamp down to the hour for the once-per-hour idempotency/D
 ## Emulator choices where the vendor is silent
 
 - BatchMeterUsage deduplicates per second-resolution timestamp: API_BatchMeterUsage.html (checked 2026-11-13) states idempotency for identical requests but no hourly aggregation rule; only MeterUsage rounds down to the hour (API_MeterUsage.html).
+- Seeding: there is no seller portal, so products, subscriptions, registration tokens and licenses are declared through POST /_gopherstack/marketplace/{products,subscriptions,registration-tokens,licenses} (or the Go API).
+- License-based BatchMeterUsage (no request ProductCode, LicenseArn per record) validates the license (InvalidLicenseException when unknown, for another product, another customer or outside its activation period) as API_BatchMeterUsage.html and types.InvalidLicenseException describe; a license defaults to activating at the start of the accepted metering window.
+- InvalidRegionException, InvalidEndpointRegionException and PlatformNotSupportedException need a container or instance identity the emulator does not have (see structural_gaps); DisabledApiException and ThrottlingException are never raised because no condition or limit for them is published.
 
 ## External effects that are recorded, not performed
 

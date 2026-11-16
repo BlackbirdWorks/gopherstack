@@ -10,9 +10,7 @@ families:
   Protocol: {status: ok, note: "The pinned SDK speaks Smithy RPCv2 CBOR (POST /service/AWSMPEntitlementService/operation/GetEntitlements, ExpirationDate as CBOR tag 1); the legacy awsjson1.1 X-Amz-Target form is served too. Both run the same operation code."}
 gaps: []
 items_still_open:
-  - "Entitlements come only from Marketplace Metering subscriptions (ResolveCustomer, Subscribe on a declared product) or Backend.GrantEntitlement; there is no seller-side catalog, so a plain emulator process returns none until a customer is subscribed"
-  - "The calling account is not checked against the product owner; any caller can list any product's entitlements"
-  - "ThrottlingException and InternalServiceErrorException are never raised on their own"
+  - "Authorization: the calling account is not checked against the product owner (IAM / resource-policy evaluation is out of scope)"
 structural_gaps:
   - "No AWS Marketplace listing or contract system exists, so entitlement values and expiry dates cannot come from real buyer agreements."
 deferred: []
@@ -22,3 +20,8 @@ leaks: {status: clean, note: "leak_main_test.go runs goleak over the package; th
 ## Notes
 
 SigV4 signing name `aws-marketplace`. The matcher accepts the `AWSMPEntitlementService.` target prefix or the RPCv2 CBOR service path; because it also matches a path it is not listed in `internal/routegates` TargetGates. Invalid filters, MaxResults and tokens are `InvalidParameterException` (400).
+
+## Emulator choices where the vendor is silent
+
+- Entitlements come from Marketplace Metering subscriptions (ResolveCustomer, Subscribe, license grants) on products declared through the seeding endpoints POST /_gopherstack/marketplace/*; there is no seller-side catalog beyond that.
+- ThrottlingException and InternalServiceErrorException are never raised on their own: no limit or fault condition is published.

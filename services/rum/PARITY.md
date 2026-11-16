@@ -30,9 +30,7 @@ families:
   data_plane: {status: ok, note: "PutRumEvents/GetAppMonitorData over stored events; CloudWatch Logs delivery and CloudWatch metrics wired in internal/app/rum_wiring.go"}
   metrics: {status: ok, note: "default AWS/RUM metrics (SessionCount, PageViewCount, JsErrorCount, PerformanceNavigationDuration, PerformanceResourceDuration, WebVitals*, Http4xxCount, Http5xxCount, HttpErrorCount, Navigation*Transaction) plus extended and custom definitions published through the EventBridge-style pattern matcher"}
 items_still_open:
-  - PutRumEvents: the app monitor resource policy and its rum:alias condition are stored but not enforced
-  - DeobfuscationConfiguration: source map settings are stored; stack traces are never unminified
-  - AccessDeniedException and ThrottlingException: never raised; no IAM or throttling is modeled
+  - "IAM / resource-policy evaluation: the app monitor resource policy and its rum:alias condition are stored but not enforced, and AccessDeniedException is never raised"
 gaps: []
 structural_gaps:
   - Country filter and CountryCode dimension: the service derives countryCode from the sender IP, there is no GeoIP source; only a countryCode already present in event metadata matches
@@ -51,6 +49,8 @@ Metric namespaces: extended metrics publish to AWS/RUM; custom metrics to RUM/Cu
 
 - BatchCreateRumMetricDefinitions: the per-item ErrorCode values (ValidationException, ServiceQuotaExceededException) are assumptions, the SDK does not enumerate them
 - GetAppMonitorData: the TimeRange unit is not stated by the SDK; seconds and milliseconds are both accepted API_TimeRange.html and API_GetAppMonitorData.html (checked 2026-11-13) give Long values with no unit.
+- DeobfuscationConfiguration: source map settings are stored; the SDK types.DeobfuscationConfiguration / JavaScriptSourceMaps docs say only that stack traces are unminified, not where the result surfaces, and GetAppMonitorData returns events as sent, so stack traces are not rewritten.
+- ThrottlingException is never raised: no PutRumEvents or control-plane rate limit is published.
 
 ## External effects that are recorded, not performed
 

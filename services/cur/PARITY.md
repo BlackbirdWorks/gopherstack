@@ -16,9 +16,8 @@ families:
   delivery: {status: ok, note: "worker ticker (1m) delivers each report once per HOURLY/DAILY/MONTHLY slot; writes CSV .csv.gz/.csv.zip or .snappy.parquet plus name-Manifest.json under prefix/name/yyyymmdd-yyyymmdd/[assemblyId/] (OVERWRITE_REPORT drops the assembly directory, ATHENA uses prefix/name/name/year=/month=/); REDSHIFT, QUICKSIGHT and ATHENA artifacts written and listed in additionalArtifactKeys; ReportStatus lastStatus SUCCESS, ERROR_NO_BUCKET, ERROR_PERMISSIONS"}
   rows: {status: ok, note: "rows come from the Cost Explorer ledger via GetCostAndUsage (daily); HOURLY splits each day into 24 equal rows, MONTHLY sums per service/region/usage type/account; with no Cost Explorer wired the file holds headers only"}
 items_still_open:
-  - columns: costCategory/* columns are absent (cost category rules carry no expression to evaluate) and product/* attribute columns beyond instanceType, productFamily, servicename, servicecode, usagetype, region and location are absent because the ledger has no further product attributes
-  - ATHENA artifacts: the crawler-cfn.yml template holds only the Glue database and crawler; the real template's three IAM roles, two Lambda functions and S3 notification are not published beyond that resource list
-  - BillingViewArn: format-checked only, no billing view backend
+  - "columns: costCategory/* columns are absent because services/ce stores only each cost category rule's Value, not its rule expression (services/ce/models.go CostCategoryRule), so no row can be assigned a category"
+  - "BillingViewArn: format-checked only; no billing-view service exists in services/ to resolve it"
 gaps: []
 structural_gaps: []
 deferred: []
@@ -41,3 +40,8 @@ ReportStatus.lastDelivery uses the documented layout 20060102T150405Z (API_cur_R
 
 ## Metered resource ids and tags
 lineItem/ResourceId and resourceTags/user:* carry the resource id and tags of rows metered from emulated EC2 instances and volumes, S3 buckets, Lambda functions and DynamoDB tables; seed catalogue rows have no resource id (internal/app/ce_metering_wiring_test.go, TestMeteredResourceAndTagReachCostAndUsageReport).
+
+## Emulator choices where the vendor is silent
+
+- product/* attribute columns beyond instanceType, productFamily, servicename, servicecode, usagetype, region and location are absent because the Cost Explorer ledger carries no further product attributes.
+- ATHENA artifacts: the crawler-cfn.yml template holds only the Glue database and crawler; the real template's three IAM roles, two Lambda functions and S3 notification are not published beyond that resource list.

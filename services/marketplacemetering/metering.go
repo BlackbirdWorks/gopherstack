@@ -226,9 +226,11 @@ func (b *InMemoryBackend) MeterUsage(ctx context.Context, in *MeterUsageInput) (
 	return &MeterUsageOutput{MeteringRecordID: rec.ID}, nil
 }
 
-// BatchMeterUsage meters up to 25 customer records of one product; rejected records come back unprocessed.
+// BatchMeterUsage meters up to 25 customer records of one product, or of the products behind their LicenseArn
+// values; rejected records come back unprocessed.
 func (b *InMemoryBackend) BatchMeterUsage(in *BatchMeterUsageInput) (*BatchMeterUsageOutput, error) {
-	if !validProductCode(in.ProductCode) {
+	licensed := hasLicenseRecords(in.UsageRecords)
+	if !licensed && !validProductCode(in.ProductCode) {
 		return nil, fail(ErrInvalidProductCode, "ProductCode is required and must be valid")
 	}
 
@@ -241,22 +243,62 @@ func (b *InMemoryBackend) BatchMeterUsage(in *BatchMeterUsageInput) (*BatchMeter
 		if r.CustomerIdentifier == "" && r.CustomerAWSAccountID == "" && r.LicenseArn == "" {
 			return nil, fail(ErrInvalidCustomerIdentifier, "record %d names no customer", i)
 		}
+
+		if r.LicenseArn == "" && !validProductCode(in.ProductCode) {
+			return nil, fail(ErrInvalidProductCode, "record %d has no LicenseArn and the request has no ProductCode", i)
+		}
 	}
 
 	b.mu.Lock("BatchMeterUsage")
 	defer b.mu.Unlock()
 
+	resolved, err := b.resolveBatchLocked(in)
+	if err != nil {
+		return nil, err
+	}
+
 	out := &BatchMeterUsageOutput{Results: []UsageRecordResult{}, UnprocessedRecords: []UsageRecord{}}
 
-	for _, r := range in.UsageRecords {
-		res, ok := b.meterRecordLocked(in.ProductCode, r)
+	for i, r := range in.UsageRecords {
+		res, ok := b.meterRecordLocked(resolved[i].product, resolved[i].record)
 		if !ok {
 			out.UnprocessedRecords = append(out.UnprocessedRecords, r)
 
 			continue
 		}
 
+		orig := r
+		res.UsageRecord = &orig
 		out.Results = append(out.Results, res)
+	}
+
+	return out, nil
+}
+
+type batchTarget struct {
+	product string
+	record  UsageRecord
+}
+
+// resolveBatchLocked binds each record to its product, validating every LicenseArn before any record is stored.
+func (b *InMemoryBackend) resolveBatchLocked(in *BatchMeterUsageInput) ([]batchTarget, error) {
+	out := make([]batchTarget, len(in.UsageRecords))
+
+	for i := range in.UsageRecords {
+		r := in.UsageRecords[i]
+		out[i] = batchTarget{product: in.ProductCode, record: r}
+
+		if r.LicenseArn == "" {
+			continue
+		}
+
+		l, err := b.licenseForLocked(in.ProductCode, &r)
+		if err != nil {
+			return nil, err
+		}
+
+		r.CustomerAWSAccountID, r.CustomerIdentifier = l.CustomerAWSAccountID, ""
+		out[i] = batchTarget{product: l.ProductCode, record: r}
 	}
 
 	return out, nil

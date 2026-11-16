@@ -21,10 +21,7 @@ families:
   executions: {status: ok, note: "a worker ticker (250ms) advances INITIATION_IN_PROCESS, QUERY_QUEUED, QUERY_IN_PROCESS, DELIVERY_IN_PROCESS, DELIVERY_SUCCESS one step per tick; QUERY_FAILURE on a query that no longer evaluates, DELIVERY_FAILURE (INSUFFICIENT_PERMISSION) when the bucket is missing; export status HEALTHY/UNHEALTHY follows the last execution"}
   query: {status: ok, note: "SELECT cols|* FROM table [WHERE cmp {AND|OR} ...] [LIMIT n]; operators = != <> < > <= >= LIKE; no aggregates, joins or functions"}
   delivery: {status: ok, note: "CSV (.csv.gz/.csv.zip) or .snappy.parquet at prefix/name/data/BILLING_PERIOD=yyyy-mm/ (CREATE_NEW_REPORT adds a timestamp-executionId directory) plus metadata/BILLING_PERIOD=.../name-Manifest.json"}
-items_still_open:
-  - CARBON_EMISSIONS and COST_OPTIMIZATION_RECOMMENDATIONS: schemas only, exports contain headers and no rows (no emissions or recommendation data source)
-  - manifest: delivery locations (one manifest in overwrite mode, a second per-execution copy in create-new mode) and the additionalOutputFiles section follow the documented layout; the spelling of the remaining manifest keys (columns, file list, time period) is not published
-  - error bodies: ServiceQuotaExceeded QuotaCode and Throttling QuotaCode/ServiceCode are not set (Service Quotas codes are not published; throttling is never raised); query-parser validation errors report Reason other without Fields
+items_still_open: []
 gaps: []
 structural_gaps: []
 deferred: []
@@ -43,3 +40,9 @@ Timestamps in ExportStatus and ExecutionStatus use the date-time format: sending
 - MaxResults 1-300 and ServiceQuotaExceeded ServiceCode AWSBillingAndCostManagementDataExports per API_DataExports_ListExports/ListExecutions/ListTables/ListTagsForResource/CreateExport.
 - Manifest and data layout per dataexports-export-delivery.html.
 - line_item_resource_id (INCLUDE_RESOURCES) and resource_tags carry the resource id and tags of metered rows (internal/app/ce_metering_wiring_test.go, TestMeteredResourceAndTagReachDataExportsRows).
+
+## Emulator choices where the vendor is silent
+
+- CARBON_EMISSIONS and COST_OPTIMIZATION_RECOMMENDATIONS: schemas only; exports contain headers and no rows because no emissions or recommendation data source exists in the emulator and rows are never fabricated.
+- Manifest: delivery locations (one manifest in overwrite mode, a second per-execution copy in create-new mode) and the additionalOutputFiles section follow the documented layout; the spelling of the remaining manifest keys (columns, file list, time period) is not published.
+- Error bodies: ServiceQuotaExceeded QuotaCode and Throttling QuotaCode/ServiceCode are not set (Service Quotas codes are not published; throttling is never raised); query-parser validation errors report Reason other without Fields.

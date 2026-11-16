@@ -32,6 +32,7 @@ type fixture struct {
 	client   *sdk.Client
 	entitled *entsdk.Client
 	clock    *atomic.Int64
+	url      string
 }
 
 func (f *fixture) now() time.Time { return time.Unix(f.clock.Load(), 0).UTC() }
@@ -51,6 +52,7 @@ func newFixture(t *testing.T) *fixture {
 	f.handler = mm.NewHandler(f.backend)
 
 	url := sdktest.Serve(t, f.handler, ent.NewHandler(f.entBack))
+	f.url = url
 
 	cfg, err := awscfg.LoadDefaultConfig(t.Context(),
 		awscfg.WithRegion("us-east-1"),
