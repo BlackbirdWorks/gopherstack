@@ -82,6 +82,8 @@ include_children: a folder or organization sink also receives entries of project
 
 ## Emulator choices where the vendor is silent
 
+- Tail sessions are capped at 1000 server-wide and per-parent quota counters are swept after a minute; the quotas page states neither, they only bound emulator memory. The gRPC receive limit is 11 MB for every Logging method.
+
 - A sink destination that does not exist is not rejected at create time and only logs a warning on export: the sinks.create reference does not say the destination must exist, and the live failure report goes through the sink writer permission.
 - Routing keeps working when a CMEK key is unavailable: the managed-encryption page only says Logging cannot write temporary files and that routing to Cloud Storage "might also be affected".
 - RESOURCE_EXHAUSTED and INVALID_ARGUMENT for the quota and count limits, FAILED_PRECONDITION for an unreadable CMEK bucket, and all error message texts are the emulator's choice: the quotas page names a status only for ingestion over quota and future timestamps.

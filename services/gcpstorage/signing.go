@@ -121,6 +121,10 @@ func hostCandidates(r *http.Request) []string {
 		name = host[:i]
 	}
 
+	if _, virtual := virtualHostBucket(host); virtual {
+		return slices.Compact([]string{host, name})
+	}
+
 	return slices.Compact([]string{host, name, defaultSignHost})
 }
 

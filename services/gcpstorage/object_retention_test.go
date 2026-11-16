@@ -97,6 +97,11 @@ func TestObjectRetention(t *testing.T) {
 				})
 				assert.Equal(t, "retentionPolicyNotMet", apiReason(t, err, http.StatusForbidden), "mode cannot change")
 
+				_, err = o.OverrideUnlockedRetention(true).Update(t.Context(), storage.ObjectAttrsToUpdate{
+					Retention: &storage.ObjectRetention{Mode: "Locked", RetainUntil: clk.now().Add(30 * time.Minute)},
+				})
+				assert.Equal(t, "retentionPolicyNotMet", apiReason(t, err, http.StatusForbidden), "cannot shorten")
+
 				_, err = o.Update(t.Context(), storage.ObjectAttrsToUpdate{
 					Retention: &storage.ObjectRetention{Mode: "Locked", RetainUntil: clk.now().Add(2 * time.Hour)},
 				})

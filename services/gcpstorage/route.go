@@ -125,15 +125,22 @@ func parseRoute(r *http.Request) route {
 
 const virtualHostSuffix = ".storage.googleapis.com"
 
-// virtualHostSegments turns a virtual-hosted-style request (BUCKET.storage.googleapis.com/OBJECT) into the
-// path-style segments (BUCKET/OBJECT); other hosts keep the path as is.
-func virtualHostSegments(host string, segs []string) []string {
+// virtualHostBucket returns the bucket named by a BUCKET.storage.googleapis.com host.
+func virtualHostBucket(host string) (string, bool) {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
 
 	bucket, ok := strings.CutSuffix(strings.ToLower(host), virtualHostSuffix)
-	if !ok || bucket == "" {
+
+	return bucket, ok && bucket != ""
+}
+
+// virtualHostSegments turns a virtual-hosted-style request (BUCKET.storage.googleapis.com/OBJECT) into the
+// path-style segments (BUCKET/OBJECT); other hosts keep the path as is.
+func virtualHostSegments(host string, segs []string) []string {
+	bucket, ok := virtualHostBucket(host)
+	if !ok {
 		return segs
 	}
 

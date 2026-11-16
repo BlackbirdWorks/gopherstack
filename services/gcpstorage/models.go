@@ -44,6 +44,7 @@ type Object struct {
 	CacheControl       string            `json:"cacheControl,omitempty"`
 	StorageClass       string            `json:"storageClass"`
 	MD5                string            `json:"md5,omitempty"`
+	PartsETag          string            `json:"partsEtag,omitempty"`
 	Name               string            `json:"name"`
 	CustomerKeySHA256  string            `json:"customerKeySha256,omitempty"`
 	KMSKeyName         string            `json:"kmsKeyName,omitempty"`

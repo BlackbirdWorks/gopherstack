@@ -46,3 +46,26 @@ func (b *InMemoryBackend) TailAllowed(parent string, n int, now time.Time) int {
 
 	return admitted
 }
+
+// AdmitList charges one ListLogEntries call to the parents of names.
+func (b *InMemoryBackend) AdmitList(names ...string) error { return b.admitList(names) }
+
+// QuotaParents reports how many parents the list and tail quotas currently track.
+func (b *InMemoryBackend) QuotaParents() (int, int) {
+	b.mu.RLock("QuotaParents")
+	lists := len(b.listCalls)
+	b.mu.RUnlock()
+
+	b.tails.mu.RLock("QuotaParents")
+	defer b.tails.mu.RUnlock()
+
+	return lists, len(b.tails.rates)
+}
+
+// TailSessions reports the open tail sessions.
+func (b *InMemoryBackend) TailSessions() int {
+	b.tails.mu.RLock("TailSessions")
+	defer b.tails.mu.RUnlock()
+
+	return len(b.tails.subs)
+}

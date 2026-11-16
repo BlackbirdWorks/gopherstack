@@ -55,6 +55,10 @@ type xmlListResult struct {
 }
 
 func xmlETag(o *Object) string {
+	if o.PartsETag != "" {
+		return o.PartsETag
+	}
+
 	if raw, err := base64.StdEncoding.DecodeString(o.MD5); err == nil && o.MD5 != "" {
 		return `"` + hex.EncodeToString(raw) + `"`
 	}
@@ -133,7 +137,7 @@ type xmlPage struct {
 
 // xmlListPage reads one page. Version 1 lists after the marker name, version 2 resumes from the token.
 func (h *Handler) xmlListPage(bucket string, req xmlListResult, v2 bool) (xmlPage, error) {
-	opts := ListOptions{Prefix: req.Prefix, Delimiter: req.Delimiter, MaxResults: req.MaxKeys + 1}
+	opts := ListOptions{Prefix: req.Prefix, Delimiter: req.Delimiter, MaxResults: req.MaxKeys + 1, Lookahead: true}
 	after := req.Marker
 
 	if v2 {
@@ -331,8 +335,12 @@ func (h *Handler) xmlCompleteMultipart(c *echo.Context, rt route) error {
 		return apiErr
 	}
 
-	o, err := h.Backend.CompleteMultipart(
-		rt.bucket, rt.object, c.QueryParam("uploadId"), parts, xmlPreconds(c.Request().Header), keySHA)
+	pre, apiErr := xmlPreconds(c.Request().Header)
+	if apiErr != nil {
+		return apiErr
+	}
+
+	o, err := h.Backend.CompleteMultipart(rt.bucket, rt.object, c.QueryParam("uploadId"), parts, pre, keySHA)
 	if err != nil {
 		return err
 	}
@@ -411,7 +419,7 @@ func (h *Handler) xmlCopyObject(c *echo.Context, rt route) error {
 	hdr.Set("X-Goog-Generation", itoa64(o.Generation))
 	hdr.Set("X-Goog-Metageneration", itoa64(o.Metageneration))
 
-	return writeXML(c, copyObjectResult{LastModified: fmtTime(src.Updated), ETag: xmlETag(o)})
+	return writeXML(c, copyObjectResult{LastModified: fmtTime(o.Updated), ETag: xmlETag(o)})
 }
 
 func cmpOr(a, b string) string {
@@ -444,6 +452,11 @@ func xmlCopyRequest(r *http.Request, rt route, srcBucket, srcName string) (CopyR
 		return CopyRequest{}, 0, apiErr
 	}
 
+	dstPre, apiErr := xmlPreconds(r.Header)
+	if apiErr != nil {
+		return CopyRequest{}, 0, apiErr
+	}
+
 	srcPre := Preconds{}
 
 	for key, dst := range map[string]**int64{
@@ -462,7 +475,7 @@ func xmlCopyRequest(r *http.Request, rt route, srcBucket, srcName string) (CopyR
 
 	return CopyRequest{
 		SrcBucket: srcBucket, SrcName: srcName, SrcGeneration: srcGen, SrcPre: srcPre,
-		DstBucket: rt.bucket, DstName: rt.object, DstPre: xmlPreconds(r.Header),
+		DstBucket: rt.bucket, DstName: rt.object, DstPre: dstPre,
 		SrcKeySHA: srcKey, DstKeySHA: dstKey,
 	}, srcGen, nil
 }

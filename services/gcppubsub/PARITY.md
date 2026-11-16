@@ -69,6 +69,9 @@ Fixed limits enforced (docs.cloud.google.com/pubsub/quotas): 10000 topics, 10000
 
 ## Emulator choices where the vendor is silent
 
+- The default OIDC audience (the push endpoint) and the key set (never published; PushTokenKeySet stays internal) are not documented: authenticate-push-subscriptions says the audience is optional and that signing certificates are tightly controlled.
+- Push attributes are written as raw headers per payload-unwrapping; the emulator additionally drops hop-by-hop, proxy, Host, Content-Length, Expect and x-goog-pubsub-* names and any value httpguts rejects. Push endpoints are not restricted to loopback.
+
 - Push endpoints are not verified at subscription creation: neither docs.cloud.google.com/pubsub/docs/push nor authenticate-push-subscriptions describes an endpoint verification or domain ownership step.
 - The pages name no per-subscription server-side outstanding-message limit ("the service may limit outstanding messages per connection", no number), so flow control stays per stream.
 - RESOURCE_EXHAUSTED for the count limits, INVALID_ARGUMENT for the size limits and FAILED_PRECONDITION for a snapshot that would live under an hour are the emulator's choice: the quotas page and the Snapshot.expire_time comment name no status codes.

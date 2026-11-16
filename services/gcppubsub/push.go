@@ -275,7 +275,8 @@ func pushAttributeHeader(k, v string) bool {
 	}
 
 	switch http.CanonicalHeaderKey(k) {
-	case "Authorization", "Host", "Content-Length", "Transfer-Encoding", "Connection", "Upgrade", "Te", "Trailer":
+	case "Authorization", "Proxy-Authorization", "Proxy-Authenticate", "Proxy-Connection", "Host", "Content-Length",
+		"Transfer-Encoding", "Connection", "Keep-Alive", "Upgrade", "Te", "Trailer", "Expect":
 		return false
 	default:
 		return !strings.HasPrefix(strings.ToLower(k), "x-goog-pubsub-")

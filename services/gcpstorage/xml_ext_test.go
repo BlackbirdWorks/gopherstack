@@ -378,6 +378,15 @@ func TestXMLMultipartUpload(t *testing.T) {
 			},
 		},
 		{
+			name: "duplicate part", want: http.StatusBadRequest, code: "InvalidPartOrder",
+			run: func(t *testing.T, e *sdkEnv, id, e1, _ string) xmlReply {
+				t.Helper()
+
+				return xmlDo(t, e, http.MethodPost, "/mpb/obj?uploadId="+id, "",
+					completeBody([2]string{"1", e1}, [2]string{"1", e1}), nil)
+			},
+		},
+		{
 			name: "small non-final part", want: http.StatusBadRequest, code: "InvalidArgument",
 			run: func(t *testing.T, e *sdkEnv, id, e1, e2 string) xmlReply {
 				t.Helper()

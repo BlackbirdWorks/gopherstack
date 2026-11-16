@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ const (
 	minNonFinalPartSize = 5 << 20
 	maxPartSize         = 5 << 30
 	maxMultipartBytes   = 2 << 30
+	maxStagedBytes      = 4 << 30
 	maxMultipartUploads = 1000
 	actionAbortMPU      = "AbortIncompleteMultipartUpload"
 )
@@ -77,11 +79,6 @@ func (b *InMemoryBackend) InitiateMultipart(bucket, name string, meta Patch) (st
 	}
 
 	now := b.now().UTC()
-	for id, u := range b.mpus {
-		if now.Sub(u.Created) > uploadSessionTTL {
-			delete(b.mpus, id)
-		}
-	}
 
 	if len(b.mpus) >= maxMultipartUploads {
 		return "", errMPU(http.StatusServiceUnavailable, "SlowDown", "Too many multipart uploads are in progress.")
@@ -120,6 +117,10 @@ func (b *InMemoryBackend) UploadPart(bucket, name, id string, number int, data [
 		replaced = int64(len(old.Data))
 	}
 
+	if b.stagedBytesLocked()-replaced+int64(len(data)) > b.stagedLimit() {
+		return "", errMPU(http.StatusServiceUnavailable, "SlowDown", "Too many bytes are staged by multipart uploads.")
+	}
+
 	if u.Bytes-replaced+int64(len(data)) > maxMultipartBytes {
 		return "", errMPU(
 			http.StatusBadRequest,
@@ -136,6 +137,41 @@ func (b *InMemoryBackend) UploadPart(bucket, name, id string, number int, data [
 	return etag, nil
 }
 
+func (b *InMemoryBackend) stagedBytesLocked() int64 {
+	var total int64
+
+	for _, u := range b.mpus {
+		total += u.Bytes
+	}
+
+	return total
+}
+
+func (b *InMemoryBackend) stagedLimit() int64 {
+	if b.stagedCap > 0 {
+		return b.stagedCap
+	}
+
+	return maxStagedBytes
+}
+
+// dropUploadsLocked discards the open multipart uploads of a bucket.
+func (b *InMemoryBackend) dropUploadsLocked(bucket string) {
+	for id, u := range b.mpus {
+		if u.Bucket == bucket {
+			delete(b.mpus, id)
+		}
+	}
+}
+
+// multipartETag is the ETag of a completed upload: the MD5 of the concatenated part MD5s, a dash and the part
+// count (sample in docs.cloud.google.com/storage/docs/xml-api/post-object-complete).
+func multipartETag(sums []byte, parts int) string {
+	raw, _ := base64.StdEncoding.DecodeString(md5Of(sums))
+
+	return `"` + hex.EncodeToString(raw) + "-" + strconv.Itoa(parts) + `"`
+}
+
 func (u *xmlUpload) checkKey(keySHA string) *APIError {
 	if u.Meta.str(keyCustomerKeySHA) != keySHA {
 		return errInvalid("The customer-supplied encryption headers must match those of the upload initiation.")
@@ -144,14 +180,14 @@ func (u *xmlUpload) checkKey(keySHA string) *APIError {
 	return nil
 }
 
-func (u *xmlUpload) assemble(parts []PartRef) ([]byte, *APIError) {
+func (u *xmlUpload) assemble(parts []PartRef) ([]byte, string, *APIError) {
 	if len(parts) == 0 {
-		return nil, errMPU(http.StatusBadRequest, "MalformedXML", "The request must list at least one part.")
+		return nil, "", errMPU(http.StatusBadRequest, "MalformedXML", "The request must list at least one part.")
 	}
 
 	for i := 1; i < len(parts); i++ {
 		if parts[i].Number <= parts[i-1].Number {
-			return nil, errMPU(
+			return nil, "", errMPU(
 				http.StatusBadRequest,
 				"InvalidPartOrder",
 				"The list of parts was not in ascending order.",
@@ -159,17 +195,17 @@ func (u *xmlUpload) assemble(parts []PartRef) ([]byte, *APIError) {
 		}
 	}
 
-	var data []byte
+	var data, sums []byte
 
 	for i, ref := range parts {
 		p, ok := u.Parts[ref.Number]
 		if !ok || strings.Trim(ref.ETag, `"`) != strings.Trim(p.ETag, `"`) {
-			return nil, errMPU(http.StatusBadRequest, "InvalidPart",
+			return nil, "", errMPU(http.StatusBadRequest, "InvalidPart",
 				"One or more of the specified parts could not be found or the ETag did not match.")
 		}
 
 		if i < len(parts)-1 && len(p.Data) < minNonFinalPartSize {
-			return nil, errMPU(
+			return nil, "", errMPU(
 				http.StatusBadRequest,
 				"InvalidArgument",
 				"Your proposed upload is smaller than the minimum "+
@@ -177,10 +213,12 @@ func (u *xmlUpload) assemble(parts []PartRef) ([]byte, *APIError) {
 			)
 		}
 
+		sum, _ := hex.DecodeString(strings.Trim(p.ETag, `"`))
+		sums = append(sums, sum...)
 		data = append(data, p.Data...)
 	}
 
-	return data, nil
+	return data, multipartETag(sums, len(parts)), nil
 }
 
 // CompleteMultipart assembles the listed parts into the object and discards the upload.
@@ -201,7 +239,7 @@ func (b *InMemoryBackend) CompleteMultipart(
 		return nil, apiErr
 	}
 
-	data, apiErr := u.assemble(parts)
+	data, etag, apiErr := u.assemble(parts)
 	if apiErr != nil {
 		return nil, apiErr
 	}
@@ -224,7 +262,7 @@ func (b *InMemoryBackend) CompleteMultipart(
 		return nil, apiErr
 	}
 
-	o.MD5 = ""
+	o.MD5, o.PartsETag = "", etag
 	b.storeLocked(bk, o)
 	delete(b.mpus, id)
 

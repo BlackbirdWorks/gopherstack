@@ -19,6 +19,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/services/gcppubsub"
 )
 
 const pushEndpoint = "https://hook.example.test/push"
@@ -100,6 +101,7 @@ func TestPushOIDCToken(t *testing.T) {
 				jwt.WithValidMethods([]string{"RS256"}), jwt.WithTimeFunc(b.clock.Now))
 			require.NoError(t, err)
 
+			assert.GreaterOrEqual(t, pub.N.BitLen(), 2048)
 			assert.Equal(t, kid, tok.Header["kid"])
 			assert.Equal(t, "https://accounts.google.com", claims["iss"])
 			assert.Equal(t, tt.wantAud, claims["aud"])
@@ -204,4 +206,101 @@ func TestPushDoesNotFollowRedirects(t *testing.T) {
 
 	assert.False(t, ok, "a redirect is not an acknowledgment")
 	assert.Zero(t, target.Load(), "redirect target must not be contacted")
+}
+
+func TestPushAttributeHeadersRejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		key   string
+		value string
+	}{
+		{name: "authorization", key: "Authorization", value: "Bearer x"},
+		{name: "proxy authorization", key: "Proxy-Authorization", value: "Basic x"},
+		{name: "proxy authenticate", key: "Proxy-Authenticate", value: "Basic"},
+		{name: "proxy connection", key: "Proxy-Connection", value: "keep-alive"},
+		{name: "keep alive", key: "Keep-Alive", value: "timeout=5"},
+		{name: "connection", key: "connection", value: "close"},
+		{name: "upgrade", key: "Upgrade", value: "websocket"},
+		{name: "te", key: "TE", value: "trailers"},
+		{name: "trailer", key: "Trailer", value: "X"},
+		{name: "expect", key: "Expect", value: "100-continue"},
+		{name: "content length", key: "Content-Length", value: "0"},
+		{name: "transfer encoding", key: "Transfer-Encoding", value: "chunked"},
+		{name: "crlf value", key: "X-A", value: "a\r\nX-Injected: 1"},
+		{name: "lf value", key: "X-B", value: "a\nb"},
+		{name: "nul value", key: "X-C", value: "a\x00b"},
+		{name: "space in key", key: "bad key", value: "x"},
+		{name: "colon in key", key: "a:b", value: "x"},
+		{name: "reserved prefix", key: "X-Goog-Pubsub-Message-Id", value: "forged"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b, _ := newBK(t, nil)
+			cfg := &pubsubpb.PushConfig{
+				PushEndpoint: pushEndpoint,
+				Wrapper: &pubsubpb.PushConfig_NoWrapper_{
+					NoWrapper: &pubsubpb.PushConfig_NoWrapper{WriteMetadata: true},
+				},
+			}
+
+			req, err := b.BuildPushRequest(t.Context(), "sub", pushEndpoint, cfg,
+				receivedMessage(map[string]string{tt.key: tt.value, "ok": "fine"}))
+			require.NoError(t, err)
+
+			assert.Equal(t, "fine", req.Header.Get("Ok"))
+
+			if !strings.HasPrefix(strings.ToLower(tt.key), "x-goog-pubsub-") {
+				assert.Empty(t, req.Header.Values(tt.key))
+			}
+
+			assert.Empty(t, req.Header.Get("X-Injected"))
+			assert.NotEqual(t, "forged", req.Header.Get("X-Goog-Pubsub-Message-Id"))
+		})
+	}
+}
+
+func TestPushAcknowledgmentStatuses(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status int
+		want   bool
+	}{
+		{name: "200", status: http.StatusOK, want: true},
+		{name: "201", status: http.StatusCreated, want: true},
+		{name: "202", status: http.StatusAccepted, want: true},
+		{name: "204", status: http.StatusNoContent, want: true},
+		{name: "102", status: http.StatusProcessing, want: true},
+		{name: "400", status: http.StatusBadRequest, want: false},
+		{name: "500", status: http.StatusInternalServerError, want: false},
+		{name: "301", status: http.StatusMovedPermanently, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tt.status)
+			}))
+			t.Cleanup(srv.Close)
+
+			b, _ := newBK(t, nil)
+			cfg := &pubsubpb.PushConfig{PushEndpoint: srv.URL}
+			got := b.SendPush(t.Context(), "sub", srv.URL, cfg, receivedMessage(nil))
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestPushClientIgnoresProxy(t *testing.T) {
+	t.Parallel()
+
+	assert.False(t, gcppubsub.PushClientUsesProxy())
 }

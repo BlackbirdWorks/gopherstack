@@ -94,6 +94,8 @@ func listMatcher(opts ListOptions) (*regexp.Regexp, *APIError) {
 	return compileGlob(opts.MatchGlob)
 }
 
+const listLookahead = 2
+
 // ListObjects lists objects in name order, collapsing delimited prefixes.
 func (b *InMemoryBackend) ListObjects(bucket string, opts ListOptions) (ListResult, error) {
 	match, apiErr := listMatcher(opts)
@@ -127,9 +129,14 @@ func (b *InMemoryBackend) ListObjects(bucket string, opts ListOptions) (ListResu
 
 	entries := listEntries(bk, opts, match, after)
 
+	ceiling := defaultMaxResults
+	if opts.Lookahead {
+		ceiling += listLookahead
+	}
+
 	limit := opts.MaxResults
-	if limit <= 0 || limit > defaultMaxResults {
-		limit = defaultMaxResults
+	if limit <= 0 || limit > ceiling {
+		limit = ceiling
 	}
 
 	res := ListResult{}

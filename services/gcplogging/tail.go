@@ -16,6 +16,7 @@ const (
 	tailBatch       = 100
 	maxTailSubs     = 10
 	maxTailParents  = 100
+	maxTailTotal    = 1000
 	maxBufferWindow = time.Minute
 )
 
@@ -51,6 +52,10 @@ func newTailHub() *tailHub {
 func (h *tailHub) add(s *tailSub) error {
 	h.mu.Lock("add")
 	defer h.mu.Unlock()
+
+	if len(h.subs) >= maxTailTotal {
+		return status.Errorf(codes.ResourceExhausted, "The server allows at most %d tailing sessions.", maxTailTotal)
+	}
 
 	for p := range s.parents {
 		open := 0
@@ -90,6 +95,14 @@ func (h *tailHub) takeSuppressed(s *tailSub) (int32, int32) {
 
 // allow charges one delivered entry to a parent and reports whether the per-minute tailing quota has room.
 func (h *tailHub) allow(parent string, now time.Time) bool {
+	if len(h.rates) > maxTrackedParents {
+		for p, r := range h.rates {
+			if now.Sub(r.start) >= quotaWindow {
+				delete(h.rates, p)
+			}
+		}
+	}
+
 	r := h.rates[parent]
 	if r == nil || now.Sub(r.start) >= quotaWindow {
 		r = &tailRate{start: now}

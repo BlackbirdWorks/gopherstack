@@ -132,6 +132,10 @@ func hmacBytes(key []byte, msg string) []byte {
 
 // signV4HMAC builds a GOOG4-HMAC-SHA256 signed URL following the documented algorithm.
 func (s *signEnv) signV4HMAC(method, accessID, secret string, at time.Time, expires int) string {
+	return s.signV4HMACHost(method, accessID, secret, s.host, at, expires)
+}
+
+func (s *signEnv) signV4HMACHost(method, accessID, secret, host string, at time.Time, expires int) string {
 	const path = "/bkt/dir/a%20b.txt"
 
 	date, ts := at.Format("20060102"), at.Format("20060102T150405Z")
@@ -141,7 +145,7 @@ func (s *signEnv) signV4HMAC(method, accessID, secret string, at time.Time, expi
 		"X-Goog-Date": {ts}, "X-Goog-Expires": {strconv.Itoa(expires)}, "X-Goog-SignedHeaders": {"host"},
 	}
 	canon := strings.Join([]string{
-		method, path, strings.ReplaceAll(q.Encode(), "+", "%20"), "host:" + s.host + "\n", "host", "UNSIGNED-PAYLOAD",
+		method, path, strings.ReplaceAll(q.Encode(), "+", "%20"), "host:" + host + "\n", "host", "UNSIGNED-PAYLOAD",
 	}, "\n")
 	sum := sha256.Sum256([]byte(canon))
 	toSign := "GOOG4-HMAC-SHA256\n" + ts + "\n" + scope + "\n" + hex.EncodeToString(sum[:])
@@ -152,7 +156,7 @@ func (s *signEnv) signV4HMAC(method, accessID, secret string, at time.Time, expi
 	k = hmacBytes(k, "goog4_request")
 	q.Set("X-Goog-Signature", hex.EncodeToString(hmacBytes(k, toSign)))
 
-	return "http://" + s.host + path + "?" + q.Encode()
+	return "http://" + host + path + "?" + q.Encode()
 }
 
 func TestSignedURLVerification(t *testing.T) {

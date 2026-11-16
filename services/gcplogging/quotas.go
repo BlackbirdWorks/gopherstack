@@ -25,6 +25,7 @@ const (
 	maxWriteRequestBytes    = 10 << 20
 	quotaWindow             = time.Minute
 	recvSlack               = 1 << 20
+	maxTrackedParents       = 1024
 )
 
 func restrictableRoot(root string) bool {
@@ -163,6 +164,14 @@ func (b *InMemoryBackend) admitList(names []string) error {
 	defer b.mu.Unlock()
 
 	now := b.now()
+
+	if len(b.listCalls) > maxTrackedParents {
+		for p, calls := range b.listCalls {
+			if len(calls) == 0 || now.Sub(calls[len(calls)-1]) >= quotaWindow {
+				delete(b.listCalls, p)
+			}
+		}
+	}
 
 	for _, p := range parents {
 		calls := slices.DeleteFunc(b.listCalls[p], func(t time.Time) bool { return now.Sub(t) >= quotaWindow })

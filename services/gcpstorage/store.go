@@ -47,6 +47,8 @@ type InMemoryBackend struct {
 	pending []ObjectEvent
 	lastGen int64
 	iamSeq  uint64
+
+	stagedCap int64
 }
 
 // NewInMemoryBackend creates an empty backend.
@@ -348,6 +350,7 @@ func (b *InMemoryBackend) deleteBucket(name string, pre Preconds) error {
 	}
 
 	delete(b.buckets, name)
+	b.dropUploadsLocked(name)
 	b.softDeleteBucketLocked(bk)
 
 	return nil
@@ -670,6 +673,7 @@ type ListOptions struct {
 	SoftDeleted              bool
 	IncludeTrailingDelimiter bool
 	IncludeFolders           bool
+	Lookahead                bool
 }
 
 func collapsedPrefix(name string, opts ListOptions) string {

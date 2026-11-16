@@ -63,3 +63,10 @@ func (b *InMemoryBackend) SendPush(
 ) bool {
 	return b.sendPush(ctx, newPushClient(), pushJob{sub: sub, endpoint: endpoint, cfg: cfg}, rm)
 }
+
+// PushClientUsesProxy reports whether the push client consults proxy settings.
+func PushClientUsesProxy() bool {
+	tr, ok := newPushClient().Transport.(*http.Transport)
+
+	return !ok || tr.Proxy != nil
+}

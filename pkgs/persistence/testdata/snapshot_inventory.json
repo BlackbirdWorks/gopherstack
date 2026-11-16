@@ -17779,6 +17779,7 @@
       "Object.Metageneration int64 `json:\"metageneration\"`",
       "Object.Name string `json:\"name\"`",
       "Object.ObjectRetention *ObjectRetention `json:\"objectRetention,omitempty\"`",
+      "Object.PartsETag string `json:\"partsEtag,omitempty\"`",
       "Object.SoftDeleteTime time.Time `json:\"softDeleteTime\"`",
       "Object.StorageClass string `json:\"storageClass\"`",
       "Object.TemporaryHold bool `json:\"temporaryHold,omitempty\"`",
