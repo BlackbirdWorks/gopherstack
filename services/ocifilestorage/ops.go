@@ -44,8 +44,11 @@ func (q *req) changeCompartment(fn func(id, ifMatch, compartment string) error, 
 	return q.ok()
 }
 
+func keepView[V any](_ *InMemoryBackend, v V) V { return v }
+
 func lockOps[W resource, V any](
 	param string, tbl func(*InMemoryBackend) table[W], view func(*InMemoryBackend, *entry[W]) V,
+	fill func(*InMemoryBackend, V) V,
 ) (opFunc, opFunc) {
 	run := func(add bool) opFunc {
 		return func(h *Handler, q *req) error {
@@ -55,35 +58,50 @@ func lockOps[W resource, V any](
 			}
 
 			b := h.Backend
-			b.mu.Lock("lockChange")
-			defer b.mu.Unlock()
 
-			e, aerr := tbl(b).usable(q.param(param))
-			if aerr != nil {
-				return aerr
+			v, etag, err := changeLock(b, tbl, q, param, l, add, view)
+			if err != nil {
+				return err
 			}
 
-			if aerr = checkEtag(e.Etag, q.ifMatch()); aerr != nil {
-				return aerr
-			}
-
-			if add {
-				aerr = b.addLock(e.W.bs(), l)
-			} else {
-				aerr = removeLock(e.W.bs(), l)
-			}
-
-			if aerr != nil {
-				return aerr
-			}
-
-			e.Etag = newEtag()
-
-			return q.json(http.StatusOK, view(b, e), e.Etag)
+			return q.json(http.StatusOK, fill(b, v), etag)
 		}
 	}
 
 	return run(true), run(false)
+}
+
+func changeLock[W resource, V any](
+	b *InMemoryBackend, tbl func(*InMemoryBackend) table[W], q *req, param string, l lock, add bool,
+	view func(*InMemoryBackend, *entry[W]) V,
+) (V, string, error) {
+	var zero V
+
+	b.mu.Lock("lockChange")
+	defer b.mu.Unlock()
+
+	e, aerr := tbl(b).usable(q.param(param))
+	if aerr != nil {
+		return zero, "", aerr
+	}
+
+	if aerr = checkEtag(e.Etag, q.ifMatch()); aerr != nil {
+		return zero, "", aerr
+	}
+
+	if add {
+		aerr = b.addLock(e.W.bs(), l)
+	} else {
+		aerr = removeLock(e.W.bs(), l)
+	}
+
+	if aerr != nil {
+		return zero, "", aerr
+	}
+
+	e.Etag = newEtag()
+
+	return view(b, e), e.Etag, nil
 }
 
 func queryInt(q *req, k string) *int {
@@ -97,19 +115,26 @@ func queryInt(q *req, k string) *int {
 func buildOps() map[string]opFunc {
 	ops := map[string]opFunc{}
 	addFS, rmFS := lockOps("fileSystemId", func(b *InMemoryBackend) table[*FileSystem] { return b.fss },
-		func(b *InMemoryBackend, e *entry[*FileSystem]) FileSystem { return b.fsView(e) })
+		func(b *InMemoryBackend, e *entry[*FileSystem]) FileSystem { return b.fsView(e) },
+		(*InMemoryBackend).withUsage)
 	addMT, rmMT := lockOps("mountTargetId", func(b *InMemoryBackend) table[*MountTarget] { return b.mts },
-		func(b *InMemoryBackend, e *entry[*MountTarget]) MountTarget { return b.mtView(e) })
+		func(b *InMemoryBackend, e *entry[*MountTarget]) MountTarget { return b.mtView(e) },
+		keepView)
 	addEx, rmEx := lockOps("exportId", func(b *InMemoryBackend) table[*Export] { return b.exps },
-		func(b *InMemoryBackend, e *entry[*Export]) Export { return b.exportView(e) })
+		func(b *InMemoryBackend, e *entry[*Export]) Export { return b.exportView(e) },
+		keepView)
 	addSn, rmSn := lockOps("snapshotId", func(b *InMemoryBackend) table[*Snapshot] { return b.snaps },
-		func(b *InMemoryBackend, e *entry[*Snapshot]) Snapshot { return b.snapView(e) })
+		func(b *InMemoryBackend, e *entry[*Snapshot]) Snapshot { return b.snapView(e) },
+		(*InMemoryBackend).withExclusive)
 	addPo, rmPo := lockOps("filesystemSnapshotPolicyId", func(b *InMemoryBackend) table[*Policy] { return b.pols },
-		func(b *InMemoryBackend, e *entry[*Policy]) Policy { return b.polView(e) })
+		func(b *InMemoryBackend, e *entry[*Policy]) Policy { return b.polView(e) },
+		keepView)
 	addRe, rmRe := lockOps("replicationId", func(b *InMemoryBackend) table[*Replication] { return b.reps },
-		func(b *InMemoryBackend, e *entry[*Replication]) Replication { return b.repView(e) })
+		func(b *InMemoryBackend, e *entry[*Replication]) Replication { return b.repView(e) },
+		keepView)
 	addCo, rmCo := lockOps("outboundConnectorId", func(b *InMemoryBackend) table[*Connector] { return b.conns },
-		func(b *InMemoryBackend, e *entry[*Connector]) Connector { return b.connView(e) })
+		func(b *InMemoryBackend, e *entry[*Connector]) Connector { return b.connView(e) },
+		keepView)
 
 	maps.Copy(ops, map[string]opFunc{
 		opAddFileSystemLock:                  addFS,

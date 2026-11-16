@@ -65,7 +65,7 @@ func TestSyncTreeTransfersOnlyDifferences(t *testing.T) {
 				writeAt(t, dst, n, c, tt.dstMtime)
 			}
 
-			got, err := syncTree(src, dst)
+			got, err := syncTree(t.Context(), src, dst)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantBytes, got)
 
@@ -117,7 +117,7 @@ func TestSyncTreeNeverFollowsDestinationSymlinks(t *testing.T) {
 			require.NoError(t, os.MkdirAll(dst, 0o755))
 			require.NoError(t, os.Symlink(outside, filepath.Join(dst, tt.link)))
 
-			_, err := syncTree(src, dst)
+			_, err := syncTree(t.Context(), src, dst)
 			require.NoError(t, err)
 
 			got, rerr := os.ReadFile(filepath.Join(outside, "victim"))

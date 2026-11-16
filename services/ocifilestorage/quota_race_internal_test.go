@@ -105,7 +105,7 @@ func TestSnapshotDoesNotDeadlockWithQuotaLookup(t *testing.T) {
 		backend.Lock("snapshot")
 		defer backend.Unlock()
 
-		snapped <- p.TakeSnapshot("fs1", "s1")
+		snapped <- p.TakeSnapshot(t.Context(), "fs1", "s1")
 	}()
 
 	gate := p.gate("fs1")

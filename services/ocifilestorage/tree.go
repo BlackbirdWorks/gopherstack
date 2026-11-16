@@ -1,6 +1,7 @@
 package ocifilestorage
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -13,7 +14,7 @@ const dirPerm = 0o755
 
 // copyTree copies the regular files, directories and symlinks of src into dst, preserving modes and times. Both
 // sides are opened as roots so that a symlink inside the tree can never lead the copy outside it.
-func copyTree(src, dst string) error {
+func copyTree(ctx context.Context, src, dst string) error {
 	if err := os.MkdirAll(dst, dirPerm); err != nil {
 		return err
 	}
@@ -33,6 +34,10 @@ func copyTree(src, dst string) error {
 	defer to.Close()
 
 	return fs.WalkDir(from.FS(), ".", func(p string, d fs.DirEntry, werr error) error {
+		if cerr := ctx.Err(); cerr != nil {
+			return cerr
+		}
+
 		if werr != nil || p == "." {
 			return werr
 		}
@@ -48,7 +53,7 @@ func copyTree(src, dst string) error {
 
 			return to.Symlink(link, p)
 		case d.Type().IsRegular():
-			return copyFile(from, to, p)
+			return copyFile(ctx, from, to, p)
 		}
 
 		return nil
@@ -68,7 +73,7 @@ func copyDir(to *os.Root, p string, d fs.DirEntry) error {
 	return to.Chmod(p, info.Mode().Perm())
 }
 
-func copyFile(from, to *os.Root, p string) (err error) {
+func copyFile(ctx context.Context, from, to *os.Root, p string) (err error) {
 	in, err := from.Open(p)
 	if err != nil {
 		return err
@@ -92,11 +97,25 @@ func copyFile(from, to *os.Root, p string) (err error) {
 		}
 	}()
 
-	if _, err = io.Copy(out, in); err != nil {
+	if _, err = io.Copy(out, cancellable(ctx, in)); err != nil {
 		return err
 	}
 
 	return to.Chtimes(p, info.ModTime(), info.ModTime())
+}
+
+type readerFunc func([]byte) (int, error)
+
+func (f readerFunc) Read(p []byte) (int, error) { return f(p) }
+
+func cancellable(ctx context.Context, r io.Reader) io.Reader {
+	return readerFunc(func(p []byte) (int, error) {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+
+		return r.Read(p)
+	})
 }
 
 // emptyDir removes everything below dir but keeps dir.
@@ -117,7 +136,7 @@ func emptyDir(dir string) error {
 
 // syncTree makes dst match src, copying only the files whose size or modification time differ and removing
 // what src no longer holds. It returns the number of bytes copied.
-func syncTree(src, dst string) (int64, error) {
+func syncTree(ctx context.Context, src, dst string) (int64, error) {
 	if err := os.MkdirAll(dst, dirPerm); err != nil {
 		return 0, err
 	}
@@ -141,13 +160,17 @@ func syncTree(src, dst string) (int64, error) {
 	var copied int64
 
 	err = fs.WalkDir(from.FS(), ".", func(p string, d fs.DirEntry, werr error) error {
+		if cerr := ctx.Err(); cerr != nil {
+			return cerr
+		}
+
 		if werr != nil || p == "." {
 			return werr
 		}
 
 		keep[p] = struct{}{}
 
-		n, serr := syncEntry(from, to, p, d)
+		n, serr := syncEntry(ctx, from, to, p, d)
 		copied += n
 
 		return serr
@@ -159,7 +182,7 @@ func syncTree(src, dst string) (int64, error) {
 	return copied, prune(to, keep)
 }
 
-func syncEntry(from, to *os.Root, p string, d fs.DirEntry) (int64, error) {
+func syncEntry(ctx context.Context, from, to *os.Root, p string, d fs.DirEntry) (int64, error) {
 	cur, lerr := to.Lstat(p)
 	exists := lerr == nil
 
@@ -169,7 +192,7 @@ func syncEntry(from, to *os.Root, p string, d fs.DirEntry) (int64, error) {
 	case d.Type()&fs.ModeSymlink != 0:
 		return 0, syncLink(from, to, p, exists)
 	case d.Type().IsRegular():
-		return syncFile(from, to, p, d, cur, exists)
+		return syncFile(ctx, from, to, p, d, cur, exists)
 	}
 
 	return 0, nil
@@ -200,7 +223,9 @@ func syncLink(from, to *os.Root, p string, exists bool) error {
 	return to.Symlink(link, p)
 }
 
-func syncFile(from, to *os.Root, p string, d fs.DirEntry, cur fs.FileInfo, exists bool) (int64, error) {
+func syncFile(
+	ctx context.Context, from, to *os.Root, p string, d fs.DirEntry, cur fs.FileInfo, exists bool,
+) (int64, error) {
 	info, err := d.Info()
 	if err != nil {
 		return 0, err
@@ -216,7 +241,7 @@ func syncFile(from, to *os.Root, p string, d fs.DirEntry, cur fs.FileInfo, exist
 		}
 	}
 
-	return info.Size(), copyFile(from, to, p)
+	return info.Size(), copyFile(ctx, from, to, p)
 }
 
 // prune removes everything below root that keep does not list.

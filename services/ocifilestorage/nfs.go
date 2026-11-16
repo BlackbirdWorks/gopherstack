@@ -141,15 +141,11 @@ func (p *NFSPlane) gate(fsID string) *lockmetrics.RWMutex {
 }
 
 // Usage returns the metered bytes of a file system: its live data plus the data only snapshots still reference.
-func (p *NFSPlane) Usage(id string) int64 {
-	m := p.meter(id)
-
-	return m.total
-}
+func (p *NFSPlane) Usage(id string) int64 { return p.meterOf(id).total }
 
 // SnapshotExclusiveBytes returns the bytes only the named snapshot references.
 func (p *NFSPlane) SnapshotExclusiveBytes(id, name string) int64 {
-	return p.meter(id).exclusive[name]
+	return p.meterOf(id).exclusive[name]
 }
 
 // QuotaUsage measures a file system's logical size by file owner.
@@ -165,38 +161,47 @@ func (p *NFSPlane) QuotaUsage(id string) QuotaUsage {
 }
 
 // TakeSnapshot copies the file system tree into its snapshot area while writes are held off.
-func (p *NFSPlane) TakeSnapshot(fsID, name string) error {
+func (p *NFSPlane) TakeSnapshot(ctx context.Context, fsID, name string) error {
 	g := p.gate(fsID)
 	g.Lock("snapshot")
 	defer g.Unlock()
 
-	return copyTree(p.fsDir(fsID), p.snapDir(fsID, name))
+	p.touchMeter(fsID)
+	defer p.touchMeter(fsID)
+
+	return copyTree(ctx, p.fsDir(fsID), p.snapDir(fsID, name))
 }
 
 // DropSnapshot removes a snapshot copy.
-func (p *NFSPlane) DropSnapshot(fsID, name string) { _ = os.RemoveAll(p.snapDir(fsID, name)) }
+func (p *NFSPlane) DropSnapshot(fsID, name string) {
+	_ = os.RemoveAll(p.snapDir(fsID, name))
+
+	p.touchMeter(fsID)
+}
 
 // CloneFrom populates dstFS from a snapshot of srcFS.
-func (p *NFSPlane) CloneFrom(srcFS, snapshot, dstFS string) error {
+func (p *NFSPlane) CloneFrom(ctx context.Context, srcFS, snapshot, dstFS string) error {
 	if err := p.CreateFS(dstFS); err != nil {
 		return err
 	}
 
 	p.invalidateUsage(dstFS)
+	defer p.invalidateUsage(dstFS)
 
-	return copyTree(p.snapDir(srcFS, snapshot), p.fsDir(dstFS))
+	return copyTree(ctx, p.snapDir(srcFS, snapshot), p.fsDir(dstFS))
 }
 
 // ReplicateSnapshot brings dstFS in line with a snapshot of srcFS, transferring only what changed. It returns
 // the bytes transferred.
-func (p *NFSPlane) ReplicateSnapshot(srcFS, snapshot, dstFS string) (int64, error) {
+func (p *NFSPlane) ReplicateSnapshot(ctx context.Context, srcFS, snapshot, dstFS string) (int64, error) {
 	if err := p.CreateFS(dstFS); err != nil {
 		return 0, err
 	}
 
 	p.invalidateUsage(dstFS)
+	defer p.invalidateUsage(dstFS)
 
-	return syncTree(p.snapDir(srcFS, snapshot), p.fsDir(dstFS))
+	return syncTree(ctx, p.snapDir(srcFS, snapshot), p.fsDir(dstFS))
 }
 
 // Endpoints maps mount target ids to their listen addresses.

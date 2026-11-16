@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -84,7 +85,7 @@ func (v *vfs) OpenFile(name string, flag int, perm os.FileMode) (billy.File, err
 	}
 
 	if !snap {
-		f = &guardedFile{File: f, v: v, rel: rel}
+		f = &guardedFile{File: f, v: v, rel: rel, append: flag&os.O_APPEND != 0}
 	}
 
 	return &namedFile{File: f, name: name}, nil
@@ -198,7 +199,14 @@ func (v *vfs) TempFile(dir, prefix string) (billy.File, error) {
 
 	defer v.qs.invalidate()
 
-	return v.live.TempFile(relPath(dir), prefix)
+	f, err := v.live.TempFile(relPath(dir), prefix)
+	if err != nil {
+		return nil, err
+	}
+
+	rel := path.Join(relPath(dir), filepath.Base(f.Name()))
+
+	return &namedFile{File: &guardedFile{File: f, v: v, rel: rel}, name: "/" + rel}, nil
 }
 
 func (v *vfs) Join(elem ...string) string { return path.Join(elem...) }

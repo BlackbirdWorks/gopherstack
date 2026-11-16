@@ -109,20 +109,31 @@ func (u QuotaUsage) of(r QuotaLimit, uid, gid int) int64 {
 type quotaState struct {
 	mu       *lockmetrics.RWMutex
 	usage    QuotaUsage
+	meter    meterCache
 	gen      atomic.Uint64
+	mgen     atomic.Uint64
 	usageGen uint64
 	walks    int
 	cached   bool
 }
 
-func newQuotaState() *quotaState { return &quotaState{mu: lockmetrics.New("ocifilestorage.quota")} }
+func newQuotaState() *quotaState {
+	return &quotaState{
+		mu:    lockmetrics.New("ocifilestorage.quota"),
+		meter: meterCache{mu: lockmetrics.New("ocifilestorage.meter")},
+	}
+}
 
 // invalidate marks the cached usage stale after a mutation the quota code did not account for.
 func (q *quotaState) invalidate() {
 	if q != nil {
 		q.gen.Add(1)
+		q.mgen.Add(1)
 	}
 }
+
+// touch marks the cached meter stale after a change the quota usage already accounts for.
+func (q *quotaState) touch() { q.mgen.Add(1) }
 
 // current returns the usage, walking the tree only when something changed behind the cache. Caller holds q.mu.
 func (q *quotaState) current(root *os.Root) QuotaUsage {
@@ -177,12 +188,13 @@ func (v *vfs) admitGrowth(rules []QuotaLimit, rel string, info fs.FileInfo, grow
 // guardedFile serialises the writes of one open file against snapshots and enforces hard quotas on them.
 type guardedFile struct {
 	billy.File
-	v   *vfs
-	rel string
+	v      *vfs
+	rel    string
+	append bool
 }
 
-// rules reads the quota rules before any file-system lock is taken: the backend lock is held across snapshot
-// copies, which wait for the gate, so a writer inside the gate must never wait for the backend lock.
+// rules reads the quota rules before any file-system lock is taken: the backend lock must never be taken while
+// the gate or the quota mutex is held (lock order: backend, then gate, then quota mutex).
 func (f *guardedFile) rules() []QuotaLimit {
 	if f.v.stat.Quotas == nil {
 		return nil
@@ -211,6 +223,8 @@ func (f *guardedFile) admitted(grow func(size, pos int64) int64, op func() error
 
 	before, err := f.v.root.Stat(f.rel)
 	if err != nil {
+		defer f.v.qs.invalidate()
+
 		return op()
 	}
 
@@ -227,6 +241,7 @@ func (f *guardedFile) admitted(grow func(size, pos int64) int64, op func() error
 
 	if after, serr := f.v.root.Stat(f.rel); serr == nil {
 		f.v.qs.account(after, after.Size()-before.Size())
+		f.v.qs.touch()
 	} else {
 		f.v.qs.invalidate()
 	}
@@ -238,7 +253,13 @@ func (f *guardedFile) Write(p []byte) (int, error) {
 	var written int
 
 	err := f.admitted(
-		func(size, pos int64) int64 { return pos + int64(len(p)) - size },
+		func(size, pos int64) int64 {
+			if f.append {
+				return int64(len(p))
+			}
+
+			return pos + int64(len(p)) - size
+		},
 		func() error {
 			var werr error
 

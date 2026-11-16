@@ -130,6 +130,7 @@ type InMemoryBackend struct {
 	keyState    func(string) (string, bool)
 	dp          dataPlane
 	onClose     func()
+	cp          copies
 	transition  time.Duration
 	quotaUnit   int64
 	seq         int64
@@ -141,6 +142,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		mu: lockmetrics.New("ocifilestorage"), now: time.Now, transition: defaultTransit, Auth: ociauth.NewRegistry(),
 	}
 	b.resetMaps()
+	b.armCopies()
 
 	return b
 }
@@ -196,7 +198,10 @@ func (b *InMemoryBackend) SetCloser(fn func()) {
 
 // Reset clears all state, mount target servers and file system data.
 func (b *InMemoryBackend) Reset() {
+	b.quiesceCopies()
+
 	b.mu.Lock("Reset")
+	b.armCopies()
 	nics := b.nicIDs()
 	b.resetMaps()
 	dp := b.dp
@@ -211,9 +216,13 @@ func (b *InMemoryBackend) Reset() {
 
 // Close stops the data plane.
 func (b *InMemoryBackend) Close() {
-	b.mu.RLock("Close")
+	b.mu.Lock("Close")
+	b.cp.closed = true
+	b.cp.scope.cancel()
 	dp, fn := b.dp, b.onClose
-	b.mu.RUnlock()
+	b.mu.Unlock()
+
+	b.cp.wg.Wait()
 
 	if dp != nil {
 		dp.Close()
@@ -222,6 +231,14 @@ func (b *InMemoryBackend) Close() {
 	if fn != nil {
 		fn()
 	}
+}
+
+// plane returns the data plane. Callers must not hold the backend lock.
+func (b *InMemoryBackend) plane() dataPlane {
+	b.mu.RLock("plane")
+	defer b.mu.RUnlock()
+
+	return b.dp
 }
 
 func (b *InMemoryBackend) nowUTC() time.Time { return b.now().UTC() }
@@ -444,7 +461,6 @@ func listScoped[W resource](
 // Sweep applies due time-based transitions and schedules against the backend clock.
 func (b *InMemoryBackend) Sweep() {
 	b.mu.Lock("Sweep")
-	defer b.mu.Unlock()
 
 	now := b.nowUTC()
 	settleDue(b.fss, now, nil)
@@ -462,4 +478,11 @@ func (b *InMemoryBackend) Sweep() {
 	b.sweepSnapshots(now)
 	b.sweepPolicies(now)
 	b.sweepReplications(now)
+
+	jobs := b.takeCopies()
+	b.mu.Unlock()
+
+	for _, j := range jobs {
+		_ = j()
+	}
 }

@@ -1,5 +1,7 @@
 package ocifilestorage
 
+import "context"
+
 // dataPlane holds file system data and serves mount targets. It is nil in stub mode.
 type dataPlane interface {
 	CreateFS(id string) error
@@ -7,10 +9,10 @@ type dataPlane interface {
 	Usage(id string) int64
 	QuotaUsage(id string) QuotaUsage
 	SnapshotExclusiveBytes(id, name string) int64
-	TakeSnapshot(fsID, name string) error
+	TakeSnapshot(ctx context.Context, fsID, name string) error
 	DropSnapshot(fsID, name string)
-	CloneFrom(srcFS, snapshot, dstFS string) error
-	ReplicateSnapshot(srcFS, snapshot, dstFS string) (int64, error)
+	CloneFrom(ctx context.Context, srcFS, snapshot, dstFS string) error
+	ReplicateSnapshot(ctx context.Context, srcFS, snapshot, dstFS string) (int64, error)
 	StartMount(mtID string, exports func(mtID string) []ExportMount) error
 	StopMount(mtID string)
 	StopMounts()

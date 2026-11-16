@@ -212,6 +212,7 @@ type repInt struct {
 	PhaseAt   *time.Time `json:"phaseAt,omitempty"`
 	Number    int        `json:"number"`
 	FinalPass bool       `json:"finalPass,omitempty"`
+	Copying   bool       `json:"-"`
 }
 
 // Replication is the stored and wire form of a replication.

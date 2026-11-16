@@ -1,6 +1,7 @@
 package ocifilestorage
 
 import (
+	"context"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -46,12 +47,16 @@ type FSFilter struct {
 func (b *InMemoryBackend) fsView(e *entry[*FileSystem]) FileSystem {
 	v := *e.W
 	v.Int, v.base = nil, cloneBase(e.W.base)
-
-	if b.dp != nil {
-		v.MeteredBytes = b.dp.Usage(v.ID)
-	}
-
 	v.IsTargetable = b.targetable(v.ID)
+
+	return v
+}
+
+// withUsage fills the metered bytes of a file system view. Callers must not hold the backend lock.
+func (b *InMemoryBackend) withUsage(v FileSystem) FileSystem {
+	if dp := b.plane(); dp != nil {
+		v.MeteredBytes = dp.Usage(v.ID)
+	}
 
 	return v
 }
@@ -128,32 +133,64 @@ func (b *InMemoryBackend) CreateFileSystem(in createFSIn, token string) (FileSys
 	}
 
 	b.mu.Lock("CreateFileSystem")
-	defer b.mu.Unlock()
 
 	if id := b.retryHit(kindFS, token); id != "" {
 		if e, ok := b.fss[id]; ok {
-			return b.fsView(e), e.Etag, nil
+			v, etag := b.fsView(e), e.Etag
+			b.mu.Unlock()
+
+			return b.withUsage(v), etag, nil
 		}
 	}
 
-	fs, aerr := b.newFileSystem(in)
+	e, job, aerr := b.beginFileSystem(in)
 	if aerr != nil {
+		b.mu.Unlock()
+
 		return FileSystem{}, "", aerr
 	}
 
-	if b.dp != nil && fs.SourceDetails == nil {
-		if err := b.dp.CreateFS(fs.ID); err != nil {
+	b.remember(kindFS, token, e.W.ID)
+	b.mu.Unlock()
+
+	if job != nil {
+		if err := job(); err != nil {
 			return FileSystem{}, "", internalErr(err)
 		}
 	}
 
-	e := put(b, b.fss, fs, stActive)
-	b.remember(kindFS, token, fs.ID)
+	b.mu.RLock("CreateFileSystem")
+	v, etag := b.fsView(e), e.Etag
+	b.mu.RUnlock()
 
-	return b.fsView(e), e.Etag, nil
+	return b.withUsage(v), etag, nil
 }
 
-func (b *InMemoryBackend) newFileSystem(in createFSIn) (*FileSystem, *APIError) {
+// beginFileSystem validates and records a file system. A clone with a data plane stays CREATING while the
+// returned job copies the snapshot outside the backend lock. Callers hold the write lock.
+func (b *InMemoryBackend) beginFileSystem(in createFSIn) (*entry[*FileSystem], copyJob, *APIError) {
+	fs, cc, aerr := b.newFileSystem(in)
+	if aerr != nil {
+		return nil, nil, aerr
+	}
+
+	if b.dp != nil && fs.SourceDetails == nil {
+		if err := b.dp.CreateFS(fs.ID); err != nil {
+			return nil, nil, internalErr(err)
+		}
+	}
+
+	if cc == nil {
+		return put(b, b.fss, fs, stActive), nil, nil
+	}
+
+	e := &entry[*FileSystem]{W: fs, Etag: newEtag(), Seq: b.nextSeq()}
+	b.fss[fs.ID] = e
+
+	return e, b.cloneJob(e, cc), nil
+}
+
+func (b *InMemoryBackend) newFileSystem(in createFSIn) (*FileSystem, *cloneCopy, *APIError) {
 	name := "FileSystem-" + b.nowUTC().Format("20060102-150405")
 	if in.DisplayName != nil {
 		name = *in.DisplayName
@@ -165,7 +202,7 @@ func (b *InMemoryBackend) newFileSystem(in createFSIn) (*FileSystem, *APIError) 
 		b.checkKmsKey(in.KmsKeyID),
 	} {
 		if aerr != nil {
-			return nil, aerr
+			return nil, nil, aerr
 		}
 	}
 
@@ -182,44 +219,60 @@ func (b *InMemoryBackend) newFileSystem(in createFSIn) (*FileSystem, *APIError) 
 
 	switch {
 	case in.SourceSnapshotID != nil && *in.SourceSnapshotID != "":
-		if aerr := b.cloneInto(fs, *in.SourceSnapshotID, in.CloneAttachStatus); aerr != nil {
-			return nil, aerr
+		cc, aerr := b.cloneInto(fs, *in.SourceSnapshotID, in.CloneAttachStatus)
+		if aerr != nil {
+			return nil, nil, aerr
 		}
+
+		return fs, cc, nil
 	case in.CloneAttachStatus != "":
-		return nil, errParam("cloneAttachStatus applies only when sourceSnapshotId is given")
+		return nil, nil, errParam("cloneAttachStatus applies only when sourceSnapshotId is given")
 	}
 
-	return fs, nil
+	return fs, nil, nil
 }
 
-// cloneInto turns fs into a clone of the snapshot and copies the data.
-func (b *InMemoryBackend) cloneInto(fs *FileSystem, snapID, attach string) *APIError {
+// cloneCopy names what a clone's data copy reads: the parent file system, the snapshot and its name.
+type cloneCopy struct {
+	ctx        context.Context
+	parentID   string
+	snapshotID string
+	snapName   string
+}
+
+// cloneInto turns fs into a clone of the snapshot. With a data plane it returns the copy still to be made.
+func (b *InMemoryBackend) cloneInto(fs *FileSystem, snapID, attach string) (*cloneCopy, *APIError) {
 	if attach != "" && attach != "ATTACH" && attach != "DETACH" {
-		return errParam("cloneAttachStatus must be ATTACH or DETACH")
+		return nil, errParam("cloneAttachStatus must be ATTACH or DETACH")
 	}
 
 	sn, aerr := b.snaps.usable(snapID)
 	if aerr != nil {
-		return aerr
+		return nil, aerr
 	}
 
 	if sn.W.State != stActive {
-		return errState("The snapshot " + snapID + " is in state " + sn.W.State)
+		return nil, errState("The snapshot " + snapID + " is in state " + sn.W.State)
 	}
 
 	parent, aerr := b.fss.usable(sn.W.FileSystemID)
 	if aerr != nil {
-		return aerr
+		return nil, aerr
 	}
 
 	if parent.W.AvailabilityDomain != fs.AvailabilityDomain {
-		return errParam("A clone must be created in the availability domain of its source file system")
+		return nil, errParam("A clone must be created in the availability domain of its source file system")
 	}
 
+	var cc *cloneCopy
+
 	if b.dp != nil {
-		if err := b.dp.CloneFrom(parent.W.ID, sn.W.Name, fs.ID); err != nil {
-			return internalErr(err)
+		ctx, rerr := b.reserveCopy()
+		if rerr != nil {
+			return nil, rerr
 		}
+
+		cc = &cloneCopy{ctx: ctx, parentID: parent.W.ID, snapshotID: snapID, snapName: sn.W.Name}
 	}
 
 	parent.W.IsCloneParent = true
@@ -228,18 +281,104 @@ func (b *InMemoryBackend) cloneInto(fs *FileSystem, snapID, attach string) *APIE
 	sn.W.IsCloneSource = true
 	sn.Etag = newEtag()
 
-	hydrated := b.transition <= 0
-	at := b.nowUTC().Add(hydrationSteps * b.transition)
+	hydrated := false
 	fs.SourceDetails = &sourceDetails{ParentFileSystemID: parent.W.ID, SourceSnapshotID: snapID}
 	fs.CloneAttachStatus, fs.IsHydrated = cloneAttached, &hydrated
-	fs.Int = &fsInt{HydratesAt: &at, DetachOnHydrate: attach == "DETACH"}
+	fs.Int = &fsInt{DetachOnHydrate: attach == "DETACH"}
 
-	if hydrated {
-		fs.Int.HydratesAt = nil
-		b.finishHydration(fs)
+	if cc == nil {
+		b.startHydration(fs)
 	}
 
-	return nil
+	return cc, nil
+}
+
+// startHydration begins the hydration of a clone whose data is in place.
+func (b *InMemoryBackend) startHydration(fs *FileSystem) {
+	if b.transition <= 0 {
+		b.finishHydration(fs)
+
+		return
+	}
+
+	at := b.nowUTC().Add(hydrationSteps * b.transition)
+	fs.Int.HydratesAt = &at
+}
+
+// cloneJob copies the snapshot into the clone outside the backend lock, then settles the clone.
+func (b *InMemoryBackend) cloneJob(e *entry[*FileSystem], cc *cloneCopy) copyJob {
+	dp := b.dp
+
+	return func() error {
+		defer b.cp.wg.Done()
+
+		err := dp.CloneFrom(cc.ctx, cc.parentID, cc.snapName, e.W.ID)
+
+		b.mu.Lock("settleClone")
+		live := e.W.State == stCreating && b.fss[e.W.ID] == e
+		ok := err == nil && b.cloneSourceLive(cc)
+
+		switch {
+		case live && ok:
+			moveTo(b, e, stActive)
+			b.startHydration(e.W)
+			e.Etag = newEtag()
+			b.mu.Unlock()
+
+			return nil
+		case live:
+			b.rollbackClone(e, cc)
+		}
+
+		b.mu.Unlock()
+		dp.RemoveFS(e.W.ID)
+
+		switch {
+		case !live:
+			return nil
+		case err == nil:
+			return errCloneSourceGone
+		}
+
+		return err
+	}
+}
+
+func (b *InMemoryBackend) cloneSourceLive(cc *cloneCopy) bool {
+	sn, ok := b.snaps[cc.snapshotID]
+	if !ok || sn.W.State != stActive {
+		return false
+	}
+
+	parent, ok := b.fss[cc.parentID]
+
+	return ok && parent.W.State != stDeleting && parent.W.State != stDeleted
+}
+
+// rollbackClone forgets a clone whose copy failed and undoes its marks on the parent and the snapshot.
+func (b *InMemoryBackend) rollbackClone(e *entry[*FileSystem], cc *cloneCopy) {
+	delete(b.fss, e.W.ID)
+
+	if parent, ok := b.fss[cc.parentID]; ok {
+		parent.W.CloneCount = max(0, parent.W.CloneCount-1)
+		parent.W.IsCloneParent = parent.W.CloneCount > 0
+		parent.Etag = newEtag()
+	}
+
+	if sn, ok := b.snaps[cc.snapshotID]; ok {
+		sn.W.IsCloneSource = b.cloneFrom(cc.snapshotID)
+		sn.Etag = newEtag()
+	}
+}
+
+func (b *InMemoryBackend) cloneFrom(snapID string) bool {
+	for _, c := range b.fss {
+		if c.W.SourceDetails != nil && c.W.SourceDetails.SourceSnapshotID == snapID && c.W.State != stDeleted {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (b *InMemoryBackend) finishHydration(fs *FileSystem) {
@@ -290,30 +429,43 @@ func (b *InMemoryBackend) sweepFileSystems(now time.Time) {
 // GetFileSystem returns one file system.
 func (b *InMemoryBackend) GetFileSystem(id string) (FileSystem, string, error) {
 	b.mu.RLock("GetFileSystem")
-	defer b.mu.RUnlock()
 
 	e, aerr := b.fss.get(id)
 	if aerr != nil {
+		b.mu.RUnlock()
+
 		return FileSystem{}, "", aerr
 	}
 
-	return b.fsView(e), e.Etag, nil
+	v, etag := b.fsView(e), e.Etag
+	b.mu.RUnlock()
+
+	return b.withUsage(v), etag, nil
 }
 
 // ListFileSystems lists the file systems of a compartment and availability domain.
 func (b *InMemoryBackend) ListFileSystems(f FSFilter, o ListOpts) (page.Page[map[string]any], error) {
 	b.mu.RLock("ListFileSystems")
-	defer b.mu.RUnlock()
 
 	scoped := MTFilter{Compartment: f.Compartment, AD: f.AD, State: f.State, DisplayName: f.DisplayName, ID: f.ID}
 
-	return listScoped(b, b.fss, scoped, o, scope[*FileSystem]{
+	pg, err := listScoped(b, b.fss, scoped, o, scope[*FileSystem]{
 		fields: func(w *FileSystem) (string, string, string) {
 			return w.CompartmentID, w.AvailabilityDomain, w.DisplayName
 		},
 		extra:  f.matches,
 		render: func(e *entry[*FileSystem]) map[string]any { return fsSummary(b.fsView(e)) },
 	})
+	b.mu.RUnlock()
+
+	if dp := b.plane(); dp != nil && err == nil {
+		for _, m := range pg.Data {
+			id, _ := m["id"].(string)
+			m["meteredBytes"] = dp.Usage(id)
+		}
+	}
+
+	return pg, err
 }
 
 func (f FSFilter) matches(w *FileSystem) bool {
@@ -326,6 +478,19 @@ func (f FSFilter) matches(w *FileSystem) bool {
 
 // UpdateFileSystem changes a file system's name, tags, key or snapshot policy.
 func (b *InMemoryBackend) UpdateFileSystem(
+	id, ifMatch string,
+	override bool,
+	in updateFSIn,
+) (FileSystem, string, error) {
+	v, etag, err := b.updateFileSystem(id, ifMatch, override, in)
+	if err != nil {
+		return FileSystem{}, "", err
+	}
+
+	return b.withUsage(v), etag, nil
+}
+
+func (b *InMemoryBackend) updateFileSystem(
 	id, ifMatch string,
 	override bool,
 	in updateFSIn,
@@ -596,9 +761,10 @@ const (
 // EstimateReplication estimates the base copy time of a file system from its metered size.
 func (b *InMemoryBackend) EstimateReplication(id string, rate *int) (ReplicationEstimate, error) {
 	b.mu.RLock("EstimateReplication")
-	defer b.mu.RUnlock()
 
-	e, aerr := b.fss.usable(id)
+	_, aerr := b.fss.usable(id)
+	b.mu.RUnlock()
+
 	if aerr != nil {
 		return ReplicationEstimate{}, aerr
 	}
@@ -612,7 +778,12 @@ func (b *InMemoryBackend) EstimateReplication(id string, rate *int) (Replication
 		cr = *rate
 	}
 
-	mb := b.fsView(e).MeteredBytes / bytesPerMB
+	var used int64
+	if dp := b.plane(); dp != nil {
+		used = dp.Usage(id)
+	}
+
+	mb := used / bytesPerMB
 	mins := int((mb + baseCopyMBps*secondsPerMinute - 1) / (baseCopyMBps * secondsPerMinute))
 
 	return ReplicationEstimate{

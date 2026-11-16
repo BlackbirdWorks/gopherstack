@@ -5,6 +5,8 @@ import (
 	"net/http"
 )
 
+var errCloneSourceGone = errors.New("ocifilestorage: the clone source was deleted while it was copied")
+
 // ErrNullEntry is returned when a persisted snapshot contains a null entry.
 var ErrNullEntry = errors.New("ocifilestorage: null entry in snapshot")
 

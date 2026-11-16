@@ -64,7 +64,10 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
+	b.quiesceCopies()
+
 	b.mu.Lock("Restore")
+	b.armCopies()
 	b.fss, b.mts, b.sets, b.exps = snap.FileSystems, snap.MountTargets, snap.ExportSets, snap.Exports
 	b.snaps, b.pols, b.reps = snap.Snapshots, snap.Policies, snap.Replications
 	b.tgts, b.conns, b.quotas = snap.Targets, snap.Connectors, snap.Quotas
@@ -81,13 +84,35 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	return nil
 }
 
+// failInterrupted fails the snapshots and clones whose data copy a restart interrupted; the copy cannot resume.
+func (b *InMemoryBackend) failInterrupted() {
+	for _, e := range b.snaps {
+		if e.W.State == stCreating && e.At == nil {
+			e.W.State, e.W.LifecycleDetails, e.Etag = stFailed, "data copy interrupted by a restart", newEtag()
+			b.dropSnapshotData(e.W)
+		}
+	}
+
+	for _, e := range b.fss {
+		if e.W.State == stCreating && e.At == nil {
+			e.W.State, e.W.LifecycleDetails, e.Etag = stFailed, "data copy interrupted by a restart", newEtag()
+
+			if b.dp != nil {
+				b.dp.RemoveFS(e.W.ID)
+			}
+		}
+	}
+}
+
 func (b *InMemoryBackend) restoreDataPlane() {
+	b.failInterrupted()
+
 	if b.dp == nil {
 		return
 	}
 
 	for id, e := range b.fss {
-		if e.W.State != stDeleted && e.W.State != stDeleting {
+		if e.W.State != stDeleted && e.W.State != stDeleting && e.W.State != stFailed {
 			_ = b.dp.CreateFS(id)
 		}
 	}

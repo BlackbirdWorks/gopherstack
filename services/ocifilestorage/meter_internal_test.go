@@ -17,6 +17,7 @@ func putFile(t *testing.T, p *NFSPlane, name string, size int, mtime time.Time) 
 	full := filepath.Join(p.fsDir("fs1"), name)
 	require.NoError(t, os.WriteFile(full, make([]byte, size), 0o600))
 	require.NoError(t, os.Chtimes(full, mtime, mtime))
+	p.touchMeter("fs1")
 }
 
 func TestMeteringCountsDifferentiatedSnapshotData(t *testing.T) {
@@ -29,7 +30,7 @@ func TestMeteringCountsDifferentiatedSnapshotData(t *testing.T) {
 
 	t0 := time.Unix(1_700_000_000, 0)
 	putFile(t, p, "a.txt", 10, t0)
-	require.NoError(t, p.TakeSnapshot("fs1", "s1"))
+	require.NoError(t, p.TakeSnapshot(t.Context(), "fs1", "s1"))
 
 	assert.EqualValues(t, 10, p.Usage("fs1"), "an unchanged snapshot adds nothing")
 	assert.Zero(t, p.SnapshotExclusiveBytes("fs1", "s1"))
@@ -38,11 +39,12 @@ func TestMeteringCountsDifferentiatedSnapshotData(t *testing.T) {
 	assert.EqualValues(t, 35, p.Usage("fs1"))
 	assert.EqualValues(t, 10, p.SnapshotExclusiveBytes("fs1", "s1"))
 
-	require.NoError(t, p.TakeSnapshot("fs1", "s2"))
+	require.NoError(t, p.TakeSnapshot(t.Context(), "fs1", "s2"))
 	assert.EqualValues(t, 35, p.Usage("fs1"))
 	assert.Zero(t, p.SnapshotExclusiveBytes("fs1", "s2"))
 
 	require.NoError(t, os.Remove(filepath.Join(p.fsDir("fs1"), "a.txt")))
+	p.touchMeter("fs1")
 	assert.EqualValues(t, 35, p.Usage("fs1"), "deleted live data stays metered while snapshots hold it")
 	assert.EqualValues(t, 25, p.SnapshotExclusiveBytes("fs1", "s2"))
 
@@ -63,7 +65,7 @@ func TestSnapshotWaitsForInFlightWrites(t *testing.T) {
 
 	done := make(chan error, 1)
 
-	go func() { done <- p.TakeSnapshot("fs1", "s1") }()
+	go func() { done <- p.TakeSnapshot(t.Context(), "fs1", "s1") }()
 
 	for gate.WriteWaiters() == 0 {
 		runtime.Gosched()
