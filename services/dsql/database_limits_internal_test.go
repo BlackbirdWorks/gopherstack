@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Cases share one database: every case that sets a limit must use the same value as any other case on that limit,
+// and no case may create a table wider than the lowest columns limit (4).
 func TestDockerDatabaseLimits(t *testing.T) {
 	t.Parallel()
 
@@ -34,8 +36,9 @@ func TestDockerDatabaseLimits(t *testing.T) {
 			msg:   "tables can have at most 4 columns",
 		},
 		{
-			name: "added column", limit: "columns", value: 2, setup: []string{"CREATE TABLE lim_add (a int, b int)"},
-			stmt: "ALTER TABLE lim_add ADD COLUMN c int", code: "54011", msg: "tables can have at most 2 columns",
+			name: "added column", limit: "columns", value: 4,
+			setup: []string{"CREATE TABLE lim_add (a int, b int, c int, d int)"},
+			stmt:  "ALTER TABLE lim_add ADD COLUMN e int", code: "54011", msg: "tables can have at most 4 columns",
 		},
 		{
 			name: "indexes", limit: "indexes", value: 1, stmt: "CREATE TABLE lim_idx (a int UNIQUE, b int UNIQUE)",
