@@ -89,9 +89,7 @@ gaps: []
   # fabrication parity-principles #1 forbids, and omitempty makes a
   # present-but-always-empty field byte-identical on the wire to an absent
   # one, so modelling them as always-empty would also be zero-effect churn.
-items_still_open:
-  - "UNVERIFIABLE: MasterUserSecret.KmsKeyId stays empty when MasterUserSecretKmsKeyId is unset; ModifyDBCluster docs say only that aws/secretsmanager is used, not the KmsKeyId value AWS returns (key ARN vs alias)."
-  - "UNVERIFIABLE: DescribeDBEngineVersions ValidUpgradeTarget (which version pairs are upgradable is not in the SDK or API reference), DescribeOrderableDBInstanceOptions LicenseModel filter (no documented value), DBCluster IOOptimizedNextAllowedModificationTime (no interval stated), CloneGroupId (no documented format), and the cluster parameters beyond audit_logs/tls/ttl_monitor (the developer guide examples list only those three with AllowedValues)."
+items_still_open: []
 structural_gaps:
   - "Docker engine (--docdb-engine=docker): one mongo container per cluster (3.6/4.0 map to mongo:4.4, 5.0 to mongo:5.0), TLS per the cluster `tls` parameter (default enabled; `DOCDB_TLS=false` turns TLS off engine-wide; see the 2026-10-20 note); the master user is a mongod root user, so SCRAM-SHA-1/SCRAM-SHA-256 are enforced by mongod itself; instances share the cluster container (one endpoint serves Endpoint, ReaderEndpoint and every instance), and restore-from-snapshot/PITR/persistence-restore relaunch an empty container with a random password because no data is carried."
   - "DBInstance PendingModifiedValues/StatusInfos, DBCluster PercentProgress and GlobalCluster FailoverState describe async windows this backend never has: every Modify/Failover/Restore applies synchronously."
@@ -482,3 +480,8 @@ DeleteDBCluster/DeleteDBInstance return `deleting`. RestoreDBClusterFromSnapshot
 ## 2026-10-17 optional Docker-backed clusters (--docdb-engine)
 
 `--docdb-engine=docker` (`DOCDB_ENGINE`, default `stub`; `DOCDB_HOST` overrides the advertised host, default `127.0.0.1`) starts an official `mongo` container per cluster at CreateDBCluster with MasterUsername/MasterUserPassword as the root login (a managed master secret's generated password is used when ManageMasterUserPassword is set). The cluster stays `creating` until an OP_MSG `isMaster` round-trip succeeds; then Endpoint, ReaderEndpoint, Port and member-instance Endpoint/Port report the published host:port. Stop/StartDBCluster stop and restart the container (same port, data kept); DeleteDBCluster, Reset, Shutdown and a failed start remove it. ModifyDBCluster MasterUserPassword (and managed-secret rotation) runs `changeUserPassword` through the container's mongo shell; Port/rename never move the published endpoint. Proof: engine_test.go (fake runtime, wire-probe against an in-process fake mongod) and `TestEngineDockerRealMongo` (skips without docker).
+
+## Emulator choices where the vendor is silent
+
+- UNVERIFIABLE: MasterUserSecret.KmsKeyId stays empty when MasterUserSecretKmsKeyId is unset; ModifyDBCluster docs say only that aws/secretsmanager is used, not the KmsKeyId value AWS returns (key ARN vs alias).
+- UNVERIFIABLE: DescribeDBEngineVersions ValidUpgradeTarget (which version pairs are upgradable is not in the SDK or API reference), DescribeOrderableDBInstanceOptions LicenseModel filter (no documented value), DBCluster IOOptimizedNextAllowedModificationTime (no interval stated), CloneGroupId (no documented format), and the cluster parameters beyond audit_logs/tls/ttl_monitor (the developer guide examples list only those three with AllowedValues).

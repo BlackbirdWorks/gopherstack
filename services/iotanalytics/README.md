@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 34 (34 ok) |
 | Feature families | 2 (2 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- RunPipelineActivity filter/math do not implement LIKE, IN or BETWEEN: the pinned SDK describes filter only as 'an expression that looks like a SQL WHERE clause' and publishes no operator list, so extending the grammar would invent behavior.
 
 ### Structural gaps
 

@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 14 (14 ok) |
 | Feature families | 4 (4 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 2 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- Describe* filters validate ServiceNamespace/ScalableDimension by enum membership only; whether AWS rejects a mismatched namespace/dimension pair on a filter is stated in neither the SDK nor the Describe* API pages (which only require a ResourceId whenever ScalableDimension is given, enforced), so the pair is left unenforced.
 
 ### Structural gaps
 

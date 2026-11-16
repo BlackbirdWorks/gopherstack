@@ -1,12 +1,18 @@
 package ocicontainerengine_test
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
+	"strings"
+	"sync"
 	"testing"
 
 	ke "github.com/oracle/oci-go-sdk/v65/containerengine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	oke "github.com/blackbirdworks/gopherstack/services/ocicontainerengine"
 )
 
 func TestNodePoolLifecycle(t *testing.T) {
@@ -553,6 +559,336 @@ func TestNodePoolListFilters(t *testing.T) {
 			}
 
 			assert.Equal(t, tt.want, names)
+		})
+	}
+}
+
+func TestNodePoolNodeNetwork(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	ctx := t.Context()
+	c := e.mkCluster(t, "nodenet", nil)
+
+	vnic := func(subnet string) []ke.NodePoolSecondaryVnicDetails {
+		return []ke.NodePoolSecondaryVnicDetails{{
+			CreateVnicDetails: &ke.CreateVnicDetails{SubnetId: new(subnet)}, DisplayName: new("sec"), NicIndex: new(1),
+		}}
+	}
+
+	tests := []struct {
+		mod    func(d *ke.CreateNodePoolDetails)
+		name   string
+		status int
+	}{
+		{name: "valid", mod: func(d *ke.CreateNodePoolDetails) {
+			d.SecondaryVnics = vnic(subRegional)
+			d.NetworkLaunchType = ke.NetworkLaunchTypeParavirtualized
+			d.PrimaryVnic = &ke.NodePoolPrimaryVnicDetails{
+				SecurityAttributes: map[string]map[string]any{
+					"ns": {"k": map[string]any{"value": "v"}},
+				},
+			}
+			d.NodeConfigDetails.ComputeClusterId = new("ocid1.computecluster.oc1.iad.cc")
+		}},
+		{name: "foreign vcn subnet", status: http.StatusBadRequest, mod: func(d *ke.CreateNodePoolDetails) {
+			d.SecondaryVnics = vnic(subOther)
+		}},
+		{name: "unknown subnet", status: http.StatusBadRequest, mod: func(d *ke.CreateNodePoolDetails) {
+			d.SecondaryVnics = vnic("ocid1.subnet.oc1.iad.nope")
+		}},
+		{name: "bad compute cluster", status: http.StatusBadRequest, mod: func(d *ke.CreateNodePoolDetails) {
+			d.NodeConfigDetails.ComputeClusterId = new("nope")
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			d := poolDetails(c.Id, "nn-"+strings.ReplaceAll(tt.name, " ", "-"))
+			tt.mod(&d)
+
+			_, err := e.ce.CreateNodePool(ctx, ke.CreateNodePoolRequest{CreateNodePoolDetails: d})
+			if tt.status != 0 {
+				assert.Equal(t, tt.status, svcErr(t, err).GetHTTPStatusCode())
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			list, err := e.ce.ListNodePools(
+				ctx,
+				ke.ListNodePoolsRequest{CompartmentId: new(testCompartment), Name: d.Name},
+			)
+			require.NoError(t, err)
+			require.Len(t, list.Items, 1)
+
+			got, err := e.ce.GetNodePool(ctx, ke.GetNodePoolRequest{NodePoolId: list.Items[0].Id})
+			require.NoError(t, err)
+			require.Len(t, got.SecondaryVnics, 1)
+			assert.Equal(t, subRegional, *got.SecondaryVnics[0].CreateVnicDetails.SubnetId)
+			assert.Equal(t, 1, *got.SecondaryVnics[0].NicIndex)
+			assert.Equal(t, ke.NetworkLaunchTypeParavirtualized, got.NetworkLaunchType)
+			assert.Contains(t, got.PrimaryVnic.SecurityAttributes, "ns")
+			assert.Equal(t, "ocid1.computecluster.oc1.iad.cc", *got.NodeConfigDetails.ComputeClusterId)
+		})
+	}
+}
+
+var errCapacity = errors.New("out of host capacity")
+
+type computeNet struct {
+	fakeNet
+	mu         *sync.Mutex
+	launched   *[]oke.NodeLaunch
+	terminated *[]string
+	failAD     string
+}
+
+func (c computeNet) LaunchNode(l oke.NodeLaunch) (oke.NodeInstance, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if l.AD == c.failAD {
+		return oke.NodeInstance{}, errCapacity
+	}
+
+	*c.launched = append(*c.launched, l)
+	n := len(*c.launched)
+
+	return oke.NodeInstance{
+		ID: fmt.Sprintf("ocid1.instance.oc1.iad.core%d", n), PrivateIP: fmt.Sprintf("10.0.9.%d", n),
+		FaultDomain: "FAULT-DOMAIN-2",
+	}, nil
+}
+
+func (c computeNet) TerminateNode(id string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	*c.terminated = append(*c.terminated, id)
+
+	return nil
+}
+
+func TestNodesAreCoreInstances(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	ctx := t.Context()
+
+	var (
+		mu         sync.Mutex
+		launched   []oke.NodeLaunch
+		terminated []string
+	)
+
+	e.backend.SetNetwork(computeNet{
+		mu: &mu, launched: &launched, terminated: &terminated, failAD: ad2,
+	})
+
+	c := e.mkCluster(t, "coreinst", nil)
+
+	d := poolDetails(c.Id, "core-pool")
+	d.NodeConfigDetails.Size = new(2)
+	d.SshPublicKey = new("ssh-rsa AAAA")
+	d.NodeMetadata = map[string]string{"k": "v"}
+	d.NodeConfigDetails.PlacementConfigs = d.NodeConfigDetails.PlacementConfigs[:1]
+	d.NodeConfigDetails.PlacementConfigs[0].CapacityReservationId = new("ocid1.capacityreservation.oc1.iad.cr")
+	d.NodeConfigDetails.PlacementConfigs[0].PreemptibleNodeConfig = &ke.PreemptibleNodeConfigDetails{
+		PreemptionAction: ke.TerminatePreemptionAction{IsPreserveBootVolume: new(true)},
+	}
+	d.NodeConfigDetails.ComputeClusterId = new("ocid1.computecluster.oc1.iad.cc")
+
+	_, err := e.ce.CreateNodePool(ctx, ke.CreateNodePoolRequest{CreateNodePoolDetails: d})
+	require.NoError(t, err)
+	e.settle()
+
+	list, err := e.ce.ListNodePools(ctx, ke.ListNodePoolsRequest{CompartmentId: new(testCompartment), Name: d.Name})
+	require.NoError(t, err)
+
+	got, err := e.ce.GetNodePool(ctx, ke.GetNodePoolRequest{NodePoolId: list.Items[0].Id})
+	require.NoError(t, err)
+	require.Len(t, got.Nodes, 2)
+
+	mu.Lock()
+	require.Len(t, launched, 2)
+	assert.Equal(t, shapeFixed, launched[0].Shape)
+	assert.Equal(t, imgOL8, launched[0].ImageID)
+	assert.Equal(t, subAD1, launched[0].SubnetID)
+	assert.Equal(t, "ssh-rsa AAAA", launched[0].Metadata["ssh_authorized_keys"])
+	assert.Equal(t, "v", launched[0].Metadata["k"])
+	assert.Equal(t, "ocid1.capacityreservation.oc1.iad.cr", launched[0].CapacityReservationID)
+	assert.Equal(t, "ocid1.computecluster.oc1.iad.cc", launched[0].ComputeClusterID)
+	assert.True(t, launched[0].Preemptible)
+	assert.True(t, *launched[0].PreserveBootVolume)
+	mu.Unlock()
+
+	assert.Equal(t, "ocid1.instance.oc1.iad.core1", *got.Nodes[0].Id)
+	assert.Equal(t, "10.0.9.1", *got.Nodes[0].PrivateIp)
+	assert.Equal(t, "FAULT-DOMAIN-2", *got.Nodes[0].FaultDomain)
+
+	_, err = e.ce.DeleteNodePool(ctx, ke.DeleteNodePoolRequest{NodePoolId: got.Id})
+	require.NoError(t, err)
+
+	mu.Lock()
+	assert.ElementsMatch(t, []string{"ocid1.instance.oc1.iad.core1", "ocid1.instance.oc1.iad.core2"}, terminated)
+	mu.Unlock()
+}
+
+func TestNodeLaunchFailureLeavesNodeFailed(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	ctx := t.Context()
+
+	var (
+		mu         sync.Mutex
+		launched   []oke.NodeLaunch
+		terminated []string
+	)
+
+	e.backend.SetNetwork(computeNet{mu: &mu, launched: &launched, terminated: &terminated, failAD: ad1})
+
+	c := e.mkCluster(t, "corefail", nil)
+
+	d := poolDetails(c.Id, "fail-pool")
+	d.NodeConfigDetails.Size = new(1)
+	d.NodeConfigDetails.PlacementConfigs = d.NodeConfigDetails.PlacementConfigs[:1]
+
+	_, err := e.ce.CreateNodePool(ctx, ke.CreateNodePoolRequest{CreateNodePoolDetails: d})
+	require.NoError(t, err)
+	e.settle()
+
+	list, err := e.ce.ListNodePools(ctx, ke.ListNodePoolsRequest{CompartmentId: new(testCompartment), Name: d.Name})
+	require.NoError(t, err)
+
+	got, err := e.ce.GetNodePool(ctx, ke.GetNodePoolRequest{NodePoolId: list.Items[0].Id})
+	require.NoError(t, err)
+	require.Len(t, got.Nodes, 1)
+	assert.Equal(t, ke.NodeLifecycleStateFailing, got.Nodes[0].LifecycleState)
+
+	_, err = e.ce.DeleteNodePool(ctx, ke.DeleteNodePoolRequest{NodePoolId: got.Id})
+	require.NoError(t, err)
+
+	mu.Lock()
+	assert.Empty(t, terminated)
+	mu.Unlock()
+}
+
+func TestNodePoolCycling(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		cycling *ke.NodePoolCyclingDetails
+		name    string
+		cycled  bool
+	}{
+		{name: "enabled", cycled: true, cycling: &ke.NodePoolCyclingDetails{
+			IsNodeCyclingEnabled: new(true), MaximumSurge: new("25%"), MaximumUnavailable: new("1"),
+			CycleModes: []ke.CycleModeEnum{ke.CycleModeInstanceReplace},
+		}},
+		{name: "disabled", cycling: &ke.NodePoolCyclingDetails{IsNodeCyclingEnabled: new(false)}},
+		{name: "absent"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, envOpts{})
+			ctx := t.Context()
+			c := e.mkCluster(t, "cyc-"+tt.name, nil)
+
+			d := poolDetails(c.Id, "cyc")
+			d.NodeConfigDetails.Size = new(2)
+			d.NodePoolCyclingDetails = tt.cycling
+
+			_, err := e.ce.CreateNodePool(ctx, ke.CreateNodePoolRequest{CreateNodePoolDetails: d})
+			require.NoError(t, err)
+			e.settle()
+
+			list, err := e.ce.ListNodePools(
+				ctx,
+				ke.ListNodePoolsRequest{CompartmentId: new(testCompartment), Name: d.Name},
+			)
+			require.NoError(t, err)
+
+			ids := func() []string {
+				got, gerr := e.ce.GetNodePool(ctx, ke.GetNodePoolRequest{NodePoolId: list.Items[0].Id})
+				require.NoError(t, gerr)
+
+				out := make([]string, 0, len(got.Nodes))
+
+				for _, n := range got.Nodes {
+					out = append(out, *n.Id)
+				}
+
+				return out
+			}
+
+			before := ids()
+			require.Len(t, before, 2)
+
+			_, err = e.ce.UpdateNodePool(ctx, ke.UpdateNodePoolRequest{
+				NodePoolId:   list.Items[0].Id,
+				SshPublicKey: new("ssh-rsa NEWKEY"),
+			})
+			require.NoError(t, err)
+			e.settle()
+
+			after := ids()
+			require.Len(t, after, 2)
+
+			if tt.cycled {
+				assert.NotContains(t, after, before[0])
+				assert.NotContains(t, after, before[1])
+
+				return
+			}
+
+			assert.ElementsMatch(t, before, after)
+		})
+	}
+}
+
+func TestNodePoolSettingsValidation(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	ctx := t.Context()
+	c := e.mkCluster(t, "settings", nil)
+
+	tests := []struct {
+		mod  func(d *ke.CreateNodePoolDetails)
+		name string
+	}{
+		{name: "long grace", mod: func(d *ke.CreateNodePoolDetails) {
+			d.NodeEvictionNodePoolSettings = &ke.NodeEvictionNodePoolSettings{EvictionGraceDuration: new("PT90M")}
+		}},
+		{name: "surge percent", mod: func(d *ke.CreateNodePoolDetails) {
+			d.NodePoolCyclingDetails = &ke.NodePoolCyclingDetails{MaximumSurge: new("101%")}
+		}},
+		{name: "unavailable count", mod: func(d *ke.CreateNodePoolDetails) {
+			d.NodePoolCyclingDetails = &ke.NodePoolCyclingDetails{MaximumUnavailable: new("9")}
+		}},
+		{name: "surge text", mod: func(d *ke.CreateNodePoolDetails) {
+			d.NodePoolCyclingDetails = &ke.NodePoolCyclingDetails{MaximumSurge: new("lots")}
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			d := poolDetails(c.Id, "set-"+strings.ReplaceAll(tt.name, " ", "-"))
+			d.NodeConfigDetails.Size = new(3)
+			tt.mod(&d)
+
+			_, err := e.ce.CreateNodePool(ctx, ke.CreateNodePoolRequest{CreateNodePoolDetails: d})
+			assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode())
 		})
 	}
 }

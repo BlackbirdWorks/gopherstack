@@ -159,13 +159,8 @@ func (p *parser) parsePow() (expr, error) {
 		return nil, err
 	}
 
-	for p.accept("^") {
-		r, rerr := p.parseUnary()
-		if rerr != nil {
-			return nil, rerr
-		}
-
-		l = binaryExpr{op: "^", l: l, r: r}
+	if p.peek().is("^") {
+		return nil, unsupported("The ^ exponentiation operator is not supported")
 	}
 
 	return l, nil
@@ -387,6 +382,12 @@ func (p *parser) parseIdentAtom() (expr, error) {
 		return identExpr{name: t.text}, nil
 	}
 
+	if strings.EqualFold(t.text, "reduce") && p.isReduce() {
+		p.pos++
+
+		return p.parseReduce()
+	}
+
 	p.pos++
 
 	c := callExpr{name: strings.ToLower(t.text)}
@@ -451,4 +452,61 @@ func (p *parser) parseCase() (expr, error) {
 	}
 
 	return c, p.expect("END")
+}
+
+func (p *parser) isReduce() bool {
+	return p.pos+2 < len(p.toks) && p.toks[p.pos+1].kind == tkIdent && p.toks[p.pos+2].is("=")
+}
+
+// parseReduce reads acc = init, v IN list | acc op expr ) after the opening parenthesis.
+func (p *parser) parseReduce() (expr, error) {
+	acc, _ := p.ident()
+	p.pos++
+
+	init, err := p.parseExpr()
+	if err != nil {
+		return nil, err
+	}
+
+	if err = p.expect(","); err != nil {
+		return nil, err
+	}
+
+	v, verr := p.ident()
+	if verr != nil || !p.accept("IN") {
+		return nil, p.unexpected("a variable and IN")
+	}
+
+	src, err := p.parseExpr()
+	if err != nil {
+		return nil, err
+	}
+
+	if err = p.expect("|"); err != nil {
+		return nil, err
+	}
+
+	body, err := p.parseExpr()
+	if err != nil {
+		return nil, err
+	}
+
+	bin, isBin := body.(binaryExpr)
+	if !isBin || (bin.op != "+" && bin.op != "*") || !usesAccumulator(bin, acc) {
+		return nil, unsupported(
+			"reduce() only supports the forms accumulator + expression and accumulator * expression",
+		)
+	}
+
+	return reduceExpr{acc: acc, init: init, v: v, src: src, body: body}, p.expect(")")
+}
+
+func usesAccumulator(b binaryExpr, acc string) bool {
+	for _, side := range []expr{b.l, b.r} {
+		if id, ok := side.(identExpr); ok && id.name == acc {
+			return true
+		}
+	}
+
+	return false
 }

@@ -23,13 +23,21 @@ func (b *InMemoryBackend) CreateWebFunction(
 	}
 
 	if in.Revision != nil {
-		if err := b.pinCode(ctx, &in.Revision.S3); err != nil {
+		if err := b.pinCode(ctx, region, in.Name, &in.Revision.S3); err != nil {
 			return nil, err
 		}
 
-		if err := b.checkKey(ctx, region, in.Revision.KmsKeyArn); err != nil {
+		if err := b.checkKey(ctx, region, in.Name, in.Revision.KmsKeyArn); err != nil {
 			return nil, err
 		}
+	}
+
+	var fails map[string]string
+
+	if in.Revision != nil && in.Endpoint != nil {
+		fails = b.replicationFailures(ctx, in.Endpoint.Regions, region, []*Revision{
+			{KmsKeyArn: in.Revision.KmsKeyArn, FunctionName: in.Name, ID: "pending"},
+		})
 	}
 
 	b.mu.Lock("CreateWebFunction")
@@ -70,7 +78,7 @@ func (b *InMemoryBackend) CreateWebFunction(
 			in.Endpoint.Weights = []RevisionWeight{{RevisionID: rev.ID, Weight: percentTotal}}
 		}
 
-		ep := b.newEndpointLocked(f, in.Endpoint, now)
+		ep := b.newEndpointLocked(f, in.Endpoint, now, fails)
 		b.endpoints.Put(ep)
 		out.Endpoint = b.endpointView(ep)
 	}
@@ -237,7 +245,7 @@ func (b *InMemoryBackend) AccountSettings(region string) AccountSettings {
 		MaxEndpointsPerFunction: maxEndpointsPerFunction,
 		MaxRevisionsPerFunction: maxRevisionsPerFunction,
 		MaxTotalArmVCpus:        maxTotalArmVCpus,
-		MaxTotalRateLimit:       maxTotalRateLimit,
+		MaxTotalRateLimit:       b.run.accountRateQuota(),
 		FunctionCount:           n,
 	}
 }

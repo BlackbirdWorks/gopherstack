@@ -63,6 +63,11 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 		opDeleteTable: h.deleteTable, opListTableData: h.listTableData, opInsertAll: h.insertAll,
 		opInsertJob: h.insertJob, opUploadJob: h.uploadJob, opGetJob: h.getJob, opListJobs: h.listJobs,
 		opCancelJob: h.cancelJob, opDeleteJob: h.deleteJob, opQuery: h.query, opGetQueryResults: h.getQueryResults,
+		opInsertRoutine: h.insertRoutine, opGetRoutine: h.getRoutine, opListRoutines: h.listRoutines,
+		opUpdateRoutine: h.updateRoutine, opDeleteRoutine: h.deleteRoutine,
+		opInsertRowPolicy: h.insertRowPolicy, opGetRowPolicy: h.getRowPolicy, opListRowPolicies: h.listRowPolicies,
+		opUpdateRowPolicy: h.updateRowPolicy, opDeleteRowPolicy: h.deleteRowPolicy,
+		opBatchDeletePols: h.batchDeleteRowPolicies, opReservation: h.reservationOp,
 	}
 
 	return h
@@ -77,7 +82,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		opListProjects, opInsertDataset, opGetDataset, opListDatasets, opPatchDataset, opUpdateDataset,
 		opDeleteDataset, opInsertTable, opGetTable, opListTables, opPatchTable, opUpdateTable, opDeleteTable,
 		opListTableData, opInsertAll, opInsertJob, opUploadJob, opGetJob, opListJobs, opCancelJob, opDeleteJob,
-		opQuery, opGetQueryResults,
+		opQuery, opGetQueryResults, opInsertRoutine, opGetRoutine, opListRoutines, opUpdateRoutine, opDeleteRoutine,
+		opInsertRowPolicy, opGetRowPolicy, opListRowPolicies, opUpdateRowPolicy, opDeleteRowPolicy,
+		opBatchDeletePols, opReservation,
 	}
 }
 
@@ -99,6 +106,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	switch {
 	case rt.table != "":
 		return rt.project + "/" + rt.dataset + "." + rt.table
+	case rt.routine != "":
+		return rt.project + "/" + rt.dataset + "." + rt.routine
 	case rt.dataset != "":
 		return rt.project + "/" + rt.dataset
 	case rt.job != "":
@@ -118,6 +127,8 @@ func (h *Handler) Reset() {
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		rt := parseRoute(c.Request())
+
+		c.SetRequest(c.Request().WithContext(withPrincipal(c.Request().Context(), requestPrincipal(c.Request()))))
 
 		op, ok := h.ops[rt.op]
 		if !ok {
@@ -155,7 +166,7 @@ func (h *Handler) fail(c *echo.Context, err error) error {
 	}
 
 	return c.JSON(ae.Status, map[string]errorBody{"error": {
-		Code: ae.Status, Message: ae.Message, Status: statusText(ae.Status),
+		Code: ae.Status, Message: ae.Message, Status: errStatus(ae),
 		Errors: []errorItem{{Message: ae.Message, Domain: "global", Reason: ae.Reason}},
 	}})
 }
@@ -428,6 +439,7 @@ func (h *Handler) listJobs(c *echo.Context, rt route) error {
 		),
 		Max:         queryInt(c, "maxResults"),
 		StateFilter: c.QueryParams()["stateFilter"],
+		Parent:      c.QueryParam(litParentJobID),
 	}
 
 	o.MinCreated, _ = strconv.ParseInt(c.QueryParam("minCreationTime"), 10, 64)
@@ -520,4 +532,165 @@ func (h *Handler) Shutdown(ctx context.Context) {
 			log.ErrorContext(ctx, "gcpbigquery: forced close also failed", "error", closeErr)
 		}
 	}
+}
+
+func (h *Handler) insertRoutine(c *echo.Context, rt route) error {
+	body, err := decodeBody(c)
+	if err != nil {
+		return err
+	}
+
+	out, err := h.Backend.CreateRoutine(rt.project, rt.dataset, body)
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(http.StatusOK, out)
+}
+
+func (h *Handler) getRoutine(c *echo.Context, rt route) error {
+	out, err := h.Backend.GetRoutine(rt.project, rt.dataset, rt.routine)
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(http.StatusOK, out)
+}
+
+func (h *Handler) updateRoutine(c *echo.Context, rt route) error {
+	body, err := decodeBody(c)
+	if err != nil {
+		return err
+	}
+
+	out, err := h.Backend.UpdateRoutine(rt.project, rt.dataset, rt.routine, c.Request().Header.Get("If-Match"), body)
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(http.StatusOK, out)
+}
+
+func (h *Handler) deleteRoutine(c *echo.Context, rt route) error {
+	if err := h.Backend.DeleteRoutine(rt.project, rt.dataset, rt.routine); err != nil {
+		return err
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) listRoutines(c *echo.Context, rt route) error {
+	pg, err := h.Backend.ListRoutines(rt.project, rt.dataset, listOptions(c), c.QueryParam("readMask"))
+	if err != nil {
+		return err
+	}
+
+	out := map[string]any{}
+	if len(pg.Data) > 0 {
+		out["routines"] = pg.Data
+	}
+
+	if pg.Next != "" {
+		out["nextPageToken"] = pg.Next
+	}
+
+	return c.JSON(http.StatusOK, out)
+}
+
+func (h *Handler) insertRowPolicy(c *echo.Context, rt route) error {
+	body, err := decodeBody(c)
+	if err != nil {
+		return err
+	}
+
+	out, err := h.Backend.CreateRowPolicy(rt.project, rt.dataset, rt.table, body)
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(http.StatusOK, out)
+}
+
+func (h *Handler) getRowPolicy(c *echo.Context, rt route) error {
+	out, err := h.Backend.GetRowPolicy(rt.project, rt.dataset, rt.table, rt.policy)
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(http.StatusOK, out)
+}
+
+func (h *Handler) updateRowPolicy(c *echo.Context, rt route) error {
+	body, err := decodeBody(c)
+	if err != nil {
+		return err
+	}
+
+	out, err := h.Backend.UpdateRowPolicy(
+		rt.project, rt.dataset, rt.table, rt.policy, c.Request().Header.Get("If-Match"), body)
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(http.StatusOK, out)
+}
+
+func (h *Handler) deleteRowPolicy(c *echo.Context, rt route) error {
+	err := h.Backend.DeleteRowPolicies(rt.project, rt.dataset, rt.table, []string{rt.policy}, queryBool(c, "force"))
+	if err != nil {
+		return err
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) batchDeleteRowPolicies(c *echo.Context, rt route) error {
+	body, err := decodeBody(c)
+	if err != nil {
+		return err
+	}
+
+	raw, _ := body["policyIds"].([]any)
+	if len(raw) == 0 {
+		return errInvalid("policyIds is required")
+	}
+
+	ids := make([]string, 0, len(raw))
+
+	for _, v := range raw {
+		s, ok := v.(string)
+		if !ok {
+			return errInvalid("policyIds must be strings")
+		}
+
+		ids = append(ids, s)
+	}
+
+	force, _ := body["force"].(bool)
+	if err = h.Backend.DeleteRowPolicies(rt.project, rt.dataset, rt.table, ids, force); err != nil {
+		return err
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) listRowPolicies(c *echo.Context, rt route) error {
+	o := listOptions(c)
+	o.Max = queryInt(c, "pageSize")
+
+	pg, err := h.Backend.ListRowPolicies(rt.project, rt.dataset, rt.table, o)
+	if err != nil {
+		return err
+	}
+
+	out := map[string]any{}
+	if len(pg.Data) > 0 {
+		out[litRowPolicies] = pg.Data
+	}
+
+	if pg.Next != "" {
+		out["nextPageToken"] = pg.Next
+	}
+
+	return c.JSON(http.StatusOK, out)
 }

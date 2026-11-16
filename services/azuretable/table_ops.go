@@ -4,6 +4,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 
@@ -78,7 +79,7 @@ func (h *Handler) listTables(c *echo.Context) error {
 
 	start := c.QueryParam(headerNextTableNameParam)
 	level := odataLevelFromAccept(c.Request().Header.Get("Accept"))
-	tables := h.Backend.ListTables()
+	tables := visibleTables(h.Backend.ListTables())
 	values := make([]map[string]any, 0, len(tables))
 
 	for _, ti := range tables {
@@ -154,4 +155,17 @@ func (h *Handler) tableEntityBody(name, level string) map[string]any {
 	}
 
 	return m
+}
+
+// visibleTables drops Storage Analytics metrics tables, which Query Tables never lists.
+func visibleTables(in []TableInfo) []TableInfo {
+	out := make([]TableInfo, 0, len(in))
+
+	for _, ti := range in {
+		if !strings.HasPrefix(ti.Name, "$Metrics") {
+			out = append(out, ti)
+		}
+	}
+
+	return out
 }

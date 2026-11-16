@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/services/neptune/sparql"
 )
@@ -27,6 +28,8 @@ const (
 	mimeTurtle         = "text/turtle"
 	mimeForm           = "application/x-www-form-urlencoded"
 	mimeSparqlQ        = "application/sparql-query"
+	mimeBinaryRDF      = "application/x-binary-rdf"
+	mimeBinaryResults  = "application/x-binary-rdf-results-table"
 	mimeSparqlU        = "application/sparql-update"
 	codeMalformed      = "MalformedQueryException"
 	codeInvalidNumeric = "InvalidNumericDataException"
@@ -203,7 +206,13 @@ func (f *cypherFront) runSparqlQuery(w http.ResponseWriter, r *http.Request, cal
 		q.SetDataset(iris(call.from), iris(call.named))
 	}
 
-	ctx, finish := f.rdf.queries.begin(r.Context(), call.query)
+	q.SetService(f.rdf.service)
+
+	ctx, finish, ok := f.beginHinted(w, r, call.query, q.Hints)
+	if !ok {
+		return
+	}
+
 	defer finish()
 
 	if call.explain != "" {
@@ -256,6 +265,34 @@ func (f *cypherFront) serveSparqlExplain(ctx context.Context, w http.ResponseWri
 		html.EscapeString(plan)+"</pre>\n</body></html>\n")
 }
 
+// beginHinted starts a tracked query honouring the queryTimeout and queryId hints; false when it already replied.
+func (f *cypherFront) beginHinted(
+	w http.ResponseWriter, r *http.Request, query string, h sparql.Hints,
+) (context.Context, func(), bool) {
+	limit := cypherQueryTimeout
+
+	if h.HasTimeout {
+		if h.TimeoutMs >= cypherQueryTimeout.Milliseconds() {
+			writeCypherError(w, http.StatusBadRequest, codeMalformed,
+				"Malformed query: Query hint 'queryTimeout' must be less than neptune_query_timeout DB Parameter Group")
+
+			return nil, nil, false
+		}
+
+		limit = time.Duration(h.TimeoutMs) * time.Millisecond
+	}
+
+	ctx, finish, ok := f.rdf.queries.beginWith(r.Context(), query, h.QueryID, limit)
+	if !ok {
+		writeCypherError(w, http.StatusBadRequest, codeBadRequest,
+			"Query id "+strconv.Quote(h.QueryID)+" is already in use by a running query")
+
+		return nil, nil, false
+	}
+
+	return ctx, finish, true
+}
+
 func resultSize(r *sparql.Result) int {
 	switch r.Kind {
 	case sparql.ResultSelect:
@@ -284,10 +321,18 @@ func (f *cypherFront) runSparqlUpdate(w http.ResponseWriter, r *http.Request, ca
 		u.SetUsing(iris(call.usingG), iris(call.usingN))
 	}
 
-	ctx, finish := f.rdf.queries.begin(r.Context(), call.update)
+	ctx, finish, ok := f.beginHinted(w, r, call.update, u.Hints)
+	if !ok {
+		return
+	}
+
 	defer finish()
 
-	if _, err = f.rdf.store.Apply(ctx, u, sparql.UpdateOptions{Fetch: f.rdf.fetch}); err != nil {
+	if _, err = f.rdf.store.Apply(
+		ctx,
+		u,
+		sparql.UpdateOptions{FetchDoc: f.rdf.fetchDoc, Service: f.rdf.service},
+	); err != nil {
 		writeSparqlFailure(ctx, w, err)
 
 		return
@@ -298,6 +343,12 @@ func (f *cypherFront) runSparqlUpdate(w http.ResponseWriter, r *http.Request, ca
 }
 
 func writeSparqlFailure(ctx context.Context, w http.ResponseWriter, err error) {
+	if pe, ok := errors.AsType[*sparql.ParameterError](err); ok && ctx.Err() == nil {
+		writeCypherError(w, http.StatusBadRequest, codeInvalidParam, pe.Msg)
+
+		return
+	}
+
 	var se *sparql.SyntaxError
 	if errors.As(err, &se) && ctx.Err() == nil {
 		writeCypherError(w, http.StatusBadRequest, codeMalformed, se.Msg)
@@ -333,16 +384,24 @@ type encoder struct {
 	graph  bool
 }
 
+func (e encoder) contentType() string {
+	if e.mime == mimeBinaryRDF || e.mime == mimeBinaryResults {
+		return e.mime
+	}
+
+	return e.mime + ";charset=UTF-8"
+}
+
 func (e encoder) encode(out *sparql.Result) ([]byte, string, error) {
 	if e.graph {
 		body, err := sparql.SerializeTriples(e.rdf, out.Triples)
 
-		return body, e.mime + ";charset=UTF-8", err
+		return body, e.contentType(), err
 	}
 
 	body, err := sparql.WriteResult(out, e.result)
 
-	return body, e.mime + ";charset=UTF-8", err
+	return body, e.contentType(), err
 }
 
 func selectOffers() []offer {
@@ -351,6 +410,7 @@ func selectOffers() []offer {
 		{mime: mimeSparqlXML, result: sparql.ResultXML}, {mime: "application/xml", result: sparql.ResultXML},
 		{mime: "text/xml", result: sparql.ResultXML}, {mime: "text/csv", result: sparql.ResultCSV},
 		{mime: "text/tab-separated-values", result: sparql.ResultTSV},
+		{mime: mimeBinaryResults, result: sparql.ResultBinary},
 	}
 }
 
@@ -368,6 +428,8 @@ func graphOffers() []offer {
 		{mime: "application/n-triples", rdf: sparql.FormatNTriples}, {mime: "text/plain", rdf: sparql.FormatNTriples},
 		{mime: mimeTurtle, rdf: sparql.FormatTurtle}, {mime: "text/n3", rdf: sparql.FormatTurtle},
 		{mime: "application/rdf+xml", rdf: sparql.FormatRDFXML}, {mime: "application/trig", rdf: sparql.FormatTriG},
+		{mime: "application/ld+json", rdf: sparql.FormatJSONLD}, {mime: "application/trix", rdf: sparql.FormatTriX},
+		{mime: mimeBinaryRDF, rdf: sparql.FormatRDF4JBinary},
 	}
 }
 

@@ -9,15 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 59 (50 ok, 9 partial) |
 | Feature families | 4 (4 ok) |
-| Known gaps | 2 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- GetWebACL ApplicationIntegrationURL: the SDK and developer guide define when it appears (ATP, ACFP, targeted Bot Control) but publish no URL format, so the value cannot be determined.
-- DescribeAllManagedProducts/DescribeManagedProductsByVendor/DescribeManagedRuleGroup Scope: the SDK does not say which managed products differ between REGIONAL and CLOUDFRONT, so per-scope availability cannot be determined (Scope is now validated).
 
 ### Structural gaps
 

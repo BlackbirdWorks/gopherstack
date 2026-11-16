@@ -111,7 +111,7 @@ func (t *planTable) loadDelta(ctx context.Context, conn *sql.Conn, l *tableLoade
 	}
 
 	return fillTable(ctx, conn, t.schema, t.name, cols, func(stmt *sql.Stmt, kinds []colKind) error {
-		sink := &rowSink{stmt: stmt, kinds: kinds, nargs: len(cols)}
+		sink := &rowSink{stmt: stmt, kinds: kinds, nargs: len(cols), rowTypes: rowTypesOf(cols)}
 
 		for _, f := range snap.Files {
 			bucket, key := st.bucket, st.prefix+f.Path
@@ -125,7 +125,15 @@ func (t *planTable) loadDelta(ctx context.Context, conn *sql.Conn, l *tableLoade
 				return derr
 			}
 
-			if lerr := l.loadColumnarFile(ctx, bucket, key, deltaFileCols(snap, f), skip, sink); lerr != nil {
+			if lerr := l.loadColumnarFile(
+				ctx,
+				bucket,
+				key,
+				fmtParquet,
+				deltaFileCols(snap, f),
+				skip,
+				sink,
+			); lerr != nil {
 				return lerr
 			}
 		}

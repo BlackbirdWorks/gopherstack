@@ -1,11 +1,13 @@
 package connect
 
 import (
+	"context"
 	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
@@ -88,6 +90,10 @@ func checkDataSetID(id string) error {
 		return invalidParamErr("DataSetId must be 1-%d characters", maxDataSetIDLen)
 	}
 
+	if !slices.Contains(dataLakeTables(), id) {
+		return invalidParamErr("DataSetId %q is not an analytics data lake dataset", id)
+	}
+
 	return nil
 }
 
@@ -103,23 +109,55 @@ func (b *Backend) analyticsTarget(target string) (string, error) {
 	return target, nil
 }
 
-func (b *Backend) associateLocked(inst, dataSet, target string) AnalyticsDataAssociationResult {
+func (b *Backend) associateLocked(
+	ctx context.Context, inst, dataSet, target string,
+) (AnalyticsDataAssociationResult, error) {
 	if r, err := b.analyticsAssocs.get(inst, analyticsKey(dataSet, target)); err == nil {
-		return r.view()
+		return r.view(), nil
 	}
 
 	id := newID()
+	shareArn := arn.Build("ram", b.region, b.accountID, "resource-share/"+id)
+
+	if b.shares != nil {
+		dsARN := arn.Build("connect", b.region, b.accountID, "instance/"+inst+"/analytics-data-set/"+dataSet)
+
+		got, err := b.shares.CreateShare(ctx, "connect-"+inst+"-"+dataSet, target, dsARN)
+		if err != nil {
+			return AnalyticsDataAssociationResult{}, invalidRequestErr("resource share failed: %v", err)
+		}
+
+		shareArn, id = got, got[strings.LastIndex(got, "/")+1:]
+	}
+
 	rec := &analyticsAssocRec{
 		InstanceID: inst, DataSetID: dataSet, TargetAccountID: target, ResourceShareID: id,
-		ResourceShareArn: arn.Build("ram", b.region, b.accountID, "resource-share/"+id),
+		ResourceShareArn: shareArn,
 	}
 	b.analyticsAssocs.put(rec)
 
-	return rec.view()
+	return rec.view(), nil
+}
+
+func (b *Backend) disassociateLocked(ctx context.Context, inst, dataSet, target string) error {
+	r, err := b.analyticsAssocs.get(inst, analyticsKey(dataSet, target))
+	if err != nil {
+		return err
+	}
+
+	if b.shares != nil {
+		if derr := b.shares.DeleteShare(ctx, r.ResourceShareArn); derr != nil {
+			logger.Load(ctx).WarnContext(ctx, "connect: resource share delete failed",
+				"arn", r.ResourceShareArn, "error", derr)
+		}
+	}
+
+	return b.analyticsAssocs.del(inst, analyticsKey(dataSet, target))
 }
 
 // AssociateAnalyticsDataSet shares one analytics dataset with the target account.
 func (b *Backend) AssociateAnalyticsDataSet(
+	ctx context.Context,
 	in *AssociateAnalyticsDataSetInput,
 ) (*AnalyticsDataAssociationResult, error) {
 	if err := checkDataSetID(in.DataSetID); err != nil {
@@ -136,7 +174,10 @@ func (b *Backend) AssociateAnalyticsDataSet(
 		"AssociateAnalyticsDataSet",
 		in.InstanceID,
 		func(inst string) (*AnalyticsDataAssociationResult, error) {
-			out := b.associateLocked(inst, in.DataSetID, target)
+			out, aerr := b.associateLocked(ctx, inst, in.DataSetID, target)
+			if aerr != nil {
+				return nil, aerr
+			}
 
 			return &out, nil
 		},
@@ -144,7 +185,9 @@ func (b *Backend) AssociateAnalyticsDataSet(
 }
 
 // BatchAssociateAnalyticsDataSet shares several analytics datasets; an invalid dataset ID fails alone.
-func (b *Backend) BatchAssociateAnalyticsDataSet(in *BatchAnalyticsDataSetInput) (*BatchAssociateOut, error) {
+func (b *Backend) BatchAssociateAnalyticsDataSet(
+	ctx context.Context, in *BatchAnalyticsDataSetInput,
+) (*BatchAssociateOut, error) {
 	if len(in.DataSetIDs) == 0 {
 		return nil, invalidParamErr("DataSetIds must contain at least one dataset ID")
 	}
@@ -171,7 +214,17 @@ func (b *Backend) BatchAssociateAnalyticsDataSet(in *BatchAnalyticsDataSetInput)
 					continue
 				}
 
-				out.Created = append(out.Created, b.associateLocked(inst, id, target))
+				res, aerr := b.associateLocked(ctx, inst, id, target)
+				if aerr != nil {
+					out.Errors = append(
+						out.Errors,
+						ErrorResult{ErrorCode: "InvalidRequestException", ErrorMessage: aerr.Error()},
+					)
+
+					continue
+				}
+
+				out.Created = append(out.Created, res)
 			}
 
 			return out, nil
@@ -180,7 +233,9 @@ func (b *Backend) BatchAssociateAnalyticsDataSet(in *BatchAnalyticsDataSetInput)
 }
 
 // DisassociateAnalyticsDataSet removes the sharing of one dataset.
-func (b *Backend) DisassociateAnalyticsDataSet(in *AssociateAnalyticsDataSetInput) (*EmptyOutput, error) {
+func (b *Backend) DisassociateAnalyticsDataSet(
+	ctx context.Context, in *AssociateAnalyticsDataSetInput,
+) (*EmptyOutput, error) {
 	if err := checkDataSetID(in.DataSetID); err != nil {
 		return nil, err
 	}
@@ -191,12 +246,14 @@ func (b *Backend) DisassociateAnalyticsDataSet(in *AssociateAnalyticsDataSetInpu
 	}
 
 	return writeInstance(b, "DisassociateAnalyticsDataSet", in.InstanceID, func(inst string) (*EmptyOutput, error) {
-		return &EmptyOutput{}, b.analyticsAssocs.del(inst, analyticsKey(in.DataSetID, target))
+		return &EmptyOutput{}, b.disassociateLocked(ctx, inst, in.DataSetID, target)
 	})
 }
 
 // BatchDisassociateAnalyticsDataSet removes the sharing of several datasets; unknown ones fail alone.
-func (b *Backend) BatchDisassociateAnalyticsDataSet(in *BatchAnalyticsDataSetInput) (*BatchDisassociateOut, error) {
+func (b *Backend) BatchDisassociateAnalyticsDataSet(
+	ctx context.Context, in *BatchAnalyticsDataSetInput,
+) (*BatchDisassociateOut, error) {
 	if len(in.DataSetIDs) == 0 {
 		return nil, invalidParamErr("DataSetIds must contain at least one dataset ID")
 	}
@@ -214,7 +271,7 @@ func (b *Backend) BatchDisassociateAnalyticsDataSet(in *BatchAnalyticsDataSetInp
 			out := &BatchDisassociateOut{Deleted: []string{}, Errors: []ErrorResult{}}
 
 			for _, id := range in.DataSetIDs {
-				if derr := b.analyticsAssocs.del(inst, analyticsKey(id, target)); derr != nil {
+				if derr := b.disassociateLocked(ctx, inst, id, target); derr != nil {
 					out.Errors = append(
 						out.Errors,
 						ErrorResult{ErrorCode: "ResourceNotFoundException", ErrorMessage: derr.Error()},

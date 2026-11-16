@@ -86,6 +86,7 @@ type env struct {
 }
 
 type envOpts struct {
+	tlsPort  int
 	enforce  bool
 	register bool
 }
@@ -99,6 +100,7 @@ func newEnv(t *testing.T, opts envOpts) *env {
 
 	h := ociapigateway.NewHandler(be)
 	h.Port = 0
+	h.TLSPort = opts.tlsPort
 	h.EnforceAuth = opts.enforce
 
 	require.NoError(t, h.StartWorker(t.Context()))

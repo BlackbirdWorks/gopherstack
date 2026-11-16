@@ -185,7 +185,6 @@ gaps: []
   # cleanup item rather than touched this pass.
 residual_gaps: []
 items_still_open:
-  - "Report file column names are best-effort: the SDK documents only the key path (<prefix>/Backup/<region>/<year>/<month>/<day>/<report-name>), not the CSV/JSON columns, so headers are derived from the backend's own job fields rather than verified against AWS output. Compliance templates carry only protected-resource or framework-ARN rows (no control evaluation)."
   - "Restore recreates DynamoDB tables (schema, indexes, items), S3 buckets (objects) and EBS volumes (shape only); EC2 instances, EFS, RDS and other types keep the synthesized CreatedResourceArn. Recovery-point snapshots are held in memory and persisted with the recovery point, so large buckets inflate state."
 structural_gaps:
   - "MPA session approval, GuardDuty malware scanning (PITR results, ScanActions/ScanSettings), the search-index subsystem and cross-account logically-air-gapped vaults are external systems with no emulator counterpart."
@@ -965,3 +964,7 @@ ListBackupJobSummaries, ListCopyJobSummaries, ListRestoreJobSummaries, ListScanJ
 ## 2026-10-10 realism pass
 
 botocore's trailing-slash paths (`/backup/plans/{id}/`) now route; error messages drop the duplicated code. Plan/rule names, 6-field cron ScheduleExpression, Start/CompletionWindowMinutes >= 60, cold-storage gap >= 90 days, ARN-shaped ResourceArn/IamRoleArn and MaxResults 1..1000 are validated. Left lenient: rule target vault existence, garbage NextToken returning an empty page, no RUNNING job state. Proof: `TestSDK_CreateBackupPlanValidation`, `TestHandler_TrailingSlashPaths`, `TestSDK_StartBackupJobArnValidation`, `TestSDK_ListMaxResultsBounds`.
+
+## Emulator choices where the vendor is silent
+
+- Report file column names are best-effort: the SDK documents only the key path (<prefix>/Backup/<region>/<year>/<month>/<day>/<report-name>), not the CSV/JSON columns, so headers are derived from the backend's own job fields rather than verified against AWS output. Compliance templates carry only protected-resource or framework-ARN rows (no control evaluation).

@@ -204,7 +204,7 @@ func (h *Handler) logicCancelRun(q logicReq) error {
 		return h.writeAPIError(q.c, err)
 	}
 
-	if l, ok := live.(*logicLive); ok {
+	if l, ok := live.(*logicLive); ok && l != nil {
 		logicCancelRun(l)
 	}
 
@@ -254,4 +254,39 @@ func (h *Handler) logicGetAction(q logicReq) error {
 	})
 
 	return h.logicReply(q, out, err)
+}
+
+// logicResubmit starts a new run from a trigger history entry's recorded inputs and outputs
+// (armlogic v1.2.0 WorkflowTriggerHistoriesClient.Resubmit answers 202).
+func (h *Handler) logicResubmit(q logicReq) error {
+	_, err := q.lp.write(q.ref, func(w *logicWorkflow) (any, error) {
+		name, ok := matchTriggerName(w, q.rest[1])
+		if !ok {
+			return nil, ErrLogicTriggerNotFound
+		}
+
+		for _, hist := range w.Histories {
+			if hist.Trigger != name || !strings.EqualFold(hist.Name, q.rest[3]) {
+				continue
+			}
+
+			if !hist.Fired {
+				return nil, logicBadRequest("InvalidRequest", "The trigger history '%s' did not fire a run.", hist.Name)
+			}
+
+			_, err := q.lp.startRunLocked(w, logicFire{
+				trigger: name, scheduled: q.lp.clock.Now().UTC(), outputs: hist.Outputs.Value,
+				inputs: hist.Inputs.Value, hasInputs: hist.Inputs.Set,
+			})
+
+			return nil, err
+		}
+
+		return nil, ErrLogicHistoryNotFound
+	})
+	if err != nil {
+		return h.writeAPIError(q.c, err)
+	}
+
+	return q.c.NoContent(http.StatusAccepted)
 }

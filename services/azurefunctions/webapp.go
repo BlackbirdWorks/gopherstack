@@ -194,7 +194,7 @@ func hasStartScript(dir string) bool {
 		Scripts map[string]string `json:"scripts"`
 	}
 
-	return json.Unmarshal(raw, &pkg, jsonx.V1()) == nil && pkg.Scripts["start"] != ""
+	return json.Unmarshal(raw, &pkg, jsonx.V1()) == nil && pkg.Scripts[actionStart] != ""
 }
 
 func dotnetEntry(dir string) string {
@@ -219,6 +219,44 @@ func javaEntry(dir string) string {
 	return ""
 }
 
+func djangoModule(dir string) string {
+	matches, _ := filepath.Glob(filepath.Join(dir, "*", "wsgi.py"))
+	if len(matches) == 0 {
+		return ""
+	}
+
+	sort.Strings(matches)
+
+	return filepath.Base(filepath.Dir(matches[0]))
+}
+
+// gunicornCommand runs target under gunicorn the way App Service does (--bind=0.0.0.0 --timeout 600); the stock
+// python image has no gunicorn, so it is installed beside the app when the app does not bring its own.
+func gunicornCommand(target string) []string {
+	return []string{"sh", "-c", `python -c "import gunicorn" 2>/dev/null || ` +
+		`pip install --quiet --disable-pip-version-check --target /tmp/gunicorn gunicorn; ` +
+		`PYTHONPATH="/tmp/gunicorn:$PYTHONPATH" exec python -m gunicorn --bind=0.0.0.0:"$PORT" --timeout 600 ` + target}
+}
+
+// pythonCommand follows the container startup order of Learn "Configure Linux Python apps": a Django app (a folder
+// with wsgi.py), then a Flask app (application.py or app.py), each under gunicorn; main.py and server.py are
+// run with python as an emulator extension.
+func pythonCommand(dir string) []string {
+	if mod := djangoModule(dir); mod != "" {
+		return gunicornCommand(mod + ".wsgi")
+	}
+
+	if f := firstExisting(dir, "application.py", "app.py"); f != "" {
+		return gunicornCommand(strings.TrimSuffix(f, ".py") + ":app")
+	}
+
+	if f := firstExisting(dir, "main.py", "server.py"); f != "" {
+		return []string{"python", f}
+	}
+
+	return nil
+}
+
 // stackCommand picks the container command for a code stack: appCommandLine, else the stack's App Service default.
 func stackCommand(rt webRuntime, appCmd, dir string) ([]string, error) {
 	if appCmd != "" {
@@ -230,14 +268,12 @@ func stackCommand(rt webRuntime, appCmd, dir string) ([]string, error) {
 	switch rt.stack {
 	case stackNode:
 		if hasStartScript(dir) {
-			cmd = []string{"npm", "start"}
+			cmd = []string{"npm", actionStart}
 		} else if f := firstExisting(dir, "server.js", "app.js", "index.js", "bin/www", "hostingstart.js"); f != "" {
 			cmd = []string{"node", f}
 		}
 	case stackPython:
-		if f := firstExisting(dir, "app.py", "application.py", "main.py", "server.py"); f != "" {
-			cmd = []string{"python", f}
-		}
+		cmd = pythonCommand(dir)
 	case stackDotnet:
 		if f := dotnetEntry(dir); f != "" {
 			cmd = []string{"dotnet", f}
@@ -308,11 +344,11 @@ func webEnv(a *appState, rt webRuntime, host string, port int) []string {
 	case stackDotnet:
 		env["ASPNETCORE_URLS"] = "http://0.0.0.0:" + strconv.Itoa(port)
 	case stackPython:
-		env["PYTHONPATH"] = siteRoot
+		env["PYTHONPATH"] = siteRoot + ":" + siteRoot + "/.python_packages/lib/site-packages"
 	}
 
 	maps.Copy(env, a.ConnEnv)
-	maps.Copy(env, a.Settings)
+	copyAppSettings(env, a.Settings)
 
 	keys := make([]string, 0, len(env))
 	for k := range env {
@@ -402,6 +438,14 @@ func (b *InMemoryBackend) launchWeb(st *appState, host string) (box, error) {
 		b.teardown(x)
 
 		return box{}, err
+	}
+
+	if rt.custom {
+		if err = b.pullPrivateImage(rt.image, st.Settings); err != nil {
+			b.teardown(x)
+
+			return box{}, err
+		}
 	}
 
 	ready := func(ctx context.Context, port int) error {

@@ -101,7 +101,6 @@ families:
 gaps: []
 items_still_open:
   - CapacityUsageSummary resolves only managed prefix list references; resource group, address list and container association references count 0 CIDRs because no Resource Groups, address list or container runtime backs them (bd: gopherstack-cefu7.79)
-  - Firewall, VPC endpoint association and proxy endpoint IDs are generated; the Network Firewall developer guide (firewall-high-level-steps) does not say these endpoints are customer-visible EC2 VPC endpoints, so none is created in EC2 (bd: gopherstack-cefu7.79)
 structural_gaps:
   - "Transit gateways shared from another account cannot exist: EC2 is single-account, so PENDING_ACCEPTANCE is reachable only when a TransitGatewayResolver reports a foreign owner (unit-tested with a fake resolver)."
   - "Rule evaluation: no packets flow, so stateless/stateful rules, TLS inspection and logging never act on traffic."
@@ -114,3 +113,7 @@ leaks: {status: clean, note: "leak_main_test.go runs goleak; transitions are laz
 ## Notes
 
 Protocol is awsjson1.0 with PascalCase members and epoch-seconds timestamps; error bodies carry both `message` and `Message`. Firewalls are regional; other regions are served by lazily built sibling backends (pkgs/regionpeers) and ride in the snapshot's `regions` key. Rule groups are unique per (type, name): a STATEFUL and a STATELESS group may share a name. Update tokens rotate on every change; firewall updates treat an omitted token as unconditional, policy, rule group and TLS updates require it.
+
+## Emulator choices where the vendor is silent
+
+- Firewall, VPC endpoint association and proxy endpoint IDs are generated; the Network Firewall developer guide (firewall-high-level-steps) does not say these endpoints are customer-visible EC2 VPC endpoints, so none is created in EC2 (bd: gopherstack-cefu7.79)

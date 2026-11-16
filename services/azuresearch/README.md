@@ -9,20 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 19 (10 ok, 9 partial) |
 | Feature families | 4 (2 ok, 2 partial) |
-| Known gaps | 8 |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- No Go data-plane SDK exists, so the data plane is verified against documented REST shapes only; error message texts, the 403 body, the index-exists status (400 here; the Create Index reference lists only 201 and a generic ErrorResponse) and null ordering in $orderby are not documented anywhere fetched.
-- Semantic ranking, spell correction, answers/captions, vectorizers (text/image vector queries), vector thresholds and compression, debug subscores and maxTextRecallSize are not implemented.
-- HNSW is an exact scan: no approximate recall behaviour and no efSearch effect; the euclidean, dotProduct and hamming score formulas are not documented (the vector relevance page documents only cosine, which matches).
-- Indexers run synchronously inside search.run and do not report inProgress; no document cracking for PDF/Office/images, no AI skills (only Split, Merge, Shaper), no knowledge store, projections or enrichment cache, and no Azure SQL or ADLS Gen2 sources (the emulated Blob Storage has no hierarchical namespace).
-- Bearer tokens are accepted without validation and data-plane RBAC roles are not modelled.
-- Language analyzers are approximations (light stemmer, short stop lists), custom tokenizers/filters are a subset (supported: PatternTokenizer, PatternReplace, Length, Elision, Limit, NGramV2 and EdgeNGramV2 token filters, Mapping and PatternReplace char filters, html_strip; the n-gram order is Lucene's and not documented on the Create Index page), token offsets after a char filter refer to the filtered text, COMMENTS regex flag is rejected (RE2 has no equivalent), and normalizers and the Microsoft language tokenizers are rejected.
-- Scoring-function boost arithmetic and BM25 multi-field combination (sum of per-field scores) follow the documented parameters, but the docs give no formulas, so they are not verified against the service.
-- ARM: private endpoint connections (created by Microsoft.Network), network security perimeter configurations, the upgrade action, customer-managed encryption enforcement, semanticSearch and IP rule enforcement are not implemented (properties round-trip only); usage quotas per SKU are the documented defaults (unverified for raised quotas).
+- Semantic ranking, spell correction and answers/captions need Microsoft's ranking models (queryType semantic is rejected with 400, whatever the service's semanticSearch setting); text queries through azureOpenAI/aiServicesVision/aml vectorizers and imageUrl/imageBinary vector queries need a hosted embedding model that no emulator in services/ provides (400).
+- Indexers: no document cracking for PDF/Office/images (no parser dependency in go.mod), HTML and Markdown parsing modes, DocumentExtraction and Custom.WebApiSkill (the run holds the backend lock in finishRun, indexers.go; an HTTP call needs the run split into load, enrich and apply phases), no knowledge store projections, enrichment cache or index projections, and model-backed skills (OCR, entities, key phrases, language detection, translation, embedding) are recorded as warnings and skipped.
+- Analyzers: Microsoft language analyzers and tokenizers (proprietary), the phonetic, hindi/indic/sorani/scandinavian normalization filters, light and minimal stemmers and KStem, and Lucene's stop word sets for languages other than en, fr, de, es are not implemented; token offsets after a char filter refer to the filtered text, the COMMENTS regex flag is rejected (RE2 has no equivalent), and normalizers are rejected.
+- ARM: network security perimeter configurations (no Microsoft.Network/networkSecurityPerimeters emulation exists to associate with) and semanticSearch (round-trips only; no ranker to enable) are not implemented; usage quotas per SKU are the documented defaults (unverified for raised quotas).
 
 ## More
 

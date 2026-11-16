@@ -54,6 +54,9 @@ type InMemoryBackend struct {
 	eng         *dbEngine
 	Auth        *ociauth.Registry
 	channels    map[string]*Channel
+	blueGreens  map[string]*BlueGreen
+	replicas    map[string]*Replica
+	events      map[string]*MaintenanceEvent
 	configs     map[string]*Configuration
 	retry       *ociretry.Store
 	workReqs    map[string]*WorkRequest
@@ -67,6 +70,7 @@ type InMemoryBackend struct {
 	now         func() time.Time
 	defaultList []*Configuration
 	transition  time.Duration
+	limits      limits
 	seq         int64
 }
 
@@ -75,7 +79,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 	ctx, stop := context.WithCancel(context.Background())
 	b := &InMemoryBackend{
 		mu: lockmetrics.New("ocimysql"), now: time.Now, transition: defaultTransition,
-		wg: &sync.WaitGroup{}, runCtx: ctx, stop: stop, defaults: map[string]*Configuration{},
+		wg: &sync.WaitGroup{}, runCtx: ctx, stop: stop, defaults: map[string]*Configuration{}, limits: defaultLimits(),
 	}
 	b.resetMaps()
 	b.Auth = ociauth.NewRegistry()
@@ -93,6 +97,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 func (b *InMemoryBackend) resetMaps() {
 	b.systems, b.backups, b.channels = map[string]*DBSystem{}, map[string]*Backup{}, map[string]*Channel{}
 	b.configs, b.workReqs = map[string]*Configuration{}, map[string]*WorkRequest{}
+	b.replicas, b.events = map[string]*Replica{}, map[string]*MaintenanceEvent{}
+	b.blueGreens = map[string]*BlueGreen{}
 	b.retry = ociretry.New()
 }
 
@@ -131,11 +137,13 @@ func (b *InMemoryBackend) Reset() {
 
 	b.mu.Lock("Reset")
 	lives := b.detachAllLocked()
+	fronts := b.takeFrontsLocked()
 	b.resetMaps()
 	b.runCtx, b.stop = context.WithCancel(context.Background())
 	e := b.eng
 	b.mu.Unlock()
 
+	closeFronts(fronts)
 	e.closeAll(lives, true)
 	b.Auth.Reset()
 }
@@ -147,9 +155,11 @@ func (b *InMemoryBackend) Close() {
 
 	b.mu.Lock("Close")
 	lives := b.detachAllLocked()
+	fronts := b.takeFrontsLocked()
 	e := b.eng
 	b.mu.Unlock()
 
+	closeFronts(fronts)
 	e.closeAll(lives, false)
 }
 

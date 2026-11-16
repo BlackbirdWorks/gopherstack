@@ -31,7 +31,6 @@ families:
 items_still_open:
   - "Third-party certificate issuers (DigiCert, GlobalSign) are rejected; AutoRenew of Unknown-issuer certificates (which would open a new pending CSR) is not executed."
   - "Key release (ReleaseKey, release_policy), GetKeyAttestation and ES256K/P-256K (no secp256k1 in go.mod) are not implemented."
-  - "Notify and EmailContacts lifetime actions are recorded only; nothing is delivered."
   - "Backups use an opaque gopherstack blob, not Azure's format."
 deferred: []
 leaks: {status: clean, note: "One listener goroutine plus one lifetime-action janitor goroutine group, both stopped by Shutdown or context cancel; leak_test.go runs the package under pkgs/testleak. Expired soft-deleted entities are also swept on each janitor tick."}
@@ -47,3 +46,7 @@ As in Key Vault, creating a certificate also creates a key and a secret with the
 
 ### Time
 All attribute timestamps are Unix epoch seconds, as the azsecrets/azkeys/azcertificates `datetime.Unix` deserializers expect.
+
+## External effects that are recorded, not performed
+
+- Key Vault Notify (keys) and EmailContacts (certificates) lifetime actions that fire are persisted per vault, readable at GET /_gopherstack/notifications on the vault host, and logged as "would send"; no Event Grid event or email is sent.

@@ -63,6 +63,8 @@ func (b *InMemoryBackend) StartQueryExecution(
 
 			if plan.write != nil {
 				plan.write.bind(id, rc.OutputLocation)
+
+				b.attachReplan(plan, id, query, ctx, rc.OutputLocation)
 			}
 		}
 
@@ -369,4 +371,21 @@ func (b *InMemoryBackend) GetQueryRuntimeStatistics(id string) (*QueryRuntimeSta
 			State:   qe.Status.State,
 		},
 	}, nil
+}
+
+// attachReplan lets a write that lost an Iceberg commit race re-plan against the catalog's new head.
+func (b *InMemoryBackend) attachReplan(
+	plan *enginePlan, id, query string, qctx QueryExecutionContext, outputLocation string,
+) {
+	plan.replan = func() *enginePlan {
+		next, out, planned := b.planEngineQuery(query, qctx)
+		if !planned || out.failed || next.write == nil {
+			return nil
+		}
+
+		next.write.bind(id, outputLocation)
+		next.replan = plan.replan
+
+		return next
+	}
 }

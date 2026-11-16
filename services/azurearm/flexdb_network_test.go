@@ -86,7 +86,7 @@ func TestFlexPrivateAccessValidation(t *testing.T) {
 		status int
 	}{
 		{"pg delegated", pgNS, "pgpriv", flexPrivateBody(vnet, "pgsub", "privateDnsZoneArmResourceId", pgZone, ""),
-			flexAPIPG, http.StatusCreated},
+			flexAPIPG, http.StatusAccepted},
 		{
 			"pg wrong delegation",
 			pgNS,
@@ -109,7 +109,7 @@ func TestFlexPrivateAccessValidation(t *testing.T) {
 			flexPrivateBody(vnet, "pgsub", "privateDnsZoneArmResourceId", pgZone, `,"publicNetworkAccess":"Enabled"`),
 			flexAPIPG, http.StatusBadRequest},
 		{"mysql delegated", myNS, "mypriv", flexPrivateBody(vnet, "mysub", "privateDnsZoneResourceId", myZone, ""),
-			flexAPIMy, http.StatusCreated},
+			flexAPIMy, http.StatusAccepted},
 		{
 			"pg /29 too small",
 			pgNS,
@@ -119,9 +119,9 @@ func TestFlexPrivateAccessValidation(t *testing.T) {
 			http.StatusBadRequest,
 		},
 		{"pg /28 ok", pgNS, "pg28", flexPrivateBody(vnet, "pg28", "privateDnsZoneArmResourceId", pgZone, ""),
-			flexAPIPG, http.StatusCreated},
+			flexAPIPG, http.StatusAccepted},
 		{"mysql /29 ok", myNS, "mysmall", flexPrivateBody(vnet, "mysmall", "privateDnsZoneResourceId", myZone, ""),
-			flexAPIMy, http.StatusCreated},
+			flexAPIMy, http.StatusAccepted},
 		{"pg wrong zone suffix", pgNS, "pgbadzone",
 			flexPrivateBody(
 				vnet,
@@ -154,7 +154,7 @@ func TestFlexPrivateAccessEffects(t *testing.T) {
 
 	status, resp := s.raw(t, http.MethodPut, path,
 		flexPrivateBody(vnet, "pgsub", "privateDnsZoneArmResourceId", zone, ""), flexAPIPG)
-	require.Equal(t, http.StatusCreated, status, resp)
+	require.Equal(t, http.StatusAccepted, status, resp)
 
 	props, _ := resp["properties"].(map[string]any)
 	net, _ := props["network"].(map[string]any)
@@ -175,4 +175,73 @@ func TestFlexPrivateAccessEffects(t *testing.T) {
 		flexAPIPG,
 	)
 	assert.Equal(t, http.StatusBadRequest, status, resp)
+}
+
+func TestFlexSubnetUsage(t *testing.T) {
+	t.Parallel()
+
+	s := newFlexStack(t, nil)
+	vnet := flexVNetFixture(t, s)
+
+	for _, srv := range []string{"pgone", "pgtwo"} {
+		status, resp := s.raw(t, http.MethodPut, flexServerPath(pgNS, srv),
+			flexPrivateBody(vnet, "pgsub", "privateDnsZoneArmResourceId", flexZone("postgres"), ""), flexAPIPG)
+		require.Equal(t, http.StatusAccepted, status, resp)
+	}
+
+	status, resp := s.raw(t, http.MethodPut, flexServerPath(myNS, "myone"),
+		flexPrivateBody(vnet, "mysub", "privateDnsZoneResourceId", flexZone("mysql"), ""), flexAPIMy)
+	require.Equal(t, http.StatusAccepted, status, resp)
+
+	tests := []struct {
+		want   map[string]float64
+		name   string
+		ns     string
+		api    string
+		key    string
+		vnet   string
+		status int
+	}{
+		{
+			name: "postgres", ns: pgNS, api: flexAPIPG, key: "virtualNetworkArmResourceId", vnet: vnet,
+			want: map[string]float64{"pgsub": 2, "pgsmall": 0, "pg28": 0}, status: http.StatusOK,
+		},
+		{
+			name: "mysql", ns: myNS, api: flexAPIMy, key: "virtualNetworkResourceId", vnet: vnet,
+			want: map[string]float64{"mysub": 1, "mysmall": 0}, status: http.StatusOK,
+		},
+		{name: "missing vnet", ns: pgNS, api: flexAPIPG, key: "virtualNetworkArmResourceId", vnet: vnet + "x",
+			status: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			path := "/subscriptions/" + aciSub + "/providers/" + tt.ns + "/locations/" + flexLoc +
+				"/checkVirtualNetworkSubnetUsage"
+
+			code, body := s.raw(t, http.MethodPost, path, `{"`+tt.key+`":"`+tt.vnet+`"}`, tt.api)
+			require.Equal(t, tt.status, code, body)
+
+			if tt.status != http.StatusOK {
+				return
+			}
+
+			assert.Equal(t, flexLoc, body["location"])
+			assert.Equal(t, aciSub, body["subscriptionId"])
+
+			got := map[string]float64{}
+
+			list, _ := body["delegatedSubnetsUsage"].([]any)
+			for _, e := range list {
+				m, _ := e.(map[string]any)
+				name, _ := m["subnetName"].(string)
+				usage, _ := m["usage"].(float64)
+				got[name] = usage
+			}
+
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }

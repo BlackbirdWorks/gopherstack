@@ -29,6 +29,13 @@ const (
 	limitOAuthProvider    = 50
 	limitPaymentProvider  = 50
 	limitWorkloadIdentity = 11000
+
+	limitMemoryStrategies = 6
+	limitEnvironmentBytes = 4 << 10
+	limitInlineSchema     = 1 << 20
+	limitS3Schema         = 10 << 20
+	limitToolsPerTarget   = 1000
+	limitToolNameLen      = 256
 )
 
 //nolint:gochecknoglobals // static lookup table
@@ -77,6 +84,37 @@ func (b *InMemoryBackend) checkQuotaLocked(sc scope, k *kindSpec, parentID strin
 
 	if n >= q.limit {
 		return restroute.QuotaExceeded("the quota of %d %s resources has been reached", q.limit, humanKind(k))
+	}
+
+	return nil
+}
+
+// validateEnvironmentSize enforces the 4 KB total of environment variables per agent.
+func validateEnvironmentSize(env map[string]any) error {
+	total := 0
+
+	for k, v := range env {
+		s, _ := v.(string)
+		total += len(k) + len(s)
+	}
+
+	if total > limitEnvironmentBytes {
+		return invalid("environmentVariables total %d bytes, the maximum is %d", total, limitEnvironmentBytes)
+	}
+
+	return nil
+}
+
+// checkToolLimits enforces the per-target tool count and tool name length quotas.
+func checkToolLimits(names []string) error {
+	if len(names) > limitToolsPerTarget {
+		return restroute.QuotaExceeded("a target can expose at most %d tools", limitToolsPerTarget)
+	}
+
+	for _, n := range names {
+		if len(n) > limitToolNameLen {
+			return invalid("tool name %q exceeds %d characters", n, limitToolNameLen)
+		}
 	}
 
 	return nil

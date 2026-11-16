@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 4 (4 ok) |
 | Feature families | 2 (2 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- RegisterClient AuthorizationEndpoint/TokenEndpoint: returned only when authorization_code is registered; whether AWS returns them for every client is not determinable from the SDK (bd: gopherstack-cefu7.3)
 
 ### Structural gaps
 

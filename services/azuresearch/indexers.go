@@ -19,6 +19,7 @@ import (
 const (
 	maxHistory     = 50
 	runSuccess     = "success"
+	runInProgress  = "inProgress"
 	runTransient   = "transientFailure"
 	statusRunning  = "running"
 	statusUnknown  = "unknown"
@@ -104,10 +105,10 @@ func (s *Service) validateIndexer(o Object) error {
 	}
 
 	for _, k := range []string{
-		"disabled", "parameters", fieldMappingsKey, fieldOutputMappings, "skillsetName", "description",
+		fieldDisabled, "parameters", fieldMappingsKey, fieldOutputMappings, "skillsetName", "description",
 	} {
 		if _, ok := o[k]; !ok {
-			o[k] = map[string]any{"disabled": false, fieldMappingsKey: []any{}, "outputFieldMappings": []any{}}[k]
+			o[k] = map[string]any{fieldDisabled: false, fieldMappingsKey: []any{}, "outputFieldMappings": []any{}}[k]
 		}
 	}
 
@@ -127,10 +128,12 @@ func (b *InMemoryBackend) loadSource(ds Object, params map[string]any) ([]source
 	container := strOf(objOf(ds["container"]), "name")
 
 	switch strOf(ds, "type") {
-	case "azureblob":
+	case "azureblob", "adlsgen2":
 		return b.loadBlobs(conn, container, strOf(objOf(ds["container"]), "query"), params, ds)
 	case "cosmosdb":
 		return b.loadCosmos(conn, container, ds)
+	case "azuresql":
+		return b.loadSQL(conn, container, ds)
 	case "azuretable":
 		return b.loadTable(container, strOf(objOf(ds["container"]), "query"), ds)
 	}
@@ -398,33 +401,47 @@ func csvDocs(data []byte, cfg map[string]any, withMeta func(map[string]any) map[
 	return out
 }
 
-// RunIndexer executes the named indexer once, synchronously, and records the result.
+// RunIndexer starts the named indexer; the run executes on the backend's executor and is reported
+// as inProgress until it finishes.
 func (b *InMemoryBackend) RunIndexer(service, name string) error {
+	job, err := b.startRun(service, name)
+	if err != nil {
+		return err
+	}
+
+	b.exec(job)
+
+	return nil
+}
+
+func (b *InMemoryBackend) startRun(service, name string) (func(), error) {
 	b.mu.Lock("RunIndexer")
 	defer b.mu.Unlock()
 
 	s, err := b.svc(service)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if _, err = s.object(kindIndexers, name); err != nil {
-		return err
+		return nil, err
 	}
 
-	b.runLocked(s, name)
-
-	return nil
+	return b.startLocked(service, s, name)
 }
 
-func (b *InMemoryBackend) runLocked(s *Service, name string) {
-	idxr := s.Objects[kindIndexers][name]
+func (b *InMemoryBackend) startLocked(service string, s *Service, name string) (func(), error) {
 	rt := s.runtimeOf(name)
-	res := &RunResult{StartTime: b.now(), Errors: []map[string]any{}, Warnings: []map[string]any{}, Status: runSuccess}
+	if rt.Last != nil && rt.Last.Status == runInProgress {
+		return nil, wrapf(ErrConflict, "Another indexer invocation is currently in progress.")
+	}
 
-	b.execute(s, idxr, rt, res)
-
-	res.EndTime = b.now()
+	res := &RunResult{
+		StartTime: b.now(),
+		Errors:    []map[string]any{},
+		Warnings:  []map[string]any{},
+		Status:    runInProgress,
+	}
 	rt.Last = res
 	rt.History = append([]*RunResult{res}, rt.History...)
 
@@ -432,8 +449,32 @@ func (b *InMemoryBackend) runLocked(s *Service, name string) {
 		rt.History = rt.History[:maxHistory]
 	}
 
-	rt.NextDue = b.nextDue(idxr, res.StartTime)
+	rt.NextDue = b.nextDue(s.Objects[kindIndexers][name], res.StartTime)
+
+	return func() { b.finishRun(service, name, res) }, nil
 }
+
+func (b *InMemoryBackend) finishRun(service, name string, res *RunResult) {
+	b.mu.Lock("finishRun")
+	defer b.mu.Unlock()
+
+	s, err := b.svc(service)
+	if err != nil {
+		return
+	}
+
+	idxr, ok := s.Objects[kindIndexers][name]
+	if !ok || res.Status != runInProgress {
+		return
+	}
+
+	res.Status = runSuccess
+	b.execute(s, idxr, s.runtimeOf(name), res)
+	res.EndTime = b.now()
+}
+
+// WaitRuns blocks until every indexer run started on the default executor has finished.
+func (b *InMemoryBackend) WaitRuns() { b.runs.Wait() }
 
 func (b *InMemoryBackend) nextDue(idxr Object, from time.Time) time.Time {
 	sch := objOf(idxr["schedule"])
@@ -729,6 +770,10 @@ func (b *InMemoryBackend) ResetIndexer(service, name string) error {
 	}
 
 	rt := s.runtimeOf(name)
+	if rt.Last != nil && rt.Last.Status == runInProgress {
+		return wrapf(ErrConflict, "The indexer cannot be reset while an invocation is in progress.")
+	}
+
 	rt.Seen = map[string]string{}
 	rt.Last = &RunResult{
 		StartTime: b.now(),
@@ -743,13 +788,23 @@ func (b *InMemoryBackend) ResetIndexer(service, name string) error {
 
 // RunDue runs every enabled, scheduled indexer whose next run time has passed; it returns the runs made.
 func (b *InMemoryBackend) RunDue() int {
+	jobs := b.startDue()
+	for _, j := range jobs {
+		b.exec(j)
+	}
+
+	return len(jobs)
+}
+
+func (b *InMemoryBackend) startDue() []func() {
 	b.mu.Lock("RunDue")
 	defer b.mu.Unlock()
 
 	now := b.now()
-	runs := 0
 
-	for _, s := range b.services {
+	var jobs []func()
+
+	for name, s := range b.services {
 		names := make([]string, 0, len(s.Objects[kindIndexers]))
 		for n := range s.Objects[kindIndexers] {
 			names = append(names, n)
@@ -759,7 +814,7 @@ func (b *InMemoryBackend) RunDue() int {
 
 		for _, n := range names {
 			idxr := s.Objects[kindIndexers][n]
-			if boolOf(idxr, "disabled", false) || objOf(idxr["schedule"]) == nil {
+			if boolOf(idxr, fieldDisabled, false) || objOf(idxr["schedule"]) == nil {
 				continue
 			}
 
@@ -769,14 +824,14 @@ func (b *InMemoryBackend) RunDue() int {
 			}
 
 			if !now.Before(rt.NextDue) {
-				b.runLocked(s, n)
-
-				runs++
+				if job, err := b.startLocked(name, s, n); err == nil {
+					jobs = append(jobs, job)
+				}
 			}
 		}
 	}
 
-	return runs
+	return jobs
 }
 
 func scheduleStart(idxr Object, now time.Time) time.Time {
@@ -822,14 +877,18 @@ func (s *Service) indexerStatus(name string) map[string]any {
 }
 
 func runJSON(r *RunResult) map[string]any {
-	var errMsg any
+	var errMsg, end any
 	if r.ErrorMessage != "" {
 		errMsg = r.ErrorMessage
 	}
 
+	if !r.EndTime.IsZero() {
+		end = r.EndTime.Format(time.RFC3339)
+	}
+
 	return map[string]any{
 		fieldStatus: r.Status, fieldErrorMessage: errMsg, "startTime": r.StartTime.Format(time.RFC3339),
-		"endTime": r.EndTime.Format(time.RFC3339), "itemsProcessed": r.ItemsProcessed, "itemsFailed": r.ItemsFailed,
+		"endTime": end, "itemsProcessed": r.ItemsProcessed, "itemsFailed": r.ItemsFailed,
 		"initialTrackingState": nil, "finalTrackingState": nil, "errors": r.Errors, "warnings": r.Warnings,
 		"metrics": nil,
 	}

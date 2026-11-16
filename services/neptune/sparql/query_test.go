@@ -275,7 +275,6 @@ func TestQuerySyntaxErrors(t *testing.T) {
 		{"garbage", `HELLO WORLD`},
 		{"unclosed group", `SELECT * WHERE { ?s ?p ?o`},
 		{"undefined prefix", `SELECT * WHERE { ?s nope:p ?o }`},
-		{"service", `SELECT * WHERE { SERVICE <http://x/> { ?s ?p ?o } }`},
 		{"trailing", `SELECT * WHERE { ?s ?p ?o } garbage`},
 	}
 

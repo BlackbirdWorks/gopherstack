@@ -129,6 +129,14 @@ func ExecWithEnv(ctx context.Context, x Execer, containerID string, cmd, env []s
 	return ex.ExecEnv(ctx, containerID, cmd, env)
 }
 
+// StdinExecer is implemented by runtimes that can relay standard input to a command; a non-zero rows and cols
+// allocate a terminal of that size whose output is one raw stream.
+type StdinExecer interface {
+	ExecStdin(
+		ctx context.Context, containerID string, cmd []string, stdin io.Reader, out io.Writer, rows, cols uint,
+	) (int, error)
+}
+
 // StreamExecer is implemented by runtimes that can stream a command's output while it runs.
 type StreamExecer interface {
 	// ExecStream runs cmd, writing combined stdout and stderr to out as produced; it returns the exit status.

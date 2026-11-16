@@ -50,8 +50,7 @@ families:
   ErrValidationWireType: {status: ok, note: "FIXED this pass: ErrValidation's wire type was 'ValidationException', a gopherstack-INVENTED error code -- aws-sdk-go-v2/service/codeconnections@v1.13.4's types/errors.go has NO ValidationException type at all in its full modeled exception set (17 types: AccessDeniedException/ConcurrentModificationException/ConditionalCheckFailedException/ConflictException/InternalServerException/InvalidInputException/LimitExceededException/ResourceAlreadyExistsException/ResourceNotFoundException/ResourceUnavailableException/RetryLatestCommitFailedException/SyncBlockerDoesNotExistException/SyncConfigurationStillExistsException/ThrottlingException/UnsupportedOperationException/UnsupportedProviderTypeException/UpdateOutOfSyncException). Renamed to InvalidInputException, confirmed as the real type for malformed/missing-required-field input by cross-referencing every mutating op's real error list in botocore's codeconnections/2023-12-01/service-2.json (all list InvalidInputException for input validation; none list ValidationException). This affected every required-field check across every handler in this service (Handler.resolveErrorType's single switch case), not just one op."}
   sync_blocker_contexts: {status: ok, note: "2026-10-07: SyncBlocker.Contexts are stored (CreateSyncBlocker takes optional contexts) and emitted by GetSyncBlockerSummary/UpdateSyncBlocker. Blockers still only come from CreateSyncBlocker because no sync engine exists to raise them. Guarded by TestSyncBlockerContextsRoundTrip."}
 gaps: []
-items_still_open:
-  - "CreateRepositoryLink's ConnectionArn and CreateSyncConfiguration's RepositoryLinkId are not existence-checked: neither op declares ResourceNotFoundException (codeconnections@v1.13.4 deserializers) and the field docs do not say AWS validates them."
+items_still_open: []
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; all state lives in store.Table/Index behind lockmetrics.RWMutex, snapshotted via persistence.go. FIXED this pass: DeleteSyncConfiguration previously left orphaned syncBlockers rows behind forever (see GetResourceSyncStatus/DeleteSyncConfiguration ops notes) -- a real ghost-row leak, now cleaned up via a cascade delete keyed off the existing syncBlockersByResource index. No new goroutines or tables were introduced; the fix reuses existing indexes."}
 ---
@@ -460,3 +459,7 @@ codeconnections already region-isolated: same-named resources in two regions sta
 - Bare ResourceNotFoundException messages (empty before) now say "Resource not found. Verify the resource ARN and try again."; other messages drop the repeated code.
 - Opt-in `SetConnectionHandshakeDelay(d)` / `SetHostSetupDelay(d)` (default 0) keep connections/hosts PENDING before AVAILABLE. Needs wiring in internal/app/lifecycle.go.
 - Kept lenient: GetConnection/GetHost do not pattern-check ARNs; ProviderEndpoint is not required to be a URL.
+
+## Emulator choices where the vendor is silent
+
+- CreateRepositoryLink's ConnectionArn and CreateSyncConfiguration's RepositoryLinkId are not existence-checked: neither op declares ResourceNotFoundException (codeconnections@v1.13.4 deserializers) and the field docs do not say AWS validates them.

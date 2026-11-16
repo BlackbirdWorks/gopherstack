@@ -248,6 +248,9 @@ func (p *FlexDBProvider) newServer(id ResourceID, body, props map[string]any) (*
 		CreateMode: flexModeDefault, Databases: map[string]flexDatabase{}, Firewall: map[string]flexFirewall{},
 	}
 
+	first := flexAutoBackup(now)
+	rec.Backups = map[string]flexBackup{strings.ToLower(first.Name): first}
+
 	if p.flavor.kind == flexKindMySQL {
 		rec.AutoGrow = flexEnabled
 	}

@@ -18,15 +18,36 @@ const (
 	modeAll     = "all"
 	queryFull   = "full"
 	querySimple = "simple"
+
+	vecQueryVector      = "vector"
+	vecQueryText        = "text"
+	thresholdSimilarity = "vectorSimilarity"
+	thresholdScore      = "searchScore"
+	debugVector         = "vector"
+	debugDisabled       = accessDisabled
+	countAllResults     = "countAllResults"
+	countRetrievable    = "countRetrievableResults"
+	maxTextRecallLimit  = 10000
+	defaultTextRecall   = 1000
 )
 
+type vectorThreshold struct {
+	Kind  string
+	Value float64
+}
+
 type vectorQuery struct {
-	Kind       string
-	Fields     string
-	Vector     []float64
-	K          int
-	Weight     float64
-	Exhaustive bool
+	Threshold      *vectorThreshold
+	Kind           string
+	Fields         string
+	Text           string
+	FilterOverride string
+	Vector         []float64
+	K              int
+	Weight         float64
+	Oversampling   float64
+	PerDocLimit    int
+	Exhaustive     bool
 }
 
 type searchRequest struct {
@@ -39,6 +60,8 @@ type searchRequest struct {
 	PreTag         string
 	PostTag        string
 	VectorFilter   string
+	Debug          string
+	CountMode      string
 	SearchFields   []string
 	Select         []string
 	Facets         []string
@@ -47,6 +70,7 @@ type searchRequest struct {
 	Vectors        []vectorQuery
 	Top            int
 	Skip           int
+	MaxTextRecall  int
 	Count          bool
 	TopSet         bool
 }
@@ -95,6 +119,10 @@ func (r *searchRequest) finish() error {
 
 	if r.Skip < 0 || r.Skip > maxSkip {
 		return badf("Invalid value for $skip: it must be between 0 and %d.", maxSkip)
+	}
+
+	if err := r.validateVectorOptions(); err != nil {
+		return err
 	}
 
 	if r.PreTag == "" {
@@ -199,6 +227,10 @@ func searchFromBody(body []byte) (*searchRequest, error) {
 
 	r.Vectors = vqs
 
+	if err = r.parseVectorOptions(raw); err != nil {
+		return nil, err
+	}
+
 	return r, r.finish()
 }
 
@@ -206,41 +238,142 @@ func parseVectorQueries(list []any) ([]vectorQuery, error) {
 	out := make([]vectorQuery, 0, len(list))
 
 	for _, raw := range list {
-		m := objOf(raw)
-		vq := vectorQuery{Kind: strOf(m, "kind"), Fields: strOf(m, "fields"), K: defaultTop, Weight: 1}
-
-		if vq.Kind != "vector" {
-			return nil, badf("Vector query kind '%s' is not supported: the service has no vectorizer.", vq.Kind)
-		}
-
-		if n, ok := m["k"].(jsonx.Number); ok {
-			vq.K, _ = intParam(n.String(), "k")
-		}
-
-		if w, ok := m["weight"].(jsonx.Number); ok {
-			vq.Weight, _ = w.Float64()
-		}
-
-		vq.Exhaustive = boolOf(m, "exhaustive", false)
-
-		for _, x := range listOf(m, "vector") {
-			n, ok := x.(jsonx.Number)
-			if !ok {
-				return nil, badf("The vector query must contain only numbers.")
-			}
-
-			f, _ := n.Float64()
-			vq.Vector = append(vq.Vector, f)
-		}
-
-		if len(vq.Vector) == 0 || vq.Fields == "" || vq.K <= 0 {
-			return nil, badf("A vector query requires vector, fields and a positive k.")
+		vq, err := parseVectorQuery(objOf(raw))
+		if err != nil {
+			return nil, err
 		}
 
 		out = append(out, vq)
 	}
 
 	return out, nil
+}
+
+func parseVectorQuery(m map[string]any) (vectorQuery, error) {
+	vq := vectorQuery{Kind: strOf(m, "kind"), Fields: strOf(m, "fields"), K: defaultTop, Weight: 1}
+
+	switch vq.Kind {
+	case vecQueryVector, vecQueryText:
+	default:
+		return vq, badf("Vector query kind '%s' is not supported: only vector and text queries are accepted.", vq.Kind)
+	}
+
+	vq.Text = strOf(m, "text")
+	vq.FilterOverride = strOf(m, "filterOverride")
+	vq.Exhaustive = boolOf(m, "exhaustive", false)
+
+	if n, ok := m["k"].(jsonx.Number); ok {
+		vq.K, _ = intParam(n.String(), "k")
+	}
+
+	if w, ok := m["weight"].(jsonx.Number); ok {
+		vq.Weight, _ = w.Float64()
+	}
+
+	if err := parseVectorExtras(&vq, m); err != nil {
+		return vq, err
+	}
+
+	if vq.Fields == "" || vq.K <= 0 || vq.Weight <= 0 {
+		return vq, badf("A vector query requires fields, a positive k and a positive weight.")
+	}
+
+	if vq.Kind == vecQueryVector && len(vq.Vector) == 0 || vq.Kind == vecQueryText && vq.Text == "" {
+		return vq, badf("A vector query requires a vector, or text for a text query.")
+	}
+
+	return vq, nil
+}
+
+func parseVectorExtras(vq *vectorQuery, m map[string]any) error {
+	if n, ok := m["perDocumentVectorLimit"].(jsonx.Number); ok {
+		vq.PerDocLimit, _ = intParam(n.String(), "perDocumentVectorLimit")
+		if vq.PerDocLimit < 0 {
+			return badf("The vector query perDocumentVectorLimit must not be negative.")
+		}
+	}
+
+	if o, ok := m["oversampling"].(jsonx.Number); ok {
+		vq.Oversampling, _ = o.Float64()
+		if vq.Oversampling < minOversampling {
+			return badf("The vector query oversampling must be at least 1.")
+		}
+	}
+
+	if m["threshold"] != nil {
+		t, err := parseThreshold(m["threshold"])
+		if err != nil {
+			return err
+		}
+
+		vq.Threshold = &t
+	}
+
+	for _, x := range listOf(m, "vector") {
+		n, ok := x.(jsonx.Number)
+		if !ok {
+			return badf("The vector query must contain only numbers.")
+		}
+
+		f, _ := n.Float64()
+		vq.Vector = append(vq.Vector, f)
+	}
+
+	return nil
+}
+
+func parseThreshold(raw any) (vectorThreshold, error) {
+	m := objOf(raw)
+	kind := strOf(m, "kind")
+
+	if kind != thresholdSimilarity && kind != thresholdScore {
+		return vectorThreshold{}, badf("The vector query threshold kind '%s' is not supported.", kind)
+	}
+
+	n, ok := m["value"].(jsonx.Number)
+	if !ok {
+		return vectorThreshold{}, badf("The vector query threshold requires a numeric value.")
+	}
+
+	v, _ := n.Float64()
+
+	return vectorThreshold{Kind: kind, Value: v}, nil
+}
+
+func (r *searchRequest) parseVectorOptions(raw map[string]any) error {
+	r.Debug = strOf(raw, "debug")
+
+	hs := objOf(raw["hybridSearch"])
+	if hs == nil {
+		return nil
+	}
+
+	r.CountMode = strOf(hs, "countAndFacetMode")
+
+	if n, ok := hs["maxTextRecallSize"].(jsonx.Number); ok {
+		r.MaxTextRecall, _ = intParam(n.String(), "maxTextRecallSize")
+		if r.MaxTextRecall < 1 || r.MaxTextRecall > maxTextRecallLimit {
+			return badf("The value of maxTextRecallSize must be between 1 and %d.", maxTextRecallLimit)
+		}
+	}
+
+	return nil
+}
+
+func (r *searchRequest) validateVectorOptions() error {
+	switch r.Debug {
+	case "", debugDisabled, debugVector:
+	default:
+		return badf("Invalid value for debug: '%s'.", r.Debug)
+	}
+
+	switch r.CountMode {
+	case "", countAllResults, countRetrievable:
+	default:
+		return badf("Invalid value for countAndFacetMode: '%s'.", r.CountMode)
+	}
+
+	return nil
 }
 
 func decodeJSON(body []byte, out any) error {

@@ -179,18 +179,15 @@ func (b *InMemoryBackend) CreatePublicIP(in CreatePublicIPIn) (Resource, string,
 		target = p
 	}
 
-	if in.PublicIPPoolID != "" {
-		return nil, "", errNotFound(in.PublicIPPoolID)
-	}
-
-	reserved := liveOf(b, func(p *PublicIP) bool { return p.Lifetime == lifetimeReserved })
-	if len(reserved) >= maxReservedIP {
-		return nil, "", errLimit("The region reserved public IP limit (50) has been reached")
+	poolAddr, aerr := b.publicIPAddress(in)
+	if aerr != nil {
+		return nil, "", aerr
 	}
 
 	p := &PublicIP{
-		Base: b.newBase(kindPublicIP, in.CompartmentID, in.DisplayName, in.TagsIn), IPAddress: b.allocIP(),
-		Lifetime: in.Lifetime, Scope: scopeRegion,
+		Base:      b.newBase(kindPublicIP, in.CompartmentID, in.DisplayName, in.TagsIn),
+		IPAddress: cmpOrStr(poolAddr, b.allocIP()),
+		Lifetime:  in.Lifetime, Scope: scopeRegion, PublicIPPoolID: in.PublicIPPoolID,
 	}
 	if in.Lifetime == lifetimeEphemeral {
 		p.Scope = scopeAD
@@ -204,6 +201,23 @@ func (b *InMemoryBackend) CreatePublicIP(in CreatePublicIPIn) (Resource, string,
 	}
 
 	return p.view(), p.Internal.Etag, nil
+}
+
+// publicIPAddress returns the BYOIP pool address a new public IP takes, or "" for one of the regional pool.
+func (b *InMemoryBackend) publicIPAddress(in CreatePublicIPIn) (string, *APIError) {
+	if in.PublicIPPoolID != "" {
+		if in.Lifetime != lifetimeReserved {
+			return "", errParam("publicIpPoolId needs lifetime RESERVED")
+		}
+
+		return b.poolAddress(in.PublicIPPoolID)
+	}
+
+	if len(liveOf(b, func(p *PublicIP) bool { return p.Lifetime == lifetimeReserved })) >= maxReservedIP {
+		return "", errLimit("The region reserved public IP limit (50) has been reached")
+	}
+
+	return "", nil
 }
 
 // assignableTarget finds a private IP a public IP can be assigned to; self is the public IP being moved.

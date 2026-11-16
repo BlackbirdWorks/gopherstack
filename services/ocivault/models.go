@@ -17,11 +17,15 @@ const (
 	stateSchedulingDelete = "SCHEDULING_DELETION"
 	stateCancellingDelete = "CANCELLING_DELETION"
 	stateDeleted          = "DELETED"
+	stateDeleting         = "DELETING"
 	stateBackupInProgress = "BACKUP_IN_PROGRESS"
 	stateRestoring        = "RESTORING"
 )
 
-const vaultTypePrivate = "VIRTUAL_PRIVATE"
+const (
+	vaultTypeDefault = "DEFAULT"
+	vaultTypePrivate = "VIRTUAL_PRIVATE"
+)
 
 // Vault is a KMS vault.
 type Vault struct {
@@ -58,6 +62,7 @@ type RotationDetails struct {
 
 // KeyVersion is one version of a key's material.
 type KeyVersion struct {
+	transition
 	TimeCreated    time.Time  `json:"timeCreated"`
 	TimeOfDeletion *time.Time `json:"timeOfDeletion,omitempty"`
 	ID             string     `json:"id"`
@@ -65,6 +70,7 @@ type KeyVersion struct {
 	Origin         string     `json:"origin"`
 	Material       []byte     `json:"material"`
 	AutoRotated    bool       `json:"autoRotated,omitempty"`
+	Promote        bool       `json:"promote,omitempty"`
 }
 
 // Key is a master encryption key.
@@ -85,6 +91,7 @@ type Key struct {
 	PrevState      string                    `json:"prevState,omitempty"`
 	RestoredFrom   string                    `json:"restoredFrom,omitempty"`
 	ReplicationID  string                    `json:"replicationId,omitempty"`
+	CreatedRepl    string                    `json:"createdRepl,omitempty"`
 	Etag           string                    `json:"etag"`
 	Shape          KeyShape                  `json:"shape"`
 	Versions       []*KeyVersion             `json:"versions"`
@@ -111,7 +118,12 @@ type Secret struct {
 	Metadata       map[string]any            `json:"metadata,omitempty"`
 	GenContext     *GenerationContext        `json:"genContext,omitempty"`
 	Rotation       *SecretRotation           `json:"rotation,omitempty"`
+	Replication    *SecretReplication        `json:"replication,omitempty"`
 	transition
+	SourceID      string           `json:"sourceId,omitempty"`
+	SyncedEtag    string           `json:"syncedEtag,omitempty"`
+	SourceVault   string           `json:"sourceVault,omitempty"`
+	SourceKey     string           `json:"sourceKey,omitempty"`
 	KeyID         string           `json:"keyId"`
 	VaultID       string           `json:"vaultId"`
 	CompartmentID string           `json:"compartmentId"`

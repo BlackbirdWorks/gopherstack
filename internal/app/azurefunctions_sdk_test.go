@@ -174,6 +174,8 @@ func newFnSDKStack(t *testing.T) *fnSDKStack {
 	t.Cleanup(backend.Close)
 
 	armH.Registry.SetFunctionApps(&azureFunctionAppsAdapter{backend: backend})
+	wireAzureFunctionsIdentity(backend, armH)
+	wireAzureFunctionsSlots(backend, armH)
 
 	e := echo.New()
 	e.Any("/*", armH.Handler())

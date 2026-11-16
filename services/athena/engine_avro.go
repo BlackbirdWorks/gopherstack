@@ -180,7 +180,7 @@ func avroPrimitiveSchema(base string) (any, bool) {
 	case columnTypeString, typeVarchar, typeChar:
 		return "string", true
 	case "binary", "varbinary":
-		return "bytes", true
+		return avroBytes, true
 	case typeDate:
 		return map[string]any{avroKeyType: "int", avroKeyLogical: typeDate}, true
 	case typeTimestamp:
@@ -198,7 +198,7 @@ func (t *hiveType) avroSchema(nm *avroNamer) (any, error) {
 	switch t.base {
 	case hiveDecimal:
 		return map[string]any{
-			avroKeyType: "bytes", avroKeyLogical: hiveDecimal, "precision": t.prec, "scale": t.scale,
+			avroKeyType: avroBytes, avroKeyLogical: hiveDecimal, "precision": t.prec, "scale": t.scale,
 		}, nil
 	case hiveArray:
 		el, err := t.elem.avroSchema(nm)

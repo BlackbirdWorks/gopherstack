@@ -7,24 +7,16 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 50 (50 ok) |
+| PARITY entries audited | 52 (52 ok) |
 | Feature families | 12 (11 ok, 1 partial) |
-| Known gaps | 11 |
+| Known gaps | 3 |
 | Deferred items | 0 |
 | Resource leaks | partial |
 
 ### Known gaps
 
-- ExportArtifact: the object names under gcs_path are the emulator's choice because Google does not document how an export is laid out.
-- KFP: the .zip package form and the description header are not specified beyond the client example; remote and virtual KFP repositories are rejected; the real KFP SDK client is not exercised.
-- apt and yum signing: the signing key is the emulator's own per-repository key at dists/<repo>/apt-key.asc|gpg (Google documents no key URL for such repositories); yum repomd.xml.asc/.key follow the createrepo layout. apt and yum package names, version strings and file paths, the pool layout and the Go upload operation response shape are the emulator's choice, not verified against the live service; the documented gcloud path with the ar+https transport is not modelled.
-- Remote repositories: only the in-process Secret Manager is consulted for upstream_credentials (the proto has no other type); the failed-validation error code (INVALID_ARGUMENT) and the 502 for an unreachable upstream at read time are undocumented; the docs describe Go remote repositories (proxy.golang.org) but the pinned RemoteRepositoryConfig has no field for them.
-- Operations: only attachment create/delete and ExportArtifact can be pending (--gcp-artifacts-operation-delay, default 0s); every other operation finishes before the call returns and cannot be cancelled; Google publishes no operation durations.
-- Maven and Python repositories expose no Tag resources (only npm dist-tags are mapped); Maven artifact-level maven-metadata.xml is generated, so a PUT of it is accepted and ignored; Maven HTTP DELETE, the Python JSON simple API (PEP 691) and yank, and npm search/audit/login endpoints are not implemented because Google's documentation does not describe them (deletion is through the API, console and gcloud); file and package names for these formats are the emulator's choice.
-- Virtual apt and yum indices merge only non-remote upstreams; the indices of REMOTE upstreams are the upstream's own opaque mirror files and are not merged in.
-- Project settings (legacy_redirection_state, pull_percent) matter only with a Container Registry backend, which does not exist, and the VPC-SC policy applies only to resources inside a service perimeter, which are not modelled; both are stored and nothing consults them. The REST reference says an unset VPC-SC policy behaves as DENY while the emulator reads ALLOW.
-- Authentication is not checked and IAM is not enforced; every credential is accepted.
-- Vulnerability scanning, signed attestations and docker image build_time are not modelled; Artifact Registry's own location catalogue is not served.
+- Authentication is not checked and IAM is not enforced: there is no caller identity or token validation, so TestIamPermissions reports every requested permission as granted; only the opt-in project and service-enablement checks (pkgs/gcpenforce) run.
+- Vulnerability scanning and signed attestations are not modelled: no scanner, vulnerability database or Binary Authorization service exists, so the output-only vulnerability_scanning_config fields (enablement_state, last_enable_time) are not computed and nothing produces or verifies attestations.
 - The embedded distribution library leaves one go-events broadcaster goroutine running until process exit; its App.Shutdown does not close it and the broadcaster is unreachable from outside the library.
 
 ## More

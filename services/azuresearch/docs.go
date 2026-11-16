@@ -8,6 +8,12 @@ import (
 func (h *Handler) routeDocs(req *request, index string, t []string) error {
 	m := req.r.Method
 
+	if len(t) == 0 || t[0] != pathIndexBatch {
+		if err := req.require(roleQuery); err != nil {
+			return err
+		}
+	}
+
 	if len(t) == 0 {
 		if m != http.MethodGet {
 			return methodNotAllowed()
@@ -21,7 +27,7 @@ func (h *Handler) routeDocs(req *request, index string, t []string) error {
 		return h.docCount(req, index)
 	case "search.post.search":
 		return h.searchPost(req, index)
-	case "search.index":
+	case pathIndexBatch:
 		return h.indexBatch(req, index)
 	case "search.suggest", pathPostSuggest:
 		return h.suggestOp(req, index, t[0] == pathPostSuggest, false)
@@ -56,6 +62,10 @@ func (h *Handler) searchPost(req *request, index string) error {
 
 func (h *Handler) runSearch(req *request, index string, sr *searchRequest, post bool) error {
 	var out *ordered
+
+	if err := h.vectorizeQueries(req, index, sr); err != nil {
+		return err
+	}
 
 	err := h.Backend.read(req.svc, func(s *Service) error {
 		ix, gerr := s.index(index)
@@ -205,7 +215,7 @@ func (h *Handler) suggestOp(req *request, index string, post, auto bool) error {
 }
 
 func (h *Handler) indexBatch(req *request, index string) error {
-	if err := req.requireAdmin(); err != nil {
+	if err := req.requireWrite(); err != nil {
 		return err
 	}
 

@@ -158,7 +158,11 @@ func scalarStored(k Kind, v any) (string, error) {
 		return storedTemporal(k, v)
 	case KindJSON:
 		return storedJSON(v)
-	case KindUnknown, KindString, KindGeography, KindStruct, KindArray:
+	case KindGeography:
+		return storedGeography(v)
+	case KindInterval:
+		return storedInterval(v)
+	case KindUnknown, KindString, KindStruct, KindArray:
 		return storedString(v)
 	}
 
@@ -375,7 +379,7 @@ func FormatTemporal(k Kind, t time.Time) string {
 	case KindDatetime:
 		return t.Format(DatetimeLayout)
 	case KindUnknown, KindInt, KindFloat, KindBool, KindString, KindBytes, KindTimestamp, KindNumeric,
-		KindBigNumeric, KindJSON, KindGeography, KindStruct, KindArray:
+		KindBigNumeric, KindJSON, KindGeography, KindInterval, KindStruct, KindArray:
 		return t.Format(TimestampLayout)
 	}
 
@@ -564,7 +568,7 @@ func wireScalar(k Kind, s string, o CellOptions) string {
 	case KindTime:
 		return trimFraction(s)
 	case KindUnknown, KindInt, KindFloat, KindBool, KindString, KindBytes, KindDate, KindNumeric,
-		KindBigNumeric, KindJSON, KindGeography, KindStruct, KindArray:
+		KindBigNumeric, KindJSON, KindGeography, KindInterval, KindStruct, KindArray:
 		return s
 	}
 
@@ -652,11 +656,39 @@ func LogicalBytes(f Field, stored any) int64 {
 		return 16 //nolint:mnd // BigQuery logical size
 	case KindBigNumeric:
 		return 32 //nolint:mnd // BigQuery logical size
-	case KindUnknown, KindString, KindBytes, KindJSON, KindGeography, KindArray:
+	case KindUnknown, KindString, KindBytes, KindJSON, KindGeography, KindInterval, KindArray:
 		s, _ := stored.(string)
 
 		return int64(len(s)) + 2 //nolint:mnd // BigQuery adds two bytes to variable-length values
 	}
 
 	return 0
+}
+
+func storedGeography(v any) (string, error) {
+	s, err := storedString(v)
+	if err != nil {
+		return "", err
+	}
+
+	g, err := parseWKT(s)
+	if err != nil {
+		return "", valueErr("invalid GEOGRAPHY value: %v", err)
+	}
+
+	return g.wkt(), nil
+}
+
+func storedInterval(v any) (string, error) {
+	s, err := storedString(v)
+	if err != nil {
+		return "", err
+	}
+
+	iv, err := castInterval(s)
+	if err != nil {
+		return "", valueErr("invalid INTERVAL value: %v", err)
+	}
+
+	return iv.String(), nil
 }

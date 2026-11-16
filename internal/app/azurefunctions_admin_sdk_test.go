@@ -187,7 +187,7 @@ func TestAzureFunctionsARMSDK_Flex(t *testing.T) {
 		assert.Equal(t, http.StatusOK, code)
 
 		code, _ = s.call(t, http.MethodPost, host, "/api/publish?RemoteBuild=true", fnZip(t), user, pass)
-		assert.Equal(t, http.StatusBadRequest, code)
+		assert.Equal(t, http.StatusServiceUnavailable, code, "no container runtime in this stack")
 	})
 }
 

@@ -149,7 +149,7 @@ func (b *InMemoryBackend) createNatGateway(
 	b.indexNatGatewayLocked(ngw)
 	b.setTagsLocked(ngw.ID, tags)
 
-	return ngw, nil
+	return copyNatGateway(ngw), nil
 }
 
 // natGatewayUsingAllocationLocked returns the ID of the live NAT gateway holding the
@@ -228,8 +228,14 @@ func (b *InMemoryBackend) DescribeNatGateways(ids []string) []*NatGateway {
 	b.purgeDrainedNatAddressesLocked()
 
 	if len(ids) > 0 {
-		return describeWithTombstones(b.natGateways.All(), b.natGatewayTombstones, ids,
+		found := describeWithTombstones(b.natGateways.All(), b.natGatewayTombstones, ids,
 			func(n *NatGateway) string { return n.ID })
+
+		for i, ngw := range found {
+			found[i] = copyNatGateway(ngw)
+		}
+
+		return found
 	}
 
 	out := make([]*NatGateway, 0, b.natGateways.Len())

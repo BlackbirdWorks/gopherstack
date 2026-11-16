@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 12 (12 ok) |
 | Feature families | 2 (1 ok, 1 deferred) |
-| Known gaps | 6 |
+| Known gaps | 5 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -20,7 +20,6 @@
 - Time-series functions: not published (checked timeseries-specific-constructs.functions.interpolation, .derivatives, .correlation and the integral, filter and reduce pages): outputs or edge behaviour of interpolate_*, derivative_*, integral_trapezoidal and correlate_*; the emulator omits interpolate_linear and spline_cubic targets outside the observed range, omits interpolate_locf times before the first sample and emits one derivative_linear point per sample after the first. filter/reduce lambdas are recognised only when the body reads the element as p.value/p.time, and an aggregate used directly as the timeseries argument (instead of a CTE column) is unsupported.
 - Query engine: result ColumnInfo types for non-boolean expressions are inferred from values (BIGINT/DOUBLE/VARCHAR/TIMESTAMP) and an empty result reports VARCHAR for computed non-boolean columns. Boolean typing (ts_boolean.go) is syntactic: a CASE/CAST wrapping booleans, or a boolean function outside the known list, still reports its engine type. Plain column references keep their declared type.
 - Query engine: SELECT * column order (dimensions in first-seen order, measure_name, time, measure_value::T sorted by type, multi attributes in first-seen order) is not published (checked the Developer Guide sample-queries.devops-scenarios and timeseries pages)
-- Query: EXPLAIN is not documented for Timestream LiveAnalytics (SQL support lists SELECT, subqueries, SHOW, DESCRIBE, UNLOAD) and is rejected with ValidationException. QueryInput has no parameter field, so @name queries other than ScheduledQuery @scheduled_runtime do not exist. UNLOAD keeps SSE_S3/SSE_KMS as request metadata on the S3 PutObject only and UNLOAD of the TIME type is not rejected.
 - ScheduledQuery: the exact SNS notification JSON casing (lower camelCase keys, epoch-second times) and the RecentlyFailedRuns depth (5) are not published (scheduledqueries-notification gives only field names and types); the error-report object key embeds the query name here, while scheduledqueries-errorreport shows <prefix>/<last ARN segment>/<InvocationTime>/<Auto|Manual>/<trigger time> with an ARN segment of the form <name>-<12 random characters> (the emulator ARN carries the bare name); run QueryInsightsResponse is omitted and ScheduledQueryExecutionRoleArn is never assumed. The AUTO disable-on-non-recoverable-error rule follows scheduledqueries-notification.
 
 ### Structural gaps

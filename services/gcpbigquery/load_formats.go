@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/orcio"
 	"github.com/blackbirdworks/gopherstack/pkgs/parquetio"
 	"github.com/blackbirdworks/gopherstack/services/gcpbigquery/bqsql"
 )
@@ -165,12 +166,31 @@ func parseJSONInput(lc loadConfig, fields []bqsql.Field, data []byte) ([][]any, 
 	}
 }
 
+// columnarFile is what the Parquet and ORC readers share.
+type columnarFile interface {
+	Columns() []string
+	ForEach(cols []string, fn func(vals []any) error) error
+}
+
 func parseParquetInput(lc loadConfig, fields []bqsql.Field, data []byte) ([][]any, []error, error) {
 	f, err := parquetio.Open(data)
 	if err != nil {
 		return nil, nil, fmt.Errorf("parquet: %w", err)
 	}
 
+	return parseColumnar(lc, fields, f, "parquet")
+}
+
+func parseORCInput(lc loadConfig, fields []bqsql.Field, data []byte) ([][]any, []error, error) {
+	f, err := orcio.Open(data)
+	if err != nil {
+		return nil, nil, fmt.Errorf("orc: %w", err)
+	}
+
+	return parseColumnar(lc, fields, f, "orc")
+}
+
+func parseColumnar(lc loadConfig, fields []bqsql.Field, f columnarFile, label string) ([][]any, []error, error) {
 	cols := f.Columns()
 
 	var (
@@ -180,7 +200,7 @@ func parseParquetInput(lc loadConfig, fields []bqsql.Field, data []byte) ([][]an
 
 	n := 0
 
-	err = f.ForEach(cols, func(vals []any) error {
+	err := f.ForEach(cols, func(vals []any) error {
 		n++
 
 		obj := make(map[string]any, len(cols))
@@ -200,8 +220,12 @@ func parseParquetInput(lc loadConfig, fields []bqsql.Field, data []byte) ([][]an
 		return nil
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("parquet: %w", err)
+		return nil, nil, fmt.Errorf("%s: %w", label, err)
 	}
 
 	return rows, bad, nil
+}
+
+func selfDescribing(format string) bool {
+	return format == formatParquet || format == formatAvro || format == formatORC
 }

@@ -3,10 +3,8 @@ package bedrockagentcorecontrol
 import (
 	"context"
 	"crypto/rsa"
-	"encoding/base64"
 	"errors"
 	"fmt"
-	"math/big"
 	"net/http"
 	"slices"
 	"strings"
@@ -55,9 +53,9 @@ const (
 	schemeHTTPS             = "https"
 )
 
-// protectedResourceURL is the metadata URL a challenge advertises: the gateway root, or the runtime's
-// invocation URL with its qualifier.
-func protectedResourceURL(r *http.Request) string {
+// protectedResourceURLs returns the resource a request addresses and the metadata URL a challenge advertises
+// for it: the gateway root or its path-addressed form, or the runtime's invocation URL with its qualifier.
+func protectedResourceURLs(r *http.Request) (string, string) {
 	scheme := schemeHTTP
 	if r.TLS != nil {
 		scheme = schemeHTTPS
@@ -68,15 +66,49 @@ func protectedResourceURL(r *http.Request) string {
 	path := r.URL.EscapedPath()
 	if rest, ok := strings.CutPrefix(path, "/runtimes/"); ok {
 		arn, _, _ := strings.Cut(rest, "/")
-		url := base + "/runtimes/" + arn + "/invocations" + protectedResourceSuffix
+		resource := base + "/runtimes/" + arn + "/invocations"
+		meta := resource + protectedResourceSuffix
+
 		if q := r.URL.Query().Get("qualifier"); q != "" {
-			url += "?qualifier=" + q
+			meta += "?qualifier=" + q
 		}
 
-		return url
+		return resource, meta
 	}
 
-	return base + protectedResourceSuffix
+	if rest, ok := strings.CutPrefix(path, pathGatewayPrefix); ok {
+		id, _, _ := strings.Cut(rest, "/")
+		root := base + pathGatewayPrefix + id
+
+		return root + pathMCP, root + protectedResourceSuffix
+	}
+
+	return base + pathMCP, base + protectedResourceSuffix
+}
+
+func protectedResourceURL(r *http.Request) string {
+	_, meta := protectedResourceURLs(r)
+
+	return meta
+}
+
+// protectedResourceMetadata is the RFC 9728 document (section 2) for a resource guarded by a JWT authorizer.
+func protectedResourceMetadata(r *http.Request, cfg map[string]any) map[string]any {
+	resource, _ := protectedResourceURLs(r)
+	discovery := strOf(cfg, "discoveryUrl")
+	issuer := strings.TrimSuffix(strings.TrimSuffix(discovery, discoverySuffixOIDC), discoverySuffixOAuth)
+
+	doc := map[string]any{
+		"resource":                 resource,
+		"authorization_servers":    []string{issuer},
+		"bearer_methods_supported": []string{"header"},
+	}
+
+	if sc := strings.Fields(advertisedScopes(cfg)); len(sc) > 0 {
+		doc["scopes_supported"] = sc
+	}
+
+	return doc
 }
 
 func advertisedScopes(cfg map[string]any) string {
@@ -219,44 +251,7 @@ func (b *InMemoryBackend) signingKey(
 		}
 	}
 
-	var doc struct {
-		Issuer  string `json:"issuer"`
-		JWKSURI string `json:"jwks_uri"`
-	}
-
-	if err := b.getJSON(ctx, discovery, &doc); err != nil {
-		return nil, issuer, fmt.Errorf("fetch discovery document: %w", err)
-	}
-
-	var set struct {
-		Keys []struct {
-			Kid string `json:"kid"`
-			Kty string `json:"kty"`
-			N   string `json:"n"`
-			E   string `json:"e"`
-		} `json:"keys"`
-	}
-
-	if err := b.getJSON(ctx, doc.JWKSURI, &set); err != nil {
-		return nil, doc.Issuer, fmt.Errorf("fetch JWKS: %w", err)
-	}
-
-	for _, k := range set.Keys {
-		if k.Kty != "RSA" || (kid != "" && k.Kid != kid) {
-			continue
-		}
-
-		n, nerr := base64.RawURLEncoding.DecodeString(k.N)
-		e, eerr := base64.RawURLEncoding.DecodeString(k.E)
-
-		if nerr != nil || eerr != nil {
-			continue
-		}
-
-		return &rsa.PublicKey{N: new(big.Int).SetBytes(n), E: int(new(big.Int).SetBytes(e).Int64())}, doc.Issuer, nil
-	}
-
-	return nil, doc.Issuer, errNoSigningKey
+	return b.jwksKey(ctx, discovery, kid)
 }
 
 func claimStrings(v any) []string {

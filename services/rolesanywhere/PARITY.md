@@ -42,8 +42,7 @@ families:
   tags: {status: ok, note: "this pass: removed the invented \"tags\" field from TrustAnchorDetail/ProfileDetail JSON (real AWS never returns one on either shape -- confirmed field-by-field against types.TrustAnchorDetail/types.ProfileDetail, neither has a Tags member), which also fixes the desync bug where creation-time tags (stored on the resource struct) permanently diverged from TagResource/UntagResource-mutated tags (stored in a separate ARN-keyed map) -- both now route through the same store; added ResourceNotFoundException validation to TagResource/ListTagsForResource (not UntagResource, which the real model doesn't declare it for) and TooManyTagsException to TagResource"}
   duplicate_name_rejection: {status: ok, note: "REMOVED this pass: CreateTrustAnchor/CreateProfile/ImportCrl each independently rejected duplicate names with a gopherstack-invented ConflictException/409. Cross-checked against botocore's rolesanywhere/2018-05-10/service-2.json: the service's shapes map contains exactly 4 exception shapes total (AccessDeniedException, ResourceNotFoundException, TooManyTagsException, ValidationException) across ALL 27 operations -- there is no ConflictException shape in the entire service model, so this was invented behavior with a fabricated error code, not a real AWS constraint. Real Roles Anywhere trust anchors/profiles/CRLs are identified by generated ID/ARN; names are not unique. Deleted ErrTrustAnchorAlreadyExists/ErrProfileAlreadyExists/ErrCrlAlreadyExists and their duplicate-check code paths; all three Create/Import ops now accept duplicate names, matching the real API."}
 gaps: []
-items_still_open:
-  - "gopherstack-i5ss: ImportCrl does not validate TrustAnchorArn refers to an existing trust anchor, and DeleteTrustAnchor does not cascade to CRLs. Re-checked 2026-10-07: ImportCrl declares only AccessDeniedException/ValidationException (SDK deserializers + API reference), and the API reference and user-guide trust-model/revocation pages state neither behavior."
+items_still_open: []
 structural_gaps:
   - "GetSubject/ListSubjects stay empty: subjects are created by CreateSession, a separate mTLS data-plane API outside this service."
   - "No AccessDeniedException path: no IAM policy evaluation engine exists for this service."
@@ -473,3 +472,7 @@ rolesanywhere already isolates regions internally: trust anchors, profiles and C
 ## 2026-10-05 (gopherstack-uox6 pass 11, value semantics)
 
 CreateProfile defaults DurationSeconds to 3600 (api_op_CreateProfile.go:50, types.go:208), and PutAttributeMapping/DeleteAttributeMapping advance the profile's UpdatedAt (interpretation: the SDK returns the updated profile but does not name these as updating it). Proof: `TestProfile_DefaultDurationAndPartialUpdate`, `TestPutAttributeMapping_AdvancesProfileUpdatedAt`. Recorded, unchanged: UpdateProfile cannot clear SessionPolicy and an omitted DurationSeconds is kept (SDK silent); the default notification-setting values are not enumerated by the SDK, so none are seeded.
+
+## Emulator choices where the vendor is silent
+
+- gopherstack-i5ss: ImportCrl does not validate TrustAnchorArn refers to an existing trust anchor, and DeleteTrustAnchor does not cascade to CRLs. Re-checked 2026-10-07: ImportCrl declares only AccessDeniedException/ValidationException (SDK deserializers + API reference), and the API reference and user-guide trust-model/revocation pages state neither behavior.

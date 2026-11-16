@@ -119,6 +119,10 @@ func (b *InMemoryBackend) deleteNetworkCheck(r Resource) *APIError {
 	switch v := r.(type) {
 	case *Vcn:
 		return b.deleteVcnCheck(id)
+	case *Vlan:
+		return b.deleteVlanCheck(v)
+	case *CaptureFilter:
+		return usedBy("capture filter", id, firstID(liveOf(b, func(x *Vtap) bool { return x.CaptureFilterID == id })))
 	case *RouteTable:
 		if b.isDefault(v.VcnID, id) {
 			return defaultOf("route table")
@@ -231,6 +235,10 @@ func routeTableRef(r Resource) string {
 		return v.RouteTableID
 	case *LocalPeeringGateway:
 		return v.RouteTableID
+	case *PrivateIP:
+		return v.RouteTableID
+	case *Ipv6:
+		return v.RouteTableID
 	}
 
 	return ""
@@ -252,7 +260,9 @@ func (b *InMemoryBackend) terminate(r Resource) {
 		b.endReplicas(v)
 	case *BootVolume:
 		b.dropAssignments(v.ID)
+		b.endBootReplicas(v)
 	case *VolumeGroup:
+		b.endGroupReplicas(v)
 		b.leaveGroup(v)
 		b.dropAssignments(v.ID)
 	case *VolumeGroupBackup:

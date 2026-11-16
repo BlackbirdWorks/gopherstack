@@ -73,3 +73,36 @@ func (p *NetworkProvider) subnetPrefixBits(subnetID string) (int, bool) {
 
 	return pfx.Bits(), err == nil
 }
+
+// delegatedSubnetIDs lists the subnets of the virtual network delegated to service, as ids; ok is false when the
+// virtual network does not exist.
+func (p *NetworkProvider) delegatedSubnetIDs(vnetID, service string) ([]string, bool) {
+	p.mu.RLock("delegatedSubnetIDs")
+	defer p.mu.RUnlock()
+
+	rid, err := ParseGenericResourcePath(vnetID)
+	if err != nil || !strings.EqualFold(rid.Namespace, namespaceMicrosoftNetwork) || len(rid.Types) != 1 ||
+		!strings.EqualFold(rid.Types[0], netVNets) {
+		return nil, false
+	}
+
+	v, ok := p.top(netVNets, rid.ResourceGroup, rid.Names[0])
+	if !ok {
+		return nil, false
+	}
+
+	var out []string
+
+	for _, s := range v.Kids[netSubnets] {
+		for _, d := range anyList(s.Props["delegations"]) {
+			m, _ := d.(map[string]any)
+			if strings.EqualFold(strOf(propsOf(m), "serviceName"), service) {
+				out = append(out, subnetIDOf(v, s.Name))
+
+				break
+			}
+		}
+	}
+
+	return out, true
+}

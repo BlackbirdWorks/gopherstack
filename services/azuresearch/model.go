@@ -96,22 +96,28 @@ type suggester struct {
 }
 
 type compiled struct {
-	byPath     map[string]*fieldDef
-	suggesters map[string]*suggester
-	profiles   map[string]*scoringProfile
-	vecProfile map[string]vectorProfile
-	analyzers  map[string]Analyzer
-	defs       *analysisDefs
-	key        *fieldDef
-	defProfile string
-	fields     []*fieldDef
-	searchable []*fieldDef
+	byPath      map[string]*fieldDef
+	suggesters  map[string]*suggester
+	profiles    map[string]*scoringProfile
+	vecProfile  map[string]vectorProfile
+	vectorizers map[string]map[string]any
+	analyzers   map[string]Analyzer
+	defs        *analysisDefs
+	key         *fieldDef
+	defProfile  string
+	fields      []*fieldDef
+	searchable  []*fieldDef
 }
 
 type vectorProfile struct {
-	Metric    string
-	Kind      string
-	Algorithm string
+	Metric      string
+	Kind        string
+	Algorithm   string
+	Compression string
+	Vectorizer  string
+	Quantizer   string
+	Oversample  float64
+	Rescore     bool
 }
 
 func splitType(t string) (string, bool) {

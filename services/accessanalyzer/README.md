@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 39 (37 ok, 2 partial) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 5 |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- Criterion.Contains: API_Criterion.html and the IAM filter-keys page (access-analyzer-reference-filter-keys.html) describe it only as a "contains" operator with no match semantics (substring vs element), so Contains is treated as matching. createdAt/updatedAt/analyzedAt/resourceRegion are not listed as filter keys on that page and are treated as matching.
 
 ### Structural gaps
 

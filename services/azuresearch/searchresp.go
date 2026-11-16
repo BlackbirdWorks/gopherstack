@@ -110,6 +110,10 @@ func hitRow(
 		}
 	}
 
+	if req.Debug == debugVector && h.dbg != nil {
+		row.set("@search.documentDebugInfo", h.dbg.wire())
+	}
+
 	proj := project(ix.comp.fields, h.doc.Fields, req.Select, "")
 	for _, k := range proj.keys {
 		row.set(k, proj.vals[k])

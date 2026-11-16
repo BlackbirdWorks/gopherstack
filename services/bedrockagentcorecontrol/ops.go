@@ -6,10 +6,23 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
 )
 
+const (
+	opCreateRuntime = "CreateAgentRuntime"
+	opUpdateRuntime = "UpdateAgentRuntime"
+	opCreateTarget  = "CreateGatewayTarget"
+	opUpdateTarget  = "UpdateGatewayTarget"
+)
+
 type callFn func(sc scope, op string, in args) (*reply, error)
+
+type ctxCallFn func(ctx context.Context, sc scope, op string, in args) (*reply, error)
 
 // run decodes and validates the request for op, runs fn, and returns the rendered result.
 func (h *Handler) run(op string, fn callFn) restroute.OpFunc {
+	return h.runCtx(op, func(_ context.Context, sc scope, op string, in args) (*reply, error) { return fn(sc, op, in) })
+}
+
+func (h *Handler) runCtx(op string, fn ctxCallFn) restroute.OpFunc {
 	sp := specs()[op]
 
 	return func(ctx context.Context, req *restroute.Request) (any, int, error) {
@@ -30,11 +43,11 @@ func (h *Handler) run(op string, fn callFn) restroute.OpFunc {
 			return nil, 0, err
 		}
 
-		if err = h.Backend.checkKeys(ctx, in); err != nil {
+		if err = h.Backend.crossChecks(ctx, op, in); err != nil {
 			return nil, 0, err
 		}
 
-		rep, err := fn(h.Backend.scopeOf(ctx), op, in)
+		rep, err := fn(ctx, h.Backend.scopeOf(ctx), op, in)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -51,9 +64,12 @@ func (h *Handler) ops() map[string]restroute.OpFunc {
 		bindKind(h, ops, k)
 	}
 
+	ctxSpecial := map[string]ctxCallFn{
+		"SynchronizeGatewayTargets": b.synchronizeTargets,
+	}
+
 	special := map[string]callFn{
 		"BatchPutGatewayRateLimits":                  b.batchPutRateLimits,
-		"SynchronizeGatewayTargets":                  b.synchronizeTargets,
 		"SubmitRegistryRecordForApproval":            b.submitRecord,
 		"UpdateRegistryRecordStatus":                 b.setRecordStatus,
 		"RotatePaymentConnectorCredentials":          b.rotateConnectorCredentials,
@@ -86,6 +102,10 @@ func (h *Handler) ops() map[string]restroute.OpFunc {
 		ops[op] = h.run(op, fn)
 	}
 
+	for op, fn := range ctxSpecial {
+		ops[op] = h.runCtx(op, fn)
+	}
+
 	ops["UntagResource"] = h.untag()
 
 	return ops
@@ -111,16 +131,20 @@ func bindKind(h *Handler, ops map[string]restroute.OpFunc, k *kindSpec) {
 	b := h.Backend
 
 	if k.Create != "" {
-		ops[k.Create] = h.run(
+		ops[k.Create] = h.runCtx(
 			k.Create,
-			func(sc scope, op string, in args) (*reply, error) { return b.create(sc, k, op, in) },
+			func(ctx context.Context, sc scope, op string, in args) (*reply, error) {
+				return b.create(ctx, sc, k, op, in)
+			},
 		)
 	}
 
 	if k.Update != "" {
-		ops[k.Update] = h.run(
+		ops[k.Update] = h.runCtx(
 			k.Update,
-			func(sc scope, op string, in args) (*reply, error) { return b.update(sc, k, op, in) },
+			func(ctx context.Context, sc scope, op string, in args) (*reply, error) {
+				return b.update(ctx, sc, k, op, in)
+			},
 		)
 	}
 

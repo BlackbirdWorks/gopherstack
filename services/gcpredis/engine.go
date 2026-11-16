@@ -48,7 +48,7 @@ func (b *InMemoryBackend) startEngine(
 	}
 
 	if auth != "" {
-		eng.Mini.RequireAuth(auth)
+		eng.RequireAuth(auth)
 	}
 
 	return eng, certs, nil

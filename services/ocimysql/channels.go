@@ -72,7 +72,7 @@ func (b *InMemoryBackend) channelSource(in ChannelSourceIn, cur *ChannelSource) 
 	setNonEmpty(&out.SslMode, strings.ToUpper(in.SslMode))
 
 	if in.Password != "" {
-		out.HasPassword = true
+		out.HasPassword, out.Password = true, in.Password
 	}
 
 	if in.Port != nil {
@@ -151,7 +151,7 @@ func (b *InMemoryBackend) channelTarget(in ChannelTargetIn, cur *ChannelTarget) 
 
 func (b *InMemoryBackend) channelDocs(c *Channel) (Doc, Doc) {
 	src := Doc{
-		keySourceType: c.Source.SourceType, "hostname": c.Source.Hostname, "port": c.Source.Port,
+		keySourceType: c.Source.SourceType, "hostname": c.Source.Hostname, keyPort: c.Source.Port,
 		"username": c.Source.Username, "sslMode": c.Source.SslMode,
 	}
 	tgt := Doc{
@@ -259,8 +259,13 @@ func (b *InMemoryBackend) CreateChannel(in CreateChannelIn) (Doc, string, string
 		c.After = stateActive
 	}
 
+	if b.eng != nil {
+		c.TransitionAt = nil
+	}
+
 	b.channels[c.ID] = c
 	wr := b.newWR(wrCreateChannel, compartment, entityChannel, c.ID, actionCreated, c.TransitionAt)
+	b.channelJob(c, wr, b.channelConfigure(c.ID, false))
 	b.retry.Remember("CreateChannel", in.RetryToken, ociretry.Join(c.ID, wr), b.nowUTC())
 
 	return b.channelDoc(c), c.Etag, wr, nil
@@ -347,6 +352,10 @@ func (b *InMemoryBackend) channelTransition(c *Channel, op, after string) string
 	c.State, c.After, c.TimeUpdated, c.Etag = stateUpdating, after, b.nowUTC(), newEtag()
 	c.TransitionAt = b.transitionAt()
 
+	if b.eng != nil {
+		c.TransitionAt = nil
+	}
+
 	return b.newWR(op, c.CompartmentID, entityChannel, c.ID, actionUpdated, c.TransitionAt)
 }
 
@@ -405,6 +414,7 @@ func (b *InMemoryBackend) UpdateChannel(id, ifMatch, token string, in UpdateChan
 	c.Tags.merge(in.Tags)
 
 	wr := b.channelTransition(c, wrUpdateChannel, enabledState(c.Enabled))
+	b.channelJob(c, wr, b.channelConfigure(c.ID, false))
 	b.retry.Remember("UpdateChannel/"+id, token, wr, b.nowUTC())
 
 	return wr, nil
@@ -441,6 +451,7 @@ func (b *InMemoryBackend) ResumeChannel(id, ifMatch, token string) (string, erro
 	c.Enabled = true
 
 	wr := b.channelTransition(c, wrResumeChannel, stateActive)
+	b.channelJob(c, wr, b.channelConfigure(c.ID, false))
 	b.retry.Remember("ResumeChannel/"+id, token, wr, b.nowUTC())
 
 	return wr, nil
@@ -467,6 +478,7 @@ func (b *InMemoryBackend) ResetChannel(id, ifMatch, token string) (string, error
 	}
 
 	wr := b.channelTransition(c, wrResetChannel, enabledState(c.Enabled))
+	b.channelJob(c, wr, b.channelConfigure(c.ID, true))
 	b.retry.Remember("ResetChannel/"+id, token, wr, b.nowUTC())
 
 	return wr, nil
@@ -489,7 +501,14 @@ func (b *InMemoryBackend) DeleteChannel(id, ifMatch string) (string, error) {
 	c.State, c.After, c.TimeUpdated, c.Etag = stateDeleting, "", b.nowUTC(), newEtag()
 	c.TransitionAt = b.transitionAt()
 
-	return b.newWR(wrDeleteChannel, c.CompartmentID, entityChannel, id, actionDeleted, c.TransitionAt), nil
+	if b.eng != nil {
+		c.TransitionAt = nil
+	}
+
+	wr := b.newWR(wrDeleteChannel, c.CompartmentID, entityChannel, id, actionDeleted, c.TransitionAt)
+	b.deleteChannelJob(c, wr)
+
+	return wr, nil
 }
 
 func (h *Handler) createChannel(q *req) error {

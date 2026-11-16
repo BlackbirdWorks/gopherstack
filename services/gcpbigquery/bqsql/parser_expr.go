@@ -517,6 +517,7 @@ func (p *parser) callExpr(parts []string, pos int) (*node, error) {
 	}
 
 	n.name = strings.ToUpper(strings.Join(parts, "."))
+	n.parts = parts
 
 	if p.acceptKw(litDistinct) {
 		n.distinct = true
@@ -551,12 +552,20 @@ func (p *parser) callArgs(n *node) error {
 	}
 
 	for {
+		name := ""
+
+		if p.peek().kind == tkIdent && p.peekNext().isPunct("=>") {
+			name = strings.ToLower(p.peek().text)
+			p.i += 2
+		}
+
 		a, err := p.expr()
 		if err != nil {
 			return err
 		}
 
 		n.args = append(n.args, a)
+		n.names = append(n.names, name)
 
 		if !p.acceptPunct(",") {
 			break
@@ -1020,7 +1029,18 @@ func (p *parser) intervalExpr() (*node, error) {
 		return nil, err
 	}
 
-	return &node{kind: nInterval, name: strings.ToUpper(part), args: []*node{v}, pos: pos}, nil
+	n := &node{kind: nInterval, name: strings.ToUpper(part), args: []*node{v}, pos: pos}
+
+	if p.acceptKw("TO") {
+		to, terr := p.anyIdent()
+		if terr != nil {
+			return nil, terr
+		}
+
+		n.str = strings.ToUpper(to)
+	}
+
+	return n, nil
 }
 
 // typeSpec parses a GoogleSQL type: scalar, ARRAY<T> or STRUCT<name T, ...>.
@@ -1152,5 +1172,6 @@ func scalarTypeKinds() map[string]Kind {
 		"BIGDECIMAL":  KindBigNumeric,
 		litJSON:       KindJSON,
 		litGeography:  KindGeography,
+		litInterval:   KindInterval,
 	}
 }

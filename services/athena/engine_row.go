@@ -234,6 +234,8 @@ func parseTypeNode(s string) (*typeNode, error) {
 
 func castScalarInt(v any) (any, error) {
 	switch t := v.(type) {
+	case int64:
+		return t, nil
 	case float64:
 		return int64(math.Round(t)), nil
 	case bool:
@@ -271,6 +273,8 @@ func castScalarString(v any) any {
 	switch t := v.(type) {
 	case string:
 		return t
+	case int64:
+		return strconv.FormatInt(t, 10)
 	case float64:
 		if t == math.Trunc(t) && math.Abs(t) < 1<<53 {
 			return strconv.FormatInt(int64(t), 10)

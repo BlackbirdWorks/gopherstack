@@ -9,18 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 14 (8 ok, 5 partial, 1 gap) |
 | Feature families | 9 (4 ok, 5 partial) |
-| Known gaps | 8 |
+| Known gaps | 5 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - Compute Engine behaviour is not emulated: no VMs, so allocation_policy has no effect, instances stay empty, tasks are never preempted (exit codes 50001 to 50004 and 50006 cannot occur) and task_count_per_node, permissive_ssh and run_as_non_root are stored only. The 50005 exit code for exceeded run time is from the troubleshooting page.
-- Predefined environment variables other than BATCH_TASK_INDEX, BATCH_TASK_COUNT, BATCH_HOSTS_FILE and BATCH_TASK_RETRY_ATTEMPT (for example BATCH_TASK_UID or job identity) are not set: no primary page lists them, and the value BATCH_TASK_RETRY_ATTEMPT takes on the first attempt (emulator: 0) is not documented. The hosts file content (one name per task) is not documented.
 - Container runnable options, username and password (registry credentials) and enable_image_streaming are stored but ignored; script runnables run in a container image rather than on the VM host, so host paths a script path refers to must exist in that image.
-- Task status event texts other than the documented 'Task state is updated from X to Y' prefix, the TASK_RETRY event type and the retry description are emulator wording; the task event type names and the initial job events are not in a primary source.
 - Job.notifications are stored but no Pub/Sub message is sent.
-- Validation and state-conflict error codes and texts (AlreadyExists, FAILED_PRECONDITION for a repeated delete or cancel, the task_count upper bound of 100000 enforced here) have no primary text; the REST filter grammar of ListJobs is a subset.
 - No IAM policy methods, CancelOperation, dashboard page or proxy.
 - In docker mode a job that was RUNNING when the emulator restarts is marked FAILED on restore (its containers are gone) instead of being resumed.
 

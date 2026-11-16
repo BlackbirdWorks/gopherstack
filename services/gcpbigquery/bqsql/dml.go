@@ -28,6 +28,10 @@ func (c *compiler) dmlTarget(path []string, alias string, sc *scope) (*dmlTarget
 		return nil, invalid("Cannot modify view %s", ref)
 	}
 
+	if td.External {
+		return nil, invalid("Cannot modify external table %s", ref)
+	}
+
 	if alias == "" {
 		alias = ref.Table
 	}
@@ -59,7 +63,8 @@ func stmtName(k StmtKind) string {
 		return "MERGE"
 	case StmtTruncate:
 		return "TRUNCATE_TABLE"
-	case StmtQuery, StmtCreateTable, StmtCreateView, StmtCreateSchema, StmtDrop, StmtAlter:
+	case StmtQuery, StmtCreateTable, StmtCreateView, StmtCreateSchema, StmtDrop, StmtAlter, StmtCreateRoutine,
+		StmtDropRoutine, StmtCreateRowPolicy, StmtDropRowPolicy:
 		return litSelect
 	}
 
@@ -91,7 +96,8 @@ func (c *compiler) runDML(ctx context.Context, st *Statement, dryRun bool) (*Res
 		target, steps, err = c.planMerge(st, sc)
 	case StmtTruncate:
 		target, steps, err = c.planTruncate(st, sc)
-	case StmtQuery, StmtCreateTable, StmtCreateView, StmtCreateSchema, StmtDrop, StmtAlter:
+	case StmtQuery, StmtCreateTable, StmtCreateView, StmtCreateSchema, StmtDrop, StmtAlter, StmtCreateRoutine,
+		StmtDropRoutine, StmtCreateRowPolicy, StmtDropRowPolicy:
 		err = unsupported("statement")
 	}
 

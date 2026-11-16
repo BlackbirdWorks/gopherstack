@@ -14,7 +14,7 @@ import (
 const (
 	entityPrivateIP = "PRIVATE_IP"
 	maxNsgsPerVnic  = 5
-	maxIPsPerVnic   = 32
+	maxIPsPerVnic   = 64
 	regionName      = "us-ashburn-1"
 	macPrefix       = "02:00:17:"
 	v4Bits          = 32
@@ -77,8 +77,18 @@ func (b *InMemoryBackend) freeIPIn(s *Subnet, want, block string) (string, *APIE
 
 	used := map[string]bool{}
 
+	var held []netip.Prefix
+
 	for _, ip := range liveOf(b, func(x *PrivateIP) bool { return x.SubnetID == s.ID }) {
 		used[ip.IPAddress] = true
+
+		if ip.CidrPrefixLength != nil {
+			held = append(held, netip.PrefixFrom(netip.MustParseAddr(ip.IPAddress), *ip.CidrPrefixLength))
+		}
+	}
+
+	inHeld := func(a netip.Addr) bool {
+		return slices.ContainsFunc(held, func(p netip.Prefix) bool { return p.Contains(a) })
 	}
 
 	blocks := prefixesOf(s.Ipv4CidrBlocks)
@@ -87,14 +97,19 @@ func (b *InMemoryBackend) freeIPIn(s *Subnet, want, block string) (string, *APIE
 	}
 
 	if want != "" {
-		return wantedIP(blocks, want, s.CidrBlock, used)
+		addr, aerr := wantedIP(blocks, want, s.CidrBlock, used)
+		if aerr == nil && inHeld(netip.MustParseAddr(addr)) {
+			return "", errConflict("The IP address " + want + " is inside an allocated CIDR range")
+		}
+
+		return addr, aerr
 	}
 
 	for _, p := range blocks {
 		last := lastAddr(p)
 
 		for a := p.Masked().Addr().Next().Next(); p.Contains(a) && a != last; a = a.Next() {
-			if !used[a.String()] {
+			if !used[a.String()] && !inHeld(a) {
 				return a.String(), nil
 			}
 		}
@@ -506,6 +521,10 @@ func (b *InMemoryBackend) AttachVnic(in AttachVnicIn) (Resource, string, *APIErr
 		return nil, "", aerr
 	}
 
+	if in.CreateVnicDetails.VlanID != "" {
+		return b.attachVlanVnic(inst, in, nic)
+	}
+
 	v, aerr := b.newVnic(*in.CreateVnicDetails, inst.CompartmentID, inst.AvailabilityDomain, false)
 	if aerr != nil {
 		return nil, "", aerr
@@ -566,6 +585,10 @@ type UpdateVnicIn struct {
 // UpdateVnic changes a VNIC.
 func (b *InMemoryBackend) UpdateVnic(id, ifMatch string, in UpdateVnicIn) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(v *Vnic) *APIError {
+		if v.VlanID != "" {
+			return b.updateVlanVnic(v, in)
+		}
+
 		s, _ := get[*Subnet](b, v.SubnetID)
 		prim := b.primaryIP(v.ID)
 
@@ -603,13 +626,92 @@ func (b *InMemoryBackend) primaryIP(vnicID string) *PrivateIP {
 // CreatePrivateIPIn is the CreatePrivateIp request body.
 type CreatePrivateIPIn struct {
 	TagsIn
-	DisplayName   string `json:"displayName"`
-	HostnameLabel string `json:"hostnameLabel"`
-	IPAddress     string `json:"ipAddress"`
-	Lifetime      string `json:"lifetime"`
-	SubnetID      string `json:"subnetId"`
-	VnicID        string `json:"vnicId"`
-	VlanID        string `json:"vlanId"`
+	DisplayName      string `json:"displayName"`
+	HostnameLabel    string `json:"hostnameLabel"`
+	IPAddress        string `json:"ipAddress"`
+	Lifetime         string `json:"lifetime"`
+	SubnetID         string `json:"subnetId"`
+	VnicID           string `json:"vnicId"`
+	VlanID           string `json:"vlanId"`
+	RouteTableID     string `json:"routeTableId"`
+	CidrPrefixLength *int   `json:"cidrPrefixLength"`
+	Ipv4SubnetCidr   string `json:"ipv4SubnetCidrAtCreation"`
+}
+
+func (b *InMemoryBackend) checkNewPrivateIP(vnic *Vnic, s *Subnet, in CreatePrivateIPIn) *APIError {
+	if vnic != nil {
+		secondary := func(x *PrivateIP) bool { return x.VnicID == vnic.ID && !x.IsPrimary }
+		if len(liveOf(b, secondary)) >= maxIPsPerVnic {
+			return errLimit("A VNIC can have at most 64 secondary private IPv4 addresses")
+		}
+	}
+
+	if aerr := b.checkHostname(s, in.HostnameLabel, ""); aerr != nil {
+		return aerr
+	}
+
+	return b.optRouteTable(in.RouteTableID, s.VcnID)
+}
+
+// privateAddress picks the address of a new private IP; with cidrPrefixLength it also claims the CIDR range
+// the address starts, which must be aligned, inside the chosen subnet block and free of other allocations.
+func (b *InMemoryBackend) privateAddress(s *Subnet, in CreatePrivateIPIn) (string, *APIError) {
+	if in.CidrPrefixLength == nil {
+		if in.Ipv4SubnetCidr != "" {
+			return "", errParam("ipv4SubnetCidrAtCreation needs cidrPrefixLength")
+		}
+
+		return b.freeIP(s, in.IPAddress)
+	}
+
+	if in.IPAddress == "" {
+		return "", errMissing("ipAddress is required with cidrPrefixLength")
+	}
+
+	if in.Ipv4SubnetCidr != "" && !slices.Contains(s.Ipv4CidrBlocks, in.Ipv4SubnetCidr) {
+		return "", errParam("ipv4SubnetCidrAtCreation " + in.Ipv4SubnetCidr + " is not an IPv4 CIDR of the subnet")
+	}
+
+	addr, aerr := b.freeIPIn(s, in.IPAddress, in.Ipv4SubnetCidr)
+	if aerr != nil {
+		return "", aerr
+	}
+
+	return addr, b.claimPrefix(s, addr, *in.CidrPrefixLength)
+}
+
+func (b *InMemoryBackend) claimPrefix(s *Subnet, addr string, bits int) *APIError {
+	a := netip.MustParseAddr(addr)
+	p := netip.PrefixFrom(a, bits)
+
+	if bits < 1 || bits > v4Bits || p.Masked().Addr() != a {
+		return errParam("cidrPrefixLength must give a CIDR range that starts at ipAddress")
+	}
+
+	var block netip.Prefix
+
+	for _, c := range prefixesOf(s.Ipv4CidrBlocks) {
+		if c.Contains(a) {
+			block = c
+		}
+	}
+
+	if bits <= block.Bits() || !block.Contains(lastAddr(p)) {
+		return errParam("The CIDR range " + p.String() + " must lie inside a subnet block " + block.String())
+	}
+
+	if p.Contains(block.Masked().Addr()) || p.Contains(block.Masked().Addr().Next()) || p.Contains(lastAddr(block)) {
+		return errParam("The CIDR range " + p.String() + " covers addresses reserved by the Networking service")
+	}
+
+	for _, o := range liveOf(b, func(x *PrivateIP) bool { return x.SubnetID == s.ID }) {
+		oa := netip.MustParseAddr(o.IPAddress)
+		if p.Contains(oa) || (o.CidrPrefixLength != nil && netip.PrefixFrom(oa, *o.CidrPrefixLength).Overlaps(p)) {
+			return errConflict("The CIDR range " + p.String() + " collides with private IP " + o.ID)
+		}
+	}
+
+	return nil
 }
 
 // CreatePrivateIP adds a secondary private IP to a VNIC, or reserves one in a subnet.
@@ -618,8 +720,12 @@ func (b *InMemoryBackend) CreatePrivateIP(in CreatePrivateIPIn) (Resource, strin
 		return nil, "", aerr
 	}
 
-	if in.VlanID != "" || (in.VnicID == "" && in.SubnetID == "") {
-		return nil, "", errMissing("vnicId or subnetId is required")
+	if in.VlanID != "" {
+		return b.createVlanPrivateIP(in)
+	}
+
+	if in.VnicID == "" && in.SubnetID == "" {
+		return nil, "", errMissing("vnicId, subnetId or vlanId is required")
 	}
 
 	vnic, s, aerr := b.privateIPTarget(in)
@@ -637,23 +743,20 @@ func (b *InMemoryBackend) CreatePrivateIP(in CreatePrivateIPIn) (Resource, strin
 		return nil, "", aerr
 	}
 
-	if vnic != nil && len(liveOf(b, func(x *PrivateIP) bool { return x.VnicID == vnic.ID })) >= maxIPsPerVnic {
-		return nil, "", errLimit("A VNIC can have at most 32 private IP addresses")
-	}
-
-	if aerr = b.checkHostname(s, in.HostnameLabel, ""); aerr != nil {
+	if aerr = b.checkNewPrivateIP(vnic, s, in); aerr != nil {
 		return nil, "", aerr
 	}
 
-	addr, aerr := b.freeIP(s, in.IPAddress)
+	addr, aerr := b.privateAddress(s, in)
 	if aerr != nil {
 		return nil, "", aerr
 	}
 
 	p := &PrivateIP{
+		CidrPrefixLength: in.CidrPrefixLength, Ipv4SubnetCidr: in.Ipv4SubnetCidr,
 		Base:               b.newBase(kindPrivateIP, comp, in.DisplayName, in.TagsIn),
 		AvailabilityDomain: ad, HostnameLabel: in.HostnameLabel, IPAddress: addr, IPState: statAvailable,
-		Lifetime: life, SubnetID: s.ID,
+		Lifetime: life, SubnetID: s.ID, RouteTableID: in.RouteTableID,
 	}
 	if vnic != nil {
 		p.VnicID, p.IPState = vnic.ID, statAssigned
@@ -708,6 +811,7 @@ type UpdatePrivateIPIn struct {
 	HostnameLabel *string `json:"hostnameLabel"`
 	VnicID        *string `json:"vnicId"`
 	Lifetime      *string `json:"lifetime"`
+	RouteTableID  *string `json:"routeTableId"`
 	UpdateIn
 }
 
@@ -731,6 +835,14 @@ func (b *InMemoryBackend) UpdatePrivateIP(id, ifMatch string, in UpdatePrivateIP
 			}
 
 			p.Lifetime = l
+		}
+
+		if in.RouteTableID != nil {
+			if aerr := b.optRouteTable(*in.RouteTableID, s.VcnID); aerr != nil {
+				return aerr
+			}
+
+			p.RouteTableID = *in.RouteTableID
 		}
 
 		if in.VnicID != nil {
@@ -807,26 +919,27 @@ func (b *InMemoryBackend) DeletePrivateIP(id, ifMatch string) *APIError {
 
 // PrivateIPListOpts are the ListPrivateIps filters.
 type PrivateIPListOpts struct {
-	IPAddress, SubnetID, VnicID, IPState, Lifetime, Page string
-	Limit                                                int
+	IPAddress, SubnetID, VnicID, VlanID, IPState, Lifetime, Page string
+	Limit                                                        int
 }
 
 func (o PrivateIPListOpts) matches(x *PrivateIP) bool {
 	return (o.VnicID == "" || x.VnicID == o.VnicID) && (o.SubnetID == "" || x.SubnetID == o.SubnetID) &&
+		(o.VlanID == "" || x.VlanID == o.VlanID) &&
 		(o.IPAddress == "" || x.IPAddress == o.IPAddress) && (o.IPState == "" || x.IPState == o.IPState) &&
 		(o.Lifetime == "" || x.Lifetime == o.Lifetime)
 }
 
 func (b *InMemoryBackend) checkPrivateIPQuery(o PrivateIPListOpts) *APIError {
-	if o.VnicID == "" && o.SubnetID == "" {
-		return errMissing("vnicId or subnetId is required")
+	if o.VnicID == "" && o.SubnetID == "" && o.VlanID == "" {
+		return errMissing("vnicId, subnetId or vlanId is required")
 	}
 
 	if o.IPAddress != "" && o.SubnetID == "" {
 		return errMissing("subnetId is required with ipAddress")
 	}
 
-	for _, id := range []string{o.VnicID, o.SubnetID} {
+	for _, id := range []string{o.VnicID, o.SubnetID, o.VlanID} {
 		if _, ok := b.res[id]; id != "" && !ok {
 			return errNotFound(id)
 		}

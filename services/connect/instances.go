@@ -10,6 +10,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
@@ -706,7 +707,7 @@ func sameLex(a, c LexBotConfig) bool {
 }
 
 // AssociateBot associates a Lex V1 or V2 bot with the instance.
-func (b *Backend) AssociateBot(ref string, cfg LexBotConfig) error {
+func (b *Backend) AssociateBot(ctx context.Context, ref string, cfg LexBotConfig) error {
 	if err := validateLex(cfg); err != nil {
 		return err
 	}
@@ -724,8 +725,18 @@ func (b *Backend) AssociateBot(ref string, cfg LexBotConfig) error {
 	}
 
 	r.LexBots = append(r.LexBots, cfg)
+	logger.Load(ctx).InfoContext(ctx, "connect: would grant the instance access to the Lex bot (no Lex service)",
+		"instance", ref, "bot", lexBotName(cfg))
 
 	return nil
+}
+
+func lexBotName(c LexBotConfig) string {
+	if c.LexV2Bot != nil {
+		return c.LexV2Bot.AliasArn
+	}
+
+	return c.LexBot.LexRegion + "/" + c.LexBot.Name
 }
 
 // DisassociateBot removes a Lex V1 or V2 bot association.

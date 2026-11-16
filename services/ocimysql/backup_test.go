@@ -55,7 +55,7 @@ func TestBackupLifecycle(t *testing.T) {
 	assert.Equal(t, db.Id, bk.DbSystemId)
 	assert.Equal(t, 10, *bk.RetentionInDays)
 	assert.Equal(t, shapeSmall, *bk.ShapeName)
-	assert.Equal(t, "8.4.6", *bk.MysqlVersion)
+	assert.Equal(t, "9.7.4", *bk.MysqlVersion)
 	assert.Equal(t, adminUser, *bk.DbSystemSnapshot.AdminUsername)
 	assert.Equal(t, "v", bk.FreeformTags["k"])
 	require.NotNil(t, got.Etag)

@@ -9,13 +9,9 @@
 | --- | --- |
 | PARITY entries audited | 12 (12 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- Classic Inspector StartAssessmentRun templated target (arn:aws:inspector:...) is not delivered: only inspector2 is implemented, which has no assessment templates.
 
 ## More
 

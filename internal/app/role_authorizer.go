@@ -8,6 +8,7 @@ import (
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
+	lambdawebbackend "github.com/blackbirdworks/gopherstack/services/lambdaweb"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
@@ -74,6 +75,12 @@ func wireServiceRoleAuthorizer(services []service.Registerable, enforceIAM bool)
 
 	if h, ok := byName["Pipes"].(*pipesbackend.Handler); ok {
 		h.GetRunner().SetRoleAuthorizer(auth)
+	}
+
+	if h, ok := byName["LambdaWeb"].(*lambdawebbackend.Handler); ok {
+		if bk, bkOk := h.Backend.(*lambdawebbackend.InMemoryBackend); bkOk {
+			bk.SetRoleAuthorizer(auth)
+		}
 	}
 
 	wireDeliveryRoleAuthorizer(byName, auth)

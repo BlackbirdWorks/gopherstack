@@ -7,24 +7,16 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 57 (28 ok, 29 partial) |
+| PARITY entries audited | 62 (31 ok, 31 partial) |
 | Feature families | 9 (8 ok, 1 partial) |
-| Known gaps | 10 |
+| Known gaps | 2 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- HSM clusters, EKMS private endpoints, external vaults and external keys, and UpdateRegisteredVaultForMtls are not implemented.
-- Secret replication (replicationConfig) is not implemented and is rejected; ADB rotation targets are not contacted (no ADB password is changed); rotation failures are logged only because the SDK has no work requests.
-- HSM and SOFTWARE protection modes are both in-process software keys; HSM only differs by being non-exportable.
-- Key version states are not transitional, and replica endpoints share the primary state: a key is readable there before its replication operation reports REPLICATED.
-- Not published (checked the keymanagement SDK DecryptedData and SignedData comments): the plaintextChecksum algorithm (SHA-256 hex here) and the ECDSA signature encoding (ASN.1 DER here)
-- Not published (checked the vault SDK CreateSecretDetails comments and apierrors.htm): 409 Conflict for a duplicate secret name (the SDK says names should be unique within a vault), 404 for pending-deletion or expired secret retrieval, 409 IncorrectState for a disabled key
-- Backup and restore: the 200 statuses, the BackupLocation required rule, the error codes for refused backups and the 409 for existing resources are not published (checked backingupvaultsandkeys.htm and the keymanagement SDK comments)
-- Service limits (keys per vault, secrets per tenancy) and IAM policy checks are not applied.
-- Per-vault endpoints rely on *.localhost resolving to loopback; hosts without that resolution need an /etc/hosts entry or the /_vault/<ocid> path form with a raw HTTP client.
-- Resource principal and instance principal tokens are not understood; only API-key signatures are verified.
+- HSM clusters (the 14 KmsHsmCluster operations), external vaults and external keys (CreateVault EXTERNAL with externalKeyManagerMetadata, CreateKey externalKeyReferenceDetails: every crypto operation would call the customer external key manager) and UpdateRegisteredVaultForMtls (the mtlsCryptoDns format is not published) are not implemented; vaults.go validates vaultType DEFAULT or VIRTUAL_PRIVATE only.
+- IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified (pkgs/ociauth/ociauth.go Verify). Blocker: services/ociidentity stores and parses policy statements (grammar.go) but no OCI service has a policy evaluator, group or dynamic-group resolution, or token issuer to call.
 
 ## More
 

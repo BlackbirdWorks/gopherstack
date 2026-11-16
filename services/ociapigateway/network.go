@@ -28,6 +28,7 @@ type AddressRequest struct {
 	ReservedIPIDs   []string
 	IPv6Addresses   []string
 	IPv6SubnetCidrs []string
+	NSGIDs          []string
 	Public          bool
 	AssignIPv6      bool
 }
@@ -45,6 +46,10 @@ type Network struct {
 	Subnet   func(id string) (SubnetInfo, bool)
 	Allocate func(AddressRequest) (Allocation, error)
 	Release  func(vnicID string)
+	// SetNsgs replaces the network security groups of the gateway VNIC.
+	SetNsgs func(vnicID string, nsgIDs []string) error
+	// Reach classifies a connection from a private IP to the gateway VNIC on a TCP port.
+	Reach func(srcIP, vnicID string, port int) Reachability
 }
 
 type ipv4Config struct {
@@ -112,7 +117,7 @@ func (b *InMemoryBackend) allocateAddresses(in *createGatewayIn, name string) (A
 
 	req := AddressRequest{
 		CompartmentID: in.CompartmentID, SubnetID: in.SubnetID, DisplayName: name,
-		Public: in.EndpointType == endpointPublic && wantsV4(in.IPMode),
+		Public: in.EndpointType == endpointPublic && wantsV4(in.IPMode), NSGIDs: in.NSGs,
 	}
 
 	if in.IPv4Config != nil {
@@ -161,4 +166,28 @@ func (b *InMemoryBackend) releaseAddresses(g *Gateway) {
 	}
 
 	g.VnicID = ""
+}
+
+func (b *InMemoryBackend) applyNsgs(g *Gateway, ids []string) *APIError {
+	if g.VnicID == "" || b.network == nil || b.network.SetNsgs == nil {
+		return nil
+	}
+
+	if err := b.network.SetNsgs(g.VnicID, ids); err != nil {
+		if ae, ok := errors.AsType[*APIError](err); ok {
+			return ae
+		}
+
+		return newErr(http.StatusInternalServerError, "InternalServerError", err.Error())
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) reachFn() func(string, string, int) Reachability {
+	if b.network == nil {
+		return nil
+	}
+
+	return b.network.Reach
 }

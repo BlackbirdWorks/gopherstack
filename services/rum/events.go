@@ -51,11 +51,12 @@ type PutEventsInput struct {
 }
 
 type delivery struct {
-	region string
-	group  string
-	stream string
-	logs   []LogEvent
-	points []cwmetric.Point
+	evidently map[string]int
+	region    string
+	group     string
+	stream    string
+	logs      []LogEvent
+	points    []cwmetric.Point
 }
 
 func (b *InMemoryBackend) monitorByIDLocked(id string) (*AppMonitor, error) {
@@ -166,6 +167,11 @@ func (b *InMemoryBackend) PutRumEvents(ctx context.Context, in *PutEventsInput) 
 		}
 	}
 
+	for arn, n := range d.evidently {
+		logger.Load(ctx).InfoContext(ctx, "rum: would publish events to Evidently (not delivered)",
+			"app", in.AppID, "destinationArn", arn, "events", n)
+	}
+
 	if emitter != nil {
 		for _, p := range d.points {
 			if merr := emitter.EmitMetric(p); merr != nil {
@@ -195,7 +201,8 @@ func (b *InMemoryBackend) storeEvents(in *PutEventsInput) (delivery, error) {
 		d.group, d.stream = logGroupOf(m), m.ID
 	}
 
-	defs := b.cloudWatchDefsLocked(m.ID)
+	defs := b.defsForLocked(m.ID, destCloudWatch)
+	evDefs := b.defsForLocked(m.ID, destEvidently)
 
 	for _, e := range in.RumEvents {
 		if !m.collects(e.Type) {
@@ -220,6 +227,14 @@ func (b *InMemoryBackend) storeEvents(in *PutEventsInput) (delivery, error) {
 
 		d.logs = append(d.logs, LogEvent{Message: string(raw), Timestamp: int64(e.Timestamp * msPerSecond)})
 		d.points = append(d.points, metricPoints(m, doc, defs)...)
+
+		for arn := range evidentlyTargets(evDefs, doc) {
+			if d.evidently == nil {
+				d.evidently = map[string]int{}
+			}
+
+			d.evidently[arn]++
+		}
 	}
 
 	slices.SortStableFunc(d.logs, func(a, z LogEvent) int { return cmp.Compare(a.Timestamp, z.Timestamp) })
@@ -247,11 +262,28 @@ func (b *InMemoryBackend) trimEventsLocked(appID string) {
 	}
 }
 
-func (b *InMemoryBackend) cloudWatchDefsLocked(appID string) []*MetricDef {
+func evidentlyTargets(defs []*MetricDef, doc map[string]any) map[string]struct{} {
+	out := map[string]struct{}{}
+
+	for _, d := range defs {
+		pattern := map[string]any{}
+		if d.EventPattern != "" {
+			pattern, _ = parseObject(d.EventPattern)
+		}
+
+		if matchPattern(pattern, doc) {
+			out[d.DestinationARN] = struct{}{}
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) defsForLocked(appID, dest string) []*MetricDef {
 	var out []*MetricDef
 
 	for _, d := range b.defsByApp.Get(appID) {
-		if d.Destination == destCloudWatch {
+		if d.Destination == dest {
 			out = append(out, d)
 		}
 	}

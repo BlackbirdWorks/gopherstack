@@ -136,7 +136,10 @@ func (b *InMemoryBackend) revive(rec *instRec, keyspace []byte) error {
 	rec.pb.State = redispb.Instance_READY
 	bindEngine(rec, eng, certs)
 
-	return nil
+	b.mu.RLock("revive")
+	defer b.mu.RUnlock()
+
+	return b.tuneLocked(rec)
 }
 
 func closeRecs(recs map[string]*instRec) {

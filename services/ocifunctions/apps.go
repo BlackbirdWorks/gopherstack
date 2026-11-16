@@ -11,12 +11,15 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
-const maxConfigBytes = 4096
+const (
+	maxConfigBytes = 4096
+	schemeUDP      = "udp"
+)
 
 //nolint:gochecknoglobals // immutable
 var (
 	validShapes  = []string{"GENERIC_X86", "GENERIC_ARM", "GENERIC_X86_ARM"}
-	syslogScheme = []string{"tcp", "udp", "https"}
+	syslogScheme = []string{"tcp", schemeUDP, "tcp+tls"}
 )
 
 type appIn struct {
@@ -72,9 +75,32 @@ func appView(a *Application, summary bool) appWire {
 	return w
 }
 
+// configKey follows the SDK's CreateFunctionDetails.Config rule: ASCII letters, digits and '_', no leading digit.
+func configKey(k string) bool {
+	if k == "" || (k[0] >= '0' && k[0] <= '9') {
+		return false
+	}
+
+	for i := range len(k) {
+		c := k[i]
+		if c != '_' && (c < '0' || c > '9') && (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') {
+			return false
+		}
+	}
+
+	return true
+}
+
 func validateConfig(cfg map[string]string) *APIError {
 	size := 0
+
 	for k, v := range cfg {
+		if !configKey(k) {
+			return errParam(
+				"config key " + k + " must consist of ASCII letters, digits and '_' and not begin with a digit",
+			)
+		}
+
 		size += len(k) + len(v)
 	}
 
@@ -88,7 +114,7 @@ func validateConfig(cfg map[string]string) *APIError {
 func validateSyslog(raw string) *APIError {
 	u, err := url.Parse(raw)
 	if raw == "" || err != nil || u.Host == "" || !slices.Contains(syslogScheme, u.Scheme) {
-		return errParam("syslogUrl must be a tcp://, udp:// or https:// URL with a host")
+		return errParam("syslogUrl must be a tcp://, udp:// or tcp+tls:// URL with a host")
 	}
 
 	return nil
@@ -211,6 +237,14 @@ func (b *InMemoryBackend) CreateApplication(in appIn) (appWire, string, string, 
 		return appWire{}, "", "", errExists("An application named " + in.Name + " already exists in the compartment")
 	}
 
+	if b.limits.apps > 0 && b.liveAppCount() >= b.limits.apps {
+		return appWire{}, "", "", errLimit("application-count", int64(b.limits.apps))
+	}
+
+	if aerr := b.checkNetwork(in.SubnetIDs, in.NSGIDs); aerr != nil {
+		return appWire{}, "", "", aerr
+	}
+
 	now := b.nowUTC()
 	a := &Application{
 		ID: newOCID("fnapp"), CompartmentID: in.Compartment, Name: in.Name, State: stateCreating, Shape: in.Shape,
@@ -301,6 +335,12 @@ func (b *InMemoryBackend) UpdateApplication(id, ifMatch string, in appIn) (strin
 
 	if aerr = b.checkTags(in.Tags); aerr != nil {
 		return "", aerr
+	}
+
+	if in.NSGIDs != nil {
+		if aerr = b.checkNetwork(a.SubnetIDs, in.NSGIDs); aerr != nil {
+			return "", aerr
+		}
 	}
 
 	if in.Config != nil {

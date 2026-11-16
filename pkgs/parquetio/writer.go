@@ -11,6 +11,8 @@ import (
 
 	"github.com/parquet-go/parquet-go"
 	"github.com/parquet-go/parquet-go/compress"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/hivetype"
 )
 
 const (
@@ -26,8 +28,11 @@ const (
 
 // Column is one top-level column to write; Type is a Hive/Athena type name.
 type Column struct {
-	Name string
-	Type string
+	// NestedIDs gives field ids to nested members by logical path ("col.member", "col.element",
+	// "col.key", "col.value").
+	NestedIDs map[string]int
+	Name      string
+	Type      string
 	// FieldID is written as the Parquet field id when positive (Iceberg data files).
 	FieldID int
 }
@@ -58,7 +63,8 @@ func codecFor(name string) (compress.Codec, error) {
 
 // Write encodes rows as one Parquet file. Cells are nil, bool, int64,
 // float64 or string; date/timestamp/decimal cells are strings. Nested Hive
-// types (array/map/struct) are stored as UTF-8 strings.
+// types (array/map/struct) take decoded JSON values or JSON text and are written
+// as LIST, MAP and group columns.
 func Write(w io.Writer, cols []Column, rows [][]any, compression string) error {
 	codec, err := codecFor(compression)
 	if err != nil {
@@ -66,14 +72,17 @@ func Write(w io.Writer, cols []Column, rows [][]any, compression string) error {
 	}
 
 	encs := make([]colEnc, len(cols))
+	nested := make([]*nnode, len(cols))
 	group := newOrderedGroup()
 
 	for i, c := range cols {
-		if encs[i], err = encoderFor(c.Type); err != nil {
-			return fmt.Errorf("column %q: %w", c.Name, err)
+		node, nn, berr := columnNode(c, &encs[i])
+		if berr != nil {
+			return fmt.Errorf("column %q: %w", c.Name, berr)
 		}
 
-		node := parquet.Optional(encs[i].node)
+		nested[i] = nn
+
 		if c.FieldID > 0 {
 			node = parquet.FieldID(node, c.FieldID)
 		}
@@ -89,31 +98,19 @@ func Write(w io.Writer, cols []Column, rows [][]any, compression string) error {
 		pos[strings.Join(p, ".")] = i
 	}
 
+	for _, nn := range nested {
+		if nn != nil {
+			nn.bind(pos)
+		}
+	}
+
 	pw := parquet.NewWriter(w, schema, parquet.Compression(codec), parquet.CreatedBy(createdBy, "", ""))
 	batch := make([]parquet.Row, 0, len(rows))
 
 	for _, r := range rows {
-		row := make(parquet.Row, len(cols))
-
-		for i, c := range cols {
-			var cell any
-			if i < len(r) {
-				cell = r[i]
-			}
-
-			col := pos[c.Name]
-			if cell == nil {
-				row[col] = parquet.NullValue().Level(0, 0, col)
-
-				continue
-			}
-
-			v, verr := encs[i].enc(cell)
-			if verr != nil {
-				return fmt.Errorf("column %q: %w", c.Name, verr)
-			}
-
-			row[col] = v.Level(0, 1, col)
+		row, rerr := buildRow(cols, encs, nested, pos, len(order), r)
+		if rerr != nil {
+			return rerr
 		}
 
 		batch = append(batch, row)
@@ -124,6 +121,68 @@ func Write(w io.Writer, cols []Column, rows [][]any, compression string) error {
 	}
 
 	return pw.Close()
+}
+
+func buildRow(
+	cols []Column, encs []colEnc, nested []*nnode, pos map[string]int, width int, r []any,
+) (parquet.Row, error) {
+	perCol := shredOut{}
+
+	for i, c := range cols {
+		var cell any
+		if i < len(r) {
+			cell = r[i]
+		}
+
+		if err := shredCell(perCol, encs[i], nested[i], pos[c.Name], cell); err != nil {
+			return nil, fmt.Errorf("column %q: %w", c.Name, err)
+		}
+	}
+
+	row := make(parquet.Row, 0, width)
+	for col := range width {
+		row = append(row, perCol[col]...)
+	}
+
+	return row, nil
+}
+
+func columnNode(c Column, enc *colEnc) (parquet.Node, *nnode, error) {
+	if t, err := hivetype.Parse(c.Type); err == nil && t.Nested() {
+		node, nn, berr := buildNested(t, []string{c.Name}, c.Name, c.NestedIDs, 0, false)
+
+		return node, nn, berr
+	}
+
+	e, err := encoderFor(c.Type)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	*enc = e
+
+	return parquet.Optional(e.node), nil, nil
+}
+
+func shredCell(out shredOut, enc colEnc, nn *nnode, col int, cell any) error {
+	if nn != nil {
+		return nn.shred(out, cell, 0, 0)
+	}
+
+	if cell == nil {
+		out[col] = append(out[col], parquet.NullValue().Level(0, 0, col))
+
+		return nil
+	}
+
+	v, err := enc.enc(cell)
+	if err != nil {
+		return err
+	}
+
+	out[col] = append(out[col], v.Level(0, 1, col))
+
+	return nil
 }
 
 func encoderFor(typ string) (colEnc, error) {

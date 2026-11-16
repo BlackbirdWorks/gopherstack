@@ -20,6 +20,9 @@ const (
 	litFalseX      = "false"
 	litFloat64     = "FLOAT64"
 	litGeography   = "GEOGRAPHY"
+	litInterval    = "INTERVAL"
+	kwTable        = "TABLE"
+	modeLower      = "LOWER"
 	litHour        = "HOUR"
 	litInner       = "INNER"
 	litInsert      = "INSERT"
@@ -53,4 +56,8 @@ const (
 	litJSON        = "JSON"
 	litNumeric     = "NUMERIC"
 	litFloat       = "FLOAT"
+	litUnionAll    = "UNION ALL"
+	litRecord      = "RECORD"
+	langSQL        = "SQL"
+	setVarName     = "__set"
 )

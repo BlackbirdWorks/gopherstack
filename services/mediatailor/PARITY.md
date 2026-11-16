@@ -112,10 +112,7 @@ families:
   errors: {status: ok, note: "gopherstack-vdrs: FIXED a service-wide wire bug -- respondErr never set the X-Amzn-Errortype header or any body code/__type field, so aws-sdk-go-v2's restjson.GetErrorInfo (aws/protocol/restjson/decoder_util.go, checked at v1.43.4, the pinned aws-sdk-go-v2 core) had no code to read and every mediatailor error deserialized client-side as smithy.GenericAPIError{Code:\"UnknownError\"} regardless of the real failure (404/409/400 all included). Fixed by setting X-Amzn-Errortype from the sentinel error's mapped exception name, matching the sibling convention already used by services/account and services/apigatewayv2. See Notes #11."}
 gaps: []
 deferred: []      # every deferred item from the prior manifest is now implemented this pass - see ops[*].note above
-items_still_open:
-  - "GetChannelSchedule.DurationMinutes is not applied: the pinned SDK doc says only 'duration in minutes of the channel schedule' with no windowing baseline, so any choice would be invented."
-  - "CreateProgram accepts both VodSourceName and LiveSourceName: neither the API reference nor the pinned SDK (v1.63.4) documents an error for it. Unreferenced-source rejection is proven by TestCreateProgram_RejectsUnknownReferences."
-  - "PlaybackConfiguration dual-stack response prefixes (DualStackPlaybackEndpointPrefix, DualStackSessionInitializationEndpointPrefix, HlsConfiguration.DualStackManifestEndpointPrefix) are never set: the SDK gives only the dual-stack API host (api.mediatailor.{region}.api.aws), not the playback host pattern, so deriving one would be invented."
+items_still_open: []
 structural_gaps:
   - "ListAlerts always returns an empty Items page (resourceArn is validated as required): alerts are raised by MediaTailor's runtime when it fails to process sources or playback, and no such processing exists to raise them."
   - "ProgramScheduleEntry.ScheduleAdBreaks is always empty: real MediaTailor fills it from SCTE-35 avails detected by parsing source manifests, which this service does not do. Deriving it from the client-set Program.AdBreaks would be fabrication."
@@ -721,3 +718,9 @@ MaxResults defaults to 100 on the eight List* ops documented "The default value 
 ## 2026-10-05 (gopherstack-uox6 pass 11, value semantics)
 
 PutPlaybackConfiguration now stores the documented defaults: DashConfiguration MpdLocation EMT_DEFAULT and OriginManifestType MULTI_PERIOD (types.go:551-580) with the output-only ManifestEndpointPrefix, and the partial AdsPersonalizationConcurrency/Timeouts members (types.go:199-234; applied only when the sub-object is sent). Proof: `TestPlaybackConfiguration_DocumentedDefaults`. Recorded, unchanged: SCTE-35 segmentation/splice defaults (types.go:1495-1690) describe the value written into the manifest, not a Describe member; PrefetchAdsRequestTimeoutMilliseconds falling back to AdsRequestTimeoutMilliseconds; UpdateChannel/UpdateSourceLocation optional-member omission semantics (SDK silent).
+
+## Emulator choices where the vendor is silent
+
+- GetChannelSchedule.DurationMinutes is not applied: the pinned SDK doc says only 'duration in minutes of the channel schedule' with no windowing baseline, so any choice would be invented.
+- CreateProgram accepts both VodSourceName and LiveSourceName: neither the API reference nor the pinned SDK (v1.63.4) documents an error for it. Unreferenced-source rejection is proven by TestCreateProgram_RejectsUnknownReferences.
+- PlaybackConfiguration dual-stack response prefixes (DualStackPlaybackEndpointPrefix, DualStackSessionInitializationEndpointPrefix, HlsConfiguration.DualStackManifestEndpointPrefix) are never set: the SDK gives only the dual-stack API host (api.mediatailor.{region}.api.aws), not the playback host pattern, so deriving one would be invented.

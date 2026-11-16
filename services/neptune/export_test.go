@@ -99,3 +99,29 @@ func ClusterRoleCount(b *InMemoryBackend, clusterID string) int {
 func HandlerOpsLen(h *Handler) int {
 	return len(h.GetSupportedOperations())
 }
+
+// SetLoaderCPUs overrides the vCPU count the bulk loader derives its thread pool from.
+func SetLoaderCPUs(b *InMemoryBackend, n int) {
+	b.mu.Lock("SetLoaderCPUs")
+	defer b.mu.Unlock()
+
+	b.loaderCPUs = n
+}
+
+// LoaderThreads exposes the parallelism-to-thread-count mapping.
+func LoaderThreads(level string, cpus int) int { return loaderThreads(level, cpus) }
+
+// HoldIndexRebuilds keeps index rebuild jobs of the cluster in PREPARING until release is called.
+func HoldIndexRebuilds(b *InMemoryBackend, region, cluster string) func() {
+	b.mu.Lock("HoldIndexRebuilds")
+	defer b.mu.Unlock()
+
+	r := b.rdfLocked(regionKey(region, cluster))
+	ch := make(chan struct{})
+
+	r.rebuilds.mu.Lock("hold")
+	r.rebuilds.gate = ch
+	r.rebuilds.mu.Unlock()
+
+	return func() { close(ch) }
+}

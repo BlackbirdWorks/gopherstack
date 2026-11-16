@@ -527,7 +527,7 @@ func TestLogicEngineWaitOnClock(t *testing.T) {
 	code, _, _ := s.post(t, s.callback(t, "waiter"), "{}")
 	require.Equal(t, http.StatusAccepted, code)
 
-	s.clock.waitTimers(t, 1)
+	s.clock.waitTimer(t)
 
 	run := s.latestRun(t, "waiter")
 	assert.Equal(t, armlogic.WorkflowStatusRunning, *run.Properties.Status)
@@ -557,7 +557,7 @@ func TestLogicEngineWaitUntilAndCancel(t *testing.T) {
 
 	code, _, _ := s.post(t, s.callback(t, "until"), "{}")
 	require.Equal(t, http.StatusAccepted, code)
-	s.clock.waitTimers(t, 1)
+	s.clock.waitTimer(t)
 
 	run := s.latestRun(t, "until")
 	_, err := s.factory.NewWorkflowRunsClient().Cancel(t.Context(), logicRG, "until", *run.Name, nil)
@@ -777,4 +777,65 @@ func TestLogicEngineQuotesInMessages(t *testing.T) {
 			assert.Contains(t, strings.Join(msgs, "\n"), tc.want)
 		})
 	}
+}
+
+func TestLogicHTTPRetryPolicyAndHistory(t *testing.T) {
+	t.Parallel()
+
+	s := newLogicStack(t)
+
+	var (
+		mu   sync.Mutex
+		hits []time.Duration
+	)
+
+	start := s.clock.Now()
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		hits = append(hits, s.clock.Now().Sub(start))
+		n := len(hits)
+		mu.Unlock()
+
+		if n <= 3 {
+			http.Error(w, "busy", http.StatusServiceUnavailable)
+
+			return
+		}
+
+		_, _ = w.Write([]byte("ok"))
+	}))
+	t.Cleanup(backend.Close)
+
+	s.create(t, "retrier", logicDef(requestTrigger(nil), la{
+		"Call": la{
+			"type": "Http", "runAfter": la{},
+			"inputs": la{
+				"method": "GET", "uri": backend.URL, "retryPolicy": la{
+					"type": "exponential", "count": 4, "interval": "PT10S", "maximumInterval": "PT25S",
+				},
+			},
+		},
+	}))
+
+	code, _, _ := s.post(t, s.callback(t, "retrier"), `{}`)
+	require.Equal(t, http.StatusAccepted, code)
+
+	for _, step := range []time.Duration{10 * time.Second, 20 * time.Second, 25 * time.Second} {
+		s.clock.waitTimer(t)
+		s.clock.Advance(step)
+	}
+
+	s.waitRuns(t)
+
+	mu.Lock()
+	assert.Equal(t, []time.Duration{0, 10 * time.Second, 30 * time.Second, 55 * time.Second}, hits,
+		"exponential delays 10s, 20s, then 40s clamped to maximumInterval 25s")
+	mu.Unlock()
+
+	acts := s.actions(t, "retrier")
+	assert.Equal(t, armlogic.WorkflowStatusSucceeded, *acts["Call"].Properties.Status)
+
+	out, ok := s.content(t, acts["Call"].Properties.OutputsLink).(map[string]any)
+	require.True(t, ok)
+	assert.Len(t, out["retryHistory"], 3, "one entry per failed attempt that was retried")
 }

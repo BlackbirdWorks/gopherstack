@@ -3,6 +3,7 @@ package ce
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -263,7 +264,7 @@ func extractGroupKeys(e CostEntry, groupBy []GroupBySpec) []string {
 			if v, ok := dimensionFieldValue(e, g.Key); ok && strings.EqualFold(g.Type, "DIMENSION") {
 				keys = append(keys, v)
 			} else {
-				keys = append(keys, e.Tags[g.Key])
+				keys = append(keys, tagGroupKey(g, e))
 			}
 		}
 	}
@@ -438,6 +439,35 @@ func (b *InMemoryBackend) getCostAndUsage(
 	groupBy []GroupBySpec,
 	filterFn func([]CostEntry) []CostEntry,
 ) []ResultByTime {
+	return b.costAndUsage(start, end, granularity, metrics, groupBy, filterFn, true)
+}
+
+// GetCostAndUsageWithResources is GetCostAndUsageFiltered over the resource-level rows only (those with a resource id).
+func (b *InMemoryBackend) GetCostAndUsageWithResources(
+	start, end, granularity string,
+	metrics []string,
+	groupBy []GroupBySpec,
+	filter *ceExpression,
+) []ResultByTime {
+	if !b.ResourceLevelData() {
+		return []ResultByTime{}
+	}
+
+	return b.costAndUsage(start, end, granularity, metrics, groupBy, func(entries []CostEntry) []CostEntry {
+		return filterEntriesByExpression(
+			slices.DeleteFunc(slices.Clone(entries), func(e CostEntry) bool { return e.ResourceID == "" }), filter)
+	}, false)
+}
+
+func (b *InMemoryBackend) costAndUsage(
+	start, end, granularity string,
+	metrics []string,
+	groupBy []GroupBySpec,
+	filterFn func([]CostEntry) []CostEntry,
+	synthesizeEmpty bool,
+) []ResultByTime {
+	b.Accrue()
+
 	b.mu.RLock("GetCostAndUsage")
 	defer b.mu.RUnlock()
 
@@ -460,7 +490,7 @@ func (b *InMemoryBackend) getCostAndUsage(
 
 		if len(groupBy) > 0 {
 			r.Groups = aggregateByGroup(entries, groupBy, metrics)
-			if len(r.Groups) == 0 {
+			if len(r.Groups) == 0 && synthesizeEmpty {
 				r.Groups = syntheticGroupsFallback(b.accountID, b.region, groupBy, metrics)
 			}
 
@@ -781,4 +811,13 @@ func (b *InMemoryBackend) GetForecastByTime(
 		), totalMean + z*stddev*float64(
 			len(buckets),
 		)
+}
+
+// tagGroupKey renders a TAG group value as "key$value", which is how Cost Explorer reports tag groups.
+func tagGroupKey(g GroupBySpec, e CostEntry) string {
+	if strings.EqualFold(g.Type, "TAG") {
+		return g.Key + "$" + e.Tags[g.Key]
+	}
+
+	return e.Tags[g.Key]
 }

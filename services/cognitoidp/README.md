@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 71 (71 ok) |
-| Known gaps | 6 |
+| Known gaps | 2 |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -16,11 +16,7 @@
 ### Known gaps
 
 - Federation (gopherstack-49qct.35 follow-up): SAML SHA-1 signatures and digests are rejected, encrypted NameID (EncryptedID) in LogoutRequest is rejected, SLO is single-session per IdP (no cross-IdP fan-out), RSA-1.5 key transport is refused by design. Social providers (Google, Facebook, LoginWithAmazon, SignInWithApple) share the OIDC code path with built-in endpoint defaults; DescribeIdentityProvider does not echo those defaults, Google people-API attributes and Apple's first-login `user` form field are not read, and no live provider is exercised in tests.
-- Code delivery (gopherstack-49qct.19): CustomEmailSender_Authentication/CustomSMSSender_Authentication triggers carry no clientMetadata (the custom-email-sender page says it comes from RespondToAuthChallenge ClientMetadata; the OTP code send path does not receive it) and the ESDK suite Cognito really uses is undocumented (this emulator emits suite 0x0478, no signature); COGNITO_DEFAULT email send failures only log (the emulator's SES quota would otherwise break sign-up); SES SourceArn region/account are not matched against the caller; no Cognito-side delivery rate limit (LimitExceededException) is modelled.
 - Passkeys / ESDK: the userpool-id encryption context in custom-sender messages is not published (checked user-pool-lambda-custom-sender-triggers, custom-sms-sender and custom-email-sender pages); attestation verification covers formats go-webauthn supports with no FIDO MDS trust anchors
-- domains: DomainDescriptionType.Version (app version) is not documented beyond its name, so it stays unpopulated rather than fabricated.
-- MFA_SETUP/AssociateSoftwareToken/VerifySoftwareToken session single-use/rotation semantics across the three-call round trip are not stated anywhere in the SDK's doc prose, so this backend echoes the same session token unchanged through all three (only the final RespondToAuthChallenge deletes it) rather than inventing rotation behavior AWS never documents.
-- OAuth2/OIDC endpoints (gopherstack-1ryp5): resource binding (resource param/aud) and nonce on refresh-grant ID tokens are undocumented in the SDK so unsupported; hosted login answers MFA_SETUP (TOTP only; SMS/email enrolment and a QR image are not offered), SOFTWARE_TOKEN_MFA, SMS_MFA and EMAIL_OTP, but has no passkey sign-in or SELECT_MFA_TYPE page.
 
 ### Structural gaps
 

@@ -49,8 +49,6 @@ families:
   error_mapping: {status: ok, note: "unchanged this pass; ConcurrentModificationException mapping (fixed prior pass) also now covers ConditionalToken mismatches (checkAndBumpVersionOrToken returns the same ErrConcurrentModification sentinel as version mismatches)."}
 gaps: []
 items_still_open:
-  - "StopApplication without Force: API_StopApplication says a snapshot is taken on stop, but neither it nor the SDK documents the snapshot's name or whether snapshots must be enabled, so none is invented."
-  - "Zeppelin Glue/S3 and other ARN fields are not cross-service validated: no doc says which fields AWS existence-checks at call time."
   - "DeleteApplication is synchronous (ApplicationStatusDeleting unused); without the docker Flink engine Start/Stop are instantaneous (API docs give no durations). No container runtime -> applications stay state-only (logged, not a stub: no job ever claims to run)."
 structural_gaps:
   - "DescribeApplication.IncludeAdditionalDetails never returns JobPlanDescription: the plan comes from a real Flink job compiler."
@@ -632,3 +630,8 @@ Opt-in `--flink-engine=docker` (or `--engines=docker|auto`) runs one `flink:<Run
 ## 2026-10-20 (gopherstack-cefu7.93, Flink state across restarts)
 
 With `--persist`, docker-mode ZIPFILE code lives in `<data-dir>/flink/code` (0600, atomic writes, written on snapshot) and each application's savepoints in `<data-dir>/flink/savepoints/<hash>` (bind-mounted into the container; the leaf is 0777 so the container's flink user can write, parents 0700). Snapshot-to-savepoint paths and the stop-with-savepoint location persist in `backendSnapshot`; after a restart RUNNING/STARTING apps relaunch from the latest savepoint and READY apps keep their snapshots restorable. DeleteApplicationSnapshot/DeleteApplication remove the files (files written by the container's uid may need privileges the host user lacks; failures are logged). Without `--persist` state stays in temp dirs. Job credentials are issued from the application's ServiceExecutionRole through STS (principal `kinesisanalytics.amazonaws.com`); a role STS refuses fails the start. Proof: `flink_persist_test.go` and `TestFlinkEngine_RealFlinkDockerRestartRestores`.
+
+## Emulator choices where the vendor is silent
+
+- StopApplication without Force: API_StopApplication says a snapshot is taken on stop, but neither it nor the SDK documents the snapshot's name or whether snapshots must be enabled, so none is invented.
+- Zeppelin Glue/S3 and other ARN fields are not cross-service validated: no doc says which fields AWS existence-checks at call time.

@@ -232,7 +232,13 @@ func (p *parser) parseClause() (clause, error) {
 		proj, err := p.parseProjection()
 
 		return returnClause{proj: proj}, err
-	case "CALL", "FOREACH", "LOAD":
+	case "CALL":
+		if p.peek2().is("{") {
+			return p.parseCallSubquery()
+		}
+
+		return nil, unsupported("CALL[YIELD] procedure calls are not supported by Neptune openCypher")
+	case "FOREACH", "LOAD":
 		return nil, unsupported("%s is not supported by this openCypher implementation", strings.ToUpper(t.text))
 	default:
 		return nil, p.unexpected("a clause")
@@ -740,4 +746,69 @@ func (p *parser) parseMapLiteral() (*mapExpr, error) {
 	}
 
 	return m, p.expect("}")
+}
+
+// parseCallSubquery reads CALL { [WITH vars] ... RETURN ... }; only the imported variables are visible inside it.
+func (p *parser) parseCallSubquery() (clause, error) {
+	p.pos += 2
+
+	body := &query{}
+
+	for !p.peek().is("}") {
+		if p.peek().kind == tkEOF {
+			return nil, p.unexpected("'}'")
+		}
+
+		if err := p.parseInto(body); err != nil {
+			return nil, err
+		}
+	}
+
+	p.pos++
+
+	if len(body.clauses) == 0 {
+		return nil, malformed("CALL subquery is empty")
+	}
+
+	if _, ok := body.clauses[len(body.clauses)-1].(returnClause); !ok {
+		return nil, malformed("A CALL subquery must end with RETURN")
+	}
+
+	if body.write {
+		return nil, unsupported("Updates inside a CALL subquery are not supported")
+	}
+
+	imports, err := callImports(body)
+	if err != nil {
+		return nil, err
+	}
+
+	return callClause{body: body, imports: imports}, nil
+}
+
+func callImports(body *query) ([]string, error) {
+	w, ok := body.clauses[0].(withClause)
+	if !ok {
+		return nil, nil
+	}
+
+	if w.where != nil || w.proj.distinct || w.proj.skip != nil || w.proj.limit != nil || len(w.proj.order) > 0 ||
+		w.proj.star {
+		return nil, malformed("The importing WITH of a CALL subquery may only list variables")
+	}
+
+	names := make([]string, 0, len(w.proj.items))
+
+	for _, it := range w.proj.items {
+		id, isIdent := it.e.(identExpr)
+		if !isIdent || id.name != it.name {
+			return nil, malformed("The importing WITH of a CALL subquery may only list variables, without aliases")
+		}
+
+		names = append(names, id.name)
+	}
+
+	body.clauses = body.clauses[1:]
+
+	return names, nil
 }

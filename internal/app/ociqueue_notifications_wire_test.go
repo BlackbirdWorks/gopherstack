@@ -65,14 +65,14 @@ func TestWireOCINotificationsFunctions(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.CreateSubscription(ocinotificationsbackend.CreateSubscriptionIn{
+	_, err = b.CreateSubscription(t.Context(), ocinotificationsbackend.CreateSubscriptionIn{
 		TopicID: topic.TopicID, Compartment: "ocid1.compartment.oc1..c", Protocol: "ORACLE_FUNCTIONS",
 		Endpoint: "ocid1.fnfunc.oc1..ghost",
 	}, "http://x")
 	require.NoError(t, err)
 
 	body := "payload"
-	_, err = b.PublishMessage(topic.TopicID, "", ocinotificationsbackend.PublishIn{Body: &body})
+	_, err = b.PublishMessage(t.Context(), topic.TopicID, "", ocinotificationsbackend.PublishIn{Body: &body})
 	require.NoError(t, err)
 
 	b.DeliverDue(t.Context(), func(f func()) { f() })

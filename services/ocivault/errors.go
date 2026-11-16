@@ -38,6 +38,10 @@ func errState(msg string) *APIError { return newErr(http.StatusConflict, "Incorr
 
 func errExists(msg string) *APIError { return newErr(http.StatusConflict, "Conflict", msg) }
 
+func errAlreadyExists(msg string) *APIError {
+	return newErr(http.StatusConflict, "NotAuthorizedOrResourceAlreadyExists", msg)
+}
+
 func errEtag() *APIError {
 	return newErr(http.StatusPreconditionFailed, "NoEtagMatch", "The If-Match header does not match the current ETag")
 }
@@ -48,3 +52,13 @@ func errInvalidatedToken() *APIError {
 }
 
 func errAuth(msg string) *APIError { return newErr(http.StatusUnauthorized, "NotAuthenticated", msg) }
+
+func firstErr(errs ...*APIError) *APIError {
+	for _, e := range errs {
+		if e != nil {
+			return e
+		}
+	}
+
+	return nil
+}

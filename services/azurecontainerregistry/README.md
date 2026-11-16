@@ -16,8 +16,8 @@
 ### Known gaps
 
 - The listener is plain HTTP unless --azure-acr-tls-cert/--azure-acr-tls-key are set, so az acr login and docker only trust it as an insecure or localhost registry.
-- Repository-scoped tokens, scope maps and tokens, connected registries, cache rules, credential sets, agent pools and tasks are not modelled.
-- ARM importImage, listUsages, listPrivateLinkResources, private endpoint connections, customer-managed keys, network rules and policies other than their defaults are stored or defaulted but have no effect.
+- Connected registries, agent pools and ACR Tasks (tasks, runs, taskRuns, scheduleRun, task run logs) are not modelled: a task build step needs an image build API and pkgs/container only creates and execs containers.
+- ARM listUsages is not served (the Size usage needs registry size metering); a customer-managed key is only followed while it exists and is enabled, revoking the registry identity's Key Vault permission is not modelled; policies other than their defaults (quarantine, trust, retention, export, soft delete) are stored and have no effect.
 - Webhooks: no retries, the quarantine action never fires, each webhook keeps its last 100 events.
 - Replications are metadata only: there is one copy of the data.
 - Blobs unreferenced by any manifest are never garbage collected, and registry size is not metered.

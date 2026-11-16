@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -147,6 +148,33 @@ func TestStatementNeverLeaksSecrets(t *testing.T) {
 			assert.NotContains(t, buf.String(), rootPW)
 			assert.NotContains(t, buf.String(), replPW)
 			assert.Contains(t, buf.String(), "read-only guard failed")
+		})
+	}
+}
+
+func TestContainerNameFitsHostLabel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name, id, want string
+	}{
+		{"short", "db-1", "gopherstack-x-db-1-4000"},
+		{"long", "ocid1.mysqldbsystem.oc1.iad." + strings.Repeat("a", 52) + "z", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := containerName("gopherstack-x", tt.id, 4000)
+			assert.LessOrEqual(t, len(got), maxHostLabel)
+			assert.True(t, strings.HasSuffix(got, "-4000"))
+
+			if tt.want != "" {
+				assert.Equal(t, tt.want, got)
+			} else {
+				assert.Contains(t, got, "aaz-4000", "the distinguishing tail of the id is kept")
+			}
 		})
 	}
 }

@@ -151,6 +151,10 @@ func (b *InMemoryBackend) ImportKey(vaultID, token string, in ImportKeyIn) (KeyW
 		return KeyWire{}, "", aerr
 	}
 
+	if aerr = b.checkVersionLimit(v, in.ProtectionMode, in.KeyShape, true); aerr != nil {
+		return KeyWire{}, "", aerr
+	}
+
 	k, aerr := b.storeKey(v, in.CreateKeyIn, mat, originExternal)
 	if aerr != nil {
 		return KeyWire{}, "", aerr
@@ -192,9 +196,13 @@ func (b *InMemoryBackend) ImportKeyVersion(
 		return keyVersionWire{}, "", aerr
 	}
 
-	kv := b.addVersion(k, v.Prefix, originExternal, mat)
+	if aerr = b.checkVersionLimit(v, k.ProtectionMode, k.Shape, false); aerr != nil {
+		return keyVersionWire{}, "", aerr
+	}
+
+	kv := b.rotateVersion(k, v.Prefix, originExternal, mat)
 	b.touchKey(k)
 	b.retryNote(scope, token, kv.ID)
 
-	return keyVersionFull(k, kv, stateEnabling), k.Etag, nil
+	return keyVersionFull(k, kv), k.Etag, nil
 }

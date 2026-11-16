@@ -45,6 +45,7 @@ type InMemoryBackend struct {
 	retry         *ociretry.Store
 	tagLookup     ocitags.Lookup
 	subnet        func(string) (string, bool)
+	logSink       LogSink
 	dp            *dataPlane
 	transition    time.Duration
 	seq           int64

@@ -2,6 +2,7 @@ package athena
 
 import (
 	"database/sql/driver"
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
 	"math"
@@ -22,16 +23,50 @@ func parseJSONArg(v driver.Value) (any, bool) {
 	}
 
 	var out any
-	if err := json.Unmarshal([]byte(strings.TrimPrefix(s, containerMark)), &out, jsonx.V1()); err != nil {
+	if err := json.Unmarshal(
+		[]byte(strings.TrimPrefix(s, containerMark)),
+		&out,
+		jsonx.V1(),
+		jsonx.UseNumber(),
+	); err != nil {
 		return nil, false
 	}
 
-	return out, true
+	return numbersByText(out), true
+}
+
+// numbersByText turns decoded JSON numbers into int64 when written without a fraction and float64 otherwise,
+// so 1 and 1.0 stay distinct inside arrays and maps.
+func numbersByText(v any) any {
+	switch t := v.(type) {
+	case jsonx.Number:
+		if n, err := strconv.ParseInt(t.String(), 10, 64); err == nil {
+			return n
+		}
+
+		f, _ := strconv.ParseFloat(t.String(), 64)
+
+		return f
+	case []any:
+		for i, e := range t {
+			t[i] = numbersByText(e)
+		}
+
+		return t
+	case map[string]any:
+		for k, e := range t {
+			t[k] = numbersByText(e)
+		}
+
+		return t
+	default:
+		return v
+	}
 }
 
 // jsonText encodes an ARRAY/MAP value; containerMark tags it so results render Trino-style.
 func jsonText(v any) driver.Value {
-	b, err := json.Marshal(v, jsonx.V1())
+	b, err := json.Marshal(floatsKeepPoint(v), jsonx.V1())
 	if err != nil {
 		return sqlNull()
 	}
@@ -62,6 +97,8 @@ func sqlValue(v any) driver.Value {
 		}
 
 		return int64(0)
+	case int64:
+		return t
 	case float64:
 		if t == math.Trunc(t) && math.Abs(t) < 1<<53 {
 			return int64(t)
@@ -398,8 +435,8 @@ func udfArrayDistinct(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 }
 
 func lessJSON(a, b any) bool {
-	af, aok := a.(float64)
-	bf, bok := b.(float64)
+	af, aok := jsonFloat(a)
+	bf, bok := jsonFloat(b)
 
 	if aok && bok {
 		return af < bf
@@ -570,4 +607,43 @@ func udfMapFromArrays(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 	}
 
 	return jsonText(m), nil
+}
+
+// floatsKeepPoint rewrites integral doubles as 1.0 so they render with the decimal point Trino prints.
+func floatsKeepPoint(v any) any {
+	switch t := v.(type) {
+	case float64:
+		if t == math.Trunc(t) && !math.IsInf(t, 0) && math.Abs(t) < 1e15 {
+			return jsontext.Value(strconv.FormatFloat(t, 'f', 1, 64))
+		}
+
+		return t
+	case []any:
+		out := make([]any, len(t))
+		for i, e := range t {
+			out[i] = floatsKeepPoint(e)
+		}
+
+		return out
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, e := range t {
+			out[k] = floatsKeepPoint(e)
+		}
+
+		return out
+	default:
+		return v
+	}
+}
+
+func jsonFloat(v any) (float64, bool) {
+	switch t := v.(type) {
+	case float64:
+		return t, true
+	case int64:
+		return float64(t), true
+	default:
+		return 0, false
+	}
 }

@@ -22,8 +22,7 @@ families:
   next-invocation computation: {status: fixed, note: "at() one-time expressions were validated at Create/Update time but the runner's isDue only matched rate()/cron() prefixes -- an at() schedule could NEVER fire. ScheduleExpressionTimezone was stored/round-tripped on the wire but never applied when evaluating cron/at wall-clock matches (runner always used the poll goroutine's raw time.Time, i.e. implicitly UTC/server-local). StartDate/EndDate were stored/round-tripped but the runner never gated cron/rate firing on them. All three fixed this pass -- see Notes."}
   cross-service target delivery: {status: ok, note: "wireSchedulerRunner wires the 8 core invokers; wireSchedulerDeliveryTargets adds Firehose, CodeBuild and CodePipeline; wireSchedulerUniversalTargets adds aws-sdk universal targets (see 2026-10-09 Notes)."}
 gaps: []
-items_still_open:
-  - "Classic Inspector StartAssessmentRun templated target (arn:aws:inspector:...) is not delivered: only inspector2 is implemented, which has no assessment templates."
+items_still_open: []
 deferred: []
 leaks: {status: clean, note: "leak_main_test.go (testleak.VerifyTestMain) passes under -race. The runner's poll goroutine remains the only background goroutine (ctx-parented via Handler.StartWorker/Shutdown, unchanged this pass). New state added this pass (Runner.locCache, Handler.idempotency) is plain in-memory data with no goroutines/tickers of its own; both are swept/bounded (locCache via the existing per-poll sweep alongside cronCache; idempotency via TTL-based lazy eviction) and cleared on Handler.Reset."}
 ---
@@ -811,3 +810,7 @@ targets remain unsupported.
 - `rate()` enforces singular unit for 1 and plural otherwise; `FlexibleTimeWindow.MaximumWindowInMinutes` capped at 1440; Description max 512, ScheduleExpression max 256, Target.Input max 8192; Target.Arn/RoleArn must be ARNs.
 - ListSchedules/ListScheduleGroups: MaxResults 1-100, opaque base64 NextToken, malformed token is ValidationException.
 - Lenient on purpose: RoleArn is only checked for an `arn:` prefix (in-repo fixtures use `arn:r`, account `0`); `rate(N seconds)` stays accepted for local testing; past `at()` times and EndDate before StartDate are accepted (AWS behaviour not determinable from the SDK).
+
+## External effects that are recorded, not performed
+
+- A classic Inspector templated target (arn:aws:inspector:...) is accepted and, when it fires, logged as "would start" an assessment run; only inspector2 exists and it has no assessment templates.

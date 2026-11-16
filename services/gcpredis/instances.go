@@ -102,6 +102,11 @@ func (b *InMemoryBackend) finishCreate(name string, rec *instRec) (proto.Message
 	}
 
 	bindEngine(rec, eng, certs)
+
+	if err = b.tuneLocked(rec); err != nil {
+		return nil, err
+	}
+
 	rec.pb.State = redispb.Instance_READY
 
 	return cloneInstance(rec.pb), nil
@@ -229,6 +234,10 @@ func (b *InMemoryBackend) settle(name string, mutate func(*instRec)) workFn {
 		}
 
 		rec.pb.State = redispb.Instance_READY
+
+		if err := b.tuneLocked(rec); err != nil {
+			return nil, err
+		}
 
 		return cloneInstance(rec.pb), nil
 	}

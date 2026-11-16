@@ -3,6 +3,9 @@ package azuresearch
 import (
 	"strings"
 	"unicode"
+
+	"github.com/blevesearch/snowballstem/english"
+	"github.com/blevesearch/snowballstem/porter"
 )
 
 const (
@@ -25,7 +28,7 @@ func customTokenizer(name string) (Analyzer, bool) {
 		return func(t string) []Token { return renumber(mapTerms(scan(t, isLetterRune, nil), strings.ToLower)) }, true
 	}
 
-	return nil, false
+	return moreBuiltinTokenizer(name)
 }
 
 func customFilter(name string, stops map[string]bool) (func([]Token) []Token, bool) {
@@ -48,13 +51,17 @@ func customFilter(name string, stops map[string]bool) (func([]Token) []Token, bo
 
 			return head
 		}), true
-	case "porter_stem", "kstem", "snowball":
-		return termFn(stemEnglish), true
+	case "porter_stem":
+		return stemFilter(stemmerFunc(porter.Stem)), true
+	case "kstem":
+		return stemFilter(stemEnglish), true
+	case "snowball":
+		return stemFilter(stemmerFunc(english.Stem)), true
 	case "stopwords":
 		return func(t []Token) []Token { return dropStop(t, stops) }, true
 	}
 
-	return nil, false
+	return moreBuiltinFilter(name)
 }
 
 // customAnalyzer builds an analyzer from an index-definition analyzer entry.
@@ -73,7 +80,7 @@ func customAnalyzer(def map[string]any, defs *analysisDefs) (Analyzer, error) {
 
 	switch kind {
 	case typeStandardAnalyzer:
-		return standardAnalyzer(stops, false, nil), nil
+		return standardAnalyzer(stops, false), nil
 	case typeStopAnalyzer:
 		return simpleAnalyzer(stops), nil
 	case typePatternAnalyzer:

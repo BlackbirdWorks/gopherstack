@@ -2,6 +2,7 @@ package gcpbigquery
 
 import (
 	"maps"
+	"net/http"
 	"regexp"
 	"slices"
 	"strconv"
@@ -13,10 +14,11 @@ import (
 )
 
 const (
-	insertIDWindow   = time.Minute
-	defaultDataPage  = 100000
-	insertErrReason  = litInvalid
-	insertErrStopped = "stopped"
+	insertIDWindow    = time.Minute
+	streamFlushWindow = 90 * time.Minute
+	defaultDataPage   = 100000
+	insertErrReason   = litInvalid
+	insertErrStopped  = "stopped"
 )
 
 // InsertRow is one row of a streaming insert.
@@ -51,6 +53,10 @@ func (b *InMemoryBackend) InsertAll(project, ds, id string, req InsertRequest) (
 
 	if t.ViewQuery != "" {
 		return nil, errInvalid("Cannot insert into view %s:%s.%s", project, ds, id)
+	}
+
+	if t.isExternal() {
+		return nil, errInvalid("Cannot insert into external table %s:%s.%s", project, ds, id)
 	}
 
 	if len(req.Rows) == 0 {
@@ -154,6 +160,7 @@ func (t *Table) appendRows(in []InsertRow, parsed [][]any) {
 	}
 
 	now := nowMs()
+	t.record(now)
 
 	for i, row := range parsed {
 		if row == nil {
@@ -169,6 +176,21 @@ func (t *Table) appendRows(in []InsertRow, parsed [][]any) {
 		}
 
 		t.Rows = append(t.Rows, row)
+		t.stream(now, row)
+	}
+}
+
+func (t *Table) stream(now int64, row []any) {
+	if t.Stream == nil || now-t.Stream.OldestMs >= streamFlushWindow.Milliseconds() {
+		t.Stream = &StreamBuffer{OldestMs: now}
+	}
+
+	t.Stream.Rows++
+
+	for i, f := range t.Schema {
+		if i < len(row) {
+			t.Stream.Bytes += bqsql.LogicalBytes(f, row[i])
+		}
 	}
 }
 
@@ -284,6 +306,15 @@ func (b *InMemoryBackend) ListData(project, ds, id string, o DataOptions) (map[s
 
 	if t.ViewQuery != "" {
 		return nil, errInvalid("Cannot list a table of type VIEW.")
+	}
+
+	if t.isExternal() {
+		return nil, errInvalid("Cannot list a table of type EXTERNAL.")
+	}
+
+	if len(t.RowPolicies) > 0 {
+		return nil, newErr(http.StatusForbidden, "accessDenied", "Access Denied: Table "+project+":"+ds+"."+id+
+			" has row access policies; previewing table data is not supported, query the table instead.")
 	}
 
 	schema, rows := t.Schema, t.Rows

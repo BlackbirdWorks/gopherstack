@@ -11,10 +11,12 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	agentcoredataplane "github.com/blackbirdworks/gopherstack/services/bedrockagentcore"
 	agentcorebackend "github.com/blackbirdworks/gopherstack/services/bedrockagentcorecontrol"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
+	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
@@ -26,7 +28,7 @@ var (
 )
 
 const (
-	maxAgentCoreObjectBytes = 64 << 20
+	maxAgentCoreObjectBytes = 256 << 20
 	arnResourceFields       = 7
 )
 
@@ -36,6 +38,8 @@ type agentCoreRefs struct {
 	lambda  *lambdabackend.Handler
 	secrets *secretsmanagerbackend.Handler
 	s3      *s3backend.S3Handler
+	apigw   *apigwbackend.Handler
+	iam     *iambackend.Handler
 }
 
 func scopedCtx(account, region string) context.Context {
@@ -65,6 +69,16 @@ func (r agentCoreRefs) LambdaFunctionExists(functionARN string) bool {
 	}
 
 	_, err := r.lambda.BackendFor(parts[3]).GetFunction(parts[6])
+
+	return err == nil
+}
+
+func (r agentCoreRefs) RoleExists(roleARN string) bool {
+	if r.iam == nil {
+		return true
+	}
+
+	_, err := r.iam.Backend.GetRoleByArn(roleARN)
 
 	return err == nil
 }
@@ -146,6 +160,23 @@ func (r agentCoreRefs) DeleteSecret(secretARN string) {
 		&secretsmanagerbackend.DeleteSecretInput{SecretID: secretARN, ForceDeleteWithoutRecovery: true})
 }
 
+func (r agentCoreRefs) ObjectExists(bucket, key string) bool {
+	if r.s3 == nil {
+		return true
+	}
+
+	out, err := r.s3.Backend.GetObject(context.Background(), &awss3.GetObjectInput{Bucket: &bucket, Key: &key})
+	if err != nil || out == nil {
+		return false
+	}
+
+	if out.Body != nil {
+		_ = out.Body.Close()
+	}
+
+	return true
+}
+
 func (r agentCoreRefs) ReadObject(bucket, key string) ([]byte, bool) {
 	if r.s3 == nil {
 		return nil, false
@@ -178,6 +209,8 @@ func wireAgentCore(byName map[string]service.Registerable) {
 	refs.lambda, _ = byName["Lambda"].(*lambdabackend.Handler)
 	refs.secrets, _ = byName["SecretsManager"].(*secretsmanagerbackend.Handler)
 	refs.s3, _ = byName["S3"].(*s3backend.S3Handler)
+	refs.apigw, _ = byName["APIGateway"].(*apigwbackend.Handler)
+	refs.iam, _ = byName["IAM"].(*iambackend.Handler)
 
 	h.Backend.SetReferences(refs)
 

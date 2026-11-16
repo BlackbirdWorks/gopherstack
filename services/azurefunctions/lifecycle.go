@@ -34,6 +34,11 @@ type box struct {
 
 func (b *InMemoryBackend) takeBoxLocked(a *app) box {
 	x := box{id: a.containerID, dir: a.dir, secretsDir: a.secretsDir, port: a.hostPort}
+	if a.stopLoops != nil {
+		a.stopLoops()
+		a.stopLoops, a.loops, a.cont = nil, nil, nil
+	}
+
 	a.containerID, a.dir, a.secretsDir, a.hostPort = "", "", "", 0
 	a.epoch++
 
@@ -121,7 +126,7 @@ func containerEnv(a *appState, rc runtimeChoice, host string) []string {
 
 	env[authKeySetting] = hex.EncodeToString(adminSigningKey(a))
 	maps.Copy(env, a.ConnEnv)
-	maps.Copy(env, a.Settings)
+	copyAppSettings(env, a.Settings)
 
 	env["AzureWebJobsSecretStorageType"] = "files"
 
@@ -204,6 +209,12 @@ func (b *InMemoryBackend) launch(st *appState, host string) (box, error) {
 
 	if _, err = b.runner(); err != nil {
 		return box{}, err
+	}
+
+	if rc.custom {
+		if err = b.pullPrivateImage(rc.image, st.Settings); err != nil {
+			return box{}, err
+		}
 	}
 
 	x := box{}
@@ -385,6 +396,7 @@ func (b *InMemoryBackend) runStart(name string, claim startClaim) (int, error) {
 			cur.startErr = launchErr.Error()
 		} else {
 			cur.containerID, cur.dir, cur.secretsDir, cur.hostPort = x.id, x.dir, x.secretsDir, x.port
+			b.startLoopsLocked(cur)
 		}
 	}
 	b.mu.Unlock()

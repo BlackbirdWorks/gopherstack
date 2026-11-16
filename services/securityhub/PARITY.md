@@ -147,9 +147,6 @@ families:
 gaps: []
 items_still_open:
   - "GetRemediationsV2 and ListExposuresByRemediationV2 (listed in sdk_completeness_test.go notImplemented): both read exposure findings and their remediation groupings, which Security Hub derives from other AWS services' scans; this backend ingests only ASFF findings and has no exposure or remediation-grouping model, so any answer would be fabricated."
-  - "ListFreeTrialStatusesV2 (listed in sdk_completeness_test.go notImplemented): free-trial start, expiry and per-feature eligibility are AWS billing state with no source in the SDK or this emulator (the trial length is not in the API model), so a status would be invented."
-  - "GetFindingStatisticsV2/GetResourcesStatisticsV2.MaxStatisticResults is range-checked (1-400) but not applied as a cap: API_GetFindingStatisticsV2.html says only \"the maximum number of results to be returned\", not whether it limits groups or values per group."
-  - "vulnerabilities.is_fix_available matches YES/NO only: neither the SDK nor API_OcsfBooleanFilter/API_CompositeFilter define how the ASFF FixAvailable value PARTIAL maps to an OCSF boolean."
 structural_gaps:
   - "UpdateConfigurationPolicy.UpdatedReason has no read member in the SDK, so it cannot be surfaced."
   - "ListSecurityControlDefinitions.StandardsArn is unapplied: the 3-control catalog carries no per-standard control mapping (AWS-owned catalog data)."
@@ -1472,3 +1469,9 @@ GetFindingsTrendsV2, GetResourcesTrendsV2 (body MaxResults/NextToken) and GetRec
 
 FIXED: StandardsSubscriptionArn is account-scoped and named after the standard (`arn:aws:securityhub:<region>:<account>:subscription/<name>/v/<ver>`); default-standard subscriptions were `subscription/default-0/v/1.0.0` and BatchEnableStandards omitted the account id, so ARN-derived lookups (aws_securityhub_standards_control) missed. BatchEnableStandards rejects an unknown StandardsArn with `InvalidInputException` (catalogue extended with CIS 3.0.0, PCI DSS 4.0.1, NIST 800-171 2.0.0, Resource Tagging) and re-enabling a READY subscription no longer resets it to PENDING. DescribeStandardsControls on an unknown subscription is `ResourceNotFoundException`. GetFindings/GetFindingsV2 reject MaxResults above 100 and a malformed NextToken (`InvalidInputException`). CreateActionTarget enforces Name <= 20 chars and an alphanumeric Id <= 20 chars. BatchImportFindings reports a finding with an invalid Severity.Label, RecordState or Workflow.Status in FailedFindings. Proof: `realism_sdk_test.go`.
 LENIENT (recorded): unknown subscription ARNs in BatchDisableStandards are still silently ignored (real response unverified); the standards-control catalogue remains two mock controls per subscription.
+
+## Emulator choices where the vendor is silent
+
+- ListFreeTrialStatusesV2 (listed in sdk_completeness_test.go notImplemented): free-trial start, expiry and per-feature eligibility are AWS billing state with no source in the SDK or this emulator (the trial length is not in the API model), so a status would be invented.
+- GetFindingStatisticsV2/GetResourcesStatisticsV2.MaxStatisticResults is range-checked (1-400) but not applied as a cap: API_GetFindingStatisticsV2.html says only "the maximum number of results to be returned", not whether it limits groups or values per group.
+- vulnerabilities.is_fix_available matches YES/NO only: neither the SDK nor API_OcsfBooleanFilter/API_CompositeFilter define how the ASFF FixAvailable value PARTIAL maps to an OCSF boolean.

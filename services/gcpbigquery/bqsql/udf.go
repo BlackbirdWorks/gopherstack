@@ -45,6 +45,12 @@ func registerUDFs() {
 		addTimeUDFs(defs)
 		addArrayUDFs(defs)
 		addApproxUDFs(defs)
+		addNetUDFs(defs)
+		addFarmUDFs(defs)
+		addGeoUDFs(defs)
+		addHLLUDFs(defs)
+		addIntervalUDFs(defs)
+		addSearchUDFs(defs)
 		addCastUDFs(defs)
 
 		for name, d := range defs {

@@ -19,7 +19,7 @@ func icebergMetaSuffix(name string) (string, string, bool) {
 		return name, "", false
 	}
 
-	for _, m := range []string{"snapshots", "history", "files", "manifests", "refs"} {
+	for _, m := range []string{"snapshots", "history", "files", "manifests", "refs", metaPartitions} {
 		if strings.EqualFold(meta, m) {
 			return base, m, true
 		}
@@ -28,7 +28,13 @@ func icebergMetaSuffix(name string) (string, string, bool) {
 	return name, "", false
 }
 
-const colSnapshotID = "snapshot_id"
+const (
+	colSnapshotID  = "snapshot_id"
+	metaPartitions = "partitions"
+	colPartition   = "partition"
+	statMax        = "max"
+	statMin        = "min"
+)
 
 func tsText(ms int64) string { return time.UnixMilli(ms).UTC().Format(tsMillisLayout) }
 
@@ -66,6 +72,12 @@ func (t *planTable) loadIcebergMetaTable(
 		if cols, rows, err = l.manifestsTable(ctx, snap, hasSnap); err != nil {
 			return err
 		}
+	case metaPartitions:
+		var err error
+
+		if cols, rows, err = l.partitionsTable(ctx, tbl, snap, hasSnap); err != nil {
+			return err
+		}
 	default:
 		var err error
 
@@ -91,7 +103,7 @@ func (t *planTable) loadIcebergMetaTable(
 
 func snapshotsTable(m *iceberg.TableMetadata) ([]Column, [][]any) {
 	cols := []Column{
-		{Name: "committed_at", Type: "timestamp"}, {Name: colSnapshotID, Type: typeBigint},
+		{Name: "committed_at", Type: typeTimestamp}, {Name: colSnapshotID, Type: typeBigint},
 		{Name: "parent_id", Type: typeBigint}, {Name: "operation", Type: typeVarchar},
 		{Name: "manifest_list", Type: typeVarchar}, {Name: "summary", Type: typeVarchar},
 	}
@@ -109,7 +121,7 @@ func snapshotsTable(m *iceberg.TableMetadata) ([]Column, [][]any) {
 
 func historyTable(m *iceberg.TableMetadata) ([]Column, [][]any) {
 	cols := []Column{
-		{Name: "made_current_at", Type: "timestamp"}, {Name: colSnapshotID, Type: typeBigint},
+		{Name: "made_current_at", Type: typeTimestamp}, {Name: colSnapshotID, Type: typeBigint},
 		{Name: "parent_id", Type: typeBigint}, {Name: "is_current_ancestor", Type: "boolean"},
 	}
 	ancestors := map[int64]bool{}
@@ -229,4 +241,161 @@ func (l *tableLoader) filesTable(ctx context.Context, snap iceberg.Snapshot, has
 	}
 
 	return cols, rows, nil
+}
+
+type partitionAgg struct {
+	part    map[string]any
+	lo, hi  map[int]iceberg.Bound
+	nulls   map[int]int64
+	records int64
+	files   int64
+	size    int64
+}
+
+// partitionsTable aggregates the current data files per partition (Trino's $partitions layout:
+// partition row, record_count, file_count, total_size and a per-column data row).
+func (l *tableLoader) partitionsTable(
+	ctx context.Context, tbl *icebergTable, snap iceberg.Snapshot, hasSnap bool,
+) ([]Column, [][]any, error) {
+	schema := tbl.schemaFor(snap, hasSnap)
+	spec := tbl.meta.DefaultSpec()
+
+	var cols []Column
+
+	if len(spec.Fields) > 0 {
+		parts := make([]string, len(spec.Fields))
+		for i, pf := range spec.Fields {
+			parts[i] = pf.Name + ":string"
+		}
+
+		cols = append(cols, Column{Name: colPartition, Type: "struct<" + strings.Join(parts, ",") + ">"})
+	}
+
+	dataFields := make([]string, 0, len(schema.Fields))
+
+	for _, f := range schema.Fields {
+		if iceberg.PrimitiveName(f.Type) != "" {
+			dataFields = append(dataFields, f.Name+":string")
+		}
+	}
+
+	cols = append(cols,
+		Column{Name: "record_count", Type: typeBigint}, Column{Name: "file_count", Type: typeBigint},
+		Column{Name: "total_size", Type: typeBigint},
+		Column{Name: "data", Type: "struct<" + strings.Join(dataFields, ",") + ">"})
+
+	if !hasSnap {
+		return cols, nil, nil
+	}
+
+	files, err := l.snapshotFiles(ctx, snap)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	aggs, order := aggregatePartitions(files.data, schema)
+	rows := make([][]any, 0, len(order))
+
+	for _, k := range order {
+		a := aggs[k]
+
+		var row []any
+
+		if len(spec.Fields) > 0 {
+			names := make([]string, len(spec.Fields))
+			vals := make([]any, len(spec.Fields))
+
+			for i, pf := range spec.Fields {
+				names[i], vals[i] = pf.Name, a.part[pf.Name]
+			}
+
+			row = append(row, jsonText(newRow(names, vals)))
+		}
+
+		row = append(row, a.records, a.files, a.size, jsonText(a.dataRow(schema)))
+		rows = append(rows, row)
+	}
+
+	return cols, rows, nil
+}
+
+func aggregatePartitions(
+	data []fileEntry, schema iceberg.Schema,
+) (map[string]*partitionAgg, []string) {
+	aggs := map[string]*partitionAgg{}
+
+	var order []string
+
+	for _, f := range data {
+		df := f.entry.DataFile
+		key := partitionKey(df.Partition)
+
+		a, ok := aggs[key]
+		if !ok {
+			a = &partitionAgg{
+				part: df.Partition, lo: map[int]iceberg.Bound{}, hi: map[int]iceberg.Bound{}, nulls: map[int]int64{},
+			}
+			aggs[key] = a
+
+			order = append(order, key)
+		}
+
+		a.records += df.RecordCount
+		a.files++
+		a.size += df.FileSize
+
+		for _, fld := range schema.Fields {
+			ptype := iceberg.PrimitiveName(fld.Type)
+			a.nulls[fld.ID] += df.NullCounts[fld.ID]
+
+			st := statsFor(f, fld, iceberg.PartitionSpec{}, ptype)
+			if st.lo != nil && (a.lo[fld.ID] == nil || cmpBound(st.lo, a.lo[fld.ID]) < 0) {
+				a.lo[fld.ID] = st.lo
+			}
+
+			if st.hi != nil && (a.hi[fld.ID] == nil || cmpBound(st.hi, a.hi[fld.ID]) > 0) {
+				a.hi[fld.ID] = st.hi
+			}
+		}
+	}
+
+	sort.Strings(order)
+
+	return aggs, order
+}
+
+func (a *partitionAgg) dataRow(schema iceberg.Schema) map[string]any {
+	var names []string
+
+	var vals []any
+
+	for _, f := range schema.Fields {
+		if iceberg.PrimitiveName(f.Type) == "" {
+			continue
+		}
+
+		stat := newRow([]string{statMin, statMax, "null_count", "nan_count"},
+			[]any{boundValue(f, a.lo[f.ID]), boundValue(f, a.hi[f.ID]), a.nulls[f.ID], nil})
+		names, vals = append(names, f.Name), append(vals, stat)
+	}
+
+	return newRow(names, vals)
+}
+
+func boundValue(f iceberg.Field, b iceberg.Bound) any {
+	switch v := b.(type) {
+	case nil:
+		return nil
+	case int64:
+		switch iceberg.PrimitiveName(f.Type) {
+		case typeDate:
+			return time.Unix(v*secondsPerDayInt, 0).UTC().Format(dateLayout)
+		case typeTimestamp:
+			return time.UnixMicro(v).UTC().Format(tsMillisLayout)
+		}
+
+		return v
+	default:
+		return v
+	}
 }

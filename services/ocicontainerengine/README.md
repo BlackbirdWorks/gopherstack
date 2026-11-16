@@ -7,25 +7,16 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 49 (45 ok, 4 partial) |
+| PARITY entries audited | 50 (46 ok, 4 partial) |
 | Feature families | 7 (6 ok, 1 partial) |
-| Known gaps | 11 |
+| Known gaps | 2 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- ListPodShapes is not routed: the pod shape names are published (Pod.Standard.A1.Flex, E3.Flex, E4.Flex and E5.Flex, contengimagesshapes.htm) but the OCPU, memory and network bandwidth options per shape are not (checked contengimagesshapes.htm, contengcreatingvirtualnodes_topic.htm and the containerengine SDK PodShape comments), so virtual node pools only require a non-empty podConfiguration.shape.
-- The virtual node pool size cap of 1000 is copied from the node pool cap (1,000 nodes per node pool) and is not published for virtual node pools: the service limits page default.htm lists only virtual nodes per region (9 or 3) and pods per virtual node; essential add-ons (CoreDNS, kube-proxy, the CNI plugin) are not pre-installed on enhanced clusters, add-on API names follow the display names of the Oracle add-on table, and add-on configuration keys, addonSchemaVersion, addonGroup and descriptions are not modelled.
-- Credential rotation and endpoint decommission change state only: no certificates or tokens are regenerated and kubeconfig tokens keep working; the operation types of workload mapping changes (no work request is returned) and the 30 day default rollback deadline are not documented by the SDK; WorkloadMapping.mappedTenancyId is never populated.
-- DeleteWorkRequest only marks a work request CANCELED; the SDK says it cancels work that has not started, which the emulator cannot distinguish because work starts when it is accepted.
-- Worker nodes are metadata: they get unique private IPs from the subnet CIDR and ocid1.instance identifiers but are not OCI Core instances and do not join the k3s cluster, so a docker-mode cluster has only the control plane node.
-- Kubeconfigs use a static bearer token, not the oci ce cluster generate-token exec plugin; tokenVersion and expiration are accepted but the token never expires.
-- Without OKE_ENGINE=docker the API server endpoints are documentation-range (or subnet CIDR) addresses nothing listens on; VCN_HOSTNAME endpoints and endpoint.vcnHostnameEndpoint are never populated.
-- OpenID Connect token authentication and discovery, secondaryVnics, primaryVnic, networkLaunchType, computeClusterId, preemptible/capacity-reservation scheduling effects, node eviction and cycling settings (stored and echoed only) are not applied.
-- The one-minor-ahead control plane upgrade rule (availableKubernetesUpgrades and the UpdateCluster check) is not stated by the Oracle control plane upgrade page (contengupgradingk8smasternode.htm), which requires only that every worker node is ready and every node pool and node version is compatible with the target; the emulator keeps the one-minor limit.
-- Not published (checked the containerengine SDK request docs and contengoverview.htm): the default list ordering (emulator: newest first), the cascade deletion of node pools with their cluster, whether DELETED resources are listed by default, and the work request operation type for DeleteNode (the SDK enum has NODEPOOL_UPDATE and NODEPOOL_DELETE, emulator uses NODEPOOL_UPDATE)
-- Service limits, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified.
+- IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified (pkgs/ociauth/ociauth.go Verify). Blocker: services/ociidentity stores and parses policy statements (grammar.go) but no OCI service has a policy evaluator, group or dynamic-group resolution, or token issuer to call.
+- Virtual node pool cycling settings (virtualNodePoolCyclingDetails) are validated, stored and echoed but replace no virtual nodes on update; node pool cycling is applied.
 
 ## More
 

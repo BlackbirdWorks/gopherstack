@@ -23,6 +23,8 @@ func (g *Graph) Update(ctx context.Context, fn func(*Store) error) error {
 		return err
 	}
 
+	g.recordCommit(snap)
+
 	return nil
 }
 

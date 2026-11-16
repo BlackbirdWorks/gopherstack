@@ -9,14 +9,9 @@
 | --- | --- |
 | PARITY entries audited | 19 (19 ok) |
 | Feature families | 4 (4 ok) |
-| Known gaps | 2 |
+| Known gaps | none |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- ListUsers/ListGroups Filters accept a wider set of AttributePath values (name.givenname, emails.value, ...) than the Filter doc string's UserName/DisplayName examples; the doc is example phrasing, not an enumeration, and both filters are deprecated. An unrecognized path matches nothing. Narrowing would break TestListUsersFilters/list_users_filter_by_email, so it stays a documented superset (unverifiable).
-- ExternalId (Issuer+Id) uniqueness is not enforced: nothing in the SDK or docs says AWS rejects duplicates (unlike Email/UserName, which GetUserId's UniqueAttribute makes unique). Unverifiable.
 
 ### Deferred
 

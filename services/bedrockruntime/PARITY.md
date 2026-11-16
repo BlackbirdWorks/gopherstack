@@ -60,9 +60,7 @@ families:
 gaps: []
 items_still_open:
   - "chaos.FaultError cannot carry ModelErrorException's OriginalStatusCode/ResourceName: needs a per-service extension point in shared pkgs/chaos, outside this service (bd: gopherstack-ayfw)."
-  - "AsyncInvokeStatusFailed/FailureMessage are unreachable: the janitor only moves InProgress -> Completed; the StartAsyncInvoke/GetAsyncInvoke docs name no condition that produces Failed."
   - "Ollama backend (GOPHERSTACK_BEDROCK_BACKEND=ollama): stopReason stop_sequence is never reported (Ollama says done_reason=stop for stop-sequence hits), toolChoice is accepted but not enforced (no Ollama equivalent), Converse documents are limited to txt/md/csv/html, InvokeModel families are Anthropic Claude (messages and legacy prompt), Titan text/embed-text, Nova text, Llama, Mistral, Cohere Embed (float) and Command R; other families (AI21, Stability, Titan image/multimodal, Cohere Command text) return ValidationException; InvokeModelWithBidirectionalStream and CountTokens stay mock/estimated."
-  - "Converse guardrailConfig accepts an identifier without a version: GuardrailConfiguration marks both members optional (patterns allow empty) and no doc says a version is required (InvokeModel's header rule is documented; patterns and trace/streamProcessingMode enums are enforced)."
 structural_gaps:
   - "Default (GOPHERSTACK_BEDROCK_BACKEND=mock) inference is deterministic placeholder output, not a model: CountTokens estimates from byte length, Converse/InvokeModel return a canned reply (real completions are opt-in via the ollama backend), InvokeGuardrailChecks contentFilter/promptAttack return empty results and sensitiveInformation matches only the literal-format entity types (EMAIL/PHONE/IP_ADDRESS/URL/AWS_ACCESS_KEY/MAC_ADDRESS/US_SSN/CREDIT_DEBIT_CARD_NUMBER), never NER-based ones."
   - "No model behind the default mock Converse/ConverseStream/InvokeModel: InvokeModel.Body is never interpreted; AdditionalModelRequestFields, AdditionalModelResponseFieldPaths, OutputConfig, PromptVariables and RequestMetadata (invocation-log filtering) are accepted but cannot change a canned reply."
@@ -484,3 +482,8 @@ arrives. InvokeModel bodies are translated per family (see the Ollama open item)
 docs/api.md; Bedrock user guide model-parameters pages (Claude messages, Titan text/embed, Llama, Mistral,
 Cohere Embed v3/Command R); InvokeModel API reference error list; SDK `schemas.go` member names.
 Titan completionReason is `FINISH` (the value real Titan returns), not the `FINISHED` the guide prints.
+
+## Emulator choices where the vendor is silent
+
+- AsyncInvokeStatusFailed/FailureMessage are unreachable: the janitor only moves InProgress -> Completed; the StartAsyncInvoke/GetAsyncInvoke docs name no condition that produces Failed.
+- Converse guardrailConfig accepts an identifier without a version: GuardrailConfiguration marks both members optional (patterns allow empty) and no doc says a version is required (InvokeModel's header rule is documented; patterns and trace/streamProcessingMode enums are enforced).

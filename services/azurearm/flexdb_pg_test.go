@@ -189,7 +189,7 @@ func TestPGFlexServerValidation(t *testing.T) {
 		{"missing subnet", "pg-v17", pgReq(pgLoginPW + `,"network":{"delegatedSubnetResourceId":"` + subnet +
 			`","privateDnsZoneArmResourceId":"` + zone + `"}`), 400},
 		{"replica without source", "pg-v18", `{"location":"x","properties":{"createMode":"Replica"}}`, 400},
-		{"valid", "pg-v19", pgReq(pgLoginPW + `,"version":"15"`), 201},
+		{"valid", "pg-v19", pgReq(pgLoginPW + `,"version":"15"`), 202},
 	}
 
 	for _, tt := range tests {
@@ -719,7 +719,7 @@ func TestPGFlexPointInTimeRestore(t *testing.T) {
 		wantCode string
 		status   int
 	}{
-		{"valid", created, "", http.StatusCreated},
+		{"valid", created, "", http.StatusAccepted},
 		{"before source", "2001-01-01T00:00:00Z", "InvalidParameterValue", http.StatusBadRequest},
 		{"missing", "", "InvalidParameterValue", http.StatusBadRequest},
 		{"garbage", "yesterday", "InvalidParameterValue", http.StatusBadRequest},
@@ -755,11 +755,11 @@ func TestPGFlexPersistence(t *testing.T) {
 
 	dbPath := flexServerPath(pgNS, "pg-persist")
 	status, _ := s.raw(t, http.MethodPut, dbPath+"/databases/keepme", `{"properties":{}}`, flexAPIPG)
-	require.Equal(t, http.StatusCreated, status)
+	require.Equal(t, http.StatusAccepted, status)
 
 	status, _ = s.raw(t, http.MethodPut, dbPath+"/firewallRules/fw1",
 		`{"properties":{"startIpAddress":"1.2.3.4","endIpAddress":"1.2.3.4"}}`, flexAPIPG)
-	require.Equal(t, http.StatusCreated, status)
+	require.Equal(t, http.StatusAccepted, status)
 
 	snap := s.handler.Snapshot(context.Background())
 	assert.NotContains(t, string(snap), flexPassword)

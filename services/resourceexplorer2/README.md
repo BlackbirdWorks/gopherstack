@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 29 (29 ok) |
 | Feature families | 5 (5 ok) |
-| Known gaps | 10 |
+| Known gaps | 8 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -22,10 +22,8 @@
 - ListSupportedResourceTypes: types are listed whether or not an emulated service can produce them; only CFNResourceTypes of the 48 curated rows are populated
 - Search: the resourcetype.supports:tags filter is not implemented (no per-type taggability catalogue is published in the Resource Explorer docs or SDK) and is treated as a keyword
 - Search: a service is searchable once its tagging provider is wired; untagged resources appear only for services that register a tagging inventory provider (AMP, AppIntegrations, CloudHSM v2, CodeGuru Reviewer, RUM, Timestream for InfluxDB, EC2 kinds); every other service lists tagged resources only
-- GetManagedView: the two managed view names (AWSDefaultViewForSystemsManager, AWSDefaultViewForResilienceHub) and their ARN UUIDs are emulator-defined; the user guide (aws-managed-views.html) names only the Systems Manager unified-console view as AWSManagedViewForSSM and publishes no ARN
 - ListIndexesForMembers: no organization membership or delegated-administrator check
 - CreateView: organization and OU scopes are accepted without validating them against Organizations
-- ConflictException: several conflict and validation cases (view without an index, aggregator rules, duplicate type update) use codes chosen from documented behaviour, not from SDK evidence
 
 ### Structural gaps
 

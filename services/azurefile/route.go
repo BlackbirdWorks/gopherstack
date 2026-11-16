@@ -4,59 +4,95 @@ import "net/http"
 
 // Operation names (metrics labels and GetSupportedOperations).
 const (
-	opListShares        = "ListShares"
-	opGetServiceProps   = "GetFileServiceProperties"
-	opSetServiceProps   = "SetFileServiceProperties"
-	opCreateShare       = "CreateShare"
-	opGetShareProps     = "GetShareProperties"
-	opSetShareProps     = "SetShareProperties"
-	opSetShareMetadata  = "SetShareMetadata"
-	opDeleteShare       = "DeleteShare"
-	opSnapshotShare     = "SnapshotShare"
-	opRestoreShare      = "RestoreShare"
-	opGetShareACL       = "GetShareACL"
-	opSetShareACL       = "SetShareACL"
-	opGetShareStats     = "GetShareStats"
-	opLeaseShare        = "LeaseShare"
-	opCreatePermission  = "CreatePermission"
-	opGetPermission     = "GetPermission"
-	opCreateDirectory   = "CreateDirectory"
-	opDeleteDirectory   = "DeleteDirectory"
-	opGetDirProps       = "GetDirectoryProperties"
-	opSetDirProps       = "SetDirectoryProperties"
-	opSetDirMetadata    = "SetDirectoryMetadata"
-	opListFilesDirs     = "ListFilesAndDirectories"
-	opRenameDirectory   = "RenameDirectory"
-	opListHandles       = "ListHandles"
-	opForceCloseHandles = "ForceCloseHandles"
-	opCreateFile        = "CreateFile"
-	opDeleteFile        = "DeleteFile"
-	opGetFile           = "GetFile"
-	opGetFileProps      = "GetFileProperties"
-	opSetFileProps      = "SetFileProperties"
-	opSetFileMetadata   = "SetFileMetadata"
-	opPutRange          = "PutRange"
-	opPutRangeFromURL   = "PutRangeFromURL"
-	opListRanges        = "ListRanges"
-	opCopyFile          = "CopyFile"
-	opAbortCopyFile     = "AbortCopyFile"
-	opRenameFile        = "RenameFile"
-	opLeaseFile         = "LeaseFile"
-	opCreateHardLink    = "CreateHardLink"
-	opCreateSymLink     = "CreateSymbolicLink"
-	opGetSymLink        = "GetSymbolicLink"
+	opListShares           = "ListShares"
+	opGetServiceProps      = "GetFileServiceProperties"
+	opSetServiceProps      = "SetFileServiceProperties"
+	opGetUserDelegationKey = "GetUserDelegationKey"
+	opCreateShare          = "CreateShare"
+	opGetShareProps        = "GetShareProperties"
+	opSetShareProps        = "SetShareProperties"
+	opSetShareMetadata     = "SetShareMetadata"
+	opDeleteShare          = "DeleteShare"
+	opSnapshotShare        = "SnapshotShare"
+	opRestoreShare         = "RestoreShare"
+	opGetShareACL          = "GetShareACL"
+	opSetShareACL          = "SetShareACL"
+	opGetShareStats        = "GetShareStats"
+	opLeaseShare           = "LeaseShare"
+	opCreatePermission     = "CreatePermission"
+	opGetPermission        = "GetPermission"
+	opCreateDirectory      = "CreateDirectory"
+	opDeleteDirectory      = "DeleteDirectory"
+	opGetDirProps          = "GetDirectoryProperties"
+	opSetDirProps          = "SetDirectoryProperties"
+	opSetDirMetadata       = "SetDirectoryMetadata"
+	opListFilesDirs        = "ListFilesAndDirectories"
+	opRenameDirectory      = "RenameDirectory"
+	opListHandles          = "ListHandles"
+	opForceCloseHandles    = "ForceCloseHandles"
+	opCreateFile           = "CreateFile"
+	opDeleteFile           = "DeleteFile"
+	opGetFile              = "GetFile"
+	opGetFileProps         = "GetFileProperties"
+	opSetFileProps         = "SetFileProperties"
+	opSetFileMetadata      = "SetFileMetadata"
+	opPutRange             = "PutRange"
+	opPutRangeFromURL      = "PutRangeFromURL"
+	opListRanges           = "ListRanges"
+	opCopyFile             = "CopyFile"
+	opAbortCopyFile        = "AbortCopyFile"
+	opRenameFile           = "RenameFile"
+	opLeaseFile            = "LeaseFile"
+	opCreateHardLink       = "CreateHardLink"
+	opCreateSymLink        = "CreateSymbolicLink"
+	opGetSymLink           = "GetSymbolicLink"
 )
 
 // GetSupportedOperations lists the supported operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		opListShares, opGetServiceProps, opSetServiceProps, opCreateShare, opGetShareProps, opSetShareProps,
-		opSetShareMetadata, opDeleteShare, opSnapshotShare, opRestoreShare, opGetShareACL, opSetShareACL,
-		opGetShareStats, opLeaseShare, opCreatePermission, opGetPermission, opCreateDirectory, opDeleteDirectory,
-		opGetDirProps, opSetDirProps, opSetDirMetadata, opListFilesDirs, opRenameDirectory, opListHandles,
-		opForceCloseHandles, opCreateFile, opDeleteFile, opGetFile, opGetFileProps, opSetFileProps,
-		opSetFileMetadata, opPutRange, opPutRangeFromURL, opListRanges, opCopyFile, opAbortCopyFile,
-		opRenameFile, opLeaseFile, opCreateHardLink, opCreateSymLink, opGetSymLink,
+		opListShares,
+		opGetServiceProps,
+		opSetServiceProps,
+		opGetUserDelegationKey,
+		opCreateShare,
+		opGetShareProps,
+		opSetShareProps,
+		opSetShareMetadata,
+		opDeleteShare,
+		opSnapshotShare,
+		opRestoreShare,
+		opGetShareACL,
+		opSetShareACL,
+		opGetShareStats,
+		opLeaseShare,
+		opCreatePermission,
+		opGetPermission,
+		opCreateDirectory,
+		opDeleteDirectory,
+		opGetDirProps,
+		opSetDirProps,
+		opSetDirMetadata,
+		opListFilesDirs,
+		opRenameDirectory,
+		opListHandles,
+		opForceCloseHandles,
+		opCreateFile,
+		opDeleteFile,
+		opGetFile,
+		opGetFileProps,
+		opSetFileProps,
+		opSetFileMetadata,
+		opPutRange,
+		opPutRangeFromURL,
+		opListRanges,
+		opCopyFile,
+		opAbortCopyFile,
+		opRenameFile,
+		opLeaseFile,
+		opCreateHardLink,
+		opCreateSymLink,
+		opGetSymLink,
 	}
 }
 
@@ -114,6 +150,8 @@ func (h *Handler) routeService(rc *reqCtx, comp, restype string) (string, opFn) 
 		return opGetServiceProps, h.getServiceProps
 	case m == http.MethodPut && restype == restypeService && comp == compProperties:
 		return opSetServiceProps, h.setServiceProps
+	case m == http.MethodPost && restype == restypeService && comp == compUserDelegationKey:
+		return opGetUserDelegationKey, h.getUserDelegationKey
 	}
 
 	return unknownOperation, nil

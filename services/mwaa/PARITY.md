@@ -37,8 +37,6 @@ gaps: []
 items_still_open:
   - "docker engine: startup-script output stays in container logs (CloudWatch Logs is not modelled by MWAA); MinWorkers/MaxWorkers/Schedulers/EnvironmentClass are ignored (airflow standalone, single process)."
   - "docker engine: Airflow 3.x auth (JWT REST, simple auth manager login) is implemented but verified only against a fake; 2.10.3 verified in docker."
-  - "CreateWebLoginToken populates IamIdentity from the caller ARN but not AirflowIdentity (UNVERIFIABLE): mwaa@v1.43.4 only says \"user name of the Apache Airflow identity\" with no IAM-to-Airflow mapping."
-  - "MethodNotAllowedException (405) for verb mismatches is not in the MWAA model (UNVERIFIABLE): the real gateway response is not documented, and no conformant SDK client sends a wrong verb."
 structural_gaps:
   - "Without --mwaa-engine=docker (or no container runtime) InvokeRestApi always returns 200 with an empty RestApiResponse and CreateCliToken/CreateWebLoginToken return synthetic tokens: no Apache Airflow webserver exists. With the docker engine all three reach a real container; see the 2026-10-20 section."
 deferred:
@@ -591,3 +589,8 @@ Round trips clean. Recorded, unchanged (SDK silent): UpdateEnvironment replaces 
 - CreateWebLoginToken tokens are accepted by `GET /aws_mwaa/aws-console-sso?login=true#<token>`, which redirects to the real webserver; the webserver itself runs with the public role set to Admin.
 - InvokeRestApi proxies Method/Path/QueryParameters/Body to `/api/v1` and returns the real status and JSON.
 - Restore relaunches containers for restored environments.
+
+## Emulator choices where the vendor is silent
+
+- CreateWebLoginToken populates IamIdentity from the caller ARN but not AirflowIdentity (UNVERIFIABLE): mwaa@v1.43.4 only says "user name of the Apache Airflow identity" with no IAM-to-Airflow mapping.
+- MethodNotAllowedException (405) for verb mismatches is not in the MWAA model (UNVERIFIABLE): the real gateway response is not documented, and no conformant SDK client sends a wrong verb.

@@ -393,7 +393,7 @@ func typeName(v any) string {
 	case float64:
 		return "Float"
 	case string:
-		return "String"
+		return dataString
 	case bool:
 		return "Boolean"
 	case []any:

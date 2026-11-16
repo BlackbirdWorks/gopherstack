@@ -296,7 +296,7 @@ func (b *InMemoryBackend) loadSchema(lc loadConfig, in []loadInput) ([]bqsql.Fie
 		}
 	}
 
-	if !lc.Autodetect && lc.Format != formatParquet {
+	if !lc.Autodetect && !selfDescribing(lc.Format) {
 		return nil, false, &jobError{
 			Reason:  litInvalid,
 			Message: "Schema must be specified when creating a new table, or autodetect enabled",
@@ -359,6 +359,10 @@ func parseInput(lc loadConfig, fields []bqsql.Field, in loadInput) ([][]any, []e
 		return parseJSONInput(lc, fields, in.data)
 	case formatParquet:
 		return parseParquetInput(lc, fields, in.data)
+	case formatAvro:
+		return parseAvroInput(lc, fields, in.data)
+	case formatORC:
+		return parseORCInput(lc, fields, in.data)
 	}
 
 	return nil, nil, fmt.Errorf("%w: sourceFormat %s is not supported", errLoad, lc.Format)

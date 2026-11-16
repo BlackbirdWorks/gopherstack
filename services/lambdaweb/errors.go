@@ -10,6 +10,12 @@ import (
 // ErrQuotaExceeded maps to ServiceQuotaExceededException.
 var ErrQuotaExceeded = errors.New("quota exceeded")
 
+// ErrAccessDenied maps to AccessDeniedException.
+var ErrAccessDenied = errors.New("access denied")
+
+// ErrRuntimeUnavailable is returned when the container runtime is unreachable or the sandbox image cannot be had.
+var ErrRuntimeUnavailable = errors.New("container runtime unavailable")
+
 // ErrCodeUnavailable is returned when a revision's code package cannot be read.
 var ErrCodeUnavailable = errors.New("code package unavailable")
 
@@ -41,6 +47,10 @@ func quotaError(resourceType, id, format string, args ...any) error {
 	return &apiError{
 		cause: ErrQuotaExceeded, resourceType: resourceType, resourceID: id, msg: fmt.Sprintf(format, args...),
 	}
+}
+
+func accessDeniedError(format string, args ...any) error {
+	return &apiError{cause: ErrAccessDenied, msg: fmt.Sprintf(format, args...)}
 }
 
 func validationError(format string, args ...any) error {

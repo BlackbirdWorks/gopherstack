@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"compress/gzip"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -15,6 +16,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/orcio"
 )
 
 func (f *athenaEngineFx) salesTable(t *testing.T) {
@@ -127,6 +130,23 @@ func TestAthenaEngine_CTAS(t *testing.T) {
 			},
 		},
 		{
+			name: "orc",
+			create: "CREATE TABLE shop.t_orc WITH (format='ORC', external_location='s3://lake/ctas/orc/') " +
+				"AS SELECT id, category, amount FROM shop.sales",
+			prefix: "ctas/orc/",
+			table:  "t_orc",
+			want:   [][]string{{"n", "s"}, {"6", "95.0"}},
+			check: func(t *testing.T, keys []string) {
+				t.Helper()
+				require.Len(t, keys, 1)
+
+				of, err := orcio.Open(f.body(t, keys[0]))
+				require.NoError(t, err)
+				assert.Equal(t, int64(6), of.NumRows())
+				assert.Equal(t, []string{"id", "category", "amount"}, of.Columns())
+			},
+		},
+		{
 			name: "gzip",
 			create: "CREATE TABLE shop.t_gz WITH (format='TEXTFILE', field_delimiter=',', write_compression='GZIP', " +
 				"external_location='s3://lake/ctas/gz/') AS SELECT id, category, amount FROM shop.sales",
@@ -220,8 +240,9 @@ func TestAthenaEngine_CTASDefaultLocationAndFailures(t *testing.T) {
 			reason: "TABLE_ALREADY_EXISTS",
 		},
 		{
-			name:   "orc",
-			query:  "CREATE TABLE shop.pq WITH (format='ORC', external_location='s3://lake/pq/') AS SELECT id FROM shop.sales",
+			name: "orc bad compression",
+			query: "CREATE TABLE shop.pq WITH (format='ORC', write_compression='GZIP', " +
+				"external_location='s3://lake/pq/') AS SELECT id FROM shop.sales",
 			reason: "NOT_SUPPORTED",
 		},
 		{
@@ -329,7 +350,25 @@ func TestAthenaEngine_Unload(t *testing.T) {
 	assert.Equal(t, athenatypes.QueryExecutionStateFailed, qe.Status.State)
 	assert.Contains(t, aws.ToString(qe.Status.StateChangeReason), "HIVE_PATH_ALREADY_EXISTS")
 
-	_, qe = f.run(t, "shop", "UNLOAD (SELECT id FROM shop.sales) TO 's3://lake/unl/orc/' WITH (format='ORC')")
+	f.ok(t, "UNLOAD (SELECT id, category FROM shop.sales WHERE id <= 3) TO 's3://lake/unl/orc/' WITH (format='ORC')")
+	orcKeys := f.keys(t, "unl/orc/")
+	require.Len(t, orcKeys, 1)
+
+	of, err := orcio.Open(f.body(t, orcKeys[0]))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"id", "category"}, of.Columns())
+
+	var got [][]string
+
+	require.NoError(t, of.ForEach(of.Columns(), func(vals []any) error {
+		got = append(got, []string{fmt.Sprint(vals[0]), fmt.Sprint(vals[1])})
+
+		return nil
+	}))
+	assert.Equal(t, [][]string{{"1", "books"}, {"2", "books"}, {"3", "games"}}, got)
+
+	_, qe = f.run(t, "shop", "UNLOAD (SELECT id FROM shop.sales) TO 's3://lake/unl/orcbad/' "+
+		"WITH (format='ORC', compression='GZIP')")
 	assert.Equal(t, athenatypes.QueryExecutionStateFailed, qe.Status.State)
 	assert.Contains(t, aws.ToString(qe.Status.StateChangeReason), "NOT_SUPPORTED")
 

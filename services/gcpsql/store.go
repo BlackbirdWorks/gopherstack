@@ -3,6 +3,7 @@ package gcpsql
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -35,12 +36,16 @@ type task struct {
 
 type instRec struct {
 	eng           Engine
+	standby       Engine
+	front         *frontDoor
+	quotaStop     context.CancelFunc
 	recovery      *Recovery
 	Databases     map[string]*Database  `json:"databases"`
 	Backups       map[string]*backupRec `json:"backups"`
 	Certs         map[string]*certRec   `json:"certs"`
 	Users         map[string]*userRec   `json:"users"`
 	RootPassword  string                `json:"rootPassword"`
+	Slot          string                `json:"slot,omitempty"`
 	CACert        string                `json:"caCert"`
 	PitrBase      string                `json:"pitrBase,omitempty"`
 	CAKey         string                `json:"caKey"`
@@ -51,6 +56,7 @@ type instRec struct {
 	Inst          Instance              `json:"inst"`
 	queue         []task
 	ServerID      uint32 `json:"serverID,omitempty"`
+	execs         atomic.Int32
 	fresh         bool
 	ReplicaPaused bool `json:"replicaPaused,omitempty"`
 	draining      bool
@@ -59,24 +65,28 @@ type instRec struct {
 
 // InMemoryBackend holds all Cloud SQL state under one lock.
 type InMemoryBackend struct {
-	now       func() time.Time
-	mu        *lockmetrics.RWMutex
-	runCtx    context.Context //nolint:containedctx // workload lifetime, cancelled on Close/Reset
-	cancel    context.CancelFunc
-	launcher  Launcher
-	objects   ObjectStore
-	wg        *sync.WaitGroup
-	instances map[string]*instRec
-	ops       map[string]*Operation
-	startup   time.Duration
-	seq       int64
-	swept     bool
+	now        func() time.Time
+	mu         *lockmetrics.RWMutex
+	runCtx     context.Context //nolint:containedctx // workload lifetime, cancelled on Close/Reset
+	cancel     context.CancelFunc
+	launcher   Launcher
+	objects    ObjectStore
+	secrets    SecretReader
+	wg         *sync.WaitGroup
+	instances  map[string]*instRec
+	ops        map[string]*Operation
+	quotaWG    sync.WaitGroup
+	quotaEvery time.Duration
+	startup    time.Duration
+	seq        int64
+	swept      bool
 }
 
 // NewInMemoryBackend creates an empty backend without a database launcher (state-only instances).
 func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{
 		mu: lockmetrics.New("gcpsql"), now: time.Now, wg: &sync.WaitGroup{}, startup: DefaultStartupTimeout,
+		quotaEvery: quotaPoll,
 	}
 	b.runCtx, b.cancel = context.WithCancel(context.Background())
 	b.resetMaps()
@@ -129,19 +139,35 @@ func (b *InMemoryBackend) SetRunContext(parent context.Context) {
 // Drain blocks until every queued operation has finished.
 func (b *InMemoryBackend) Drain() { b.wg.Wait() }
 
-func (b *InMemoryBackend) takeEnginesLocked() []Engine {
-	var engines []Engine
+func (b *InMemoryBackend) takeEnginesLocked() ([]Engine, []*frontDoor) {
+	var (
+		engines []Engine
+		fronts  []*frontDoor
+	)
 
 	for _, r := range b.instances {
+		if r.front != nil {
+			fronts = append(fronts, r.front)
+			r.front = nil
+		}
+
+		stopQuota(r.quotaStop)
+		r.quotaStop = nil
+
 		if r.eng != nil {
 			engines = append(engines, r.eng)
 			r.eng = nil
 		}
 
+		if r.standby != nil {
+			engines = append(engines, r.standby)
+			r.standby = nil
+		}
+
 		r.gone = true
 	}
 
-	return engines
+	return engines, fronts
 }
 
 func (b *InMemoryBackend) shutdown(renew bool) {
@@ -152,7 +178,12 @@ func (b *InMemoryBackend) shutdown(renew bool) {
 	b.wg.Wait()
 
 	b.mu.Lock("shutdown")
-	engines := b.takeEnginesLocked()
+	engines, fronts := b.takeEnginesLocked()
+	b.mu.Unlock()
+
+	b.quotaWG.Wait()
+
+	b.mu.Lock("shutdown")
 	b.resetMaps()
 
 	if renew {
@@ -161,6 +192,10 @@ func (b *InMemoryBackend) shutdown(renew bool) {
 
 	closer, _ := b.launcher.(interface{ Close() })
 	b.mu.Unlock()
+
+	for _, f := range fronts {
+		f.Close()
+	}
 
 	for _, e := range engines {
 		e.Close(context.Background())

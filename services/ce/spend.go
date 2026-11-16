@@ -46,6 +46,8 @@ var budgetFilterDims = map[string]string{ //nolint:gochecknoglobals // immutable
 
 // LedgerEntries returns a copy of the ledger entries with start <= date < end (YYYY-MM-DD).
 func (b *InMemoryBackend) LedgerEntries(start, end string) []CostEntry {
+	b.Accrue()
+
 	b.mu.RLock("LedgerEntries")
 	defer b.mu.RUnlock()
 
@@ -55,6 +57,8 @@ func (b *InMemoryBackend) LedgerEntries(start, end string) []CostEntry {
 // LedgerSpend sums metric over ledger entries with start <= date < end (YYYY-MM-DD).
 // filters uses Budgets CostFilters keys; keys the ledger does not model do not narrow.
 func (b *InMemoryBackend) LedgerSpend(start, end string, filters map[string][]string, metric string) float64 {
+	b.Accrue()
+
 	b.mu.RLock("LedgerSpend")
 	defer b.mu.RUnlock()
 

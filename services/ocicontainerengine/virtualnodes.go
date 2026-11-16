@@ -239,6 +239,10 @@ func (b *InMemoryBackend) checkPodConfig(pc *PodConfig, vcnID string) *APIError 
 		return errMissing("podConfiguration.subnetId and podConfiguration.shape are required")
 	}
 
+	if !validPodShape(pc.Shape) {
+		return errParam("podConfiguration.shape " + pc.Shape + " is not a supported pod shape")
+	}
+
 	_, aerr := b.checkSubnet("podConfiguration.subnetId", pc.SubnetID, vcnID)
 
 	return aerr
@@ -332,6 +336,8 @@ func (b *InMemoryBackend) CreateVirtualNodePool(in CreateVNPIn) (string, error) 
 	if aerr = firstErr(
 		b.checkVPlacements(in.Placements, c.VcnID),
 		b.checkPodConfig(in.PodConfig, c.VcnID),
+		b.checkNsgs("nsgIds", in.NsgIDs, c.VcnID),
+		checkNodePoolSettings(nil, in.Cycling, *in.Size), b.checkVirtualNodeLimit("", *in.Size),
 	); aerr != nil {
 		return "", aerr
 	}
@@ -532,6 +538,13 @@ func (b *InMemoryBackend) applyVNPUpdate(p *VirtualNodePool, in UpdateVNPIn, c *
 		p.Taints = in.Taints
 	}
 
+	if aerr := firstErr(
+		b.checkNsgs("nsgIds", in.NsgIDs, vcn),
+		checkNodePoolSettings(nil, in.Cycling, p.Size),
+	); aerr != nil {
+		return aerr
+	}
+
 	p.NsgIDs, p.NodeTags, p.Cycling = orSlice(in.NsgIDs, p.NsgIDs), orPtr(in.NodeTags, p.NodeTags),
 		orSlice(in.Cycling, p.Cycling)
 	p.Tags.merge(in.Tags)
@@ -551,7 +564,7 @@ func (b *InMemoryBackend) UpdateVirtualNodePool(id, ifMatch string, in UpdateVNP
 
 	next := *p
 	if aerr = firstErr(b.checkTags(in.Tags), checkLabels(in.Labels), checkTaints(in.Taints),
-		b.applyVNPUpdate(&next, in, c)); aerr != nil {
+		b.applyVNPUpdate(&next, in, c), b.checkVirtualNodeLimit(p.ID, next.Size)); aerr != nil {
 		return "", aerr
 	}
 

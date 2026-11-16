@@ -43,12 +43,14 @@ type LaunchSpec struct {
 	Project     string
 	Version     string
 	Password    string
+	Slot        string
 	MemoryBytes int64
 	NanoCPUs    int64
 	Kind        dbKind
 	ServerID    uint32
 	Persist     bool
 	Fresh       bool
+	Standby     bool
 }
 
 // ReplicaSource tells a replica's engine how to reach its primary.
@@ -90,6 +92,21 @@ type Replicator interface {
 	ReplicationStatus(ctx context.Context) (dbrepl.Status, error)
 }
 
+// Failoverable is implemented by engines that can hand their role to a replica without losing committed writes.
+type Failoverable interface {
+	// Quiesce rejects further writes, drops client sessions and returns a position replicas can wait for.
+	Quiesce(ctx context.Context) (string, error)
+	// Unquiesce reverses Quiesce after a failed hand-over.
+	Unquiesce(ctx context.Context) error
+	// WaitCaughtUp blocks until a replica has applied everything up to pos.
+	WaitCaughtUp(ctx context.Context, pos string) error
+	// Seal stops a quiesced primary so that every replica holds all of its log; engines whose replicas
+	// resume by transaction identity do nothing.
+	Seal(ctx context.Context) error
+	// Settle waits until a replica has applied all the log it received from a sealed primary.
+	Settle(ctx context.Context) error
+}
+
 // Recoverer is implemented by engines that keep the logs point-in-time recovery needs.
 type Recoverer interface {
 	// EnablePITR starts archiving and returns the earliest time a recovery can target.
@@ -127,10 +144,21 @@ type DumpOptions struct {
 
 const volumePrefix = "gopherstack-gcpsql-"
 
-// volumeName is the data volume of an instance; kind is "data" or "pitr".
-func volumeName(kind, project, name string) string {
-	return volumePrefix + kind + "-" + sanitizeName(project) + "-" + sanitizeName(name)
+// volumeName is the data volume of an instance; kind is "data" or "pitr" and slot "" or "b". An instance owns two
+// slots so a promoted standby keeps its data in the volume it was seeded into.
+func volumeName(kind, slot, project, name string) string {
+	return volumePrefix + kind + slot + "-" + sanitizeName(project) + "-" + sanitizeName(name)
 }
+
+func otherSlot(slot string) string {
+	if slot == "" {
+		return slotB
+	}
+
+	return ""
+}
+
+const slotB = "b"
 
 // UserSpec is a database account to create or update.
 type UserSpec struct {

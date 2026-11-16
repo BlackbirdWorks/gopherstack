@@ -31,6 +31,8 @@ type fakeSearchPlane struct {
 	query    map[string][]azurearm.SearchQueryKey
 	counter  int
 	mu       sync.Mutex
+
+	noncompliant bool
 }
 
 func newFakeSearchPlane() *fakeSearchPlane {
@@ -41,6 +43,17 @@ func newFakeSearchPlane() *fakeSearchPlane {
 }
 
 func (f *fakeSearchPlane) Port() int { return 0 }
+
+func (f *fakeSearchPlane) EncryptionCompliance(name string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.services[name].CMKEnforcement == "Enabled" && f.noncompliant {
+		return "NonCompliant"
+	}
+
+	return "Compliant"
+}
 
 func (f *fakeSearchPlane) key() string {
 	f.counter++
@@ -548,4 +561,134 @@ func TestSearchSDK_UnavailableDataPlane(t *testing.T) {
 		respErr.StatusCode,
 		"without a data plane nothing pretends to be created",
 	)
+}
+
+func TestSearchSDK_IPRulesReachDataPlane(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		rules []string
+		ok    bool
+	}{
+		{"address and cidr", []string{"1.2.3.4", "10.0.0.0/8"}, true},
+		{"not an address", []string{"host.example"}, false},
+		{"ipv6 address", []string{"2001:db8::1"}, false},
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := newSearchStack(t)
+			svc := basicService(armsearch.SKUNameBasic)
+			rules := make([]*armsearch.IPRule, 0, len(tc.rules))
+
+			for _, r := range tc.rules {
+				rules = append(rules, &armsearch.IPRule{Value: new(r)})
+			}
+
+			svc.Properties = &armsearch.ServiceProperties{NetworkRuleSet: &armsearch.NetworkRuleSet{IPRules: rules}}
+			name := fmt.Sprintf("ip-%d", i)
+
+			poller, err := s.factory.NewServicesClient().BeginCreateOrUpdate(t.Context(), searchRG, name, svc, nil, nil)
+			if !tc.ok {
+				var respErr *azcore.ResponseError
+
+				require.ErrorAs(t, err, &respErr)
+				assert.Equal(t, http.StatusBadRequest, respErr.StatusCode)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			_, err = poller.PollUntilDone(t.Context(), nil)
+			require.NoError(t, err)
+
+			s.plane.mu.Lock()
+			defer s.plane.mu.Unlock()
+
+			assert.Equal(t, tc.rules, s.plane.services[name].IPRules)
+			assert.Contains(t, s.plane.services[name].ResourceID, "/providers/Microsoft.Search/searchServices/"+name)
+		})
+	}
+}
+
+func TestSearchSDK_Upgrade(t *testing.T) {
+	t.Parallel()
+
+	s := newSearchStack(t)
+	created := s.create(t, "up1", basicService(armsearch.SKUNameBasic))
+	assert.Equal(t, armsearch.UpgradeAvailableNotAvailable, *created.Properties.UpgradeAvailable)
+	assert.Nil(t, created.Properties.ServiceUpgradedAt)
+
+	poller, err := s.factory.NewServicesClient().BeginUpgrade(t.Context(), searchRG, "up1", nil)
+	require.NoError(t, err)
+
+	res, err := poller.PollUntilDone(t.Context(), nil)
+	require.NoError(t, err)
+	require.NotNil(t, res.Properties.ServiceUpgradedAt)
+	assert.Equal(t, armsearch.UpgradeAvailableNotAvailable, *res.Properties.UpgradeAvailable)
+
+	got, err := s.factory.NewServicesClient().Get(t.Context(), searchRG, "up1", nil, nil)
+	require.NoError(t, err)
+	assert.NotNil(t, got.Properties.ServiceUpgradedAt, "the upgrade time persists on the service")
+
+	_, err = s.factory.NewServicesClient().BeginUpgrade(t.Context(), searchRG, "absent", nil)
+
+	var respErr *azcore.ResponseError
+
+	require.ErrorAs(t, err, &respErr)
+	assert.Equal(t, http.StatusNotFound, respErr.StatusCode)
+}
+
+func TestSearchSDK_EncryptionCompliance(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		enforcement  armsearch.SearchEncryptionWithCmk
+		want         armsearch.SearchEncryptionComplianceStatus
+		noncompliant bool
+	}{
+		{
+			"enabled and unencrypted objects",
+			armsearch.SearchEncryptionWithCmkEnabled,
+			armsearch.SearchEncryptionComplianceStatusNonCompliant,
+			true,
+		},
+		{
+			"enabled and clean",
+			armsearch.SearchEncryptionWithCmkEnabled,
+			armsearch.SearchEncryptionComplianceStatusCompliant,
+			false,
+		},
+		{
+			"disabled",
+			armsearch.SearchEncryptionWithCmkDisabled,
+			armsearch.SearchEncryptionComplianceStatusCompliant,
+			true,
+		},
+	}
+
+	for i, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := newSearchStack(t)
+			s.plane.mu.Lock()
+			s.plane.noncompliant = tc.noncompliant
+			s.plane.mu.Unlock()
+
+			svc := basicService(armsearch.SKUNameBasic)
+			svc.Properties = &armsearch.ServiceProperties{
+				EncryptionWithCmk: &armsearch.EncryptionWithCmk{Enforcement: new(tc.enforcement)},
+			}
+
+			got := s.create(t, fmt.Sprintf("cmk-%d", i), svc)
+			assert.Equal(t, tc.want, *got.Properties.EncryptionWithCmk.EncryptionComplianceStatus)
+			assert.Equal(t, tc.enforcement, *got.Properties.EncryptionWithCmk.Enforcement)
+		})
+	}
 }

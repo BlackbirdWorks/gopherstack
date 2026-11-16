@@ -31,6 +31,11 @@ func (h *Handler) pageAPIMList(r *http.Request, method string, body any) (any, e
 
 	q := r.URL.Query()
 
+	items, err := applyAPIMFilter(r.URL.Path, q.Get("$filter"), items)
+	if err != nil {
+		return nil, err
+	}
+
 	top, err := apimQueryInt(q, apimQueryTop, 1)
 	if err != nil {
 		return nil, err

@@ -183,6 +183,10 @@ func errNotNFS() *apiError {
 	return newErr(http.StatusBadRequest, "InvalidUri", "This operation is only supported on NFS shares.")
 }
 
+func errNotSMB() *apiError {
+	return newErr(http.StatusBadRequest, "InvalidUri", "This operation is not supported on NFS shares.")
+}
+
 func (h *Handler) routeLink(rc *reqCtx, restype string) (string, opFn) {
 	switch {
 	case rc.path == "":

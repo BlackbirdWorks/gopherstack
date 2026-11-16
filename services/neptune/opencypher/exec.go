@@ -54,8 +54,10 @@ func distinctResultRows(rows [][]any) [][]any {
 	return out
 }
 
-func (x *exec) runPart(q *query) (*Result, error) {
-	rows := []row{{}}
+func (x *exec) runPart(q *query) (*Result, error) { return x.runPartFrom(q, row{}) }
+
+func (x *exec) runPartFrom(q *query, seed row) (*Result, error) {
+	rows := []row{seed}
 	res := &Result{}
 
 	for _, c := range q.clauses {
@@ -84,6 +86,8 @@ func (x *exec) runPart(q *query) (*Result, error) {
 			rows, err = x.execWith(t, rows)
 		case returnClause:
 			res, err = x.execReturn(t, rows)
+		case callClause:
+			rows, err = x.execCall(t, rows)
 		}
 
 		if err != nil {
@@ -442,4 +446,44 @@ func (x *exec) nonNegative(e expr, what string) (int, error) {
 	}
 
 	return int(n), nil
+}
+
+// execCall runs the subquery once per input row with only its imported variables visible, joining the returned
+// columns onto that row; an input row whose subquery returns nothing is dropped.
+func (x *exec) execCall(c callClause, rows []row) ([]row, error) {
+	var out []row
+
+	for _, r := range rows {
+		seed := row{}
+
+		for _, name := range c.imports {
+			v, ok := r[name]
+			if !ok {
+				return nil, malformed("Variable `%s` not defined", name)
+			}
+
+			seed[name] = v
+		}
+
+		res, err := x.runPartFrom(c.body, seed)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, vals := range res.Rows {
+			joined := r.with("", nil)
+
+			for i, col := range res.Columns {
+				if _, dup := r[col]; dup {
+					return nil, malformed("Variable `%s` already declared", col)
+				}
+
+				joined[col] = vals[i]
+			}
+
+			out = append(out, joined)
+		}
+	}
+
+	return out, nil
 }

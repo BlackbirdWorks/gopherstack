@@ -38,7 +38,6 @@ families:
   Reports: {status: ok, note: "The report snapshot is taken when the report completes."}
   AutoManagement: {status: ok, note: "One configuration per account and Region."}
 items_still_open:
-  - Catalog: quotas without a documented code are absent (the General Reference prints codes only for adjustable quotas; SQS and SNS print none), and docs defaults that vary by Region use the Region-independent value, else us-east-1; codes are not verified against the live API.
   - ContextId/QuotaContext: resource-level quotas are not modeled; ContextId is rejected with IllegalArgumentException
   - QuotaUtilization: only S3 buckets, EC2 Elastic IPs, VPCs, IAM roles/users/groups and DynamoDB tables report usage; the other catalogued quotas have no live counter
   - AutoManagement: NotifyAndAdjust sends the 95% notification only (as documented) but files no automatic increase request: the Automatic Management page (docs.aws.amazon.com/servicequotas/latest/userguide/automatic-management.html) does not state the requested value or which quotas qualify for automated approval
@@ -73,3 +72,7 @@ Quota request templates answer TemplatesNotAvailableInRegionException in opt-in,
 
 ## Primary-source checks (2026-11-13)
 - servicequotas: IAM reference_iam-quotas.html lists the maximum quotas per account as roles 10,000, customer managed policies 10,000, instance profiles 10,000 and groups 500 (catalog fixed from 5,000).
+
+## Emulator choices where the vendor is silent
+
+- Catalog: quotas without a documented code are absent (the General Reference prints codes only for adjustable quotas; SQS and SNS print none), and docs defaults that vary by Region use the Region-independent value, else us-east-1; codes are not verified against the live API.

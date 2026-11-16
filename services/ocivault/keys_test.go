@@ -241,6 +241,13 @@ func TestKeyVersions(t *testing.T) {
 
 	v2, err := m.CreateKeyVersion(ctx, keymanagement.CreateKeyVersionRequest{KeyId: k.Id})
 	require.NoError(t, err)
+	assert.Equal(t, keymanagement.KeyVersionLifecycleStateEnabling, v2.LifecycleState)
+
+	mid, err := m.GetKey(ctx, keymanagement.GetKeyRequest{KeyId: k.Id})
+	require.NoError(t, err)
+	assert.Equal(t, *k.CurrentKeyVersion, *mid.CurrentKeyVersion, "the new version is current once it is ENABLED")
+
+	e.settle()
 	assert.NotEqual(t, *k.CurrentKeyVersion, *v2.Id)
 	assert.NotEmpty(t, *v2.PublicKey)
 
@@ -313,6 +320,8 @@ func TestAutoRotation(t *testing.T) {
 	assert.Equal(t, "InvalidParameter", svcErr(t, err).GetCode())
 
 	e.clock.Advance(61 * 24 * time.Hour)
+	e.backend.Sweep()
+	e.settle()
 
 	got, err := m.GetKey(ctx, keymanagement.GetKeyRequest{KeyId: resp.Id})
 	require.NoError(t, err)

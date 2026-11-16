@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -31,14 +32,19 @@ const (
 	errUnreachable            = "Runtime.Unreachable"
 	errTimeoutListen          = "Application.TimeoutListenError"
 	errAccountVCPUThrottle    = "Platform.AccountActiveVCPUArm64Throttle"
-	errCannotAssumeRoleType   = "Platform.CannotAssumeRole"
-	errKMSDecryptionType      = "Platform.KMSDecryptionError"
+	errAccountRateThrottle    = "Platform.AccountRequestThrottle"
+
+	errEndpointConcurrentInitThrottle = "Platform.EndpointConcurrentInitThrottle"
+	errCannotAssumeRoleType           = "Platform.CannotAssumeRole"
+	errKMSDecryptionType              = "Platform.KMSDecryptionError"
 
 	hdrRequestID    = "Lambda-Web-Request-Id"
 	hdrEndpointName = "Lambda-Web-Endpoint-Name"
 	hdrLogStream    = "Lambda-Web-Logstream"
 	hdrErrorType    = "Lambda-Web-Error-Type"
 	hdrContentSHA   = "X-Amz-Content-Sha256"
+	// hdrCallerRegion names the target Region nearest the caller; the emulator has no latency measurements.
+	hdrCallerRegion = "X-Gopherstack-Caller-Region"
 
 	hostInfix     = ".lambda-web."
 	hostSuffixAWS = ".on.aws"
@@ -126,7 +132,7 @@ func (b *InMemoryBackend) ServeEndpoint(w http.ResponseWriter, r *http.Request) 
 		return true
 	}
 
-	ep, status, reason := b.activeEndpoint(domain)
+	ep, serve, status, reason := b.activeEndpoint(domain, r.Header.Get(hdrCallerRegion))
 	if ep == nil {
 		platformError(w, status, reason, "")
 
@@ -136,7 +142,7 @@ func (b *InMemoryBackend) ServeEndpoint(w http.ResponseWriter, r *http.Request) 
 	b.sweepIfDue()
 
 	cw := &captureWriter{ResponseWriter: w}
-	rm := &requestMetrics{start: b.run.now(), cw: cw}
+	rm := &requestMetrics{start: b.run.now(), cw: cw, serve: serve}
 	defer b.recordRequest(ep, cw, rm)
 
 	if !b.authorize(cw, r, ep) {
@@ -144,12 +150,19 @@ func (b *InMemoryBackend) ServeEndpoint(w http.ResponseWriter, r *http.Request) 
 	}
 
 	key := endpointKey(ep.Region, ep.FunctionName, ep.Name)
+	if serve != ep.Region {
+		key += "@" + serve
+	}
 
-	if rejected := b.run.admitRate(key, ep.RateLimit, b.run.now()); rejected != "" {
+	if rejected := b.run.admitRate(serve, key, ep.RateLimit, b.run.now()); rejected != "" {
 		code := http.StatusTooManyRequests
-		if rejected == errEndpointDisabled {
+
+		switch rejected {
+		case errEndpointDisabled:
 			code = http.StatusServiceUnavailable
-		} else {
+		case errAccountRateThrottle:
+			rm.throttle = "AccountRequestThrottles"
+		default:
 			rm.throttle = "EndpointRequestThrottles"
 		}
 
@@ -158,7 +171,7 @@ func (b *InMemoryBackend) ServeEndpoint(w http.ResponseWriter, r *http.Request) 
 		return true
 	}
 
-	b.proxy(cw, r, ep, reqID, rm)
+	b.proxy(cw, r, ep, reqID, serve, rm)
 
 	return true
 }
@@ -167,9 +180,9 @@ func rejectRequest(w http.ResponseWriter, r *http.Request, domain string) bool {
 	switch {
 	case !methodAllowed(r.Method):
 		platformError(w, http.StatusBadRequest, errMalformedRequest, "Unsupported HTTP method.")
-	case r.ProtoMajor == 1 && r.ProtoMinor == 0:
-		platformError(w, http.StatusHTTPVersionNotSupported, errUnsupportedHTTPVersion, "HTTP/1.0 is not supported.")
-	case headerBytes(r) > maxHeaderBytes:
+	case r.ProtoMajor != 1 || r.ProtoMinor != 1:
+		platformError(w, http.StatusHTTPVersionNotSupported, errUnsupportedHTTPVersion, "Only HTTP/1.1 is supported.")
+	case headBytes(r) > maxHeaderBytes:
 		platformError(w, http.StatusRequestHeaderFieldsTooLarge, "Platform.HeaderTooLarge", "")
 	case strings.ToLower(hostOnly(r.Host)) != hostOnly(r.Host) && domain != "":
 		platformError(w, http.StatusNotFound, errInvalidEndpoint, "")
@@ -188,20 +201,25 @@ func hostOnly(host string) string {
 	return host
 }
 
-func headerBytes(r *http.Request) int {
-	n := len(r.Method) + len(r.RequestURI)
+// headBytes is the size of the request head as the client sent it: request line, every header line and the
+// terminating blank line.
+func headBytes(r *http.Request) int {
+	n := len(r.Method) + len(" ") + len(r.RequestURI) + len(" HTTP/1.1\r\n")
+	n += len("Host: ") + len(r.Host) + len("\r\n")
 
 	for k, vs := range r.Header {
 		for _, v := range vs {
-			n += len(k) + len(v) + 4 //nolint:mnd // ": " and CRLF
+			n += len(k) + len(": ") + len(v) + len("\r\n")
 		}
 	}
 
-	return n
+	return n + len("\r\n")
 }
 
-// activeEndpoint resolves the endpoint a domain names and requires it Active.
-func (b *InMemoryBackend) activeEndpoint(domain string) (*Endpoint, int, string) {
+// activeEndpoint resolves the endpoint a domain names and the Region that serves the request, and requires both to
+// be Active. A PerRegion domain is served by its own Region; the MultiRegion global domain by the target Region
+// named in the caller-region hint, else the home Region.
+func (b *InMemoryBackend) activeEndpoint(domain, hint string) (*Endpoint, string, int, string) {
 	b.mu.Lock("activeEndpoint")
 	defer b.mu.Unlock()
 
@@ -209,18 +227,46 @@ func (b *InMemoryBackend) activeEndpoint(domain string) (*Endpoint, int, string)
 
 	e := b.findEndpointLocked(domain)
 	if e == nil {
-		return nil, http.StatusNotFound, errInvalidEndpoint
+		return nil, "", http.StatusNotFound, errInvalidEndpoint
 	}
 
 	if f, ok := b.functions.Get(functionKey(e.Region, e.FunctionName)); !ok || f.State == stateDeleting {
-		return nil, http.StatusNotFound, errInvalidEndpoint
+		return nil, "", http.StatusNotFound, errInvalidEndpoint
 	}
 
 	if e.State != stateActive {
-		return nil, http.StatusConflict, errEndpointNotActive
+		return nil, "", http.StatusConflict, errEndpointNotActive
 	}
 
-	return b.endpointView(e), 0, ""
+	serve := serveRegion(e, domain, hint)
+	view := b.endpointView(e)
+
+	weights, ok := servingWeights(e, serve, view.Weights)
+	if !ok {
+		return nil, "", http.StatusConflict, errEndpointNotActive
+	}
+
+	view.Weights = weights
+
+	return view, serve, 0, ""
+}
+
+// serveRegion picks the Region that serves a request to domain.
+func serveRegion(e *Endpoint, domain, hint string) string {
+	switch e.Type {
+	case endpointPerRegion:
+		for region, d := range e.RegionDomains {
+			if d == domain {
+				return region
+			}
+		}
+	case endpointMultiRegion:
+		if slices.Contains(e.Regions, hint) {
+			return hint
+		}
+	}
+
+	return e.Region
 }
 
 // SetSigV4Secret sets the secret IamAuth endpoints verify signatures against; empty means "test".
@@ -306,7 +352,7 @@ func (b *InMemoryBackend) proxy(
 	w http.ResponseWriter,
 	r *http.Request,
 	ep *Endpoint,
-	reqID string,
+	reqID, serve string,
 	rm *requestMetrics,
 ) {
 	revID, ok := b.run.pick(ep.Weights)
@@ -335,9 +381,9 @@ func (b *InMemoryBackend) proxy(
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 
-	rm.scope = scopeOf(ep)
+	rm.scope = scopeOf(ep, serve)
 
-	lease, th, err := b.run.acquire(ctx, cp, b.capacityFor(ep, cp, reqID))
+	lease, th, err := b.run.acquire(ctx, cp, serve, b.capacityFor(ep, cp, reqID, serve))
 	if th != throttleNone {
 		rm.throttle = th.metric()
 		platformError(w, http.StatusTooManyRequests, th.errType(), "")
@@ -375,17 +421,20 @@ func (b *InMemoryBackend) proxy(
 	copyResponse(w, resp, reqID, lease.inst.stream)
 }
 
-func scopeOf(ep *Endpoint) []string {
+func scopeOf(ep *Endpoint, serve string) []string {
 	out := make([]string, 0, len(ep.Weights))
 	for _, w := range ep.Weights {
-		out = append(out, envKey(ep.Region, ep.FunctionName, w.RevisionID))
+		out = append(out, servedKey(ep.Region, serve, ep.FunctionName, w.RevisionID))
 	}
 
 	return out
 }
 
-func (b *InMemoryBackend) capacityFor(ep *Endpoint, rev *Revision, reqID string) capacity {
+func (b *InMemoryBackend) capacityFor(ep *Endpoint, rev *Revision, reqID, serve string) capacity {
 	_, logs, _, _ := b.environmentServices()
+	if !b.logsAllowed(rev) {
+		logs = nil
+	}
 
 	perEnv := rev.ServiceConfig.MaxConcurrencyPerEnvironment
 	if perEnv < 1 {
@@ -394,13 +443,14 @@ func (b *InMemoryBackend) capacityFor(ep *Endpoint, rev *Revision, reqID string)
 
 	return capacity{
 		logs: logs, metrics: b.metricEmitter(), preflight: b.preflight, maxEnv: ep.MaxEnvironments,
-		scope: scopeOf(ep), reqID: reqID, endpoint: ep.Name, perEnv: perEnv, regionMax: maxTotalArmVCpus / vcpusPerEnv,
+		scope: scopeOf(ep, serve), reqID: reqID, endpoint: ep.Name, perEnv: perEnv,
+		regionMax: maxTotalArmVCpus / vcpusPerEnv, initMax: b.run.initMaxValue(),
 	}
 }
 
 func (b *InMemoryBackend) environmentFailed(ctx context.Context, w http.ResponseWriter, rev *Revision, err error) {
 	switch {
-	case errors.Is(err, errEngineUnavailable):
+	case errors.Is(err, errEngineUnavailable), errors.Is(err, ErrRuntimeUnavailable):
 		platformError(w, http.StatusServiceUnavailable, "", err.Error())
 	case errors.Is(err, errCannotAssumeRole):
 		platformError(w, http.StatusBadGateway, errCannotAssumeRoleType, err.Error())
@@ -452,9 +502,17 @@ func (b *InMemoryBackend) outbound(
 	out.Header = r.Header.Clone()
 	out.ContentLength = r.ContentLength
 
+	for _, v := range r.Header.Values("Connection") {
+		for name := range strings.SplitSeq(v, ",") {
+			out.Header.Del(strings.TrimSpace(name))
+		}
+	}
+
 	for _, h := range hopHeaders() {
 		out.Header.Del(h)
 	}
+
+	out.Header.Del(hdrCallerRegion)
 
 	for k := range out.Header {
 		if strings.HasPrefix(strings.ToLower(k), "lambda-web-") {
@@ -517,4 +575,11 @@ func (b *InMemoryBackend) EndpointAuthType(host string) string {
 	}
 
 	return ""
+}
+
+func (r *runtimeState) initMaxValue() int {
+	r.mu.RLock("initMaxValue")
+	defer r.mu.RUnlock()
+
+	return r.initMax
 }

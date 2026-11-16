@@ -41,6 +41,7 @@ func (s *Store) Run(ctx context.Context, q *Query) (*Result, error) {
 	defer s.mu.RUnlock()
 
 	ev := newEvaluator(ctx, s.datasetFor(q.From, q.FromNamed), q.Base)
+	ev.svc, ev.prologue = q.service, servicePrologue(q)
 
 	return ev.run(q)
 }
@@ -409,40 +410,5 @@ func (ev *evaluator) describe(q *Query, rows []Binding, vars []string) []Triple 
 		}
 	}
 
-	return ev.describeAll(targets)
-}
-
-// describeAll returns each resource's concise bounded description: its outgoing triples, following blank nodes.
-func (ev *evaluator) describeAll(targets []Term) []Triple {
-	seen := map[Triple]struct{}{}
-	done := map[Term]bool{}
-
-	var out []Triple
-
-	for len(targets) > 0 {
-		r := targets[0]
-		targets = targets[1:]
-
-		if done[r] {
-			continue
-		}
-
-		done[r] = true
-
-		ev.scan(Term{}, r, Term{}, Term{}, func(qd Quad) bool {
-			if _, dup := seen[qd.Triple]; !dup {
-				seen[qd.Triple] = struct{}{}
-
-				out = append(out, qd.Triple)
-			}
-
-			if qd.O.Kind == KindBlank {
-				targets = append(targets, qd.O)
-			}
-
-			return true
-		})
-	}
-
-	return out
+	return ev.describeAll(targets, q.Hints)
 }

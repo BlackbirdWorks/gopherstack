@@ -309,6 +309,10 @@
     "FlowContentSha256",
     "Version"
   ],
+  "AWS::Connect::DataLakeAssociation": [
+    "ResourceShareArn",
+    "ResourceShareId"
+  ],
   "AWS::Connect::DataTable": [
     "Arn",
     "CreatedTime",
@@ -1014,6 +1018,33 @@
   "AWS::Lambda::Version": [
     "FunctionArn",
     "Version"
+  ],
+  "AWS::Lambda::WebFunction": [
+    "CreatedAt",
+    "FunctionArn",
+    "State",
+    "StateReason",
+    "UpdatedAt"
+  ],
+  "AWS::Lambda::WebFunctionEndpoint": [
+    "CreatedAt",
+    "DomainName",
+    "EndpointArn",
+    "FunctionArn",
+    "RegionalEndpoints",
+    "State",
+    "StateReason",
+    "UpdateStatus",
+    "UpdateStatusReason",
+    "UpdatedAt"
+  ],
+  "AWS::Lambda::WebFunctionRevision": [
+    "CreatedAt",
+    "FunctionArn",
+    "RevisionArn",
+    "RevisionId",
+    "State",
+    "StateReason"
   ],
   "AWS::Logs::Delivery": [
     "Arn",

@@ -52,8 +52,7 @@ ops:
 families:
   route_matcher: {status: ok, note: "FIXED THIS PASS: deleted pathAnalyzedResource (\"analyzedResource\", no hyphen) dead legacy routing -- RouteMatcher claimed it but no parser ever resolved an op for it (always 404'd; no real SDK client sends this path, only the real hyphenated \"/analyzed-resource\" via pathAnalyzedResourceHyph). Removed the RouteMatcher prefix entry and the dead parseRESTPath case; updated TestAccessAnalyzerHandler_RouteMatcher accordingly (now asserts /analyzedResource is NOT claimed and /analyzed-resource IS). All other families re-verified unchanged against aws-sdk-go-v2 serializers.go this pass (archive-rule PUT/GET/DELETE paths+methods, tags GET/POST/DELETE, policy-generation PUT/GET paths, access-preview PUT/GET/POST) -- no further routing bugs found."}
 gaps: []
-items_still_open:
-  - "Criterion.Contains: API_Criterion.html and the IAM filter-keys page (access-analyzer-reference-filter-keys.html) describe it only as a \"contains\" operator with no match semantics (substring vs element), so Contains is treated as matching. createdAt/updatedAt/analyzedAt/resourceRegion are not listed as filter keys on that page and are treated as matching."
+items_still_open: []
 structural_gaps:
   - "FindingSummary error/resourceControlPolicyRestriction/sources, AnalyzerSummary managedBy/statusReason and AccessPreviewSummary statusReason are never emitted: they come from a real policy-analysis engine, service-linked provisioning or analysis failures, none of which exist (findings are only seeded). Filters on error/resourceControlPolicyRestriction therefore see no values."
   - "GetFindingRecommendation.recommendedSteps is always [] -- unused-permission recommendation generation needs a real access-activity analysis engine (gopherstack-kwht)."
@@ -774,3 +773,7 @@ reqfielddiff adjudication (accepted, not modeled):
 - ValidatePolicy.ValidatePolicyResourceType: validated against the enum; resource-type-specific checks are not implemented.
 - GetGeneratedPolicy.IncludeServiceLevelTemplate: generatedPolicies is always empty, nothing to template.
 - ListAnalyzers.Type and the [required] AnalyzerName/RuleName/ResourceArn members are URL path/query bindings read in the handler, not body fields.
+
+## Emulator choices where the vendor is silent
+
+- Criterion.Contains: API_Criterion.html and the IAM filter-keys page (access-analyzer-reference-filter-keys.html) describe it only as a "contains" operator with no match semantics (substring vs element), so Contains is treated as matching. createdAt/updatedAt/analyzedAt/resourceRegion are not listed as filter keys on that page and are treated as matching.

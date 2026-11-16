@@ -11,6 +11,7 @@ import (
 	connectbackend "github.com/blackbirdworks/gopherstack/services/connect"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 )
@@ -24,6 +25,22 @@ func (m connectMailer) SendEmail(_ context.Context, msg connectbackend.EmailMess
 	})
 
 	return err
+}
+
+// connectShares creates the RAM resource shares behind Connect analytics data set associations.
+type connectShares struct{ ram *rambackend.InMemoryBackend }
+
+func (c connectShares) CreateShare(_ context.Context, name, targetAccountID, resourceARN string) (string, error) {
+	rs, err := c.ram.CreateResourceShare(name, true, nil, []string{targetAccountID}, []string{resourceARN})
+	if err != nil {
+		return "", err
+	}
+
+	return rs.ARN, nil
+}
+
+func (c connectShares) DeleteShare(_ context.Context, shareARN string) error {
+	return c.ram.DeleteResourceShare(shareARN)
 }
 
 // connectResolvers checks Lambda functions and S3 objects named by Connect configuration.
@@ -136,6 +153,12 @@ func wireConnectIntegrations(byName map[string]service.Registerable) {
 	if sesH, ok := byName["SES"].(*sesbackend.Handler); ok {
 		if bk, bkOK := sesH.Backend.(*sesbackend.InMemoryBackend); bkOK {
 			cn.Backend.SetMailer(connectMailer{ses: bk})
+		}
+	}
+
+	if ramH, ok := byName["RAM"].(*rambackend.Handler); ok {
+		if bk, bkOK := ramH.Backend.(*rambackend.InMemoryBackend); bkOK {
+			cn.Backend.SetShares(connectShares{ram: bk})
 		}
 	}
 

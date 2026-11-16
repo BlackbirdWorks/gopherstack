@@ -236,8 +236,8 @@ func (h *Handler) listShares(rc *reqCtx) (*resp, *apiError) {
 }
 
 func retentionDays(a *account) int32 {
-	if a.Retention.Enabled {
-		return a.Retention.Days
+	if enabled, days := a.Retention.policy(); enabled {
+		return days
 	}
 
 	return 0

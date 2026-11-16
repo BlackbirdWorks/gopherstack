@@ -1,6 +1,7 @@
 package opencypher
 
 import (
+	"maps"
 	"math"
 	"sort"
 	"strconv"
@@ -9,13 +10,17 @@ import (
 )
 
 const (
-	aggMin = "min"
-	aggMax = "max"
+	aggMin            = "min"
+	aggMax            = "max"
+	aggPercentileDisc = "percentiledisc"
+	aggPercentileCont = "percentilecont"
+	aggStDev          = "stdev"
+	aggStDevP         = "stdevp"
 )
 
 func isAggregate(name string) bool {
 	switch name {
-	case "count", "collect", "sum", "avg", aggMin, aggMax:
+	case "count", "collect", "sum", "avg", aggMin, aggMax, aggPercentileDisc, aggPercentileCont, aggStDev, aggStDevP:
 		return true
 	default:
 		return false
@@ -123,8 +128,13 @@ func (x *exec) aggregate(c callExpr, grp []row) (any, error) {
 		return int64(len(grp)), nil
 	}
 
-	if len(c.args) != 1 {
-		return nil, malformed("%s() takes exactly one argument", c.name)
+	want := 1
+	if c.name == aggPercentileDisc || c.name == aggPercentileCont {
+		want = pairArgs
+	}
+
+	if len(c.args) != want {
+		return nil, malformed("%s() takes exactly %d argument(s)", c.name, want)
 	}
 
 	var vals []any
@@ -151,6 +161,10 @@ func (x *exec) aggregate(c callExpr, grp []row) (any, error) {
 		}
 
 		vals = append(vals, v)
+	}
+
+	if want == pairArgs {
+		return x.foldPercentile(c, vals, grp)
 	}
 
 	return foldAggregate(c.name, vals)
@@ -180,6 +194,10 @@ func foldAggregate(name string, vals []any) (any, error) {
 		}
 
 		return best, nil
+	}
+
+	if name == aggStDev || name == aggStDevP {
+		return foldStDev(name, vals)
 	}
 
 	return foldNumeric(name, vals)
@@ -222,7 +240,7 @@ func foldNumeric(name string, vals []any) (any, error) {
 type scalarFunc func(args []any) (any, error)
 
 func builtinFuncs() map[string]scalarFunc {
-	return map[string]scalarFunc{
+	fns := map[string]scalarFunc{
 		"id": funcID, "labels": funcLabels, "type": funcType, "properties": funcProperties, "keys": funcKeys,
 		"size": funcSize, "length": funcSize, "coalesce": funcCoalesce, "exists": funcExists,
 		"tostring": strFunc(func(v any) any { return stringify(v) }), "tointeger": funcToInteger,
@@ -247,6 +265,10 @@ func builtinFuncs() map[string]scalarFunc {
 		"nodes":         funcPathNodes,
 		"relationships": funcPathRels, "timestamp": func([]any) (any, error) { return time.Now().UnixMilli(), nil },
 	}
+
+	maps.Copy(fns, extraFuncs())
+
+	return fns
 }
 
 func argc(name string, args []any, want int) error {
@@ -468,14 +490,14 @@ func funcToInteger(args []any) (any, error) {
 	case int64:
 		return t, nil
 	case float64:
-		return int64(t), nil
+		return saturate(t), nil
 	case string:
 		if i, err := strconv.ParseInt(strings.TrimSpace(t), 10, 64); err == nil {
 			return i, nil
 		}
 
 		if f, err := strconv.ParseFloat(strings.TrimSpace(t), 64); err == nil {
-			return int64(f), nil
+			return saturate(f), nil
 		}
 	}
 
@@ -803,4 +825,100 @@ func patternArg(c callExpr) (patternExpr, bool) {
 	pe, ok := c.args[0].(patternExpr)
 
 	return pe, ok
+}
+
+// saturate truncates f toward zero, clamping to the signed 64-bit range as Neptune's toInteger does.
+func saturate(f float64) any {
+	switch {
+	case math.IsNaN(f):
+		return nil
+	case f >= math.MaxInt64:
+		return int64(math.MaxInt64)
+	case f <= math.MinInt64:
+		return int64(math.MinInt64)
+	}
+
+	return int64(f)
+}
+
+func (x *exec) foldPercentile(c callExpr, vals []any, grp []row) (any, error) {
+	if len(vals) == 0 {
+		return nil, nil //nolint:nilnil // aggregate over nothing
+	}
+
+	pv, err := x.eval(c.args[1], grp[0], nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if !isNumber(pv) || toFloat(pv) < 0 || toFloat(pv) > 1 {
+		return nil, &Error{Code: CodeInvalidParameter,
+			Detail: "Invalid input is not a valid argument, must be a number in the range 0.0 to 1.0"}
+	}
+
+	nums := make([]float64, len(vals))
+
+	for i, v := range vals {
+		if !isNumber(v) {
+			return nil, malformed("Type mismatch: expected Number but was %s", typeName(v))
+		}
+
+		nums[i] = toFloat(v)
+	}
+
+	sort.Float64s(nums)
+
+	p := toFloat(pv)
+
+	if c.name == aggPercentileCont {
+		pos := p * float64(len(nums)-1)
+		lo := int(math.Floor(pos))
+		hi := int(math.Ceil(pos))
+
+		return nums[lo] + (nums[hi]-nums[lo])*(pos-float64(lo)), nil
+	}
+
+	idx := max(int(math.Ceil(p*float64(len(nums))))-1, 0)
+
+	for _, v := range vals {
+		if toFloat(v) == nums[idx] {
+			return v, nil
+		}
+	}
+
+	return nums[idx], nil
+}
+
+func foldStDev(name string, vals []any) (any, error) {
+	if len(vals) == 0 {
+		return 0.0, nil
+	}
+
+	mean := 0.0
+
+	for _, v := range vals {
+		if !isNumber(v) {
+			return nil, malformed("Type mismatch: expected Number but was %s", typeName(v))
+		}
+
+		mean += toFloat(v)
+	}
+
+	mean /= float64(len(vals))
+	ss := 0.0
+
+	for _, v := range vals {
+		ss += (toFloat(v) - mean) * (toFloat(v) - mean)
+	}
+
+	denom := float64(len(vals))
+	if name == aggStDev {
+		denom--
+	}
+
+	if denom <= 0 {
+		return 0.0, nil
+	}
+
+	return math.Sqrt(ss / denom), nil
 }

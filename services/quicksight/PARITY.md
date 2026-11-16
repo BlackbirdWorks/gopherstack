@@ -309,10 +309,7 @@ gaps: []
   # corrected in the VPCConnection family note and the families preamble. Fixed by
   # dropping the field from vpcConnectionToMap; the model still stores/round-trips
   # SubnetIDs for Create/Update. See handler_vpcconnections.go, handler_vpcconnections_test.go.
-items_still_open:
-  - "DescribeTopicV2/DescribeTopic do not project each other's family-only fields (V1 ConfigOptions/full DatasetMetadata, V2 DataSetRelations/CustomInstructions): the schemas are not convertible and neither the SDK nor the API reference documents a projection."
-  - "KnowledgeBaseSummary.Type is a free string (*string, no enum) and no doc says what it is derived from."
-  - "Embed/ingestion edge semantics not documented: the error code for AdditionalDashboardIds with a non-ANONYMOUS identity (InvalidParameterValueException used; IdentityTypeNotSupportedException's doc names only IAM/QUICKSIGHT), the INITIAL_INGESTION and EDIT dataset-triggered ingestion request types, and RestoreToFolders=false dropping folder memberships."
+items_still_open: []
 structural_gaps:
   - "GetDashboardEmbedUrl ResetDisabled/StatePersistenceEnabled/UndoRedoDisabled, SessionLifetimeInMinutes/AllowedDomains carriage in the URL, GenerateEmbedUrlForAnonymousUser.SessionTags and GetIdentityContext.SessionExpiresAt: the embed URL and identity token are opaque."
   - "CreateDashboard/UpdateDashboard/UpdateAnalysis Parameters: no Describe* operation echoes them and the Definition is opaque."
@@ -2292,3 +2289,9 @@ Tool false positives: both folder-permission ops page through `writePagedFolderP
 - CreateIngestion: id validated (`[a-zA-Z0-9-_]{1,128}`); ingestions stay RUNNING for `SetIngestionDelay` (default 1s) then report COMPLETED with IngestionTimeInSeconds; ListIngestions uses opaque tokens, newest first, bad token is `InvalidNextTokenException`.
 - CreateDashboard/CreateAnalysis/CreateDataSource report CREATION_IN_PROGRESS; Describe settles to CREATION_SUCCESSFUL after `SetCreationDelay` (default 0, root wiring needed for a flag).
 - Other list operations still use hand-rolled id tokens that silently restart on a bad token.
+
+## Emulator choices where the vendor is silent
+
+- DescribeTopicV2/DescribeTopic do not project each other's family-only fields (V1 ConfigOptions/full DatasetMetadata, V2 DataSetRelations/CustomInstructions): the schemas are not convertible and neither the SDK nor the API reference documents a projection.
+- KnowledgeBaseSummary.Type is a free string (*string, no enum) and no doc says what it is derived from.
+- Embed/ingestion edge semantics not documented: the error code for AdditionalDashboardIds with a non-ANONYMOUS identity (InvalidParameterValueException used; IdentityTypeNotSupportedException's doc names only IAM/QUICKSIGHT), the INITIAL_INGESTION and EDIT dataset-triggered ingestion request types, and RestoreToFolders=false dropping folder memberships.

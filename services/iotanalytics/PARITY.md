@@ -59,8 +59,7 @@ families:
   routing: {status: ok, note: "RouteMatcher + parseIoTAnalyticsPath verified path-prefix and HTTP-method-for-method against every awsRestjson1_serializeOpHttpBindings*/request.Method in aws-sdk-go-v2/service/iotanalytics@v1.32.0/serializers.go -- all 34 ops match (paths, GET/POST/PUT/DELETE, query param names incl. includeStatistics/maxMessages/maxResults/nextToken/resourceArn/tagKeys/versionId/scheduledBefore/scheduledOnOrAfter)"}
   timestamps: {status: ok, note: "creationTime/lastUpdateTime/lastMessageArrivalTime/completionTime/startTime/endTime/scheduleTime all epoch-seconds JSON numbers (awstime-equivalent; models.go epochSeconds), matches smithytime.ParseEpochSeconds/FormatEpochSeconds in the real deserializers/serializers"}
 gaps: []
-items_still_open:
-  - "RunPipelineActivity filter/math do not implement LIKE, IN or BETWEEN: the pinned SDK describes filter only as 'an expression that looks like a SQL WHERE clause' and publishes no operator list, so extending the grammar would invent behavior."
+items_still_open: []
 structural_gaps:
   - "GetDatasetContent always returns an empty entries array: dataset SQL actions are not executed and there is no S3 delivery of results (no query engine over datastore contents)."
 deferred: []
@@ -504,3 +503,7 @@ iotanalytics is region-isolated: channels, datastores, datasets and pipelines li
 ## 2026-10-05 (gopherstack-uox6 pass 11, value semantics)
 
 CreateChannel/CreateDatastore default an unset storage to serviceManagedS3 and CreateDatastore an unset file format to JSON, so Describe returns them (types.go:108, api_op_CreateDatastore.go:47,57). Proof: `TestChannelDatastore_DefaultStorageAndPartialUpdate`. Recorded, unchanged: the SDK says the storage choice cannot change after create but names no error, and UpdateDataset omitted-member semantics are unstated; dataset 90-day default retention is documented but not modeled in Describe (SDK states it only as server behavior).
+
+## Emulator choices where the vendor is silent
+
+- RunPipelineActivity filter/math do not implement LIKE, IN or BETWEEN: the pinned SDK describes filter only as 'an expression that looks like a SQL WHERE clause' and publishes no operator list, so extending the grammar would invent behavior.

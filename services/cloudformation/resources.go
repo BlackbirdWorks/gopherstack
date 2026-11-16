@@ -56,6 +56,7 @@ import (
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	lambdawebbackend "github.com/blackbirdworks/gopherstack/services/lambdaweb"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	oambackend "github.com/blackbirdworks/gopherstack/services/oam"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
@@ -108,6 +109,7 @@ type ServiceBackends struct {
 	KMS             *kmsbackend.Handler
 	SecretsManager  *secretsmanagerbackend.Handler
 	Lambda          *lambdabackend.Handler
+	LambdaWeb       *lambdawebbackend.Handler
 	EventBridge     *ebbackend.Handler
 	StepFunctions   *sfnbackend.Handler
 	CloudWatchLogs  *cwlogsbackend.Handler

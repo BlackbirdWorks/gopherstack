@@ -30,7 +30,7 @@ type ociEventsNotifier struct {
 func (n ociEventsNotifier) TopicActive(id string) bool { return n.b.TopicActive(id) }
 
 func (n ociEventsNotifier) PublishEvent(topicID, body string) error {
-	_, err := n.b.PublishMessage(topicID, "JSON", ocinotifications.PublishIn{Body: &body})
+	_, err := n.b.PublishMessage(context.Background(), topicID, "JSON", ocinotifications.PublishIn{Body: &body})
 
 	return err
 }

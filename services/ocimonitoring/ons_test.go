@@ -85,7 +85,7 @@ func newONS(t *testing.T, e *env) *onsEnv {
 	require.NoError(t, err)
 
 	sk := newSink(t)
-	sub, err := nb.CreateSubscription(ons.CreateSubscriptionIn{
+	sub, err := nb.CreateSubscription(t.Context(), ons.CreateSubscriptionIn{
 		TopicID: topic.TopicID, Compartment: testCompartment, Protocol: "HTTPS", Endpoint: sk.srv.URL + "/hook",
 	}, "http://x")
 	require.NoError(t, err)
@@ -98,13 +98,13 @@ func newONS(t *testing.T, e *env) *onsEnv {
 	_, err = nb.ConfirmSubscription(sub.ID, u.Query().Get("token"), "HTTPS")
 	require.NoError(t, err)
 
-	e.backend.SetPublisher(func(_ context.Context, topicID, title, body string, asJSON bool) error {
+	e.backend.SetPublisher(func(ctx context.Context, topicID, title, body string, asJSON bool) error {
 		msgType := ""
 		if asJSON {
 			msgType = "JSON"
 		}
 
-		_, perr := nb.PublishMessage(topicID, msgType, ons.PublishIn{Title: &title, Body: &body})
+		_, perr := nb.PublishMessage(ctx, topicID, msgType, ons.PublishIn{Title: &title, Body: &body})
 
 		return perr
 	})

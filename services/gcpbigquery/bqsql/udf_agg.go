@@ -72,6 +72,8 @@ func (a *momentAgg) WindowValue(*sqlitedriver.FunctionContext) (driver.Value, er
 func (a *momentAgg) Final(*sqlitedriver.FunctionContext) {}
 
 func registerAggregates() {
+	registerHLLAggregates()
+
 	for name, spec := range map[string][2]bool{
 		"bq_stddev_samp": {true, true}, "bq_stddev_pop": {false, true}, "bq_var_samp": {true, false},
 		"bq_var_pop": {false, false},

@@ -22,6 +22,8 @@ const (
 	opStartReplica       = "StartReplica"
 	opStopReplica        = "StopReplica"
 	opFailover           = "Failover"
+	opSwitchover         = "Switchover"
+	opExecuteSQL         = "ExecuteSql"
 	opTruncateLog        = "TruncateLog"
 	opResetSslConfig     = "ResetSslConfig"
 	opAddServerCa        = "AddServerCa"
@@ -192,6 +194,8 @@ func subCollectionOp(method, sub string) string {
 		"startReplica":          {http.MethodPost: opStartReplica},
 		"stopReplica":           {http.MethodPost: opStopReplica},
 		"failover":              {http.MethodPost: opFailover},
+		"switchover":            {http.MethodPost: opSwitchover},
+		"executeSql":            {http.MethodPost: opExecuteSQL},
 		"truncateLog":           {http.MethodPost: opTruncateLog},
 		"resetSslConfig":        {http.MethodPost: opResetSslConfig},
 		"addServerCa":           {http.MethodPost: opAddServerCa},

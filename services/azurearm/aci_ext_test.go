@@ -809,3 +809,79 @@ func TestACISDK_GitRepoVolume(t *testing.T) {
 		})
 	}
 }
+
+func TestACISpotPriority(t *testing.T) {
+	t.Parallel()
+
+	spot := armcontainerinstance.ContainerGroupPrioritySpot
+	regular := armcontainerinstance.ContainerGroupPriorityRegular
+
+	tests := []struct {
+		mutate   func(*armcontainerinstance.ContainerGroup)
+		name     string
+		wantCode string
+		wantPrio string
+	}{
+		{name: "spot", wantPrio: "Spot", mutate: func(g *armcontainerinstance.ContainerGroup) {
+			g.Properties.Priority = &spot
+		}},
+		{name: "regular", mutate: func(g *armcontainerinstance.ContainerGroup) { g.Properties.Priority = &regular }},
+		{
+			name:     "spot over maximum",
+			wantCode: "InvalidRequestContent",
+			mutate: func(g *armcontainerinstance.ContainerGroup) {
+				g.Properties.Priority = &spot
+				g.Properties.Containers[0].Properties.Resources.Requests.CPU = new(5.0)
+			},
+		},
+		{
+			name:     "spot public ip",
+			wantCode: "InvalidRequestContent",
+			mutate: func(g *armcontainerinstance.ContainerGroup) {
+				g.Properties.Priority = &spot
+				g.Properties.IPAddress = &armcontainerinstance.IPAddress{
+					Type:  new(armcontainerinstance.ContainerGroupIPAddressTypePublic),
+					Ports: []*armcontainerinstance.Port{{Port: new(int32(80))}},
+				}
+			},
+		},
+		{name: "spot zone", wantCode: "InvalidRequestContent", mutate: func(g *armcontainerinstance.ContainerGroup) {
+			g.Properties.Priority = &spot
+			g.Zones = []*string{new("1")}
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := newACIStack(t)
+			g := aciOpts{}.group()
+			tt.mutate(&g)
+
+			pl, err := s.factory.NewContainerGroupsClient().BeginCreateOrUpdate(t.Context(), "rg", "spot", g, nil)
+			if err == nil {
+				_, err = pl.PollUntilDone(t.Context(), pollFast())
+			}
+
+			if tt.wantCode != "" {
+				require.Error(t, err)
+				assert.Equal(t, tt.wantCode, sdkErrCode(err))
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			got := s.get(t, "rg", "spot")
+
+			if tt.wantPrio == "" {
+				assert.Nil(t, got.Properties.Priority)
+
+				return
+			}
+
+			assert.Equal(t, tt.wantPrio, string(*got.Properties.Priority))
+		})
+	}
+}

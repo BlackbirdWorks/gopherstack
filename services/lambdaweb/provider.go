@@ -1,9 +1,14 @@
 package lambdaweb
 
 import (
+	"time"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// verifyInterval is how often Lambda re-checks the code of Active revisions; the docs give no interval.
+const verifyInterval = 5 * time.Minute
 
 // Provider implements service.Provider for Lambda Web Functions.
 type Provider struct{}
@@ -23,6 +28,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		if st := cp.GetLambdaWebSettings(); st.Engine == EngineDocker {
 			enableDockerEngine(ctx, backend, st)
 		}
+	}
+
+	if ctx.JanitorCtx != nil {
+		go backend.RunVerifier(ctx.JanitorCtx, verifyInterval)
 	}
 
 	handler := NewHandler(backend)

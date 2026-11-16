@@ -102,6 +102,7 @@ func (b *InMemoryBackend) createDataset(project string, body map[string]any) (ma
 	d := &Dataset{
 		Meta:     metaFrom(body, datasetManaged()),
 		Tables:   map[string]*Table{},
+		Routines: map[string]*Routine{},
 		Location: loc,
 		Created:  now,
 		Modified: now,
@@ -172,7 +173,7 @@ func (b *InMemoryBackend) deleteDataset(project, id string, deleteContents bool)
 		return err
 	}
 
-	if d.liveCount() > 0 && !deleteContents {
+	if (d.liveCount() > 0 || len(d.Routines) > 0) && !deleteContents {
 		return errInUse("Dataset %s:%s is still in use", project, id)
 	}
 

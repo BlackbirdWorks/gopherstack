@@ -92,6 +92,8 @@ func (b *InMemoryBackend) runBackend(
 		return b.functionBackend(ctx, be, r, rv, body)
 	case backendDynamic:
 		chosen := selectDynamic(be, rv)
+		logDynamic(logFrom(ctx), be, chosen)
+
 		if chosen == nil {
 			return backendResponse{status: http.StatusNotFound, header: http.Header{}, body: http.NoBody}
 		}
@@ -123,17 +125,22 @@ func (b *InMemoryBackend) httpBackend(
 ) backendResponse {
 	target := rv.interpolate(*be.URL, escapePath)
 
+	lg := logFrom(ctx)
+
+	if strings.Contains(*be.URL, "${") {
+		lg.exec(levelInfo, "httpBackend.formedBackendUrl", "The HTTP backend URL was formed using context variables.")
+	}
+
 	u, err := url.Parse(target)
 	if err != nil || !httpURL(u) {
+		lg.exec(levelError, "httpBackend.urlInvalid", "The HTTP backend URL is not valid.")
+
 		return backendResponse{err: fmt.Errorf("%w: %q", errBackendURL, target)}
 	}
 
 	appendQuery(u, rv.query.Encode())
 
-	total := seconds(be.ConnectTimeout, defaultConnectSec) + seconds(be.ReadTimeout, defaultReadSec) +
-		seconds(be.SendTimeout, defaultSendSec)
-
-	ctx, cancel := context.WithTimeout(ctx, total)
+	ctx, _, cancel := withBackendTimeouts(ctx, be)
 
 	out, err := http.NewRequestWithContext(ctx, r.Method, u.String(), bytes.NewReader(body))
 	if err != nil {
@@ -144,13 +151,17 @@ func (b *InMemoryBackend) httpBackend(
 
 	copyRequestHeaders(out.Header, rv.header)
 	out.Header.Set("X-Forwarded-For", clientKey(r))
+	lg.exec(levelInfo, "httpBackend.requestSent", "Request sent to the HTTP backend.")
 
 	resp, err := b.client.Do(out) //nolint:gosec,bodyclose // G704 loopback-only by default; body closed by cancelBody
 	if err != nil {
 		cancel()
+		lg.exec(levelError, "httpBackend.requestError", "An error occurred making the request to the HTTP backend.")
 
 		return backendResponse{err: err}
 	}
+
+	lg.exec(levelInfo, "httpBackend.responseReceived", "Response received from the HTTP backend.")
 
 	return wrapResponse(resp, cancel)
 }
@@ -220,9 +231,17 @@ func (b *InMemoryBackend) functionBackend(
 	out, err := inv.InvokeFunction(ctx, be.FunctionID, FunctionRequest{
 		Method: r.Method, Path: r.URL.Path, RawQuery: rv.query.Encode(), Header: rv.header.Clone(), Body: body,
 	})
+	lg := logFrom(ctx)
+
 	if err != nil {
+		lg.exec(levelError, "functionBackend.badGateway", "Invoking the function in OCI Functions failed.",
+			"functionId", be.FunctionID)
+
 		return backendResponse{err: err}
 	}
+
+	lg.exec(levelInfo, "functionBackend.successfulRequest", "Successful invocation of function in OCI Functions",
+		"functionId", be.FunctionID)
 
 	h := out.Header
 	if h == nil {
@@ -277,5 +296,18 @@ func wildcardMatch(expr, val string) bool {
 		return len(val) > len(expr)-1 && strings.HasPrefix(val, expr[:len(expr)-1])
 	default:
 		return val == expr
+	}
+}
+
+func logDynamic(lg *reqLog, be *backendDoc, chosen *backendDoc) {
+	switch {
+	case chosen == nil:
+		lg.exec(levelWarn, "dynamicRouting.backendRejected", "The request did not match a back end rule.")
+	case slices.ContainsFunc(be.RoutingBackends, func(rb dynamicBackend) bool {
+		return rb.Backend == chosen && rb.Key.IsDefault != nil && *rb.Key.IsDefault
+	}):
+		lg.exec(levelInfo, "dynamicRouting.defaultBackendMatched", "The request was routed to the default back end.")
+	default:
+		lg.exec(levelInfo, "dynamicRouting.backendMatched", "The request matched a back end rule.")
 	}
 }

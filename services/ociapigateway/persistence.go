@@ -24,6 +24,7 @@ type backendSnapshot struct {
 	Subscribers  map[string]*Subscriber    `json:"subscribers"`
 	CaPEMs       map[string]string         `json:"caBundlePems"`
 	Retry        map[string]ociretry.Entry `json:"retryTokens"`
+	Usage        map[string]quotaSnapshot  `json:"usageCounters,omitempty"`
 	Auth         []ociauth.KeyRecord       `json:"authKeys"`
 	Version      int                       `json:"version"`
 	Seq          int64                     `json:"seq"`
@@ -40,6 +41,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Version: snapshotVersion, Gateways: b.gateways, Deployments: b.deployments, Certificates: b.certificates,
 		WorkReqs: b.workReqs, Auth: keys, Seq: b.seq, APIs: b.apis, Sdks: b.sdks, UsagePlans: b.usagePlans,
 		Subscribers: b.subscribers, CaPEMs: b.caPEMs, Retry: b.retry.Entries(),
+		Usage: b.usage.snapshot(b.nowUTC()),
 	})
 }
 
@@ -81,6 +83,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.caPEMs = snap.CaPEMs
 	b.retry.Load(snap.Retry)
+	b.usage.load(snap.Usage)
 	b.Auth.Load(snap.Auth)
 
 	return nil

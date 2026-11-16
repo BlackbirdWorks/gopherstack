@@ -1,6 +1,7 @@
 package bqsql
 
 import (
+	"context"
 	"database/sql"
 	"math"
 	"slices"
@@ -20,10 +21,20 @@ func (r TableRef) String() string { return r.Project + ":" + r.Dataset + "." + r
 
 // TableData is a table's schema and rows as the catalog holds them.
 type TableData struct {
+	// RowsFn supplies the rows of an external table at query time; they carry the Pseudo columns after Fields.
+	RowsFn    func() ([][]any, error)
 	Ref       TableRef
 	ViewQuery string
 	Fields    []Field
 	Rows      [][]any
+	// RowPolicies are the row access policies in force on the table.
+	RowPolicies []RowPolicyData
+	// Pseudo lists columns selectable by name but not part of the schema, such as _FILE_NAME.
+	Pseudo []Field
+	// PartitionFilter names the columns a query must filter on (require_hive_partition_filter).
+	PartitionFilter []string
+	Materialized    bool
+	External        bool
 }
 
 // Catalog resolves tables for the compiler.
@@ -42,8 +53,11 @@ type Param struct {
 // Input configures one statement run.
 type Input struct {
 	Catalog Catalog
+	Temp    map[string]*RoutineData
+	Vars    VarScope
 	Project string
 	Dataset string
+	User    string
 	Params  []Param
 }
 
@@ -52,12 +66,15 @@ type colInfo struct {
 	sql    string
 	typ    Type
 	hidden bool
+	pseudo bool
 }
 
 type relation struct {
 	alias string
 	cols  []*colInfo
-	value bool
+	// needFilter lists partition columns a WHERE conjunct must reference exclusively.
+	needFilter []string
+	value      bool
 }
 
 type scope struct {
@@ -83,12 +100,15 @@ type cteDef struct {
 }
 
 type compiledQuery struct {
-	sql     string
-	cols    []Column
-	aliases []string
+	sql       string
+	cols      []Column
+	aliases   []string
+	recursive bool
 }
 
 type compiler struct {
+	ctx       context.Context //nolint:containedctx // the compiler runs one statement and never outlives it
+	snaps     map[TableRef]int64
 	in        *Input
 	loadIdx   map[TableRef]*loadedTable
 	fns       map[string]*fnDef
@@ -98,8 +118,10 @@ type compiler struct {
 	ctes      []map[string]*cteDef
 	bound     map[*Param]string
 	binds     []any
+	frames    []*frame
 	seq       int
 	viewDepth int
+	polDepth  int
 }
 
 const maxViewDepth = 16
@@ -161,6 +183,12 @@ func (c *compiler) resolveRef(path []string) (TableRef, error) {
 }
 
 func (c *compiler) findCTE(name string) *cteDef {
+	if f := c.topFrame(); f != nil {
+		if d, ok := f.tables[strings.ToLower(name)]; ok {
+			return d
+		}
+	}
+
 	for _, defs := range slices.Backward(c.ctes) {
 		for k, d := range defs {
 			if strings.EqualFold(k, name) {
@@ -192,7 +220,7 @@ func (c *compiler) compileQuery(q *Query, outer *scope) (*compiledQuery, error) 
 
 	defer func() { c.ctes = c.ctes[:len(c.ctes)-1] }()
 
-	prefix, err := c.compileWith(q.with, defs)
+	prefix, err := c.compileWith(q, defs)
 	if err != nil {
 		return nil, err
 	}
@@ -211,45 +239,69 @@ func (c *compiler) compileQuery(q *Query, outer *scope) (*compiledQuery, error) 
 	return cq, nil
 }
 
-func (c *compiler) compileWith(with []cte, defs map[string]*cteDef) (string, error) {
-	if len(with) == 0 {
+func (c *compiler) compileWith(q *Query, defs map[string]*cteDef) (string, error) {
+	if len(q.with) == 0 {
 		return "", nil
 	}
 
-	parts := make([]string, 0, len(with))
+	parts := make([]string, 0, len(q.with))
 
-	for _, w := range with {
-		cq, err := c.compileQuery(w.query, nil)
+	for _, w := range q.with {
+		part, err := c.compileCTE(w, q.recursive, defs)
 		if err != nil {
 			return "", err
 		}
 
-		names := make([]string, len(cq.cols))
-		for i, col := range cq.cols {
-			names[i] = col.Name
-		}
-
-		if len(w.cols) > 0 {
-			if len(w.cols) != len(cq.cols) {
-				return "", invalid("WITH %s has %d columns but %d names", w.name, len(cq.cols), len(w.cols))
-			}
-
-			names = w.cols
-		}
-
-		def := &cteDef{}
-		sqlNames := uniqueNames(names)
-
-		for i, col := range cq.cols {
-			def.cols = append(def.cols, &colInfo{name: names[i], typ: col.Type, sql: quoteIdent(sqlNames[i])})
-		}
-
-		defs[w.name] = def
-
-		parts = append(parts, quoteIdent(w.name)+"("+quoteList(sqlNames)+") AS ("+cq.sql+")")
+		parts = append(parts, part)
 	}
 
 	return "WITH " + strings.Join(parts, ", ") + " ", nil
+}
+
+func (c *compiler) compileCTE(w cte, recursive bool, defs map[string]*cteDef) (string, error) {
+	var (
+		cq  *compiledQuery
+		err error
+	)
+
+	if recursive && refersTo(w.query, w.name) {
+		cq, err = c.compileRecursive(w, defs)
+	} else {
+		cq, err = c.compileQuery(w.query, nil)
+	}
+
+	if err != nil {
+		return "", err
+	}
+
+	names := make([]string, len(cq.cols))
+	for i, col := range cq.cols {
+		names[i] = col.Name
+	}
+
+	if len(w.cols) > 0 {
+		if len(w.cols) != len(cq.cols) {
+			return "", invalid("WITH %s has %d columns but %d names", w.name, len(cq.cols), len(w.cols))
+		}
+
+		names = w.cols
+	}
+
+	sqlNames := uniqueNames(names)
+	def := &cteDef{}
+
+	for i, col := range cq.cols {
+		def.cols = append(def.cols, &colInfo{name: names[i], typ: col.Type, sql: quoteIdent(sqlNames[i])})
+	}
+
+	if cq.recursive {
+		sqlNames = append(sqlNames, recursionCol)
+		def.cols = append(def.cols, &colInfo{name: recursionCol, sql: quoteIdent(recursionCol), hidden: true})
+	}
+
+	defs[w.name] = def
+
+	return quoteIdent(w.name) + "(" + quoteList(sqlNames) + ") AS (" + cq.sql + ")", nil
 }
 
 func quoteList(names []string) string {
@@ -280,6 +332,10 @@ func uniqueNames(names []string) []string {
 
 func (c *compiler) compileSetExpr(s *setExpr, outer *scope) (*compiledQuery, *selOut, error) {
 	switch {
+	case s.sel != nil && s.sel.groupSets != nil:
+		cq, err := c.compileGroupingSets(s.sel, outer)
+
+		return cq, nil, err
 	case s.sel != nil:
 		so, err := c.compileSelect(s.sel, outer)
 		if err != nil {
@@ -298,7 +354,7 @@ func (c *compiler) compileSetExpr(s *setExpr, outer *scope) (*compiledQuery, *se
 
 func setOpSQL() map[string]string {
 	return map[string]string{
-		"UNION ALL": "UNION ALL", "UNION DISTINCT": litUnion, "INTERSECT DISTINCT": litIntersect,
+		litUnionAll: litUnionAll, "UNION DISTINCT": litUnion, "INTERSECT DISTINCT": litIntersect,
 		"EXCEPT DISTINCT": litExcept,
 	}
 }
@@ -466,6 +522,10 @@ func (c *compiler) compileSelect(s *selectStmt, outer *scope) (*selOut, error) {
 		}
 	}
 
+	if err := requirePartitionFilters(s, sc); err != nil {
+		return nil, err
+	}
+
 	items, err := c.compileItems(s, sc)
 	if err != nil {
 		return nil, err
@@ -557,6 +617,8 @@ func (c *compiler) selectClauses(
 		}
 
 		sb.WriteString(" HAVING " + g.sql)
+	} else if s.global {
+		sb.WriteString(" HAVING 1")
 	}
 
 	return nil
@@ -764,7 +826,7 @@ func (c *compiler) starColumns(rel *relation) []*colInfo {
 	var out []*colInfo
 
 	for _, col := range rel.cols {
-		if !col.hidden {
+		if !col.hidden && !col.pseudo {
 			out = append(out, col)
 		}
 	}
@@ -775,7 +837,16 @@ func (c *compiler) starColumns(rel *relation) []*colInfo {
 func (c *compiler) compileFrom(f *fromItem, sc *scope) (string, error) {
 	switch f.kind {
 	case fromTable:
-		return c.fromTable(f, sc)
+		if f.call {
+			return c.fromRoutine(f, sc)
+		}
+
+		src, err := c.fromTable(f, sc)
+		if err != nil || f.sample == nil {
+			return src, err
+		}
+
+		return c.sampled(f, src, sc)
 	case fromSubquery:
 		cq, err := c.compileQuery(f.query, sc.parent)
 		if err != nil {
@@ -794,6 +865,8 @@ func (c *compiler) compileFrom(f *fromItem, sc *scope) (string, error) {
 		return c.fromUnnest(f, sc)
 	case fromJoin:
 		return c.fromJoin(f, sc)
+	case fromPivot:
+		return c.fromPivot(f, sc)
 	}
 
 	return "", invalid("unsupported FROM item")
@@ -815,22 +888,7 @@ func relFromCompiled(alias string, cq *compiledQuery) *relation {
 func (c *compiler) fromTable(f *fromItem, sc *scope) (string, error) {
 	if len(f.path) == 1 {
 		if def := c.findCTE(f.path[0]); def != nil {
-			alias := f.alias
-			if alias == "" {
-				alias = f.path[0]
-			}
-
-			rel := &relation{alias: alias}
-			for _, col := range def.cols {
-				rel.cols = append(
-					rel.cols,
-					&colInfo{name: col.name, typ: col.typ, sql: quoteIdent(alias) + "." + col.sql},
-				)
-			}
-
-			sc.rels = append(sc.rels, rel)
-
-			return quoteIdent(f.path[0]) + " AS " + quoteIdent(alias), nil
+			return c.fromCTE(f, def, sc)
 		}
 	}
 
@@ -841,6 +899,10 @@ func (c *compiler) fromTable(f *fromItem, sc *scope) (string, error) {
 
 	td, err := c.lookupTable(ref)
 	if err != nil {
+		return "", err
+	}
+
+	if td, err = c.pinSnapshot(f, ref, td); err != nil {
 		return "", err
 	}
 
@@ -863,9 +925,63 @@ func (c *compiler) fromTable(f *fromItem, sc *scope) (string, error) {
 		)
 	}
 
+	for _, ps := range td.Pseudo {
+		rel.cols = append(rel.cols, &colInfo{
+			name: ps.Name, typ: ps.SQLType(), sql: quoteIdent(alias) + "." + quoteIdent(ps.Name), pseudo: true,
+		})
+	}
+
+	rel.needFilter = td.PartitionFilter
 	sc.rels = append(sc.rels, rel)
 
+	if len(td.RowPolicies) > 0 {
+		return c.policySource(td, lt, alias)
+	}
+
 	return quoteIdent(lt.name) + " AS " + quoteIdent(alias), nil
+}
+
+func (c *compiler) fromCTE(f *fromItem, def *cteDef, sc *scope) (string, error) {
+	if f.asOf != nil {
+		return "", invalid("FOR SYSTEM_TIME AS OF cannot be used with a WITH clause table")
+	}
+
+	alias := f.alias
+	if alias == "" {
+		alias = f.path[0]
+	}
+
+	rel := &relation{alias: alias}
+	for _, col := range def.cols {
+		rel.cols = append(rel.cols, &colInfo{name: col.name, typ: col.typ, sql: quoteIdent(alias) + "." + col.sql})
+	}
+
+	sc.rels = append(sc.rels, rel)
+
+	return quoteIdent(f.path[0]) + " AS " + quoteIdent(alias), nil
+}
+
+// pinSnapshot resolves FOR SYSTEM_TIME AS OF and enforces one point in time per table within a query.
+func (c *compiler) pinSnapshot(f *fromItem, ref TableRef, td *TableData) (*TableData, error) {
+	if f.asOf != nil && td.ViewQuery != "" {
+		return nil, invalid("FOR SYSTEM_TIME AS OF cannot be used with a view")
+	}
+
+	if f.asOf != nil {
+		return c.tableAsOf(f, ref)
+	}
+
+	if prev, seen := c.snaps[ref]; seen && prev != 0 {
+		return nil, invalid("Table %s cannot be referenced at two different points in time in one query", ref)
+	}
+
+	if c.snaps == nil {
+		c.snaps = map[TableRef]int64{}
+	}
+
+	c.snaps[ref] = 0
+
+	return td, nil
 }
 
 func (c *compiler) fromView(td *TableData, alias string, sc *scope) (string, error) {
@@ -1029,3 +1145,29 @@ func findCol(rels []*relation, name string) *colInfo {
 }
 
 func equalFold(a, b string) bool { return strings.EqualFold(a, b) }
+
+// sampled keeps each row with probability percent/100; BigQuery samples blocks, which the emulator cannot see.
+func (c *compiler) sampled(f *fromItem, src string, sc *scope) (string, error) {
+	if f.sample.kind != nInt && f.sample.kind != nFloat && f.sample.kind != nParam {
+		return "", invalid("TABLESAMPLE SYSTEM percent must be a literal or a query parameter")
+	}
+
+	if f.sample.kind != nParam {
+		v, err := strconv.ParseFloat(f.sample.str, 64)
+		if err != nil || v < 0 || v > 100 {
+			return "", invalid("TABLESAMPLE SYSTEM percent must be between 0 and 100")
+		}
+	}
+
+	g, err := c.expr(f.sample, sc)
+	if err != nil {
+		return "", err
+	}
+
+	alias := f.alias
+	if alias == "" {
+		alias = f.path[len(f.path)-1]
+	}
+
+	return "(SELECT * FROM " + src + " WHERE bq_rand() * 100.0 < (" + g.sql + ")) AS " + quoteIdent(alias), nil
+}

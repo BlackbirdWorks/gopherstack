@@ -116,6 +116,8 @@ func (b *InMemoryBackend) inheritWiring(home *InMemoryBackend) {
 		b.metrics.Set(e)
 	}
 
+	b.observer.Store(home.observer.Load())
+
 	if r, ok := home.cwLogs.(regionalCWLogs); ok {
 		b.cwLogs = r.ForRegion(b.region)
 	}

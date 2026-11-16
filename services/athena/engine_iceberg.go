@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/iceberg"
-	"github.com/blackbirdworks/gopherstack/pkgs/parquetio"
 )
 
 const (
@@ -225,28 +224,137 @@ func (l *tableLoader) snapshotFiles(ctx context.Context, snap iceberg.Snapshot) 
 	return out, nil
 }
 
-// positionDeletes loads position delete files; equality deletes are rejected.
-func (l *tableLoader) positionDeletes(ctx context.Context, files []fileEntry) (map[string][]deleteSet, error) {
-	out := map[string][]deleteSet{}
+// icebergDeletes are a snapshot's delete files: position deletes by data file path and equality deletes.
+type icebergDeletes struct {
+	pos map[string][]deleteSet
+	eq  []eqDelete
+}
+
+// eqDelete is one equality delete file: rows (keyed by tupleKey over ids) removed from older data files.
+type eqDelete struct {
+	rows map[string]struct{}
+	part map[string]any
+	ids  []int
+	seq  int64
+	spec int
+}
+
+const (
+	tupleSep  = "\x1f"
+	tupleNull = "\x00"
+)
+
+func tupleKey(cells []string, nulls []bool) string {
+	var sb strings.Builder
+
+	for i, c := range cells {
+		if nulls[i] {
+			sb.WriteString(tupleNull)
+		} else {
+			sb.WriteString(c)
+		}
+
+		sb.WriteString(tupleSep)
+	}
+
+	return sb.String()
+}
+
+// appliesTo reports whether the delete covers data written at an older sequence in the same partition scope.
+func (d eqDelete) appliesTo(f fileEntry) bool {
+	if d.seq <= f.seq {
+		return false
+	}
+
+	if len(d.part) == 0 {
+		return true
+	}
+
+	return d.spec == f.spec && partitionKey(d.part) == partitionKey(f.entry.DataFile.Partition)
+}
+
+func (l *tableLoader) openDeleteFile(ctx context.Context, path, format string) (columnarFile, error) {
+	data, err := l.readURI(ctx, path)
+	if err != nil {
+		return nil, icebergFailf("ICEBERG_CANNOT_OPEN_SPLIT", "Cannot open delete file %s", path)
+	}
+
+	kind := fmtParquet
+	if strings.EqualFold(format, "ORC") {
+		kind = fmtORC
+	}
+
+	pf, err := openColumnar(kind, data)
+	if err != nil {
+		return nil, icebergFailf("ICEBERG_CANNOT_OPEN_SPLIT", "Cannot open delete file %s: %v", path, err)
+	}
+
+	return pf, nil
+}
+
+func (l *tableLoader) equalityDelete(ctx context.Context, d fileEntry) (eqDelete, error) {
+	df := d.entry.DataFile
+	out := eqDelete{ids: df.EqualityIDs, seq: d.seq, spec: d.spec, part: df.Partition, rows: map[string]struct{}{}}
+
+	pf, err := l.openDeleteFile(ctx, df.Path, df.Format)
+	if err != nil {
+		return out, err
+	}
+
+	byID := pf.ColumnIDs()
+	names := make([]string, len(df.EqualityIDs))
+
+	for i, id := range df.EqualityIDs {
+		n, ok := byID[id]
+		if !ok {
+			return out, icebergFailf("ICEBERG_INVALID_METADATA",
+				"Equality delete file %s has no column with field id %d", df.Path, id)
+		}
+
+		names[i] = n
+	}
+
+	err = pf.ForEach(names, func(vals []any) error {
+		cells, nulls := make([]string, len(vals)), make([]bool, len(vals))
+
+		for i, v := range vals {
+			if v == nil {
+				nulls[i] = true
+			} else {
+				cells[i] = parquetCell(v)
+			}
+		}
+
+		out.rows[tupleKey(cells, nulls)] = struct{}{}
+
+		return nil
+	})
+	if err != nil {
+		return out, icebergFailf("ICEBERG_CURSOR_ERROR", "Cannot read delete file %s: %v", df.Path, err)
+	}
+
+	return out, nil
+}
+
+// loadDeletes reads every position and equality delete file of a snapshot.
+func (l *tableLoader) loadDeletes(ctx context.Context, files []fileEntry) (*icebergDeletes, error) {
+	out := &icebergDeletes{pos: map[string][]deleteSet{}}
 
 	for _, d := range files {
 		if d.entry.DataFile.Content == iceberg.ContentEqualityDeletes {
-			return nil, fmt.Errorf("%w: Iceberg equality delete files", errUnsupportedFormat)
+			eq, err := l.equalityDelete(ctx, d)
+			if err != nil {
+				return nil, err
+			}
+
+			out.eq = append(out.eq, eq)
+
+			continue
 		}
 
-		data, err := l.readURI(ctx, d.entry.DataFile.Path)
+		pf, err := l.openDeleteFile(ctx, d.entry.DataFile.Path, d.entry.DataFile.Format)
 		if err != nil {
-			return nil, icebergFailf("ICEBERG_CANNOT_OPEN_SPLIT", "Cannot open delete file %s", d.entry.DataFile.Path)
-		}
-
-		pf, err := parquetio.Open(data)
-		if err != nil {
-			return nil, icebergFailf(
-				"ICEBERG_CANNOT_OPEN_SPLIT",
-				"Cannot open delete file %s: %v",
-				d.entry.DataFile.Path,
-				err,
-			)
+			return nil, err
 		}
 
 		perFile := map[string]map[int64]bool{}
@@ -265,19 +373,93 @@ func (l *tableLoader) positionDeletes(ctx context.Context, files []fileEntry) (m
 		})
 		if err != nil {
 			return nil, icebergFailf(
-				"ICEBERG_CURSOR_ERROR",
-				"Cannot read delete file %s: %v",
-				d.entry.DataFile.Path,
-				err,
-			)
+				"ICEBERG_CURSOR_ERROR", "Cannot read delete file %s: %v", d.entry.DataFile.Path, err)
 		}
 
 		for p, set := range perFile {
-			out[p] = append(out[p], deleteSet{seq: d.seq, rows: set})
+			out.pos[p] = append(out.pos[p], deleteSet{seq: d.seq, rows: set})
 		}
 	}
 
 	return out, nil
+}
+
+// eqColumns lists the schema column names the equality deletes compare, so the loader reads them.
+func (d *icebergDeletes) eqColumns(schema iceberg.Schema) []string {
+	var names []string
+
+	for _, e := range d.eq {
+		for _, id := range e.ids {
+			for _, f := range schema.Fields {
+				if f.ID == id {
+					names = append(names, f.Name)
+				}
+			}
+		}
+	}
+
+	return names
+}
+
+type eqCheck struct {
+	rows map[string]struct{}
+	cols []int
+}
+
+// columnIndexes maps equality field ids to schema column positions; ok=false when one is missing.
+func columnIndexes(schema iceberg.Schema, ids []int) ([]int, bool) {
+	cols := make([]int, 0, len(ids))
+
+	for _, id := range ids {
+		for i, fld := range schema.Fields {
+			if fld.ID == id {
+				cols = append(cols, i)
+			}
+		}
+	}
+
+	return cols, len(cols) == len(ids)
+}
+
+func (c eqCheck) hits(rec []string, nulls []bool) bool {
+	cells, ns := make([]string, len(c.cols)), make([]bool, len(c.cols))
+
+	for i, ci := range c.cols {
+		cells[i], ns[i] = rec[ci], nulls[ci]
+	}
+
+	_, hit := c.rows[tupleKey(cells, ns)]
+
+	return hit
+}
+
+// rejecter builds the row filter for one data file, nil when no equality delete applies.
+func (d *icebergDeletes) rejecter(schema iceberg.Schema, f fileEntry) func(rec []string, nulls []bool) bool {
+	var checks []eqCheck
+
+	for _, e := range d.eq {
+		if !e.appliesTo(f) {
+			continue
+		}
+
+		if cols, ok := columnIndexes(schema, e.ids); ok {
+			checks = append(checks, eqCheck{rows: e.rows, cols: cols})
+		}
+	}
+
+	if len(checks) == 0 {
+		return nil
+	}
+
+	return func(rec []string, nulls []bool) bool {
+		for _, c := range checks {
+			if c.hits(rec, nulls) {
+				return true
+			}
+		}
+
+		return false
+	}
 }
 
 type deleteSet struct {
@@ -342,37 +524,55 @@ func (t *planTable) loadIceberg(ctx context.Context, conn *sql.Conn, l *tableLoa
 			return nil
 		}
 
-		files, ferr := l.snapshotFiles(ctx, snap)
-		if ferr != nil {
-			return ferr
-		}
+		sink := &rowSink{stmt: stmt, kinds: kinds, nargs: len(cols), rowTypes: rowTypesOf(cols)}
 
-		dels, ferr := l.positionDeletes(ctx, files.deletes)
-		if ferr != nil {
-			return ferr
-		}
-
-		sink := &rowSink{stmt: stmt, kinds: kinds, nargs: len(cols)}
-		cols = cols[:nreal]
-
-		for _, f := range files.data {
-			if lerr := l.loadIcebergDataFile(ctx, tbl, schema, cols, f, dels, sink, t.rowIDs); lerr != nil {
-				return lerr
-			}
-		}
-
-		return nil
+		return t.loadSnapshotFiles(ctx, l, tbl, snap, schema, cols[:nreal], sink)
 	})
+}
+
+func (t *planTable) loadSnapshotFiles(
+	ctx context.Context, l *tableLoader, tbl *icebergTable, snap iceberg.Snapshot, schema iceberg.Schema,
+	cols []Column, sink *rowSink,
+) error {
+	files, err := l.snapshotFiles(ctx, snap)
+	if err != nil {
+		return err
+	}
+
+	dels, err := l.loadDeletes(ctx, files.deletes)
+	if err != nil {
+		return err
+	}
+
+	l.want = l.want.with(dels.eqColumns(schema))
+
+	for _, f := range files.data {
+		if !t.rowIDs && tbl.pruned(l.filters, schema, f) {
+			continue
+		}
+
+		if err = l.loadIcebergDataFile(ctx, tbl, schema, cols, f, dels, sink, t.rowIDs); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (l *tableLoader) loadIcebergDataFile(
 	ctx context.Context, tbl *icebergTable, schema iceberg.Schema, cols []Column, f fileEntry,
-	dels map[string][]deleteSet, sink *rowSink, rowIDs bool,
+	dels *icebergDeletes, sink *rowSink, rowIDs bool,
 ) error {
 	df := f.entry.DataFile
+	sink.reject = dels.rejecter(schema, f)
 	isAvro := strings.EqualFold(df.Format, "AVRO")
+	kind := fmtParquet
 
-	if !strings.EqualFold(df.Format, "PARQUET") && !isAvro {
+	if strings.EqualFold(df.Format, "ORC") {
+		kind = fmtORC
+	}
+
+	if !strings.EqualFold(df.Format, "PARQUET") && !isAvro && kind != fmtORC {
 		return fmt.Errorf("%w: Iceberg data file format %s (%s)", errUnsupportedFormat, df.Format, df.Path)
 	}
 
@@ -382,7 +582,7 @@ func (l *tableLoader) loadIcebergDataFile(
 			return icebergFailf("ICEBERG_CANNOT_OPEN_SPLIT", "Cannot open data file %s", df.Path)
 		}
 
-		opts := avroOpts{skip: skipRows(dels[df.Path], f.seq), rowIDs: rowIDs, path: df.Path}
+		opts := avroOpts{skip: skipRows(dels.pos[df.Path], f.seq), rowIDs: rowIDs, path: df.Path}
 
 		return l.decodeAvro(ctx, bytes.NewReader(data), cols, sink, opts)
 	}
@@ -415,14 +615,14 @@ func (l *tableLoader) loadIcebergDataFile(
 		fcs = append(fcs, fileCol{name: colRowPath, constant: &p}, fileCol{name: colRowPos, rowPos: true})
 	}
 
-	return l.loadColumnarFile(ctx, bucket, key, fcs, skipRows(dels[df.Path], f.seq), sink)
+	return l.loadColumnarFile(ctx, bucket, key, kind, fcs, skipRows(dels.pos[df.Path], f.seq), sink)
 }
 
 // partitionText renders a manifest partition value as the text a column read would produce.
 func partitionText(icebergType string, v any) string {
 	switch n := v.(type) {
 	case int32, int:
-		if icebergType == "date" {
+		if icebergType == typeDate {
 			return time.Unix(toInt64(n)*secondsPerDayInt, 0).UTC().Format(dateLayout)
 		}
 	case int64:

@@ -14,15 +14,18 @@ import (
 const snapshotVersion = 1
 
 type backendSnapshot struct {
-	Systems  map[string]*DBSystem      `json:"dbSystems"`
-	Backups  map[string]*Backup        `json:"backups"`
-	Channels map[string]*Channel       `json:"channels"`
-	Configs  map[string]*Configuration `json:"configurations"`
-	WorkReqs map[string]*WorkRequest   `json:"workRequests"`
-	Retry    map[string]ociretry.Entry `json:"retryTokens"`
-	Auth     []ociauth.KeyRecord       `json:"authKeys"`
-	Version  int                       `json:"version"`
-	Seq      int64                     `json:"seq"`
+	Systems    map[string]*DBSystem         `json:"dbSystems"`
+	Backups    map[string]*Backup           `json:"backups"`
+	Channels   map[string]*Channel          `json:"channels"`
+	BlueGreens map[string]*BlueGreen        `json:"blueGreenDeployments"`
+	Replicas   map[string]*Replica          `json:"replicas"`
+	Events     map[string]*MaintenanceEvent `json:"maintenanceEvents"`
+	Configs    map[string]*Configuration    `json:"configurations"`
+	WorkReqs   map[string]*WorkRequest      `json:"workRequests"`
+	Retry      map[string]ociretry.Entry    `json:"retryTokens"`
+	Auth       []ociauth.KeyRecord          `json:"authKeys"`
+	Version    int                          `json:"version"`
+	Seq        int64                        `json:"seq"`
 }
 
 // Snapshot serialises the backend state, including registered API keys.
@@ -33,8 +36,18 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	defer b.mu.RUnlock()
 
 	return persistence.MarshalSnapshot(ctx, "ocimysql", backendSnapshot{
-		Version: snapshotVersion, Systems: b.systems, Backups: b.backups, Channels: b.channels, Configs: b.configs,
-		WorkReqs: b.workReqs, Auth: keys, Seq: b.seq, Retry: b.retry.Entries(),
+		Version:    snapshotVersion,
+		Systems:    b.systems,
+		Backups:    b.backups,
+		Channels:   b.channels,
+		BlueGreens: b.blueGreens,
+		Replicas:   b.replicas,
+		Configs:    b.configs,
+		Events:     b.events,
+		WorkReqs:   b.workReqs,
+		Auth:       keys,
+		Seq:        b.seq,
+		Retry:      b.retry.Entries(),
 	})
 }
 
@@ -63,12 +76,22 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.mu.Lock("Restore")
 	lives := b.detachAllLocked()
+	fronts := b.takeFrontsLocked()
 	b.systems, b.backups, b.channels, b.configs = snap.Systems, snap.Backups, snap.Channels, snap.Configs
-	b.workReqs, b.seq = snap.WorkReqs, snap.Seq
+	b.blueGreens = snap.BlueGreens
+	if b.blueGreens == nil {
+		b.blueGreens = map[string]*BlueGreen{}
+	}
+
+	b.workReqs, b.seq, b.replicas, b.events = snap.WorkReqs, snap.Seq, snap.Replicas, snap.Events
 	b.retry.Load(snap.Retry)
 
 	for _, s := range b.systems {
-		s.EngineHost, s.EnginePort = "", 0
+		s.EngineHost, s.EnginePort, s.EngineXPort = "", 0, 0
+	}
+
+	for _, r := range b.replicas {
+		r.EngineHost, r.EnginePort = "", 0
 	}
 
 	b.runCtx, b.stop = contextWithCancel()
@@ -76,6 +99,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	e := b.eng
 	b.mu.Unlock()
 
+	closeFronts(fronts)
 	e.closeAll(lives, false)
 	b.Auth.Load(snap.Auth)
 
@@ -100,7 +124,8 @@ func checkSnapshot(snap *backendSnapshot) error {
 	for _, err := range []error{
 		nullCheck("DB system", &snap.Systems), nullCheck("backup", &snap.Backups),
 		nullCheck("channel", &snap.Channels), nullCheck("configuration", &snap.Configs),
-		nullCheck("work request", &snap.WorkReqs),
+		nullCheck("work request", &snap.WorkReqs), nullCheck("replica", &snap.Replicas),
+		nullCheck("maintenance event", &snap.Events),
 	} {
 		if err != nil {
 			return err

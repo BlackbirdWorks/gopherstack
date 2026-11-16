@@ -200,3 +200,38 @@ func TestKubeconfigStableAndValidated(t *testing.T) {
 	)
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 }
+
+func TestCredentialRotationReissuesKubeconfigCredentials(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	ctx := t.Context()
+	c := e.mkCluster(t, "rotcreds", nil)
+
+	fetch := func() kubeconfig {
+		resp, err := e.ce.CreateKubeconfig(ctx, ke.CreateKubeconfigRequest{ClusterId: c.Id})
+		require.NoError(t, err)
+
+		return readKubeconfig(t, resp)
+	}
+
+	before := fetch()
+	assert.Equal(t, before, fetch())
+
+	_, err := e.ce.StartCredentialRotation(ctx, ke.StartCredentialRotationRequest{
+		ClusterId: c.Id, AutoCompletionDelayDuration: new("P5D"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, before, fetch())
+
+	e.settle()
+
+	issued := fetch()
+	assert.NotEqual(t, before.Users[0].User.Token, issued.Users[0].User.Token)
+	assert.NotEqual(t, before.Clusters[0].Cluster.CA, issued.Clusters[0].Cluster.CA)
+
+	_, err = e.ce.CompleteCredentialRotation(ctx, ke.CompleteCredentialRotationRequest{ClusterId: c.Id})
+	require.NoError(t, err)
+	e.settle()
+	assert.Equal(t, issued, fetch())
+}

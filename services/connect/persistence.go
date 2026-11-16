@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json/jsontext"
 	"fmt"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -60,6 +61,7 @@ func (b *Backend) Restore(ctx context.Context, data []byte) error {
 
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+	b.expiring = slices.ContainsFunc(b.contacts.table.All(), func(c *contactRec) bool { return c.ExpiresAt != nil })
 
 	return nil
 }

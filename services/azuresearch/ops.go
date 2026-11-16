@@ -94,7 +94,7 @@ func indexSubOp(name string) (string, bool) {
 		return opIndexStatistics, true
 	case "search.analyze":
 		return opAnalyzeText, true
-	case "search.index":
+	case pathIndexBatch:
 		return opIndexDocuments, true
 	case "$count":
 		return opCountDocuments, true

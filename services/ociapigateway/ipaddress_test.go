@@ -10,13 +10,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	ociapigateway "github.com/blackbirdworks/gopherstack/services/ociapigateway"
 )
 
 type fakeNet struct {
 	subnets  map[string]ociapigateway.SubnetInfo
+	nsgSets  map[string][]string
 	released []string
 	reqs     []ociapigateway.AddressRequest
+	reach    ociapigateway.Reachability
 	mu       sync.Mutex
 }
 
@@ -60,6 +63,32 @@ func (f *fakeNet) network() ociapigateway.Network {
 			f.mu.Lock()
 			f.released = append(f.released, id)
 			f.mu.Unlock()
+		},
+		SetNsgs: func(vnicID string, ids []string) error {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+
+			if len(ids) > 0 && ids[0] == "ocid1.nsg.oc1..gone" {
+				return &ociapigateway.APIError{
+					Status:  http.StatusNotFound,
+					Code:    "NotAuthorizedOrNotFound",
+					Message: "no nsg",
+				}
+			}
+
+			if f.nsgSets == nil {
+				f.nsgSets = map[string][]string{}
+			}
+
+			f.nsgSets[vnicID] = ids
+
+			return nil
+		},
+		Reach: func(string, string, int) ociapigateway.Reachability {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+
+			return f.reach
 		},
 	}
 }
@@ -243,4 +272,107 @@ func TestDuplicateGatewayCode(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode())
 	assert.Equal(t, "NotAuthorizedOrResourceAlreadyExists", svcErr(t, err).GetCode())
+}
+
+func TestGatewayNetworkSecurityGroups(t *testing.T) {
+	t.Parallel()
+
+	const pub = "ocid1.subnet.oc1..pub"
+
+	e := newEnv(t, envOpts{})
+	net := &fakeNet{subnets: map[string]ociapigateway.SubnetInfo{pub: {Regional: true, Public: true}}}
+	e.backend.SetNetwork(net.network())
+
+	details := apigateway.CreateGatewayDetails{
+		CompartmentId: new(testCompartment), EndpointType: apigateway.GatewayEndpointTypePublic,
+		SubnetId: new(pub), DisplayName: new("nsg-gw"), NetworkSecurityGroupIds: []string{"ocid1.nsg.oc1..a"},
+	}
+
+	resp, err := e.gw.CreateGateway(t.Context(), apigateway.CreateGatewayRequest{CreateGatewayDetails: details})
+	require.NoError(t, err)
+	e.settle()
+
+	assert.Equal(t, []string{"ocid1.nsg.oc1..a"}, net.reqs[0].NSGIDs, "the VNIC is created in the NSGs")
+
+	update := func(ids ...string) error {
+		upd := apigateway.UpdateGatewayDetails{NetworkSecurityGroupIds: ids}
+		_, uerr := e.gw.UpdateGateway(t.Context(), apigateway.UpdateGatewayRequest{
+			GatewayId: resp.Id, UpdateGatewayDetails: upd,
+		})
+		e.settle()
+
+		return uerr
+	}
+
+	require.NoError(t, update("ocid1.nsg.oc1..b"))
+	assert.Equal(t, []string{"ocid1.nsg.oc1..b"}, net.nsgSets["vnic-1"], "UpdateGateway moves the VNIC to the new NSGs")
+
+	require.Error(t, update("ocid1.nsg.oc1..gone"))
+	assert.Equal(t, []string{"ocid1.nsg.oc1..b"}, net.nsgSets["vnic-1"])
+	assert.Equal(t, []string{"ocid1.nsg.oc1..b"}, e.mkGatewayByID(t, *resp.Id).NetworkSecurityGroupIds,
+		"a refused update leaves the gateway unchanged")
+}
+
+func TestGatewayReachability(t *testing.T) {
+	t.Parallel()
+
+	const (
+		pub  = "ocid1.subnet.oc1..pub"
+		priv = "ocid1.subnet.oc1..priv"
+	)
+
+	tests := []struct {
+		name     string
+		subnet   string
+		endpoint apigateway.GatewayEndpointTypeEnum
+		reach    ociapigateway.Reachability
+		served   bool
+	}{
+		{"allowed by the network", pub, apigateway.GatewayEndpointTypePublic, ociapigateway.ReachAllowed, true},
+		{"denied by a security rule", pub, apigateway.GatewayEndpointTypePublic, ociapigateway.ReachDenied, false},
+		{"unknown peer reaches public", pub, apigateway.GatewayEndpointTypePublic, ociapigateway.ReachUnknown, true},
+		{"loopback reaches private", priv, apigateway.GatewayEndpointTypePrivate, ociapigateway.ReachUnknown, true},
+		{"denied private", priv, apigateway.GatewayEndpointTypePrivate, ociapigateway.ReachDenied, false},
+		{"allowed private", priv, apigateway.GatewayEndpointTypePrivate, ociapigateway.ReachAllowed, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, envOpts{})
+			net := &fakeNet{
+				subnets: map[string]ociapigateway.SubnetInfo{
+					pub:  {Regional: true, Public: true},
+					priv: {Regional: true},
+				},
+				reach: tt.reach,
+			}
+			e.backend.SetNetwork(net.network())
+
+			details := apigateway.CreateGatewayDetails{
+				CompartmentId: new(testCompartment), EndpointType: tt.endpoint, SubnetId: new(tt.subnet),
+				DisplayName: new("reach-gw"),
+			}
+
+			resp, err := e.gw.CreateGateway(t.Context(), apigateway.CreateGatewayRequest{CreateGatewayDetails: details})
+			require.NoError(t, err)
+			e.settle()
+			e.mkDeployment(t, *resp.Id, "/p", `{"routes":[`+stock("/hi", `"GET"`, "ok")+`]}`)
+
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, e.base+"/_apigw/"+*resp.Id+"/p/hi", nil)
+			require.NoError(t, err)
+
+			out, err := testclient.New(t).Do(req)
+			if !tt.served {
+				require.Error(t, err, "an unreachable gateway does not answer")
+
+				return
+			}
+
+			require.NoError(t, err)
+			defer out.Body.Close()
+			assert.Equal(t, http.StatusOK, out.StatusCode)
+		})
+	}
 }

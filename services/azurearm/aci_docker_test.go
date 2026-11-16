@@ -1,6 +1,7 @@
 package azurearm_test
 
 import (
+	"crypto/tls"
 	"io"
 	"net/http"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerinstance/armcontainerinstance/v2"
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -162,4 +164,101 @@ func TestACIDocker_PublishedPortServes(t *testing.T) {
 
 		return strings.Contains(string(body), "served-by-aci")
 	}, 30*time.Second, 100*time.Millisecond)
+}
+
+func TestACIDocker_ExecStreamsCommandOutput(t *testing.T) {
+	t.Parallel()
+
+	s := newACIDockerStack(t)
+
+	_, err := s.create(t, "rg", "execd", aciOpts{
+		image: "alpine:3.21", command: []string{"sleep", "300"},
+		policy: armcontainerinstance.ContainerGroupRestartPolicyAlways,
+	})
+	require.NoError(t, err)
+	s.waitState(t, "rg", "execd", "Running")
+
+	exec, err := s.factory.NewContainersClient().ExecuteCommand(t.Context(), "rg", "execd", "main",
+		armcontainerinstance.ContainerExecRequest{Command: new("echo from-exec; echo err-line >&2")}, nil)
+	require.NoError(t, err)
+
+	dialer := websocket.Dialer{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+	conn, _, err := dialer.DialContext(t.Context(), *exec.WebSocketURI, nil)
+	require.NoError(t, err)
+
+	defer conn.Close()
+
+	require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(*exec.Password)))
+
+	var out strings.Builder
+
+	for {
+		_, msg, rerr := conn.ReadMessage()
+		if rerr != nil {
+			break
+		}
+
+		out.Write(msg)
+	}
+
+	assert.Contains(t, out.String(), "from-exec")
+	assert.Contains(t, out.String(), "err-line")
+}
+
+func TestACIDocker_ExecRelaysStdin(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		term *armcontainerinstance.ContainerExecRequestTerminalSize
+		name string
+	}{
+		{name: "pipe"},
+		{
+			name: "terminal",
+			term: &armcontainerinstance.ContainerExecRequestTerminalSize{Rows: new(int32(24)), Cols: new(int32(80))},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := newACIDockerStack(t)
+
+			_, err := s.create(t, "rg", "stdin", aciOpts{
+				image: "alpine:3.21", command: []string{"sleep", "300"},
+				policy: armcontainerinstance.ContainerGroupRestartPolicyAlways,
+			})
+			require.NoError(t, err)
+			s.waitState(t, "rg", "stdin", "Running")
+
+			exec, err := s.factory.NewContainersClient().ExecuteCommand(t.Context(), "rg", "stdin", "main",
+				armcontainerinstance.ContainerExecRequest{
+					Command: new("read line; echo got-$line"), TerminalSize: tt.term,
+				}, nil)
+			require.NoError(t, err)
+
+			dialer := websocket.Dialer{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+			conn, _, err := dialer.DialContext(t.Context(), *exec.WebSocketURI, nil)
+			require.NoError(t, err)
+
+			defer conn.Close()
+
+			require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(*exec.Password)))
+			require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte("ping\n")))
+
+			var out strings.Builder
+
+			for {
+				_, msg, rerr := conn.ReadMessage()
+				if rerr != nil {
+					break
+				}
+
+				out.Write(msg)
+			}
+
+			assert.Contains(t, out.String(), "got-ping")
+		})
+	}
 }

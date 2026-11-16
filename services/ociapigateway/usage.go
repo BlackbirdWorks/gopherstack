@@ -15,7 +15,49 @@ type quotaCount struct {
 	used      int
 }
 
-// usageTracker counts requests against calendar quotas; state is in memory and per process.
+type quotaSnapshot struct {
+	WindowEnd time.Time `json:"windowEnd"`
+	Used      int       `json:"used"`
+}
+
+func (u *usageTracker) snapshot(now time.Time) map[string]quotaSnapshot {
+	u.mu.RLock("snapshot")
+	defer u.mu.RUnlock()
+
+	out := make(map[string]quotaSnapshot, len(u.quotas))
+
+	for k, c := range u.quotas {
+		if c.windowEnd.After(now) {
+			out[k] = quotaSnapshot{WindowEnd: c.windowEnd, Used: c.used}
+		}
+	}
+
+	return out
+}
+
+func (u *usageTracker) load(in map[string]quotaSnapshot) {
+	u.mu.Lock("load")
+	defer u.mu.Unlock()
+
+	u.quotas = make(map[string]*quotaCount, len(in))
+
+	for k, c := range in {
+		u.quotas[k] = &quotaCount{windowEnd: c.WindowEnd, used: c.Used}
+	}
+}
+
+func (u *usageTracker) forgetSubscriber(subID string) {
+	u.mu.Lock("forgetSubscriber")
+	defer u.mu.Unlock()
+
+	for k := range u.quotas {
+		if strings.HasSuffix(k, "|"+subID) {
+			delete(u.quotas, k)
+		}
+	}
+}
+
+// usageTracker counts requests against calendar quotas; counters are persisted in the backend snapshot.
 type usageTracker struct {
 	mu     *lockmetrics.RWMutex
 	quotas map[string]*quotaCount
@@ -99,10 +141,11 @@ type appliedEntitlement struct {
 
 // usageVerdict is the outcome of usage-plan enforcement; a zero status admits the request.
 type usageVerdict struct {
-	msg    string
-	refund []string
-	status int
-	retry  int
+	msg      string
+	refund   []string
+	status   int
+	retry    int
+	breached bool
 }
 
 func clientTokenOf(r *http.Request, locations []string) string {
@@ -221,7 +264,9 @@ func (b *InMemoryBackend) enforceUsage(r *http.Request, pol *usagePlansDoc, depI
 		switch {
 		case ok:
 			v.refund = append(v.refund, e.key)
-		case e.quota.OperationOnBreach == breachReject:
+		case e.quota.OperationOnBreach != breachReject:
+			v.breached = true
+		default:
 			b.refundQuota(v.refund)
 
 			return usageVerdict{status: http.StatusTooManyRequests, msg: "Too Many Requests", retry: retry}

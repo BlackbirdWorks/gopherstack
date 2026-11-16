@@ -132,7 +132,8 @@ func TestRDB_Errors(t *testing.T) {
 		{name: "not-rdb", data: []byte("hello world"), want: redisengine.ErrBadRDB},
 		{name: "future-version", data: []byte("REDIS0099\xff"), want: redisengine.ErrUnsupportedRDB},
 		{name: "truncated", data: valid[:len(valid)-12], want: redisengine.ErrBadRDB},
-		{name: "stream", data: []byte("REDIS0009\x00\x00\x00"), want: redisengine.ErrUnsupportedRDB},
+		{name: "module", data: []byte("REDIS0009\x07\x01k\x00"), want: redisengine.ErrUnsupportedRDB},
+		{name: "stream", data: []byte("REDIS0011\x15\x01k\x00"), want: redisengine.ErrBadRDB},
 		{name: "empty-listpack", data: []byte("REDIS0009\x10\x01k\x00"), want: redisengine.ErrBadRDB},
 		{name: "huge-count", data: []byte("REDIS0009\x01\x01k\x80\xff\xff\xff\xff"), want: redisengine.ErrBadRDB},
 	}
@@ -146,28 +147,10 @@ func TestRDB_Errors(t *testing.T) {
 			t.Cleanup(dst.Close)
 			require.NoError(t, dst.Mini.Set("keep", "me"))
 
-			if tt.name == "stream" {
-				tt.data = []byte("REDIS0009\x15\x01k\x00")
-			}
-
 			require.ErrorIs(t, dst.ImportRDB(tt.data), tt.want)
 			assert.True(t, dst.Mini.Exists("keep"), "keyspace untouched on error")
 		})
 	}
-}
-
-func TestRDB_ExportStreamRejected(t *testing.T) {
-	t.Parallel()
-
-	e, err := redisengine.Start(nil, "stream")
-	require.NoError(t, err)
-	t.Cleanup(e.Close)
-
-	_, err = e.Mini.XAdd("st", "*", []string{"a", "b"})
-	require.NoError(t, err)
-
-	_, err = e.ExportRDB()
-	require.ErrorIs(t, err, redisengine.ErrUnsupportedRDB)
 }
 
 func TestRDB_ImportRealServerFiles(t *testing.T) {

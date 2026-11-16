@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
@@ -174,12 +175,15 @@ type InMemoryBackend struct {
 	engine                         *dbEngine
 	iamAuth                        IAMAuthResolver
 	graphs                         map[string]*opencypher.Graph
+	containerGraphs                map[string]string
 	rdf                            map[string]*rdfService
 	s3                             S3Reader
+	roleAuth                       roleauth.Authorizer
 	mu                             *lockmetrics.RWMutex
 	accountID                      string
 	region                         string
 	lifecycleDelay                 time.Duration
+	loaderCPUs                     int
 	closed                         bool
 }
 
@@ -194,6 +198,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		pendingMaintenanceActions: make(map[string]map[string]PendingMaintenanceAction),
 		eventsLog:                 make(map[string][]Event),
 		graphs:                    make(map[string]*opencypher.Graph),
+		containerGraphs:           make(map[string]string),
 		rdf:                       make(map[string]*rdfService),
 		accountID:                 accountID,
 		region:                    region,
@@ -273,6 +278,7 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 	b.dropAllUnitsLocked()
 	b.graphs = make(map[string]*opencypher.Graph)
+	b.containerGraphs = make(map[string]string)
 	b.rdf = make(map[string]*rdfService)
 	b.registry.ResetAll()
 	b.clusterRoles = make(map[string]map[string][]string)

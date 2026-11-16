@@ -51,6 +51,7 @@ type runtimeSession struct {
 	ready       chan struct{}
 	key         string
 	containerID string
+	codeDir     string
 	base        string
 	proto       protocolSpec
 	idle        time.Duration
@@ -151,6 +152,15 @@ func (e *engine) bootRuntime(rs *runtimeSession, info RuntimeInfo, sc Scope) {
 }
 
 func (e *engine) startContainer(ctx context.Context, rs *runtimeSession, info RuntimeInfo, sc Scope) error {
+	if info.Code != nil {
+		dir, err := stageCode(info.Code)
+		if err != nil {
+			return err
+		}
+
+		rs.codeDir = dir
+	}
+
 	id, err := container.CreateAndStartRetry(ctx, e.cfg.Runtime,
 		func() (container.Spec, error) {
 			port, perr := e.acquirePort("agentcore-" + info.ID)
@@ -195,13 +205,19 @@ func (e *engine) runtimeSpec(info RuntimeInfo, sc Scope, rs *runtimeSession) con
 		vars = append(vars, k+"="+env[k])
 	}
 
-	return container.Spec{
+	spec := container.Spec{
 		Image: e.imageRef(info.ImageURI),
 		Env:   vars,
 		Ports: []string{container.PortSpec(
 			container.BindHostFor(e.cfg.Host), strconv.Itoa(rs.port), strconv.Itoa(rs.proto.port),
 		)},
 	}
+
+	if info.Code != nil {
+		applyCode(&spec, info.Code, rs.codeDir)
+	}
+
+	return spec
 }
 
 // imageRef points ECR image URIs at the emulated registry when one is configured.
@@ -256,6 +272,7 @@ func (e *engine) teardownRuntime(rs *runtimeSession) {
 	rs.cancel()
 	e.stopContainer(rs.containerID)
 	portalloc.ReleaseTo(e.cfg.Ports, rs.port)
+	removeAll(rs.codeDir)
 }
 
 // stopRuntimeSession stops key's container; it reports whether a session existed.

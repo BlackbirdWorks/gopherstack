@@ -328,7 +328,13 @@ func registerLocalProviders(
 	registry.Register(web)
 	registry.Register(network)
 	registry.Register(msi)
-	registry.Register(NewAuthorizationProvider(settings.TenantID, msi))
+	authz := NewAuthorizationProvider(settings.TenantID, msi)
+	authz.SetScopeChecker(settings.SubscriptionID, func(name string) bool {
+		_, err := backend.GetResourceGroup(name)
+
+		return err == nil
+	})
+	registry.Register(authz)
 	registry.Register(NewComputeProvider(backend, network, ids))
 
 	return ids

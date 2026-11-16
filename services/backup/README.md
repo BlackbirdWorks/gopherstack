@@ -9,14 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 66 (64 ok, 2 partial) |
 | Feature families | 18 (17 ok, 1 partial) |
-| Known gaps | 2 |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Report file column names are best-effort: the SDK documents only the key path (<prefix>/Backup/<region>/<year>/<month>/<day>/<report-name>), not the CSV/JSON columns, so headers are derived from the backend's own job fields rather than verified against AWS output. Compliance templates carry only protected-resource or framework-ARN rows (no control evaluation).
 - Restore recreates DynamoDB tables (schema, indexes, items), S3 buckets (objects) and EBS volumes (shape only); EC2 instances, EFS, RDS and other types keep the synthesized CreatedResourceArn. Recovery-point snapshots are held in memory and persisted with the recovery point, so large buckets inflate state.
 
 ### Structural gaps

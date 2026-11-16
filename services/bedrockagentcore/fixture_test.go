@@ -1,7 +1,10 @@
 package bedrockagentcore_test
 
 import (
+	"context"
+	"encoding/base64"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -150,4 +153,51 @@ func apiCode(err error) string {
 	}
 
 	return ""
+}
+
+var errBadSignature = errors.New("signature is invalid")
+
+func (f fakeControl) VerifyUserJWT(_ context.Context, token string) (string, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 || parts[2] != "sig" {
+		return "", errBadSignature
+	}
+
+	raw, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", errBadSignature
+	}
+
+	_, after, _ := strings.Cut(string(raw), `"sub":"`)
+	sub, _, _ := strings.Cut(after, `"`)
+
+	return sub, nil
+}
+
+func (f fakeControl) FederatedToken(
+	_ context.Context, _ bedrockagentcore.Scope, req bedrockagentcore.FederationRequest,
+) (bedrockagentcore.FederationResult, error) {
+	switch req.SessionURI {
+	case "":
+		return bedrockagentcore.FederationResult{
+			AuthorizationURL: "https://idp.example.com/authorize?state=s1&u=" + req.UserID,
+			SessionURI:       "sess-1", InProgress: true,
+		}, nil
+	case "done":
+		return bedrockagentcore.FederationResult{AccessToken: "user-token"}, nil
+	case "failed":
+		return bedrockagentcore.FederationResult{SessionURI: "failed", Failed: true}, nil
+	default:
+		return bedrockagentcore.FederationResult{}, bedrockagentcore.ErrNotFound
+	}
+}
+
+func (f fakeControl) CompleteFederation(
+	_ context.Context, _ bedrockagentcore.Scope, sessionURI string, _ bedrockagentcore.UserIdentifier,
+) error {
+	if sessionURI == "missing" {
+		return bedrockagentcore.ErrNotFound
+	}
+
+	return nil
 }

@@ -19,6 +19,7 @@ type InMemoryBackend struct {
 	datasets map[string]*Dataset
 	jobs     map[string]*Job
 	objects  ObjectStore
+	res      *reservationState
 	// Audit records Cloud Audit Logs entries for dataset, table and job changes.
 	Audit gcpaudit.Emitter
 	seq   int64
@@ -30,6 +31,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		mu:       lockmetrics.New("gcpbigquery"),
 		datasets: make(map[string]*Dataset),
 		jobs:     make(map[string]*Job),
+		res:      newReservationState(),
 	}
 }
 
@@ -40,6 +42,7 @@ func (b *InMemoryBackend) Reset() {
 
 	b.datasets = make(map[string]*Dataset)
 	b.jobs = make(map[string]*Job)
+	b.res = newReservationState()
 	b.seq = 0
 }
 
@@ -128,7 +131,81 @@ func (c catalog) Table(ref bqsql.TableRef) (*bqsql.TableData, bool) {
 		return nil, false
 	}
 
-	return &bqsql.TableData{Ref: ref, Fields: t.Schema, Rows: t.Rows, ViewQuery: t.ViewQuery}, true
+	td := &bqsql.TableData{
+		Ref:          ref,
+		Fields:       t.Schema,
+		Rows:         t.Rows,
+		ViewQuery:    t.ViewQuery,
+		Materialized: t.MV != nil,
+		RowPolicies:  t.policyData(),
+	}
+
+	if t.isExternal() {
+		externalTableData(c.b, t, td)
+	} else if t.requiresPartitionFilter() {
+		td.PartitionFilter = t.partitionColumns()
+	}
+
+	return td, true
+}
+
+// TableAt implements bqsql.TimeTravelCatalog.
+func (c catalog) TableAt(ref bqsql.TableRef, at time.Time) (*bqsql.TableData, error) {
+	ds, ok := c.b.datasets[dsKey(ref.Project, ref.Dataset)]
+	if !ok {
+		return nil, &bqsql.Error{
+			Kind:    bqsql.ErrNotFound,
+			Message: "Not found: Dataset " + ref.Project + ":" + ref.Dataset,
+		}
+	}
+
+	t, ok := ds.live(ref.Table)
+	if !ok {
+		return nil, &bqsql.Error{Kind: bqsql.ErrNotFound, Message: "Not found: Table " + ref.String()}
+	}
+
+	now := nowMs()
+	ms := at.UnixMilli()
+
+	switch {
+	case ms > now:
+		return nil, &bqsql.Error{
+			Kind:    bqsql.ErrInvalid,
+			Message: "Invalid snapshot time for table " + ref.String() + ": it is in the future",
+		}
+	case ms < now-timeTravelWindow.Milliseconds():
+		return nil, &bqsql.Error{
+			Kind:    bqsql.ErrInvalid,
+			Message: "Invalid snapshot time for table " + ref.String() + ": it is more than 7 days in the past",
+		}
+	}
+
+	fields, rows, existed := t.stateAt(ms)
+	if !existed {
+		return nil, &bqsql.Error{
+			Kind:    bqsql.ErrNotFound,
+			Message: "Not found: Table " + ref.String() + " did not exist at the requested time",
+		}
+	}
+
+	return &bqsql.TableData{Ref: ref, Fields: fields, Rows: rows}, nil
+}
+
+// Routine implements bqsql.RoutineCatalog.
+func (c catalog) Routine(ref bqsql.TableRef) (*bqsql.RoutineData, bool) {
+	ds, ok := c.b.datasets[dsKey(ref.Project, ref.Dataset)]
+	if !ok {
+		return nil, false
+	}
+
+	r, key, ok := ds.routine(ref.Table)
+	if !ok {
+		return nil, false
+	}
+
+	rd, err := routineData(ref.Project, ref.Dataset, key, r.Resource)
+
+	return rd, err == nil
 }
 
 func (c catalog) DatasetExists(project, dataset string) bool {

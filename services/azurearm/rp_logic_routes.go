@@ -187,20 +187,33 @@ func logicHandlers() map[string]logicHandlerFunc {
 		"POST:versions/*/triggers/*/listcallbackurl": func(h *Handler, q logicReq) error {
 			return h.logicCallback(q, q.rest[3])
 		},
-		"GET:triggers":                    (*Handler).logicListTriggers,
-		"GET:triggers/*":                  (*Handler).logicGetTrigger,
-		"POST:triggers/*/listcallbackurl": func(h *Handler, q logicReq) error { return h.logicCallback(q, q.rest[1]) },
-		"POST:triggers/*/run":             (*Handler).logicRunTrigger,
-		"POST:triggers/*/reset":           (*Handler).logicResetTrigger,
-		"POST:triggers/*/setstate":        (*Handler).logicSetTriggerState,
-		"GET:triggers/*/schemas/*":        (*Handler).logicTriggerSchema,
-		"GET:triggers/*/histories":        (*Handler).logicListHistories,
-		"GET:triggers/*/histories/*":      (*Handler).logicGetHistory,
-		"GET:runs":                        (*Handler).logicListRuns,
-		"GET:runs/*":                      (*Handler).logicGetRun,
-		"POST:runs/*/cancel":              (*Handler).logicCancelRun,
-		"GET:runs/*/actions":              (*Handler).logicListActions,
-		"GET:runs/*/actions/*":            (*Handler).logicGetAction,
+		"GET:triggers":                         (*Handler).logicListTriggers,
+		"GET:triggers/*":                       (*Handler).logicGetTrigger,
+		"POST:triggers/*/listcallbackurl":      func(h *Handler, q logicReq) error { return h.logicCallback(q, q.rest[1]) },
+		"POST:triggers/*/run":                  (*Handler).logicRunTrigger,
+		"POST:triggers/*/reset":                (*Handler).logicResetTrigger,
+		"POST:triggers/*/setstate":             (*Handler).logicSetTriggerState,
+		"GET:triggers/*/schemas/*":             (*Handler).logicTriggerSchema,
+		"GET:triggers/*/histories":             (*Handler).logicListHistories,
+		"GET:triggers/*/histories/*":           (*Handler).logicGetHistory,
+		"POST:triggers/*/histories/*/resubmit": (*Handler).logicResubmit,
+		"GET:runs":                             (*Handler).logicListRuns,
+		"GET:runs/*":                           (*Handler).logicGetRun,
+		"POST:runs/*/cancel":                   (*Handler).logicCancelRun,
+		"GET:runs/*/actions":                   (*Handler).logicListActions,
+		"GET:runs/*/actions/*":                 (*Handler).logicGetAction,
+		"GET:runs/*/actions/*/repetitions": func(h *Handler, q logicReq) error {
+			return h.logicListRepetitions(q, false)
+		},
+		"GET:runs/*/actions/*/repetitions/*": func(h *Handler, q logicReq) error {
+			return h.logicGetRepetition(q, false)
+		},
+		"GET:runs/*/actions/*/scoperepetitions": func(h *Handler, q logicReq) error {
+			return h.logicListRepetitions(q, true)
+		},
+		"GET:runs/*/actions/*/scoperepetitions/*": func(h *Handler, q logicReq) error {
+			return h.logicGetRepetition(q, true)
+		},
 	}
 }
 

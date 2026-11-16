@@ -9,13 +9,9 @@
 | --- | --- |
 | PARITY entries audited | 27 (27 ok) |
 | Feature families | 7 (7 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- CreateRepositoryLink's ConnectionArn and CreateSyncConfiguration's RepositoryLinkId are not existence-checked: neither op declares ResourceNotFoundException (codeconnections@v1.13.4 deserializers) and the field docs do not say AWS validates them.
 
 ## More
 

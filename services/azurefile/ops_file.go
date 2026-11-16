@@ -506,6 +506,10 @@ func (h *Handler) putRange(rc *reqCtx) (*resp, *apiError) {
 			"The size of the request body exceeds the maximum permissible limit.")
 	}
 
+	if clearOp && rc.hdr("Content-MD5") != "" {
+		return nil, errInvalidHeader("Content-MD5")
+	}
+
 	var data []byte
 
 	if !clearOp {
@@ -581,6 +585,7 @@ func (h *Handler) writeRange(rc *reqCtx, start, length int64, data []byte, clear
 
 	if !clearOp {
 		rs.hdr.Set("Content-MD5", base64.StdEncoding.EncodeToString(md5Of(data)))
+		rs.hdr.Set("X-Ms-Content-Crc64", crc64Header(data))
 	}
 
 	return rs, nil
@@ -635,20 +640,19 @@ func (h *Handler) listRanges(rc *reqCtx) (*resp, *apiError) {
 	out := rangesXML{}
 
 	if prev := rc.q.Get("prevsharesnapshot"); prev != "" {
-		ps, perr0 := h.Backend.peek(rc.acct).findShare(rc.share, prev, false)
-		if perr0 != nil {
-			return nil, perr0
+		pn, perr := h.prevSnapshotNode(rc, n, prev)
+		if perr != nil {
+			return nil, perr
 		}
 
-		pn, perr := ps.lookup(rc.path)
-		if perr != nil || pn.Dir {
-			out.Ranges = toRangeXML(n.Data.Ranges(from, to))
-		} else {
-			changed, cleared := n.Data.Diff(pn.Data, max(pn.Size, n.Size))
-			out.Ranges = toRangeXML(clipRanges(changed, from, to))
-			out.Clear = toRangeXML(clipRanges(cleared, from, to))
-		}
+		changed, cleared := n.Data.Diff(pn.Data, max(pn.Size, n.Size))
+		out.Ranges = toRangeXML(clipRanges(changed, from, to))
+		out.Clear = toRangeXML(clipRanges(cleared, from, to))
 	} else {
+		if rc.hdr("x-ms-file-support-rename") != "" {
+			return nil, errInvalidHeader("x-ms-file-support-rename")
+		}
+
 		out.Ranges = toRangeXML(n.Data.Ranges(from, to))
 	}
 

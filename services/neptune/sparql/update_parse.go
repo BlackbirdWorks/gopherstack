@@ -38,6 +38,8 @@ func ParseUpdate(src string) (*Update, error) {
 		return nil, syntaxf("empty update request")
 	}
 
+	u.Hints = p.hints
+
 	return u, nil
 }
 
@@ -292,6 +294,7 @@ func (p *parser) parseModify() (updateOp, error) {
 	}
 
 	op.Where, err = p.parseGroup()
+	op.Prologue = prologueText(p.base, p.prefixes)
 
 	return op, err
 }

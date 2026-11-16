@@ -251,7 +251,6 @@ func (b *InMemoryBackend) UpdateDeployment(id, ifMatch string, in updateDeployme
 		}
 
 		d.Spec, b.specs[id] = in.Specification, cs
-		b.cache.forgetDeployment(id)
 	}
 
 	if in.DisplayName != nil && *in.DisplayName != "" {
@@ -289,7 +288,6 @@ func (b *InMemoryBackend) DeleteDeployment(id, ifMatch string) (string, error) {
 
 	d.State, d.TransitionAt = stateDeleting, b.transitionAt()
 	d.TimeUpdated = b.nowUTC()
-	b.cache.forgetDeployment(id)
 
 	return b.newWR(wrDeleteDeploy, d.CompartmentID, entityDeploy, id, actionDeleted, *d.TransitionAt), nil
 }

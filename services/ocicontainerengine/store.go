@@ -71,6 +71,46 @@ type Network interface {
 	Images() []ImageInfo
 }
 
+// NSGNetwork is implemented by a Network that can resolve network security groups.
+type NSGNetwork interface {
+	NSG(id string) (vcnID string, ok bool)
+}
+
+// NodeLaunch is the instance behind one worker node.
+type NodeLaunch struct {
+	Ocpus                 *float64
+	MemoryGBs             *float64
+	BootVolumeGBs         *int64
+	PreserveBootVolume    *bool
+	Metadata              map[string]string
+	Compartment           string
+	Name                  string
+	AD                    string
+	FaultDomain           string
+	SubnetID              string
+	Shape                 string
+	ImageID               string
+	NetworkType           string
+	CapacityReservationID string
+	ComputeClusterID      string
+	NsgIDs                []string
+	SecondaryVnics        []SecondaryVnic
+	Preemptible           bool
+}
+
+// NodeInstance identifies a launched worker instance and its primary private IP.
+type NodeInstance struct {
+	ID          string
+	PrivateIP   string
+	FaultDomain string
+}
+
+// NodeCompute is implemented by a Network that can launch and terminate the instances behind worker nodes.
+type NodeCompute interface {
+	LaunchNode(NodeLaunch) (NodeInstance, error)
+	TerminateNode(id string) error
+}
+
 // KeyChecker reports the lifecycle state of a KMS key OCID and whether it exists.
 type KeyChecker func(keyID string) (state string, found bool)
 

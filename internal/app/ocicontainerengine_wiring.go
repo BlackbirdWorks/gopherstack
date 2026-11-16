@@ -1,6 +1,7 @@
 package app
 
 import (
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	ocioke "github.com/blackbirdworks/gopherstack/services/ocicontainerengine"
 	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
@@ -19,6 +20,32 @@ func (n ociCoreNetwork) Subnet(id string) (ocioke.SubnetInfo, bool) {
 		ID: s.ID, VcnID: s.VcnID, AvailabilityDomain: s.AvailabilityDomain, CIDR: s.CidrBlock,
 	}, ok
 }
+
+func (n ociCoreNetwork) LaunchNode(l ocioke.NodeLaunch) (ocioke.NodeInstance, error) {
+	vnics := make([]ocicorebackend.WorkerVnic, 0, len(l.SecondaryVnics))
+	for _, v := range l.SecondaryVnics {
+		vnics = append(vnics, ocicorebackend.WorkerVnic{
+			Details: v.CreateVnicDetails, NicIndex: v.NicIndex, DisplayName: ptrconv.String(v.DisplayName),
+		})
+	}
+
+	w, err := n.core.LaunchWorker(ocicorebackend.WorkerSpec{
+		Ocpus: l.Ocpus, MemoryGBs: l.MemoryGBs, BootVolumeGBs: l.BootVolumeGBs, Metadata: l.Metadata,
+		Compartment: l.Compartment, Name: l.Name, AD: l.AD, FaultDomain: l.FaultDomain, SubnetID: l.SubnetID,
+		Shape: l.Shape, ImageID: l.ImageID, NsgIDs: l.NsgIDs, CapacityReservationID: l.CapacityReservationID,
+		SecondaryVnics: vnics, NetworkType: l.NetworkType,
+		ComputeClusterID: l.ComputeClusterID, Preemptible: l.Preemptible, PreserveBootVolume: l.PreserveBootVolume,
+	})
+	if err != nil {
+		return ocioke.NodeInstance{}, err
+	}
+
+	return ocioke.NodeInstance{ID: w.ID, PrivateIP: w.PrivateIP, FaultDomain: w.FaultDomain}, nil
+}
+
+func (n ociCoreNetwork) TerminateNode(id string) error { return n.core.TerminateWorker(id) }
+
+func (n ociCoreNetwork) NSG(id string) (string, bool) { return n.core.LookupNSG(id) }
 
 func (n ociCoreNetwork) VCNExists(id string) bool { return n.core.VcnExists(id) }
 

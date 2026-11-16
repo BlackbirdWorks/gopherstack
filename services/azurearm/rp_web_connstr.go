@@ -70,7 +70,11 @@ func alwaysOnAllowed(sku map[string]any) bool {
 func (p *WebProvider) mergedWebConfig(rec, planSite *storedWebSite, siteCfg map[string]any) (map[string]any, error) {
 	cfg := mergeWebConfig(rec.Configs[webConfigWeb], siteCfg)
 
-	return cfg, p.checkAlwaysOn(planSite, cfg)
+	if err := p.checkAlwaysOn(planSite, cfg); err != nil {
+		return cfg, err
+	}
+
+	return cfg, p.checkAutoSwap(rec, cfg)
 }
 
 // checkAlwaysOn rejects alwaysOn=true on a site whose plan does not support it.

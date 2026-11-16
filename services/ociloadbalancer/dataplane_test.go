@@ -723,3 +723,65 @@ func TestLifecycleOfListeners(t *testing.T) {
 		assert.Empty(t, e.backend.Endpoints())
 	}
 }
+
+func TestTLSListenerRefusesLegacyProtocols(t *testing.T) {
+	t.Parallel()
+
+	certPEM, keyPEM := genCert(t)
+	e := newEnv(t, envOpts{})
+	a := startBackend(t, "a")
+	base := func(name string, protocols []string) loadbalancer.CreateLoadBalancerDetails {
+		d := baseDetails(name)
+		d.BackendSets = map[string]loadbalancer.BackendSetDetails{"bs": backendSet("ROUND_ROBIN", a)}
+		d.Certificates = map[string]loadbalancer.CertificateDetails{
+			"cert": {
+				CertificateName:   new("cert"),
+				PublicCertificate: new(string(certPEM)),
+				PrivateKey:        new(string(keyPEM)),
+			},
+		}
+		d.Listeners = map[string]loadbalancer.ListenerDetails{
+			"l": {
+				DefaultBackendSetName: new("bs"), Port: new(445), Protocol: new("TCP"),
+				SslConfiguration: &loadbalancer.SslConfigurationDetails{
+					CertificateName: new("cert"), Protocols: protocols,
+				},
+			},
+		}
+
+		return d
+	}
+
+	for _, p := range []string{"TLSv1", "TLSv1.1", "SSLv3"} {
+		t.Run("reject "+p, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := e.lb.CreateLoadBalancer(t.Context(), loadbalancer.CreateLoadBalancerRequest{
+				CreateLoadBalancerDetails: base("rej", []string{p}),
+			})
+			assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode())
+		})
+	}
+
+	tests := []struct {
+		name      string
+		protocols []string
+	}{
+		{name: "default"},
+		{name: "tls12", protocols: []string{"TLSv1.2"}},
+		{name: "both", protocols: []string{"TLSv1.2", "TLSv1.3"}},
+	}
+
+	for _, tc := range tests {
+		t.Run("floor "+tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			id := e.mkLB(t, base(tc.name, tc.protocols))
+			cfg := tlsClient(t, certPEM).Transport.(*http.Transport).TLSClientConfig.Clone()
+			cfg.MinVersion, cfg.MaxVersion = tls.VersionTLS10, tls.VersionTLS11
+
+			_, err := tls.Dial("tcp", e.addr(t, id, 445), cfg)
+			require.Error(t, err)
+		})
+	}
+}

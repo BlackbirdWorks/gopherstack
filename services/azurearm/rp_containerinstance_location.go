@@ -16,8 +16,8 @@ const (
 	aciLocCachedImages = "cachedImages"
 	aciLocCapabilities = "capabilities"
 	aciGroupQuota      = 100
-	aciMaxCPU          = 4
-	aciMaxMemoryGB     = 16
+	aciMaxCPU          = 31
+	aciMaxMemoryGB     = 240
 )
 
 //nolint:gochecknoglobals // static read-only list

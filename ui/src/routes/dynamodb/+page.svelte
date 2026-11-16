@@ -210,6 +210,7 @@ const ddbStreams = regionalClient(getDynamoDBStreamsClient);
 	let ttlEnabled = $state(false);
 	let streamsViewType = $state('NEW_AND_OLD_IMAGES');
 	let streamsEnabled = $state(false);
+	const streamsActive = $derived(selectedTableDesc?.StreamSpecification?.StreamEnabled ?? false);
 	let streamARN = $state('');
 let editBillingMode = $state('PAY_PER_REQUEST');
 let editRcu = $state(5);
@@ -246,7 +247,7 @@ async function execBatchGet() {
   if (!selectedTable || !batchGetKeys.trim()) return;
   try {
     const keys = JSON.parse(batchGetKeys);
-    if (!Array.isArray(keys)) throw new Error('Expected a JSON array of key objects');
+    if (!Array.isArray(keys)) throw new TypeError('Expected a JSON array of key objects');
     const res = await ddb().send(new BatchGetItemCommand({
       RequestItems: { [selectedTable]: { Keys: keys.map((k: unknown) => buildItemKey(k as Record<string, unknown>)) } }
     }));
@@ -1086,7 +1087,7 @@ async function loadStreamEvents() {
 	// untrack() keeps the initial fire from being read as a dependency, the
 	// same hazard region-effect.svelte.ts documents for onRegionChange.
 	$effect(() => {
-		if (activeTab === 'streams' && selectedTable && streamsEnabled) {
+		if (activeTab === 'streams' && selectedTable && streamsActive) {
 			stopStreamPolling();
 			streamFetchController = new AbortController();
 			streamBackendUnavailable = false;
@@ -1124,7 +1125,7 @@ async function loadStreamEvents() {
 		if (!selectedTable || !importJson.trim()) return;
 		try {
 			const items: unknown[] = JSON.parse(importJson);
-			if (!Array.isArray(items)) throw new Error('Expected a JSON array');
+			if (!Array.isArray(items)) throw new TypeError('Expected a JSON array');
 			for (const item of items) {
 				await ddb().send(new PutItemCommand({ TableName: selectedTable, Item: jsonToItem(item as Record<string, unknown>) }));
 			}
@@ -1529,7 +1530,7 @@ function setPartiqlExample(query: string) {
 					<div class="p-4 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl">
 						<div class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Streams</div>
 						<div class="mt-1">
-							{#if streamsEnabled}
+							{#if streamsActive}
 								<div class="flex items-center gap-1.5">
 									<span class="w-2 h-2 rounded-full bg-blue-500 animate-pulse shrink-0"></span>
 									<span class="text-sm font-bold text-blue-600 dark:text-blue-400">Enabled</span>
@@ -1996,7 +1997,7 @@ function setPartiqlExample(query: string) {
 					<div class="flex items-center justify-between mb-1">
 						<div class="flex items-center gap-3">
 							<h3 class="text-lg font-semibold text-slate-900 dark:text-white">DynamoDB Streams</h3>
-							{#if streamsEnabled}
+							{#if streamsActive}
 								<span class="text-xs bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300 px-2 py-0.5 rounded font-medium">ENABLED</span>
 								<span class="text-xs bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300 px-2 py-0.5 rounded font-medium">{streamsViewType}</span>
 								{#if !streamBackendUnavailable}
@@ -2020,7 +2021,7 @@ function setPartiqlExample(query: string) {
 					{/if}
 				</div>
 
-				{#if !streamsEnabled}
+				{#if !streamsActive}
 					<div class="p-6 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-xl">
 						<p class="text-sm text-blue-800 dark:text-blue-300 mb-3">DynamoDB Streams are not enabled for this table.</p>
 						<button onclick={() => { activeTabParam.set('overview'); }} class="text-sm text-blue-600 dark:text-blue-400 underline hover:no-underline">Enable streams in the Overview tab →</button>
@@ -2224,7 +2225,7 @@ function setPartiqlExample(query: string) {
 					<div class="p-5 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm">
 						<div class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Stream Status</div>
 						<div class="mt-2">
-							{#if streamsEnabled}
+							{#if streamsActive}
 								<span class="inline-block bg-blue-100 text-blue-800 text-sm font-bold px-3 py-1 rounded dark:bg-blue-900 dark:text-blue-300">ENABLED</span>
 								<div class="text-xs text-slate-500 dark:text-slate-400 mt-1">{streamsViewType}</div>
 							{:else}

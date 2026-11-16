@@ -97,6 +97,38 @@ func TestRewriteSQL(t *testing.T) {
 		{name: "temporary table", sql: "create global temporary table x (a int)", feature: "temporary objects"},
 		{name: "tablespace", sql: "CREATE TABLESPACE ts LOCATION '/x'", feature: "CREATE TABLESPACE"},
 		{name: "database", sql: "CREATE DATABASE other", feature: "CREATE DATABASE"},
+		{name: "drop trigger", sql: "DROP TRIGGER gs_dml_ins ON t", feature: "DROP or DISABLE TRIGGER"},
+		{
+			name: "disable trigger", sql: "alter table t disable trigger all",
+			feature: "DROP or DISABLE TRIGGER",
+		},
+		{
+			name: "set isolation serializable", sql: "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE",
+			feature: "isolation levels other than repeatable read",
+		},
+		{
+			name:    "session isolation read committed",
+			sql:     "set session characteristics as transaction isolation level read committed",
+			feature: "isolation levels other than repeatable read",
+		},
+		{
+			name: "begin isolation serializable", sql: "BEGIN ISOLATION LEVEL SERIALIZABLE",
+			feature: "isolation levels other than repeatable read",
+		},
+		{
+			name:    "start transaction read only isolation",
+			sql:     "START TRANSACTION READ ONLY ISOLATION LEVEL READ UNCOMMITTED",
+			feature: "isolation levels other than repeatable read",
+		},
+		{
+			name: "set guc isolation", sql: "SET default_transaction_isolation = 'serializable'",
+			feature: "isolation levels other than repeatable read",
+		},
+		{
+			name: "repeatable read passes", sql: "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ",
+			want: "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ",
+		},
+		{name: "plain begin passes", sql: "BEGIN", want: "BEGIN"},
 		{
 			name:    "plpgsql function",
 			sql:     "CREATE OR REPLACE FUNCTION f() RETURNS int AS $$ BEGIN RETURN 1; END $$ LANGUAGE plpgsql",

@@ -162,13 +162,16 @@ type AuthorizationProvider struct {
 	policySets         map[string]*storedPolicy
 	policyAssigns      map[string]*storedPolicyAssign
 	policyExempts      map[string]*storedPolicyExempt
+	policyStates       map[string]*storedPolicyState
 	builtinRoles       map[string]*builtinRole
 	builtinPols        map[string]*builtinPolicy
 	builtinSets        map[string]*builtinPolicy
 	msi                *ManagedIdentityProvider
 	directory          PrincipalDirectory
 	now                func() time.Time
+	rgExists           func(name string) bool
 	tenantID           string
+	scopeSub           string
 	validatePrincipals bool
 }
 
@@ -217,6 +220,7 @@ func (p *AuthorizationProvider) resetMaps() {
 	p.policySets = map[string]*storedPolicy{}
 	p.policyAssigns = map[string]*storedPolicyAssign{}
 	p.policyExempts = map[string]*storedPolicyExempt{}
+	p.policyStates = map[string]*storedPolicyState{}
 }
 
 // Namespace implements ResourceProvider.

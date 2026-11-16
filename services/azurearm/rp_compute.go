@@ -295,6 +295,10 @@ func (p *ComputeProvider) getLocked(id ResourceID, expand bool) (map[string]any,
 		return p.vmssInstanceGet(r, id)
 	}
 
+	if isVMSSNICPath(id) {
+		return p.vmssNICGetFor(r, id)
+	}
+
 	if len(id.Types) > 1 {
 		return p.kidGet(id, "")
 	}
@@ -394,6 +398,10 @@ func (p *ComputeProvider) list(id ResourceID, statusOnly bool) ([]map[string]any
 			return p.vmssInstanceList(r, id), nil
 		}
 
+		if ok && isVMSSNICPath(id) {
+			return p.vmssNICListFor(r, id)
+		}
+
 		return p.kidList(id)
 	}
 
@@ -425,7 +433,7 @@ func (p *ComputeProvider) Put(_ context.Context, id ResourceID, body map[string]
 	defer p.mu.Unlock()
 
 	if len(id.Types) > 1 {
-		return p.putKid(id, body)
+		return p.putChild(id, body)
 	}
 
 	var (
@@ -457,6 +465,14 @@ func (p *ComputeProvider) Put(_ context.Context, id ResourceID, body map[string]
 	return p.render(res, false), nil
 }
 
+func (p *ComputeProvider) putChild(id ResourceID, body map[string]any) (map[string]any, error) {
+	if isVMSSInstanceID(id) {
+		return p.vmssInstancePut(id, body)
+	}
+
+	return p.putKid(id, body)
+}
+
 // Delete implements ResourceProvider.
 func (p *ComputeProvider) Delete(_ context.Context, id ResourceID) error {
 	typ := canonicalCmpType(firstType(id))
@@ -485,6 +501,7 @@ func (p *ComputeProvider) Delete(_ context.Context, id ResourceID) error {
 		p.deleteVM(r)
 	case cmpVMSS:
 		p.deleteVMSSMembers(r)
+		p.releaseUniformNICs(r)
 	}
 
 	if err := p.checkTypeDelete(typ, r); err != nil {
@@ -501,6 +518,10 @@ func (p *ComputeProvider) PatchResource(id ResourceID, body map[string]any) (map
 	typ := canonicalCmpType(firstType(id))
 	if typ == "" || len(id.Names) < 1 {
 		return nil, ErrResourceNotFound
+	}
+
+	if isVMSSInstanceID(id) {
+		return p.VMSSInstancePatch(id, body)
 	}
 
 	if len(id.Types) > 1 {

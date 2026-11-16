@@ -9,15 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 36 (35 ok, 1 partial) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 2 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 2 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- gopherstack-kvyy: Glue PutResourcePolicy(EnableHybrid=TRUE) with a cross-account Principal.AWS creates the CREATED_FROM_POLICY share. UNVERIFIABLE: glue@v1.157.0 api_op_PutResourcePolicy.go and ram@v1.39.4 document no trigger beyond EnableHybrid, and services/lakeformation has no RAM seam to narrow it.
-- ListSourceAssociations/AssociatedSource.SourceType is a bare *string with no documented value set in ram@v1.39.4, so it is not populated or filtered (UNVERIFIABLE).
 
 ### Structural gaps
 

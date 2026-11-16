@@ -324,10 +324,7 @@ func NewTableMetadata(p NewParams) *TableMetadata {
 	schema.Type = typeStruct
 	schema.SchemaID = 0
 
-	lastCol := 0
-	for _, f := range schema.Fields {
-		lastCol = max(lastCol, f.ID)
-	}
+	lastCol := schema.MaxFieldID()
 
 	lastPart := firstPartitionFieldID - 1
 	for _, f := range p.Spec.Fields {

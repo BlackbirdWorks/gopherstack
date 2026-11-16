@@ -20,6 +20,16 @@ func queryEq(q *req, key string, get func(Resource) string) func(Resource) bool 
 	return func(r Resource) bool { return want == "" || get(r) == want }
 }
 
+func fieldEq[T Resource](q *req, key string, get func(T) string) func(Resource) bool {
+	want := q.query(key)
+
+	return func(r Resource) bool {
+		x, ok := r.(T)
+
+		return want == "" || (ok && get(x) == want)
+	}
+}
+
 func and(fs ...func(Resource) bool) func(Resource) bool {
 	return func(r Resource) bool {
 		for _, f := range fs {
@@ -176,6 +186,15 @@ func computeEntries() []entry {
 		instanceEntries(),
 		networkEntries(),
 		storageEntries(),
+		bootAttachEntries(),
+		consoleEntries(),
+		byoipEntries(),
+		vtapEntries(),
+		credentialEntries(),
+		instancePoolEntries(),
+		vlanEntries(),
+		reservationEntries(),
+		drgNatEntries(),
 		drgEntries(),
 		workRequestEntries(),
 		cidrEntries(),
@@ -185,6 +204,8 @@ func computeEntries() []entry {
 		kmsEntries(),
 		copyEntries(),
 		replicaEntries(),
+		bootReplicaEntries(),
+		groupReplicaEntries(),
 		inventoryEntries(),
 		topologyEntries(),
 		dnsResolverEntries(),
@@ -378,7 +399,10 @@ func deleteAssignmentOp(h *Handler, q *req) error {
 func (h *Handler) terminateInstance(q *req) error {
 	return noBody(
 		q,
-		h.Backend.TerminateInstance(q.param("instanceId"), q.ifMatch(), q.query("preserveBootVolume") == "true"),
+		h.Backend.TerminateInstanceWith(q.param("instanceId"), q.ifMatch(), TerminateOpts{
+			PreserveBoot:       q.query("preserveBootVolume") == "true",
+			PreserveLaunchData: q.query("preserveDataVolumesCreatedAtLaunch") != "false",
+		}),
 	)
 }
 
@@ -437,8 +461,16 @@ func (h *Handler) listPrivateIPs(q *req) error {
 	}
 
 	pg, aerr := h.Backend.ListPrivateIPs(PrivateIPListOpts{
-		IPAddress: q.query("ipAddress"), SubnetID: q.query("subnetId"), VnicID: q.query("vnicId"),
-		IPState: q.query("ipState"), Lifetime: q.query("lifetime"), Page: o.Page, Limit: o.Limit,
+		IPAddress: q.query(
+			"ipAddress",
+		),
+		SubnetID: q.query("subnetId"),
+		VnicID:   q.query("vnicId"),
+		VlanID:   q.query("vlanId"),
+		IPState:  q.query("ipState"),
+		Lifetime: q.query("lifetime"),
+		Page:     o.Page,
+		Limit:    o.Limit,
 	})
 	if aerr != nil {
 		return aerr

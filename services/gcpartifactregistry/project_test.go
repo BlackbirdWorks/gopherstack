@@ -92,24 +92,24 @@ func TestVPCSCConfig(t *testing.T) {
 
 	def, err := e.client.GetVPCSCConfig(ctx, &artifactregistrypb.GetVPCSCConfigRequest{Name: name})
 	require.NoError(t, err)
-	assert.Equal(t, artifactregistrypb.VPCSCConfig_ALLOW, def.GetVpcscPolicy())
+	assert.Equal(t, artifactregistrypb.VPCSCConfig_DENY, def.GetVpcscPolicy())
 
 	got, err := e.client.UpdateVPCSCConfig(ctx, &artifactregistrypb.UpdateVPCSCConfigRequest{
-		VpcscConfig: &artifactregistrypb.VPCSCConfig{Name: name, VpcscPolicy: artifactregistrypb.VPCSCConfig_DENY},
+		VpcscConfig: &artifactregistrypb.VPCSCConfig{Name: name, VpcscPolicy: artifactregistrypb.VPCSCConfig_ALLOW},
 		UpdateMask:  &fieldmaskpb.FieldMask{Paths: []string{"vpcsc_policy"}},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, artifactregistrypb.VPCSCConfig_DENY, got.GetVpcscPolicy())
+	assert.Equal(t, artifactregistrypb.VPCSCConfig_ALLOW, got.GetVpcscPolicy())
 
 	again, err := e.client.GetVPCSCConfig(ctx, &artifactregistrypb.GetVPCSCConfigRequest{Name: name})
 	require.NoError(t, err)
-	assert.Equal(t, artifactregistrypb.VPCSCConfig_DENY, again.GetVpcscPolicy())
+	assert.Equal(t, artifactregistrypb.VPCSCConfig_ALLOW, again.GetVpcscPolicy())
 
 	other, err := e.client.GetVPCSCConfig(ctx, &artifactregistrypb.GetVPCSCConfigRequest{
 		Name: "projects/" + project + "/locations/europe-west1/vpcscConfig",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, artifactregistrypb.VPCSCConfig_ALLOW, other.GetVpcscPolicy())
+	assert.Equal(t, artifactregistrypb.VPCSCConfig_DENY, other.GetVpcscPolicy())
 
 	for _, in := range []*artifactregistrypb.VPCSCConfig{
 		{Name: name, VpcscPolicy: 9}, {Name: "projects/p/vpcscConfig"}, {Name: loc + "/vpcscConfig", VpcscPolicy: 0},
@@ -299,7 +299,7 @@ func TestRESTFilesRulesSettings(t *testing.T) {
 		},
 		{
 			Name: "vpcsc", Method: http.MethodGet, Path: base + "/vpcscConfig", Status: 200,
-			Contains: []string{`"vpcscPolicy":"ALLOW"`},
+			Contains: []string{`"vpcscPolicy":"DENY"`},
 		},
 		{
 			Name:     "package patch",

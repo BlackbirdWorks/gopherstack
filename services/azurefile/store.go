@@ -29,7 +29,9 @@ const (
 type InMemoryBackend struct {
 	mu       *lockmetrics.RWMutex
 	accounts map[string]*account
-	seq      uint64
+	// AccountSKU resolves a storage account's SKU name (for example Premium_LRS); nil leaves the media unknown.
+	AccountSKU func(account string) (string, bool)
+	seq        uint64
 }
 
 // NewInMemoryBackend creates an empty backend.
@@ -229,7 +231,7 @@ func (sh *share) parentOf(path string) (*node, string, *apiError) {
 
 func (b *InMemoryBackend) newNode(parent *node, name string, dir bool, now time.Time) *node {
 	n := &node{
-		Name: name, Dir: dir, ID: b.newNodeID(), Created: now, LastWrite: now, Changed: now,
+		Name: name, Dir: dir, ID: b.newNodeID(), Created: now, Born: now, LastWrite: now, Changed: now,
 		LastModified: now, ETag: b.etag(), Attributes: attrArchive,
 	}
 
@@ -479,7 +481,7 @@ func (b *InMemoryBackend) SetShareRetention(account string, enabled bool, days i
 	b.mu.Lock("SetShareRetention")
 	defer b.mu.Unlock()
 
-	b.acct(account).Retention = shareRetention{Enabled: enabled, Days: days}
+	b.acct(account).Retention = shareRetention{Enabled: enabled, Days: days, Set: true}
 }
 
 // ShareRetention returns the account's share soft-delete policy.
@@ -489,8 +491,8 @@ func (b *InMemoryBackend) ShareRetention(account string) (bool, int32) {
 
 	a := b.peek(account)
 	if a == nil {
-		return false, 0
+		return shareRetention{}.policy()
 	}
 
-	return a.Retention.Enabled, a.Retention.Days
+	return a.Retention.policy()
 }

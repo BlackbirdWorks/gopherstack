@@ -117,7 +117,7 @@ func (b *InMemoryBackend) subnetCidrs(v *Vcn, in CreateSubnetIn) ([]netip.Prefix
 	}
 
 	if len(cidrs) > maxSubnetCidrs {
-		return nil, errLimit("A subnet can have at most 6 IPv4 CIDR blocks")
+		return nil, errLimit("A subnet can have at most 16 IPv4 CIDR blocks")
 	}
 
 	out := make([]netip.Prefix, 0, len(cidrs))

@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
@@ -72,7 +73,7 @@ func (b *InMemoryBackend) finalize(d *Delivery, status, reason string) {
 	d.Status, d.LastError, d.Completed = status, reason, b.nowUTC()
 }
 
-func (b *InMemoryBackend) route(d *Delivery) {
+func (b *InMemoryBackend) route(ctx context.Context, d *Delivery) {
 	switch {
 	case isHTTPProtocol(d.Protocol):
 	case d.Protocol == protoFunctions && b.invoker != nil && d.Kind == kindMessage:
@@ -82,9 +83,20 @@ func (b *InMemoryBackend) route(d *Delivery) {
 		b.finalize(d, deliveryRecorded, "no OCI Functions backend is wired; delivery recorded only")
 	case recordsOnly(d.Protocol):
 		b.finalize(d, deliveryRecorded, "")
+		logWouldSend(ctx, d)
 	}
 
 	b.trim()
+}
+
+// logWouldSend logs a recorded-only delivery; slack and pagerduty endpoints carry secrets and are omitted.
+func logWouldSend(ctx context.Context, d *Delivery) {
+	attrs := []any{"protocol", d.Protocol, "kind", d.Kind, "topic", d.TopicName, "deliveryId", d.ID}
+	if d.Protocol == protoEmail || d.Protocol == protoSMS {
+		attrs = append(attrs, "to", d.Endpoint)
+	}
+
+	logger.Load(ctx).InfoContext(ctx, "ocinotifications: would send notification (recorded, not delivered)", attrs...)
 }
 
 func (b *InMemoryBackend) trim() {
@@ -112,7 +124,7 @@ func (b *InMemoryBackend) trim() {
 }
 
 // queueConfirmation creates the confirmation delivery for a PENDING subscription.
-func (b *InMemoryBackend) queueConfirmation(s *Subscription, t *Topic) {
+func (b *InMemoryBackend) queueConfirmation(ctx context.Context, s *Subscription, t *Topic) {
 	d := b.newDelivery(s, t, kindConfirmation)
 	d.ConfirmationURL = b.confirmationURL(s)
 	d.MessageType = msgJSON
@@ -123,7 +135,7 @@ func (b *InMemoryBackend) queueConfirmation(s *Subscription, t *Topic) {
 	}, jsonx.V1())
 	d.Body = string(body)
 	d.Title = "Confirm your subscription to " + t.Name
-	b.route(d)
+	b.route(ctx, d)
 }
 
 // cancelConfirmations discards confirmation deliveries still waiting to be sent.
@@ -136,7 +148,11 @@ func (b *InMemoryBackend) cancelConfirmations(subID string) {
 }
 
 // PublishMessage fans a message out to every ACTIVE subscription of a topic.
-func (b *InMemoryBackend) PublishMessage(topicID, messageType string, in PublishIn) (PublishWire, error) {
+func (b *InMemoryBackend) PublishMessage(
+	ctx context.Context,
+	topicID, messageType string,
+	in PublishIn,
+) (PublishWire, error) {
 	if in.Body == nil {
 		return PublishWire{}, errMissing("body is required")
 	}
@@ -183,7 +199,7 @@ func (b *InMemoryBackend) PublishMessage(topicID, messageType string, in Publish
 
 		d := b.newDelivery(s, t, kindMessage)
 		d.MessageID, d.Title, d.Body, d.MessageType = res.MessageID, title, *in.Body, messageType
-		b.route(d)
+		b.route(ctx, d)
 	}
 
 	b.Kick()
@@ -413,7 +429,12 @@ func (h *Handler) publishMessage(q *req) error {
 		return err
 	}
 
-	out, err := h.Backend.PublishMessage(q.param("topicId"), strings.ToUpper(q.r.Header.Get("Messagetype")), in)
+	out, err := h.Backend.PublishMessage(
+		q.r.Context(),
+		q.param("topicId"),
+		strings.ToUpper(q.r.Header.Get("Messagetype")),
+		in,
+	)
 	if err != nil {
 		return err
 	}

@@ -25,6 +25,7 @@ var (
 	errUnsupportedRT = errors.New("unsupported runtime")
 	errPackageFetch  = errors.New("fetch WEBSITE_RUN_FROM_PACKAGE")
 	errInvalidConfig = errors.New("invalid site configuration")
+	errRegistryAuth  = errors.New("pull image with registry credentials")
 )
 
 // ErrFunctionInCode is returned when deleting a function that has no function.json in the deployed package.

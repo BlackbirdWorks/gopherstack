@@ -947,6 +947,7 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 	applyRestoreOptions(cluster, opts)
 	b.clusterPut(cluster)
 	b.provisionClusterLocked(cluster)
+	b.loadClusterDataLocked(ctx, regionKey(region, clusterID), snap.PropertyGraphData, snap.RDFData)
 	cp := cloneCluster(cluster)
 
 	return &cp, nil
@@ -1065,6 +1066,10 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 			targetClusterID,
 		)
 	}
+	pgData, rdfData, err := b.captureClusterDataLocked(ctx, region, srcClusterID)
+	if err != nil {
+		return nil, err
+	}
 	endpoint := fmt.Sprintf("%s.cluster.%s.neptune.amazonaws.com", targetClusterID, region)
 	readerEndpoint := fmt.Sprintf("%s.cluster-ro.%s.neptune.amazonaws.com", targetClusterID, region)
 	cluster := &DBCluster{
@@ -1094,6 +1099,7 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 	applyRestoreOptions(cluster, opts.RestoreClusterOptions)
 	b.clusterPut(cluster)
 	b.provisionClusterLocked(cluster)
+	b.loadClusterDataLocked(ctx, regionKey(region, targetClusterID), pgData, rdfData)
 	cp := cloneCluster(cluster)
 
 	return &cp, nil

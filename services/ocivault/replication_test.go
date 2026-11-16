@@ -188,3 +188,51 @@ func TestVaultReplicaRules(t *testing.T) {
 	_, err := m.GetReplicationStatus(t.Context(), keymanagement.GetReplicationStatusRequest{ReplicationId: new("nope")})
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 }
+
+func TestReplicaServesKeyOnceReplicated(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	ctx := t.Context()
+	v := e.mkPrivateVault(t)
+	m := e.mgmt(t, v)
+
+	require.NoError(t, e.replicate(t, v, replicaRegion))
+	e.settle()
+
+	rm, err := keymanagement.NewKmsManagementClientWithConfigurationProvider(
+		e.prov, *e.replicas(t, v)[0].ManagementEndpoint,
+	)
+	require.NoError(t, err)
+
+	rc, err := keymanagement.NewKmsCryptoClientWithConfigurationProvider(e.prov, *e.replicas(t, v)[0].CryptoEndpoint)
+	require.NoError(t, err)
+
+	cr, err := m.CreateKey(ctx, keymanagement.CreateKeyRequest{
+		CompartmentId: new(testCompartment), DisplayName: new("late"), KeyShape: aes256(),
+	})
+	require.NoError(t, err)
+
+	listed := func() int {
+		r, lerr := rm.ListKeys(ctx, keymanagement.ListKeysRequest{CompartmentId: new(testCompartment)})
+		require.NoError(t, lerr)
+
+		return len(r.Items)
+	}
+
+	_, err = rm.GetKey(ctx, keymanagement.GetKeyRequest{KeyId: cr.Id})
+	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
+
+	_, err = rc.Encrypt(ctx, keymanagement.EncryptRequest{KeyId: cr.Id, Plaintext: new(b64([]byte("x")))})
+	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
+	assert.Zero(t, listed())
+
+	_, err = m.GetKey(ctx, keymanagement.GetKeyRequest{KeyId: cr.Id})
+	require.NoError(t, err, "the primary region serves the key at once")
+
+	e.settle()
+
+	_, err = rm.GetKey(ctx, keymanagement.GetKeyRequest{KeyId: cr.Id})
+	require.NoError(t, err)
+	assert.Equal(t, 1, listed())
+}

@@ -30,12 +30,16 @@ const (
 	dataDir        = "/var/lib/mysql"
 	dumpMount      = "/gopherstack-dump"
 	servicePort    = "3306"
+	xServicePort   = "33060"
+	mysqlXPort     = 33060
 	mysqlPort      = 3306
 	readyInterval  = 500 * time.Millisecond
 	connectTimeout = 5 * time.Second
 	teardownLimit  = 30 * time.Second
 	stderrLimit    = 512
 	maxDumpBytes   = 256 << 20
+	maxHostLabel   = 63
+	separators     = 2
 	fileMode       = 0o600
 	volumeLabel    = "gopherstack.mysqlengine"
 	mysqlBin       = "mysql"
@@ -132,6 +136,8 @@ type Spec struct {
 	NanoCPUs    int64
 	// ServerID, when non-zero, starts the server replication-ready (GTID mode).
 	ServerID uint32
+	// PublishX also publishes the X protocol port (see Server.XEndpoint).
+	PublishX bool
 	// Persist keeps data in a named volume; Fresh discards an existing one first.
 	Persist bool
 	Fresh   bool
@@ -210,6 +216,7 @@ type Server struct {
 	replPass string
 	spec     Spec
 	port     int
+	xport    int
 	mu       sync.Mutex
 
 	promoted bool
@@ -254,7 +261,7 @@ func (s *Server) prepare() (container.Spec, error) {
 		return container.Spec{}, fmt.Errorf("host port: %w", err)
 	}
 
-	name := s.e.cfg.Prefix + "-" + sanitize(s.spec.ID) + "-" + strconv.Itoa(port)
+	name := containerName(s.e.cfg.Prefix, s.spec.ID, port)
 
 	s.mu.Lock()
 	s.port, s.ctrNm = port, name
@@ -272,6 +279,21 @@ func (s *Server) prepare() (container.Spec, error) {
 		NanoCPUs:    s.spec.NanoCPUs,
 	}
 
+	if s.spec.PublishX {
+		xp, xerr := portalloc.AcquireFrom(s.e.cfg.Ports, s.e.cfg.Service)
+		if xerr != nil {
+			s.releasePort()
+
+			return container.Spec{}, fmt.Errorf("host port for the X protocol: %w", xerr)
+		}
+
+		s.mu.Lock()
+		s.xport = xp
+		s.mu.Unlock()
+
+		spec.Ports = append(spec.Ports, container.PortSpec(container.LoopbackHost, strconv.Itoa(xp), xServicePort))
+	}
+
 	if s.spec.ServerID > 0 {
 		spec.Cmd = replicationFlags(s.spec.ServerID)
 	}
@@ -283,13 +305,28 @@ func (s *Server) prepare() (container.Spec, error) {
 	return spec, nil
 }
 
+// containerName keeps the name within the 63-character hostname limit replicas resolve it by, cutting the front of
+// long ids (their distinguishing part is at the end).
+func containerName(prefix, id string, port int) string {
+	p := strconv.Itoa(port)
+	room := max(maxHostLabel-len(prefix)-len(p)-separators, 1)
+
+	id = sanitize(id)
+	if len(id) > room {
+		id = id[len(id)-room:]
+	}
+
+	return prefix + "-" + strings.TrimLeft(id, "-") + "-" + p
+}
+
 func (s *Server) releasePort() {
 	s.mu.Lock()
-	port := s.port
-	s.port = 0
+	port, xport := s.port, s.xport
+	s.port, s.xport = 0, 0
 	s.mu.Unlock()
 
 	portalloc.ReleaseTo(s.e.cfg.Ports, port)
+	portalloc.ReleaseTo(s.e.cfg.Ports, xport)
 }
 
 func (s *Server) container() string {
@@ -297,6 +334,14 @@ func (s *Server) container() string {
 	defer s.mu.Unlock()
 
 	return s.ctrID
+}
+
+// XEndpoint is the host and published port of the X protocol; the port is 0 unless Spec.PublishX is set.
+func (s *Server) XEndpoint() (string, int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return container.LoopbackHost, s.xport
 }
 
 // Endpoint is the host and published port clients connect to.
@@ -676,12 +721,12 @@ func (s *Server) RestoreInto(ctx context.Context, db string, data []byte) error 
 		return fmt.Errorf("write dump: %w", err)
 	}
 
-	cmd := []string{mysqlBin, "-u" + RootUser}
+	cmd := []string{"sh", "-c", "exec " + mysqlBin + " -u" + RootUser + ` "$@" < ` + dumpMount + "/in.sql", "sh"}
 	if db != "" {
 		cmd = append(cmd, "--database="+db)
 	}
 
-	return s.run(ctx, mysqlBin, append(cmd, "-e", "source "+dumpMount+"/in.sql"), s.pwdEnv())
+	return s.run(ctx, mysqlBin, cmd, s.pwdEnv())
 }
 
 // Close removes the container and releases its port; purge also deletes the data volume.

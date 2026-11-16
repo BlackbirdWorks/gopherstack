@@ -69,6 +69,10 @@ func (b *InMemoryBackend) execExtract(_ string, cfg map[string]any, dryRun bool)
 		return nil, errInvalid("Cannot extract table %s of type VIEW", ids["tableId"])
 	}
 
+	if t.isExternal() {
+		return nil, errInvalid("Cannot extract table %s of type EXTERNAL", ids["tableId"])
+	}
+
 	counts := make([]any, len(ec.URIs))
 	for i := range counts {
 		counts[i] = "0"
@@ -172,7 +176,8 @@ func csvText(f bqsql.Field, v any) string {
 	case bqsql.KindFloat:
 		return strings.TrimSuffix(s, ".0")
 	case bqsql.KindUnknown, bqsql.KindInt, bqsql.KindBool, bqsql.KindString, bqsql.KindBytes, bqsql.KindDate,
-		bqsql.KindNumeric, bqsql.KindBigNumeric, bqsql.KindJSON, bqsql.KindGeography, bqsql.KindStruct, bqsql.KindArray:
+		bqsql.KindNumeric, bqsql.KindBigNumeric, bqsql.KindJSON, bqsql.KindGeography, bqsql.KindInterval,
+		bqsql.KindStruct, bqsql.KindArray:
 	}
 
 	return s
@@ -248,7 +253,7 @@ func jsonCell(f bqsql.Field, v any) jsontext.Value {
 	case bqsql.KindDatetime, bqsql.KindTime:
 		s = strings.TrimSuffix(strings.TrimRight(s, "0"), ".")
 	case bqsql.KindUnknown, bqsql.KindString, bqsql.KindBytes, bqsql.KindDate, bqsql.KindJSON, bqsql.KindGeography,
-		bqsql.KindStruct, bqsql.KindArray:
+		bqsql.KindInterval, bqsql.KindStruct, bqsql.KindArray:
 	}
 
 	q, _ := json.Marshal(s, jsonx.V1())

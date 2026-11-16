@@ -171,7 +171,7 @@ func (b *InMemoryBackend) ListNotifications(
 		all[i] = r.Notification
 	}
 
-	return paginate(all, token, maxResults, maxPageSize)
+	return paginate(b.now(), all, token, maxResults, maxPageSize)
 }
 
 // ListBudgetNotificationsForAccount pages budgets that have notifications.
@@ -202,7 +202,7 @@ func (b *InMemoryBackend) ListBudgetNotificationsForAccount(
 		all = append(all, item)
 	}
 
-	return paginate(all, token, maxResults, maxPageSize)
+	return paginate(b.now(), all, token, maxResults, maxPageSize)
 }
 
 // CreateSubscriber adds a recipient to a notification.
@@ -301,5 +301,5 @@ func (b *InMemoryBackend) ListSubscribers(
 		return page.Page[Subscriber]{}, err
 	}
 
-	return paginate(slices.Clone(rec.Notifications[i].Subscribers), token, maxResults, maxPageSize)
+	return paginate(b.now(), slices.Clone(rec.Notifications[i].Subscribers), token, maxResults, maxPageSize)
 }

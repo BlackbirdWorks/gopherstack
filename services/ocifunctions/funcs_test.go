@@ -29,7 +29,7 @@ func TestFunction_Create(t *testing.T) {
 				d.TimeoutInSeconds = new(300)
 				d.DetachedModeTimeoutInSeconds = new(3600)
 				d.Config = map[string]string{"A": "1"}
-				d.ProvisionedConcurrencyConfig = functions.ConstantProvisionedConcurrencyConfig{Count: new(40)}
+				d.ProvisionedConcurrencyConfig = functions.ConstantProvisionedConcurrencyConfig{Count: new(10)}
 				d.TraceConfig = &functions.FunctionTraceConfig{IsEnabled: new(true)}
 				d.FreeformTags = map[string]string{"x": "y"}
 			},
@@ -46,7 +46,7 @@ func TestFunction_Create(t *testing.T) {
 				assert.Equal(t, map[string]string{"A": "1"}, f.Config)
 				pc, ok := f.ProvisionedConcurrencyConfig.(functions.ConstantProvisionedConcurrencyConfig)
 				require.True(t, ok)
-				assert.Equal(t, 40, *pc.Count)
+				assert.Equal(t, 10, *pc.Count)
 				assert.True(t, *f.TraceConfig.IsEnabled)
 				assert.Equal(t, map[string]string{"x": "y"}, f.FreeformTags)
 				assert.Equal(t, e.base, *f.InvokeEndpoint)

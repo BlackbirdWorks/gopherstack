@@ -1,13 +1,16 @@
 package lambdaweb
 
 import (
+	"context"
 	"slices"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
-func (b *InMemoryBackend) newEndpointLocked(f *Function, in *EndpointInput, now time.Time) *Endpoint {
+func (b *InMemoryBackend) newEndpointLocked(
+	f *Function, in *EndpointInput, now time.Time, fails map[string]string,
+) *Endpoint {
 	e := &Endpoint{
 		Name: in.Name, ARN: endpointARN(f.Region, f.AccountID, f.Name, in.Name), Region: f.Region,
 		AccountID: f.AccountID, FunctionName: f.Name, Description: in.Description, Type: in.Type,
@@ -29,6 +32,7 @@ func (b *InMemoryBackend) newEndpointLocked(f *Function, in *EndpointInput, now 
 
 	applyScaling(e, in.Scaling)
 	applyThrottle(e, in.Throttle)
+	b.seedReplicasLocked(e, fails, now)
 
 	return e
 }
@@ -130,6 +134,13 @@ func (b *InMemoryBackend) CreateWebFunctionEndpoint(region, ref string, in Endpo
 		return nil, err
 	}
 
+	var fails map[string]string
+
+	if in.Type != endpointHomeRegion {
+		fails = b.replicationFailures(
+			context.Background(), in.Regions, r, b.revisionsByID(r, name, weightIDs(in.Weights)))
+	}
+
 	b.mu.Lock("CreateWebFunctionEndpoint")
 	defer b.mu.Unlock()
 
@@ -158,7 +169,7 @@ func (b *InMemoryBackend) CreateWebFunctionEndpoint(region, ref string, in Endpo
 		return nil, err
 	}
 
-	e := b.newEndpointLocked(f, &in, b.now().UTC())
+	e := b.newEndpointLocked(f, &in, b.now().UTC(), fails)
 	b.endpoints.Put(e)
 
 	return b.endpointView(e), nil
@@ -281,6 +292,8 @@ func (b *InMemoryBackend) UpdateWebFunctionEndpoint(
 		return nil, err
 	}
 
+	fails := b.updateReplicationFailures(r, name, epRef, up)
+
 	b.mu.Lock("UpdateWebFunctionEndpoint")
 	defer b.mu.Unlock()
 
@@ -321,6 +334,7 @@ func (b *InMemoryBackend) UpdateWebFunctionEndpoint(
 	now := b.now().UTC()
 	e.UpdatedAt, e.UpdateStatus, e.UpdateReason = now, updateInProgress, "The endpoint update is in progress."
 	e.UpdatePendingUntil = now.Add(b.dwell(endpointUpdateDelay))
+	b.redeployReplicasLocked(e, weights, fails, now)
 
 	return b.endpointView(e), nil
 }

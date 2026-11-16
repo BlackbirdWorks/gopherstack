@@ -7,25 +7,22 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 30 (30 ok) |
+| PARITY entries audited | 32 (32 ok) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 10 |
+| Known gaps | 7 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Unserved operations: AB tests, batch evaluation, payments, recommendations, InvokeHarness, IngestData, InvokeAgentRuntimeCommand, memory extraction jobs, SaveBrowserSessionProfile, InvokeBrowser, UpdateBrowserStream and CompleteResourceTokenAuth have no routes
-- Memory extraction: events are never turned into memory records because strategies need a model; ExtractionMode and ExtractionConfig are accepted and ignored
+- Unserved operations: AB tests, batch evaluation, payments, recommendations, InvokeHarness, IngestData, memory extraction jobs, SaveBrowserSessionProfile, InvokeBrowser and UpdateBrowserStream have no routes
 - Retrieval: RetrieveMemoryRecords ranks with lexical BM25 only, so records sharing no term with the query are not returned
-- Runtimes: codeConfiguration (S3 code) runtimes cannot be invoked; only container images run, and the emulated ECR registry is reached through the registry-host setting
 - Runtimes: runtimes without a customJWTAuthorizer accept any caller and no IAM policy is evaluated
 - Code interpreter: executeCode runs a fresh python process per call, so variables do not persist between calls; javascript, typescript and the async task tools are rejected
-- Code interpreter: network mode, certificates and filesystem configurations are stored but not applied to the sandbox
+- Code interpreter: network mode, certificates and filesystem configurations are stored but not applied to the sandbox; a no-network mode would cut the sandbox off from the emulator endpoint (sandbox.go:119)
 - Browser: no automation or live-view streams, no profiles, and no browser process behind a session
-- Identity: USER_FEDERATION OAuth2 flows are rejected, vendor providers without a discovery document have no reachable token endpoint, and user JWT signatures are not verified
-- Persistence: sessions come back TERMINATED after a restart; warm runtime containers and sandbox files are not persisted
+- Identity: ON_BEHALF_OF_TOKEN_EXCHANGE flows are rejected, and vendor providers without a discovery document have no reachable authorization or token endpoint
 
 ### Structural gaps
 

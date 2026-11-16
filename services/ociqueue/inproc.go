@@ -78,3 +78,25 @@ func (b *InMemoryBackend) Peek(queueID string, dlq bool, limit int) ([]PeekedMes
 
 	return out, nil
 }
+
+// AppendMessage puts one message on a queue (on channel when set), as PutMessages would.
+func (b *InMemoryBackend) AppendMessage(queueID, channel, content string) error {
+	e := putEntryIn{Content: &content}
+	if channel != "" {
+		e.Metadata = &metaIn{ChannelID: &channel}
+	}
+
+	_, err := b.PutMessages(queueID, putMessagesIn{Messages: []putEntryIn{e}})
+
+	return err
+}
+
+// QueueActive reports whether id is a queue that accepts messages.
+func (b *InMemoryBackend) QueueActive(id string) bool {
+	b.mu.Lock("QueueActive")
+	defer b.mu.Unlock()
+
+	_, aerr := b.dataQueue(id)
+
+	return aerr == nil
+}

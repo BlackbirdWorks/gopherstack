@@ -2,6 +2,10 @@ package bqsql
 
 import (
 	"context"
+	"slices"
+	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 func (c *compiler) runDDL(ctx context.Context, st *Statement, dryRun bool) (*Result, error) {
@@ -23,6 +27,14 @@ func (c *compiler) runDDL(ctx context.Context, st *Statement, dryRun bool) (*Res
 		eff, err = c.ddlDrop(st)
 	case StmtAlter:
 		eff, err = c.ddlAlter(st)
+	case StmtCreateRoutine:
+		eff, err = c.ddlCreateRoutine(st)
+	case StmtDropRoutine:
+		eff, err = c.ddlDropRoutine(st)
+	case StmtCreateRowPolicy:
+		eff, err = c.ddlCreateRowPolicy(st)
+	case StmtDropRowPolicy:
+		eff, err = c.ddlDropRowPolicy(st)
 	case StmtQuery, StmtInsert, StmtUpdate, StmtDelete, StmtMerge, StmtTruncate:
 		err = unsupported("statement")
 	}
@@ -47,6 +59,10 @@ func ddlName(st *Statement) string {
 
 		return "CREATE_TABLE"
 	case StmtCreateView:
+		if st.materialized {
+			return "CREATE_MATERIALIZED_VIEW"
+		}
+
 		return "CREATE_VIEW"
 	case StmtCreateSchema:
 		return "CREATE_SCHEMA"
@@ -54,6 +70,18 @@ func ddlName(st *Statement) string {
 		return "DROP_" + st.dropKind
 	case StmtAlter:
 		return "ALTER_TABLE"
+	case StmtCreateRoutine:
+		return routineEffectName(st)
+	case StmtDropRoutine:
+		return dropRoutineName(st.dropKind)
+	case StmtCreateRowPolicy:
+		return "CREATE_ROW_ACCESS_POLICY"
+	case StmtDropRowPolicy:
+		if st.dropAll {
+			return "DROP_ALL_ROW_ACCESS_POLICIES"
+		}
+
+		return "DROP_ROW_ACCESS_POLICY"
 	case StmtQuery, StmtInsert, StmtUpdate, StmtDelete, StmtMerge, StmtTruncate:
 		return litSelect
 	}
@@ -92,6 +120,10 @@ func (c *compiler) ddlCreateTable(ctx context.Context, st *Statement, dryRun boo
 		return nil, err
 	}
 
+	if st.external {
+		return c.ddlCreateExternal(st, ref)
+	}
+
 	e := Effect{Op: OpCreateTable, Ref: ref, OrReplace: st.orReplace, Options: st.options}
 
 	if st.query != nil {
@@ -107,7 +139,7 @@ func (c *compiler) ddlCreateTable(ctx context.Context, st *Statement, dryRun boo
 			e.Fields = colDefFields(st.colDefs)
 		}
 
-		return []Effect{e}, nil
+		return withPartitioning(e, st)
 	}
 
 	if len(st.colDefs) == 0 {
@@ -115,6 +147,23 @@ func (c *compiler) ddlCreateTable(ctx context.Context, st *Statement, dryRun boo
 	}
 
 	e.Fields = colDefFields(st.colDefs)
+
+	return withPartitioning(e, st)
+}
+
+func withPartitioning(e Effect, st *Statement) ([]Effect, error) {
+	key, spec, err := partitionSpec(st.partitionBy, e.Fields)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, c := range st.clusterBy {
+		if !slices.ContainsFunc(e.Fields, func(f Field) bool { return strs.Equal(f.Name, c) }) {
+			return nil, invalid("Unrecognized name: %s in CLUSTER BY", c)
+		}
+	}
+
+	e.PartitionKey, e.Partition, e.Cluster = key, spec, st.clusterBy
 
 	return []Effect{e}, nil
 }
@@ -166,6 +215,7 @@ func (c *compiler) ddlCreateView(st *Statement) ([]Effect, error) {
 
 	return []Effect{{
 		Op: OpCreateView, Ref: ref, ViewQuery: st.viewSQL, Fields: fields, OrReplace: st.orReplace, Options: st.options,
+		Materialized: st.materialized,
 	}}, nil
 }
 
@@ -215,8 +265,8 @@ func (c *compiler) ddlDrop(st *Statement) ([]Effect, error) {
 		op = OpDropView
 	}
 
-	if (st.dropKind == "VIEW") != (td.ViewQuery != "") {
-		return nil, invalid("Cannot drop %s with DROP %s", ref, st.dropKind)
+	if dropKindOf(td) != st.dropKind {
+		return nil, invalid("Cannot drop %s with DROP %s", ref, strings.ReplaceAll(st.dropKind, "_", " "))
 	}
 
 	return []Effect{{Op: op, Ref: ref}}, nil
@@ -283,4 +333,15 @@ func (c *compiler) alterDrop(td *TableData, st *Statement, e Effect) ([]Effect, 
 	}
 
 	return []Effect{e}, nil
+}
+
+func dropKindOf(td *TableData) string {
+	switch {
+	case td.Materialized:
+		return "MATERIALIZED_VIEW"
+	case td.ViewQuery != "":
+		return "VIEW"
+	}
+
+	return kwTable
 }

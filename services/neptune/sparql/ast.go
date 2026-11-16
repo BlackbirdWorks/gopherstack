@@ -77,6 +77,7 @@ type Query struct {
 	Where     *group
 	Values    *valuesData
 	Prefixes  map[string]string
+	service   ServiceFunc
 	Base      string
 	Proj      []projItem
 	Template  []triplePat
@@ -86,6 +87,7 @@ type Query struct {
 	GroupBy   []projItem
 	Having    []Expr
 	Order     []orderCond
+	Hints     Hints
 	Limit     int
 	Offset    int
 	Form      queryForm
@@ -209,6 +211,7 @@ type updateOp struct {
 	With       Term
 	Where      *group
 	Src        string
+	Prologue   string
 	Into       Term
 	Graph      Term
 	To         Term
@@ -223,4 +226,7 @@ type updateOp struct {
 }
 
 // Update is a parsed SPARQL update request.
-type Update struct{ ops []updateOp }
+type Update struct {
+	ops   []updateOp
+	Hints Hints
+}

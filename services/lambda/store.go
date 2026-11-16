@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
@@ -104,6 +105,7 @@ type InMemoryBackend struct {
 	credIssuer         RoleCredentialIssuer
 	endpointURL        string
 	metrics            cwmetric.Sink
+	observer           atomic.Pointer[invocationObserverHolder]
 	docker             container.Runtime
 	ociRuntime         string
 	dnsRegistrar       DNSRegistrar

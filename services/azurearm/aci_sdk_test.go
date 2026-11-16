@@ -692,22 +692,6 @@ func TestACISDK_Validation(t *testing.T) {
 	}
 }
 
-func TestACISDK_ExecIsNotSupported(t *testing.T) {
-	t.Parallel()
-
-	s := newACIStack(t)
-	_, err := s.create(t, "rg", "x", aciOpts{policy: armcontainerinstance.ContainerGroupRestartPolicyAlways})
-	require.NoError(t, err)
-
-	_, err = s.factory.NewContainersClient().ExecuteCommand(t.Context(), "rg", "x", "main",
-		armcontainerinstance.ContainerExecRequest{Command: new("sh")}, nil)
-
-	var re *azcore.ResponseError
-
-	require.ErrorAs(t, err, &re)
-	assert.Equal(t, http.StatusNotImplemented, re.StatusCode)
-}
-
 func TestACISDK_DeleteResourceGroupStopsContainers(t *testing.T) {
 	t.Parallel()
 
@@ -748,27 +732,45 @@ func TestACISDK_DeleteResourceGroupStopsContainers(t *testing.T) {
 func TestACISDK_SnapshotRestore(t *testing.T) {
 	t.Parallel()
 
-	src := newACIStack(t)
-	_, err := src.create(t, "rg", "persisted", aciOpts{
-		policy: armcontainerinstance.ContainerGroupRestartPolicyAlways,
-		env:    []*armcontainerinstance.EnvironmentVariable{{Name: new("SECRET"), SecureValue: new("keep-me")}},
-	})
-	require.NoError(t, err)
+	tests := []struct {
+		name      string
+		wantState string
+		wantLive  int
+		stop      bool
+	}{
+		{name: "running resumes", wantState: "Running", wantLive: 1},
+		{name: "stopped stays stopped", stop: true, wantState: "Stopped"},
+	}
 
-	snap := src.handler.Snapshot(t.Context())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	dst := newACIStack(t)
-	require.NoError(t, dst.handler.Restore(t.Context(), snap))
+			src := newACIStack(t)
+			_, err := src.create(t, "rg", "persisted", aciOpts{
+				policy: armcontainerinstance.ContainerGroupRestartPolicyAlways,
+				env:    []*armcontainerinstance.EnvironmentVariable{{Name: new("SECRET"), SecureValue: new("keep-me")}},
+			})
+			require.NoError(t, err)
 
-	g := dst.get(t, "rg", "persisted")
-	assert.Equal(t, "Stopped", *g.Properties.InstanceView.State, "restored groups have no running containers")
-	assert.Zero(t, dst.rt.live())
+			if tt.stop {
+				_, err = src.factory.NewContainerGroupsClient().Stop(t.Context(), "rg", "persisted", nil)
+				require.NoError(t, err)
+			}
 
-	_, err = dst.factory.NewContainerGroupsClient().BeginStart(t.Context(), "rg", "persisted", nil)
-	require.NoError(t, err)
-	dst.waitState(t, "rg", "persisted", "Running")
+			snap := src.handler.Snapshot(t.Context())
 
-	specs := dst.rt.started()
-	require.Len(t, specs, 1)
-	assert.Contains(t, specs[0].Env, "SECRET=keep-me", "secure values survive a snapshot")
+			dst := newACIStack(t)
+			require.NoError(t, dst.handler.Restore(t.Context(), snap))
+
+			dst.waitState(t, "rg", "persisted", tt.wantState)
+			assert.Equal(t, tt.wantLive, dst.rt.live())
+
+			if tt.wantLive > 0 {
+				specs := dst.rt.started()
+				require.Len(t, specs, 1)
+				assert.Contains(t, specs[0].Env, "SECRET=keep-me", "secure values survive a snapshot")
+			}
+		})
+	}
 }

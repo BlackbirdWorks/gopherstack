@@ -2,6 +2,8 @@ package ociapigateway
 
 import (
 	"cmp"
+	"context"
+	"net"
 	"net/http"
 	"slices"
 	"strings"
@@ -52,7 +54,9 @@ type InMemoryBackend struct {
 	functions     FunctionInvoker
 	limiter       *rateLimiter
 	usage         *usageTracker
-	cache         *respCache
+	extcache      *extCache
+	logSink       LogSink
+	defaultCerts  *defaultCerts
 	secrets       SecretResolver
 	client        *http.Client
 	jwks          *jwksCache
@@ -69,7 +73,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 	b.Auth = ociauth.NewRegistry()
 	b.limiter = newRateLimiter()
 	b.usage = newUsageTracker()
-	b.cache = newRespCache()
+	b.extcache = newExtCache()
+	b.defaultCerts = newDefaultCerts()
 	b.jwks = newJWKSCache()
 	b.disco = newDiscoveryCache()
 	b.client = b.newBackendClient()
@@ -109,7 +114,17 @@ const headerRetry = "Opc-Retry-Token"
 func (b *InMemoryBackend) newBackendClient() *http.Client {
 	tr := httpclient.NewTransport()
 	tr.Proxy = nil
-	tr.DialContext = b.guardedDialer().DialContext
+	dialer := b.guardedDialer()
+	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if d, ok := ctx.Value(connectTimeoutKey{}).(time.Duration); ok {
+			var cancel context.CancelFunc
+
+			ctx, cancel = context.WithTimeout(ctx, d)
+			defer cancel()
+		}
+
+		return dialer.DialContext(ctx, network, addr)
+	}
 
 	return &http.Client{
 		Transport:     tr,
@@ -174,7 +189,8 @@ func (b *InMemoryBackend) Reset() {
 	b.Auth.Reset()
 	b.limiter.reset()
 	b.usage.reset()
-	b.cache.reset()
+	b.extcache.reset()
+	b.defaultCerts.reset()
 	b.jwks.reset()
 	b.disco.reset()
 }

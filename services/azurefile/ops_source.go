@@ -1,7 +1,10 @@
 package azurefile
 
 import (
+	"encoding/base64"
+	"encoding/binary"
 	"errors"
+	"hash/crc64"
 	"net"
 	"net/http"
 	"net/url"
@@ -118,7 +121,7 @@ func (h *Handler) readSource(rc *reqCtx, raw string) (*sourceData, *apiError) {
 
 	switch h.sourceKind(rc, u) {
 	case kindFile:
-		return h.readFileSource(u)
+		return h.readFileSource(rc, u)
 	case kindBlob:
 		return h.readBlobSource(u)
 	}
@@ -126,7 +129,7 @@ func (h *Handler) readSource(rc *reqCtx, raw string) (*sourceData, *apiError) {
 	return nil, errCannotVerifySource()
 }
 
-func (h *Handler) readFileSource(u *url.URL) (*sourceData, *apiError) {
+func (h *Handler) readFileSource(rc *reqCtx, u *url.URL) (*sourceData, *apiError) {
 	acct, shr, path, _, ok := splitHostPath(u.Host, u.Path)
 	if !ok {
 		return nil, errInvalidHeader(headerCopySource)
@@ -138,6 +141,10 @@ func (h *Handler) readFileSource(u *url.URL) (*sourceData, *apiError) {
 	sh, aerr := h.Backend.peek(acct).findShare(shr, u.Query().Get("sharesnapshot"), false)
 	if aerr != nil {
 		return nil, notFoundSource(aerr)
+	}
+
+	if !sh.isNFS() && !strings.EqualFold(rc.hdr("x-ms-source-allow-trailing-dot"), "true") {
+		path = trimDots(path)
 	}
 
 	n, aerr := sh.lookup(path)
@@ -196,6 +203,10 @@ func (h *Handler) putRangeFromURL(rc *reqCtx) (*resp, *apiError) {
 			"The size of the request body exceeds the maximum permissible limit.")
 	}
 
+	if aerr := checkSourceAuthorization(rc); aerr != nil {
+		return nil, aerr
+	}
+
 	src, aerr := h.readSource(rc, rc.hdr(headerCopySource))
 	if aerr != nil {
 		return nil, aerr
@@ -215,7 +226,12 @@ func (h *Handler) putRangeFromURL(rc *reqCtx) (*resp, *apiError) {
 		return nil, errInvalidRange()
 	}
 
-	return h.writeRange(rc, start, length, src.read(srcStart, length), false)
+	data := src.read(srcStart, length)
+	if aerr = checkSourceCRC64(rc, data); aerr != nil {
+		return nil, aerr
+	}
+
+	return h.writeRange(rc, start, length, data, false)
 }
 
 func (h *Handler) copyFile(rc *reqCtx) (*resp, *apiError) {
@@ -417,4 +433,49 @@ func (h *Handler) abortCopy(rc *reqCtx) (*resp, *apiError) {
 	n.ETag, n.LastModified = b.etag(), rc.now
 
 	return newResp(http.StatusNoContent), nil
+}
+
+// checkSourceAuthorization accepts only the Bearer scheme; the token itself is not validated.
+func checkSourceAuthorization(rc *reqCtx) *apiError {
+	v := rc.hdr("x-ms-copy-source-authorization")
+	if v != "" && !strings.HasPrefix(v, bearerPrefix) {
+		return errInvalidHeader("x-ms-copy-source-authorization")
+	}
+
+	return nil
+}
+
+// crc64Table is the Azure Storage CRC64 polynomial (azfile internal/shared/shared.go:38).
+const crc64Polynomial uint64 = 0x9A6C9329AC4BC9B5
+
+var crc64Table = crc64.MakeTable(crc64Polynomial) //nolint:gochecknoglobals // immutable table
+
+func crc64Header(data []byte) string {
+	var buf [8]byte
+
+	binary.LittleEndian.PutUint64(buf[:], crc64.Checksum(data, crc64Table))
+
+	return base64.StdEncoding.EncodeToString(buf[:])
+}
+
+// checkSourceCRC64 applies x-ms-source-content-crc64 (400) and the if-match/none-match variants (412).
+func checkSourceCRC64(rc *reqCtx, data []byte) *apiError {
+	sum := crc64Header(data)
+
+	if v := rc.hdr("x-ms-source-content-crc64"); v != "" && v != sum {
+		return newErr(http.StatusBadRequest, "Crc64Mismatch",
+			"The CRC64 value specified in the request did not match with the CRC64 value calculated by the server.")
+	}
+
+	if v := rc.hdr("x-ms-source-if-match-crc64"); v != "" && v != sum {
+		return newErr(http.StatusPreconditionFailed, "SourceConditionNotMet",
+			"The source condition specified using HTTP conditional header(s) is not met.")
+	}
+
+	if v := rc.hdr("x-ms-source-if-none-match-crc64"); v != "" && v == sum {
+		return newErr(http.StatusPreconditionFailed, "SourceConditionNotMet",
+			"The source condition specified using HTTP conditional header(s) is not met.")
+	}
+
+	return nil
 }

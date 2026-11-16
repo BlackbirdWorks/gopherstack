@@ -69,10 +69,11 @@ func (p *writePlan) validateIcebergCTAS() statementOutcome {
 		)
 	}
 
-	if f := strings.ToUpper(firstProp(props, propFormat)); f != "" && f != fmtNameParquet && f != fmtNameAvro {
+	if f := strings.ToUpper(firstProp(props, propFormat)); f != "" && f != fmtNameParquet && f != fmtNameAvro &&
+		f != fmtNameORC {
 		return stmtFail(
 			athenaErrTypeSyntax,
-			"NOT_SUPPORTED: format %s is not supported for Iceberg tables by the embedded SQL engine; use PARQUET or AVRO",
+			"NOT_SUPPORTED: format %s is not supported for Iceberg tables; use PARQUET, AVRO or ORC",
 			f,
 		)
 	}

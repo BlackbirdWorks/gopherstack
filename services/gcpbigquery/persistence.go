@@ -12,10 +12,11 @@ import (
 const snapshotVersion = 1
 
 type backendSnapshot struct {
-	Datasets map[string]*Dataset `json:"datasets"`
-	Jobs     map[string]*Job     `json:"jobs"`
-	Seq      int64               `json:"seq"`
-	Version  int                 `json:"version"`
+	Datasets     map[string]*Dataset `json:"datasets"`
+	Jobs         map[string]*Job     `json:"jobs"`
+	Reservations *reservationState   `json:"reservations,omitempty"`
+	Seq          int64               `json:"seq"`
+	Version      int                 `json:"version"`
 }
 
 // Snapshot serialises the backend state.
@@ -24,7 +25,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	defer b.mu.RUnlock()
 
 	return persistence.MarshalSnapshot(ctx, "gcpbigquery",
-		backendSnapshot{Version: snapshotVersion, Datasets: b.datasets, Jobs: b.jobs, Seq: b.seq})
+		backendSnapshot{Version: snapshotVersion, Datasets: b.datasets, Jobs: b.jobs, Seq: b.seq, Reservations: b.res})
 }
 
 // Restore loads backend state from a snapshot.
@@ -42,7 +43,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		logger.Load(ctx).WarnContext(ctx, "gcpbigquery: discarding incompatible snapshot version, starting empty",
 			"gotVersion", snap.Version, "wantVersion", snapshotVersion)
 
-		b.datasets, b.jobs, b.seq = map[string]*Dataset{}, map[string]*Job{}, 0
+		b.datasets, b.jobs, b.seq, b.res = map[string]*Dataset{}, map[string]*Job{}, 0, newReservationState()
 
 		return nil
 	}
@@ -63,7 +64,12 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		snap.Jobs = map[string]*Job{}
 	}
 
-	b.datasets, b.jobs, b.seq = snap.Datasets, snap.Jobs, snap.Seq
+	if snap.Reservations == nil {
+		snap.Reservations = newReservationState()
+	}
+
+	snap.Reservations.normalize()
+	b.datasets, b.jobs, b.seq, b.res = snap.Datasets, snap.Jobs, snap.Seq, snap.Reservations
 
 	return nil
 }
@@ -75,6 +81,16 @@ func normalizeDataset(d *Dataset) {
 
 	if d.Tables == nil {
 		d.Tables = map[string]*Table{}
+	}
+
+	if d.Routines == nil {
+		d.Routines = map[string]*Routine{}
+	}
+
+	for id, r := range d.Routines {
+		if r == nil || r.Resource == nil {
+			delete(d.Routines, id)
+		}
 	}
 
 	for id, t := range d.Tables {

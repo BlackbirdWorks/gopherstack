@@ -30,7 +30,7 @@ func (b *InMemoryBackend) replayKeyVersion(vaultID, keyID, id string) (keyVersio
 		return keyVersionWire{}, "", errInvalidatedToken()
 	}
 
-	return keyVersionFull(k, kv, ""), k.Etag, nil
+	return keyVersionFull(k, kv), k.Etag, nil
 }
 
 func (b *InMemoryBackend) replayVault(id, hostPort string) (VaultWire, string, error) {

@@ -1,6 +1,7 @@
 package lambdaweb
 
 import (
+	"slices"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
@@ -13,6 +14,7 @@ const (
 	unitCount = "Count"
 	unitMs    = "Milliseconds"
 	unitBytes = "Bytes"
+	unitMB    = "Megabytes"
 
 	levelDebug = "DEBUG"
 	levelInfo  = "INFO"
@@ -73,6 +75,12 @@ func (b *InMemoryBackend) routedRevisionKeys() map[string]bool {
 
 		for _, w := range b.effectiveWeightsLocked(e) {
 			out[envKey(e.Region, e.FunctionName, w.RevisionID)] = true
+		}
+
+		for region, rep := range e.Replicas {
+			for _, w := range slices.Concat(rep.Weights, rep.NextWeights) {
+				out[servedKey(e.Region, region, e.FunctionName, w.RevisionID)] = true
+			}
 		}
 	}
 
@@ -149,29 +157,41 @@ func (r *runtimeState) retireLocked(in *instance, now time.Time, routed bool) bo
 }
 
 type windowStats struct {
-	start time.Time
-	reqs  int64
-	bytes int64
-	peak  int32
+	start    time.Time
+	reqs     int64
+	bytes    int64
+	cpu      time.Duration
+	peakMem  uint64
+	peak     int32
+	hasStats bool
 }
 
 func (r *runtimeState) takeWindow(in *instance, now time.Time) windowStats {
 	r.mu.Lock("takeWindow")
 	defer r.mu.Unlock()
 
-	st := windowStats{start: in.lastReport, reqs: in.windowReqs, bytes: in.winBytes, peak: in.peak}
-	in.lastReport, in.windowReqs, in.winBytes, in.peak = now, 0, 0, in.inflight
+	st := windowStats{
+		start: in.lastReport, reqs: in.windowReqs, bytes: in.winBytes, peak: in.peak,
+		cpu: in.cpu - in.cpuMark, peakMem: in.peakMem, hasStats: in.sampled,
+	}
+	in.lastReport, in.windowReqs, in.winBytes, in.peak, in.cpuMark = now, 0, 0, in.inflight, in.cpu
 
 	return st
 }
 
 // report emits the environment's invokeSummary event and execution environment metrics for the closing window.
 func (r *runtimeState) report(in *instance, now time.Time) {
+	r.sample(in)
+
 	st := r.takeWindow(in, now)
 
+	summary := map[string]any{"requests": st.reqs, "concurrentRequests": st.peak}
+	if st.hasStats {
+		summary["cpuTimeMs"], summary["maxMemoryUsageMb"] = durMs(st.cpu), memMiB(st.peakMem)
+	}
+
 	in.ship.system("platform.invokeSummary", levelInfo, map[string]any{
-		"startTime": st.start.UTC().Format(time.RFC3339Nano), keyInstanceID: in.id,
-		keyMetrics: map[string]any{"requests": st.reqs, "concurrentRequests": st.peak},
+		"startTime": st.start.UTC().Format(time.RFC3339Nano), keyInstanceID: in.id, keyMetrics: summary,
 	})
 	in.emitEnvironmentMetrics(st, now)
 }
@@ -183,6 +203,12 @@ func (in *instance) emitEnvironmentMetrics(st windowStats, now time.Time) {
 		float64(now.Sub(st.start).Milliseconds()), dims)
 	emitMetric(in.metrics, in.rev.Region, nsWeb, "EnvironmentConcurrentRequests", unitCount, float64(st.peak), dims)
 	emitMetric(in.metrics, in.rev.Region, nsWeb, "ResponseBytes", unitBytes, float64(st.bytes), dims)
+
+	if st.hasStats {
+		emitMetric(in.metrics, in.rev.Region, nsWeb, "EnvironmentCPUTime", unitMs, durMs(st.cpu), dims)
+		emitMetric(in.metrics, in.rev.Region, nsWeb, "EnvironmentMaxMemoryUsage", unitMB,
+			float64(memMiB(st.peakMem)), dims)
+	}
 }
 
 func emitMetric(em cwmetric.Emitter, region, ns, name, unit string, value float64, dims []cwmetric.Dimension) {

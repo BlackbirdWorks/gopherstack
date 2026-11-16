@@ -211,9 +211,7 @@ gaps: []
   # request struct now binds Tags. Table-test coverage added per handler
   # (TestHandler_Create*_TagsAppliedInline) proving tags set at create are visible via
   # ListTagsForResource, so this class of regression is now caught.
-items_still_open:
-  - "Unverifiable defaults (re-checked 2026-10-07 against the SDK, API_StartExperimentRun / API_DeleteExperimentDefinition and the experimentation user guide pages on treatments and cleanup, none states a default): StartExperimentRun.ExposurePercentage omitted -> 0, DeleteExperimentDefinition delete_type omitted -> ARCHIVE, Treatment.Key naming ('Control', 'Treatment1'..N)."
-  - "Experiment ops' DeploymentParameters (Start/Update/StopExperimentRun): SDK doc strings (api_op_*ExperimentRun.go, types.DeploymentParameters) say only 'deployment parameters for the run' and API reference pages never state that runs create an inner deployment, so no behaviour is determinable; the field is accepted and ignored. Whether dynamic parameters surface in AppliedExtensions.Parameters is likewise unstated, so they do not."
+items_still_open: []
 structural_gaps:
   - "Deployment progression runs on a compressed fixed timescale, not the strategy's DeploymentDurationInMinutes/FinalBakeTimeInMinutes: real minutes-to-hours waits are unusable in an emulator (same as rds/acm)."
 deferred: []
@@ -491,3 +489,8 @@ appconfig is region-isolated: applications, environments, profiles, strategies a
 ## 2026-10-10 realism pass
 
 TagResource/ListTagsForResource/UntagResource now return ResourceNotFoundException for an ARN that names no live application, environment, profile, deployment, strategy, extension, association, experiment definition or run (previously any ARN was accepted and tags dangled after delete); tags are capped at 50 per resource, keys at 128 and values at 256 characters, and `aws:` keys are BadRequestException. CreateDeploymentStrategy/UpdateDeploymentStrategy validate DeploymentDurationInMinutes/FinalBakeTimeInMinutes 0-1440, GrowthFactor 1-100, GrowthType and ReplicateTo enums, default GrowthType to LINEAR and ReplicateTo to NONE, and UpdateDeploymentStrategy now applies GrowthType. CreateConfigurationProfile rejects a LocationUri that is not hosted, an ARN or one of the documented scheme prefixes. Proof: `TestTagResource_Realism`, `TestTagResource_TooManyTags`, `TestCreateDeploymentStrategy_Realism`, `TestCreateConfigurationProfile_LocationURI`. Left open: list ops accept a garbage next_token as the first page (HMAC pagination helper is shared; real service rejects it).
+
+## Emulator choices where the vendor is silent
+
+- Unverifiable defaults (re-checked 2026-10-07 against the SDK, API_StartExperimentRun / API_DeleteExperimentDefinition and the experimentation user guide pages on treatments and cleanup, none states a default): StartExperimentRun.ExposurePercentage omitted -> 0, DeleteExperimentDefinition delete_type omitted -> ARCHIVE, Treatment.Key naming ('Control', 'Treatment1'..N).
+- Experiment ops' DeploymentParameters (Start/Update/StopExperimentRun): SDK doc strings (api_op_*ExperimentRun.go, types.DeploymentParameters) say only 'deployment parameters for the run' and API reference pages never state that runs create an inner deployment, so no behaviour is determinable; the field is accepted and ignored. Whether dynamic parameters surface in AppliedExtensions.Parameters is likewise unstated, so they do not.

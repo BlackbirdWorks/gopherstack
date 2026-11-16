@@ -26,7 +26,7 @@ func TestLogicPersistenceRoundTrip(t *testing.T) {
 
 	code, _, _ = a.post(t, a.callback(t, "waiter"), "{}")
 	require.Equal(t, http.StatusAccepted, code)
-	a.clock.waitTimers(t, 1)
+	a.clock.waitTimer(t)
 
 	snap := a.handler.Snapshot(t.Context())
 	require.NotEmpty(t, snap)

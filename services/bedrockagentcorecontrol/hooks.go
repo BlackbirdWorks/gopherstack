@@ -1,6 +1,7 @@
 package bedrockagentcorecontrol
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"sync"
@@ -50,7 +51,7 @@ func (b *InMemoryBackend) byARN(sc scope, resourceARN string) (*Resource, bool) 
 
 type createValidator func(b *InMemoryBackend, sc scope, k *kindSpec, in args) error
 
-type createDecorator func(b *InMemoryBackend, sc scope, r *Resource, in args) error
+type createDecorator func(ctx context.Context, b *InMemoryBackend, sc scope, r *Resource, in args) error
 
 //nolint:gochecknoglobals // immutable dispatch table
 var createValidators = sync.OnceValue(func() map[string]createValidator {
@@ -106,7 +107,7 @@ func (b *InMemoryBackend) validateCreate(sc scope, k *kindSpec, in args) error {
 //nolint:gochecknoglobals // immutable dispatch table
 var createDecorators = sync.OnceValue(func() map[string]createDecorator {
 	pure := func(f func(r *Resource)) createDecorator {
-		return func(_ *InMemoryBackend, _ scope, r *Resource, _ args) error {
+		return func(_ context.Context, _ *InMemoryBackend, _ scope, r *Resource, _ args) error {
 			f(r)
 
 			return nil
@@ -115,79 +116,82 @@ var createDecorators = sync.OnceValue(func() map[string]createDecorator {
 	sandbox := pure(func(r *Resource) { r.Doc["type"] = "CUSTOM" })
 
 	return map[string]createDecorator{
-		kindRuntime: func(b *InMemoryBackend, _ scope, r *Resource, _ args) error {
+		kindRuntime: func(_ context.Context, b *InMemoryBackend, _ scope, r *Resource, _ args) error {
 			decorateRuntime(b, r)
 
 			return nil
 		},
-		kindRuntimeEndpoint: func(b *InMemoryBackend, sc scope, r *Resource, in args) error {
+		kindRuntimeEndpoint: func(_ context.Context, b *InMemoryBackend, sc scope, r *Resource, in args) error {
 			return b.decorateEndpoint(sc, r, in)
 		},
-		kindGateway: func(b *InMemoryBackend, _ scope, r *Resource, _ args) error {
+		kindGateway: func(_ context.Context, b *InMemoryBackend, _ scope, r *Resource, _ args) error {
 			b.decorateGateway(r)
 
 			return nil
 		},
-		kindGatewayTarget: func(b *InMemoryBackend, _ scope, r *Resource, _ args) error {
+		kindGatewayTarget: func(ctx context.Context, b *InMemoryBackend, _ scope, r *Resource, _ args) error {
 			b.decorateTarget(r)
+			b.requireTargetAuth(ctx, r, "CREATE_PENDING_AUTH")
 
 			return nil
 		},
-		kindGatewayRule: func(b *InMemoryBackend, sc scope, r *Resource, _ args) error { return b.decorateRule(sc, r) },
-		kindGatewayRateLimit: func(b *InMemoryBackend, sc scope, r *Resource, _ args) error {
+		kindGatewayRule: func(_ context.Context, b *InMemoryBackend, sc scope, r *Resource, _ args) error {
+			return b.decorateRule(sc, r)
+		},
+		kindGatewayRateLimit: func(_ context.Context, b *InMemoryBackend, sc scope, r *Resource, _ args) error {
 			return b.decorateRateLimit(sc, r)
 		},
-		kindMemory: func(b *InMemoryBackend, _ scope, r *Resource, in args) error {
+		kindMemory: func(_ context.Context, b *InMemoryBackend, _ scope, r *Resource, in args) error {
 			b.decorateMemory(r, in)
 
 			return nil
 		},
 		kindBrowser:         sandbox,
 		kindCodeInterpreter: sandbox,
-		kindDataset: func(b *InMemoryBackend, _ scope, r *Resource, in args) error {
+		kindDataset: func(_ context.Context, b *InMemoryBackend, _ scope, r *Resource, in args) error {
 			b.decorateDataset(r, in)
 
 			return nil
 		},
-		kindHarness: func(b *InMemoryBackend, _ scope, r *Resource, _ args) error {
+		kindHarness: func(_ context.Context, b *InMemoryBackend, _ scope, r *Resource, _ args) error {
 			b.decorateHarness(r)
 
 			return nil
 		},
-		kindHarnessEndpoint: func(b *InMemoryBackend, sc scope, r *Resource, _ args) error {
+		kindHarnessEndpoint: func(_ context.Context, b *InMemoryBackend, sc scope, r *Resource, _ args) error {
 			return b.decorateHarnessEndpoint(sc, r)
 		},
-		kindBundle: func(b *InMemoryBackend, _ scope, r *Resource, in args) error {
+		kindBundle: func(_ context.Context, b *InMemoryBackend, _ scope, r *Resource, in args) error {
 			b.decorateBundle(r, in)
 
 			return nil
 		},
-		kindOnlineEval: func(_ *InMemoryBackend, _ scope, r *Resource, in args) error {
+		kindOnlineEval: func(_ context.Context, _ *InMemoryBackend, _ scope, r *Resource, in args) error {
 			decorateOnlineEval(r, in)
 
 			return nil
 		},
-		kindConsentPortal: func(b *InMemoryBackend, _ scope, r *Resource, _ args) error {
+		kindConsentPortal: func(_ context.Context, b *InMemoryBackend, _ scope, r *Resource, _ args) error {
 			b.decorateConsent(r)
 
 			return nil
 		},
 		kindPolicyGeneration: pure(decoratePolicyGeneration),
-		kindRegistryRecord: func(b *InMemoryBackend, sc scope, r *Resource, _ args) error {
-			return b.decorateRecord(sc, r)
+		kindRegistryRecord: func(ctx context.Context, b *InMemoryBackend, sc scope, r *Resource, in args) error {
+			return b.decorateRecord(ctx, sc, r, in)
 		},
 		kindPaymentConnector: pure(decorateConnector),
-		kindOAuthProvider: func(b *InMemoryBackend, sc scope, r *Resource, _ args) error {
+		kindOAuthProvider: func(_ context.Context, b *InMemoryBackend, sc scope, r *Resource, _ args) error {
 			decorateOAuth(b, sc, r)
 
 			return nil
 		},
-		kindAPIKeyProvider: func(b *InMemoryBackend, sc scope, r *Resource, _ args) error {
+		kindAPIKeyProvider: func(_ context.Context, b *InMemoryBackend, sc scope, r *Resource, _ args) error {
 			decorateAPIKey(b, sc, r)
 
 			return nil
 		},
-		kindPaymentProvider: func(b *InMemoryBackend, sc scope, r *Resource, _ args) error {
+		kindPaymentProvider: func(_ context.Context, b *InMemoryBackend, sc scope, r *Resource, _ args) error {
 			decoratePaymentProvider(b, sc, r)
 
 			return nil
@@ -196,9 +200,9 @@ var createDecorators = sync.OnceValue(func() map[string]createDecorator {
 	}
 })
 
-func (b *InMemoryBackend) decorateCreate(sc scope, k *kindSpec, r *Resource, in args) error {
+func (b *InMemoryBackend) decorateCreate(ctx context.Context, sc scope, k *kindSpec, r *Resource, in args) error {
 	if d, ok := createDecorators()[k.Name]; ok {
-		return d(b, sc, r, in)
+		return d(ctx, b, sc, r, in)
 	}
 
 	return nil
@@ -252,7 +256,9 @@ func (b *InMemoryBackend) validateUpdate(sc scope, k *kindSpec, r *Resource, pat
 }
 
 // applyUpdate merges patch into r and returns members whose response value differs from the stored one.
-func (b *InMemoryBackend) applyUpdate(k *kindSpec, r *Resource, patch map[string]any) map[string]any {
+func (b *InMemoryBackend) applyUpdate(
+	ctx context.Context, k *kindSpec, r *Resource, patch map[string]any,
+) map[string]any {
 	switch k.Name {
 	case kindMemory:
 		b.applyMemoryUpdate(r, patch)
@@ -270,6 +276,10 @@ func (b *InMemoryBackend) applyUpdate(k *kindSpec, r *Resource, patch map[string
 		mergeDoc(r, patch)
 		b.afterTargetOrRuleUpdate(k, r)
 
+		if _, creds := patch["credentialProviderConfigurations"]; creds && k.Name == kindGatewayTarget {
+			b.requireTargetAuth(ctx, r, "UPDATE_PENDING_AUTH")
+		}
+
 		return nil
 	case kindOAuthProvider, kindAPIKeyProvider, kindPaymentProvider:
 		mergeDoc(r, patch)
@@ -279,6 +289,7 @@ func (b *InMemoryBackend) applyUpdate(k *kindSpec, r *Resource, patch map[string
 	case kindRegistryRecord:
 		mergeDoc(r, patch)
 		bumpRecordVersion(r, patch)
+		b.recordSynchronization(ctx, r, patch)
 
 		return nil
 	case kindDataset, kindPolicyEngine, kindWorkloadIdentity:

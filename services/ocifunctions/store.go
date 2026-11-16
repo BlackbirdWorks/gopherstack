@@ -39,18 +39,22 @@ type InMemoryBackend struct {
 	sink       func(ResourceEvent)
 	tagLookup  ocitags.Lookup
 	keyState   func(string) (string, bool)
+	logSink    func(LogLine) int
+	links      links
 	pending    []ResourceEvent
+	limits     limits
 	transition time.Duration
 	seq        int64
 }
 
 // NewInMemoryBackend creates an empty backend.
 func NewInMemoryBackend() *InMemoryBackend {
-	b := &InMemoryBackend{mu: lockmetrics.New("ocifunctions"), transition: defaultTransition}
+	b := &InMemoryBackend{mu: lockmetrics.New("ocifunctions"), transition: defaultTransition, limits: defaultLimits()}
 	b.SetClock(time.Now)
 	b.resetMaps()
 	b.Auth = ociauth.NewRegistry()
 	b.exec = newExecutor(b.nowUTC)
+	b.exec.logs = b.routeLogs
 
 	return b
 }
@@ -220,4 +224,5 @@ func (b *InMemoryBackend) Sweep() {
 	}
 
 	b.exec.reap()
+	b.prewarm()
 }

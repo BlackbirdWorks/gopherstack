@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/orcio"
 	"github.com/blackbirdworks/gopherstack/pkgs/parquetio"
 	"github.com/blackbirdworks/gopherstack/services/gcpbigquery/bqsql"
 )
@@ -30,6 +31,10 @@ func detectSchema(lc loadConfig, in []loadInput) ([]bqsql.Field, error) {
 		return detectJSON(lc, in[0].data)
 	case formatParquet:
 		return detectParquet(in[0].data)
+	case formatAvro:
+		return detectAvro(in[0].data)
+	case formatORC:
+		return detectORC(in[0].data)
 	}
 
 	return nil, fmt.Errorf("%w: cannot autodetect %s", errLoad, lc.Format)
@@ -304,6 +309,19 @@ func detectParquet(data []byte) ([]bqsql.Field, error) {
 		return nil, fmt.Errorf("parquet: %w", err)
 	}
 
+	return detectColumnar(f), nil
+}
+
+func detectORC(data []byte) ([]bqsql.Field, error) {
+	f, err := orcio.Open(data)
+	if err != nil {
+		return nil, fmt.Errorf("orc: %w", err)
+	}
+
+	return detectColumnar(f), nil
+}
+
+func detectColumnar(f columnarFile) []bqsql.Field {
 	cols := f.Columns()
 	kinds := make([]bqsql.Kind, len(cols))
 	seen := 0
@@ -331,7 +349,7 @@ func detectParquet(data []byte) ([]bqsql.Field, error) {
 		fields[i] = bqsql.Field{Name: sanitizeName(c, i), Type: k.RESTName(), Mode: bqsql.ModeNullable}
 	}
 
-	return dedupeNames(fields), nil
+	return dedupeNames(fields)
 }
 
 func goValueKind(v any) bqsql.Kind {

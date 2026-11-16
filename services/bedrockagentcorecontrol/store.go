@@ -44,6 +44,8 @@ type InMemoryBackend struct {
 	resources *store.Table[Resource]
 	policies  *store.Table[ResourcePolicy]
 	vaults    *store.Table[TokenVault]
+	sessions  *store.Table[AuthSession]
+	jwksCache map[string]jwksEntry
 	registry  *store.Registry
 	mu        *lockmetrics.RWMutex
 	idem      *idempotency.Memo
@@ -89,6 +91,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		store.New(func(v *ResourcePolicy) string { return v.ARN }),
 	)
 	b.vaults = store.Register(b.registry, "tokenVaults", store.New(func(v *TokenVault) string { return v.Key }))
+	b.sessions = store.Register(b.registry, "authSessions", store.New(func(v *AuthSession) string { return v.ID }))
 
 	return b
 }

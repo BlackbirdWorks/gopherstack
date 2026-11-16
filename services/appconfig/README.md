@@ -9,15 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 56 (56 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 2 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- Unverifiable defaults (re-checked 2026-10-07 against the SDK, API_StartExperimentRun / API_DeleteExperimentDefinition and the experimentation user guide pages on treatments and cleanup, none states a default): StartExperimentRun.ExposurePercentage omitted -> 0, DeleteExperimentDefinition delete_type omitted -> ARCHIVE, Treatment.Key naming ('Control', 'Treatment1'..N).
-- Experiment ops' DeploymentParameters (Start/Update/StopExperimentRun): SDK doc strings (api_op_*ExperimentRun.go, types.DeploymentParameters) say only 'deployment parameters for the run' and API reference pages never state that runs create an inner deployment, so no behaviour is determinable; the field is accepted and ignored. Whether dynamic parameters surface in AppliedExtensions.Parameters is likewise unstated, so they do not.
 
 ### Structural gaps
 

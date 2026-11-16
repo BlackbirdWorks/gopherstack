@@ -52,6 +52,8 @@ func statusText(status int) string {
 		return "INVALID_ARGUMENT"
 	case http.StatusForbidden:
 		return "PERMISSION_DENIED"
+	case http.StatusPreconditionFailed:
+		return "FAILED_PRECONDITION"
 	case http.StatusRequestEntityTooLarge:
 		return "INVALID_ARGUMENT"
 	}
@@ -85,3 +87,11 @@ func fromSQL(err error) *APIError {
 
 // ErrSnapshotNull is returned when a snapshot holds a null dataset.
 var ErrSnapshotNull = errors.New("gcpbigquery: snapshot contains a null dataset")
+
+func errStatus(e *APIError) string {
+	if e.Reason == failedPrecondition {
+		return "FAILED_PRECONDITION"
+	}
+
+	return statusText(e.Status)
+}

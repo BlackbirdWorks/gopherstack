@@ -184,6 +184,14 @@ func (p *aciPropsWire) normalize() error {
 		}
 	}
 
+	if err = p.checkSpot(); err != nil {
+		return err
+	}
+
+	if err = p.checkGroupResources(); err != nil {
+		return err
+	}
+
 	if err = p.normalizeInit(vols, names); err != nil {
 		return err
 	}
@@ -229,11 +237,44 @@ func (p *aciPropsWire) normalizeEnums() error {
 		return aciUnsupported("sku " + p.SKU)
 	}
 
-	if p.Priority != "" && !strings.EqualFold(p.Priority, "Regular") {
-		return aciUnsupported("priority " + p.Priority)
+	return p.normalizePriority()
+}
+
+const (
+	aciPrioritySpot    = "Spot"
+	aciSpotMaxCPU      = 4
+	aciSpotMaxMemoryGB = 16
+)
+
+// normalizePriority accepts Regular and Spot; the Spot limits are those of learn.microsoft.com/azure/
+// container-instances/container-instances-spot-containers-overview (no public IP, no virtual network).
+func (p *aciPropsWire) normalizePriority() error {
+	p.SKU = ""
+
+	switch {
+	case p.Priority == "" || strings.EqualFold(p.Priority, "Regular"):
+		p.Priority = ""
+	case strings.EqualFold(p.Priority, aciPrioritySpot):
+		p.Priority = aciPrioritySpot
+	default:
+		return aciBad("priority %q must be Regular or Spot", p.Priority)
 	}
 
-	p.SKU, p.Priority = "", ""
+	return nil
+}
+
+func (p *aciPropsWire) checkSpot() error {
+	if p.Priority != aciPrioritySpot {
+		return nil
+	}
+
+	if len(p.SubnetIDs) > 0 {
+		return aciBad("Spot container groups cannot be deployed behind a virtual network")
+	}
+
+	if p.IPAddress != nil && !strings.EqualFold(p.IPAddress.Type, "Private") {
+		return aciBad("Spot container groups cannot have a public IP endpoint")
+	}
 
 	return nil
 }
@@ -318,6 +359,31 @@ func (c *aciContainerWire) normalize(vols, names map[string]bool, ports map[int]
 	c.Properties.InstanceView = nil
 
 	return c.normalizeProbes()
+}
+
+// checkGroupResources enforces the per-group maximum of the standard SKU (Learn: container-instances-resource-and-
+// quota-limits, Standard Container Resources: 31 vCPU and 240 GB).
+func (p *aciPropsWire) checkGroupResources() error {
+	var cpu, mem float64
+
+	for _, c := range p.Containers {
+		if r := c.Properties.Resources; r != nil && r.Requests != nil {
+			cpu += r.Requests.CPU
+			mem += r.Requests.MemoryInGB
+		}
+	}
+
+	maxCPU, maxMem := float64(aciMaxCPU), float64(aciMaxMemoryGB)
+	if p.Priority == aciPrioritySpot {
+		maxCPU, maxMem = aciSpotMaxCPU, aciSpotMaxMemoryGB
+	}
+
+	if cpu > maxCPU || mem > maxMem {
+		return aciBad("the container group requests %g CPU and %g GB of memory; the maximum is %g CPU and %g GB",
+			cpu, mem, maxCPU, maxMem)
+	}
+
+	return nil
 }
 
 func (c *aciContainerWire) validateRuntime(vols map[string]bool) error {

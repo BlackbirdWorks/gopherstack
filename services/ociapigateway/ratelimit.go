@@ -68,6 +68,17 @@ func (l *rateLimiter) allow(key string, rate int, now time.Time) (bool, int) {
 	return false, max(1, int(math.Ceil((1-bk.tokens)/capacity)))
 }
 
+func (l *rateLimiter) forget(match func(key string) bool) {
+	l.mu.Lock("forget")
+	defer l.mu.Unlock()
+
+	for k := range l.buckets {
+		if match(k) {
+			delete(l.buckets, k)
+		}
+	}
+}
+
 func (l *rateLimiter) prune(now time.Time) {
 	for k, bk := range l.buckets {
 		if now.Sub(bk.last) > bucketIdle {

@@ -204,8 +204,6 @@ families:
 gaps: []
 
 items_still_open:
-  - "ListAccessPoints/GetAccessPoint DataSourceId: the SDK documents it only as 'the unique identifier for the data source' without stating the value for a bucket-backed access point (the S3 Control API reference ListAccessPoints says the same), so the filter and the GetAccessPoint echo are left unmodeled rather than guessed."
-  - "Multi-region access point create/delete/put-policy ClientToken: SDK and the CreateMultiRegionAccessPoint API reference say only "an idempotency token ... guarantee that requests are unique", so idempotent replay is left unmodeled."
   - "Terraform aws_s3control_bucket (S3 on Outposts) apply (2026-09-19): the ARN now carries the caller's X-Amz-Outpost-Id; the remaining failure is the provider's handling of GetBucketTagging NoSuchTagSetError, not verifiable here. aws_s3control_directory_bucket_access_point_scope needs zone-suffixed directory buckets the S3 emulator does not model."
 structural_gaps:
   - "ListAccessPoints DataSourceType filter: every access point CreateAccessPoint can create is bucket-backed, so ALL and the default are always identical; non-bucket (S3 Tables) access points are created outside this API."
@@ -1177,3 +1175,8 @@ NoSuchAccessGrant (access_grants.go:260/276): the pinned s3control v1.73.4 decla
 ## 2026-11-13 open-item re-check
 
 API_control_ListAccessPoints, API_control_GetAccessPoint, API_control_AccessPoint (DataSourceId: "unique identifier for the data source", max 191, no bucket-backed value) and API_control_CreateMultiRegionAccessPoint (ClientToken: "idempotency token ... guarantee that requests are unique", max 64, `\S+`, no replay or mismatch behaviour) were re-read; none states the missing facts, so those items stay open.
+
+## Emulator choices where the vendor is silent
+
+- ListAccessPoints/GetAccessPoint DataSourceId: the SDK documents it only as 'the unique identifier for the data source' without stating the value for a bucket-backed access point (the S3 Control API reference ListAccessPoints says the same), so the filter and the GetAccessPoint echo are left unmodeled rather than guessed.
+- Multi-region access point create/delete/put-policy ClientToken: SDK and the CreateMultiRegionAccessPoint API reference say only "an idempotency token ... guarantee that requests are unique", so idempotent replay is left unmodeled.

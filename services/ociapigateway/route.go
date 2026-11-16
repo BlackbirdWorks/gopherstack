@@ -79,7 +79,7 @@ const (
 //
 //nolint:gochecknoglobals // immutable table
 var lockKinds = []struct{ kind, path, param string }{
-	{kindGateway, gatewayPath, "gatewayId"}, {kindDeployment, deploymentPath, "deploymentId"},
+	{kindGateway, gatewayPath, keyGatewayID}, {kindDeployment, deploymentPath, keyDeploymentID},
 	{kindCertificate, certificatePath, "certificateId"}, {kindAPI, apiPath, "apiId"},
 	{kindSdk, sdkPath, "sdkId"}, {kindSubscriber, subscriberPath, "subscriberId"},
 	{kindUsagePlan, usagePlanPath, "usagePlanId"},

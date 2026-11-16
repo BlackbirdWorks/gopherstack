@@ -249,6 +249,12 @@ func (h *Handler) serve(q *req) error {
 		return errAuth("The required information to complete authentication was not provided or was incorrect.")
 	}
 
+	if isReplicaHint(q.rt.hint) {
+		if kid := requestKeyID(q); kid != "" && !h.Backend.KeyVisibleOnReplica(kid) {
+			return errNotFound(kid)
+		}
+	}
+
 	return fn(h, q)
 }
 
@@ -373,4 +379,27 @@ func (h *Handler) Shutdown(ctx context.Context) {
 	}
 
 	h.wg.Wait()
+}
+
+func isReplicaHint(hint string) bool {
+	_, _, ok := replicaHint(hint)
+
+	return ok
+}
+
+// requestKeyID is the key a request names in its path or body.
+func requestKeyID(q *req) string {
+	if id := q.param("keyId"); id != "" {
+		return id
+	}
+
+	var in struct {
+		KeyID string `json:"keyId"`
+	}
+
+	if len(q.body) == 0 || json.Unmarshal(q.body, &in, jsonx.V1()) != nil {
+		return ""
+	}
+
+	return in.KeyID
 }

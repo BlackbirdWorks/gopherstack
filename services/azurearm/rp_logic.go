@@ -100,6 +100,20 @@ type logicActionRec struct {
 	Outputs  logicContent `json:"outputs"`
 }
 
+type logicRepIndex struct {
+	Scope string `json:"scope"`
+	Item  int    `json:"item"`
+}
+
+// logicRepRec is one execution of an action inside a Foreach or Until iteration, or one iteration of the loop itself.
+type logicRepRec struct {
+	Action  string          `json:"action"`
+	Name    string          `json:"name"`
+	Rec     logicActionRec  `json:"rec"`
+	Indexes []logicRepIndex `json:"indexes"`
+	Scope   bool            `json:"scope,omitempty"`
+}
+
 type logicRunRec struct {
 	Start       time.Time                  `json:"start"`
 	End         time.Time                  `json:"end"`
@@ -114,6 +128,7 @@ type logicRunRec struct {
 	Correlation string                     `json:"correlation"`
 	ClientID    string                     `json:"clientTrackingId,omitempty"`
 	Order       []string                   `json:"order"`
+	Repetitions []*logicRepRec             `json:"repetitions,omitempty"`
 }
 
 type logicHistory struct {
@@ -163,6 +178,7 @@ type LogicProvider struct {
 	mu       *lockmetrics.RWMutex
 	wf       map[string]*logicWorkflow
 	live     map[string]*logicLive
+	queue    map[string][]*logicQueued
 	timers   map[string]gcpscale.Timer
 	rootCtx  context.Context //nolint:containedctx // lifetime of every run goroutine
 	cancel   context.CancelFunc
@@ -176,7 +192,8 @@ func NewLogicProvider() *LogicProvider {
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &LogicProvider{
 		clock: gcpscale.RealClock{}, mu: lockmetrics.New("azurearm.logicprovider"),
-		wf: map[string]*logicWorkflow{}, live: map[string]*logicLive{}, timers: map[string]gcpscale.Timer{},
+		wf: map[string]*logicWorkflow{}, live: map[string]*logicLive{}, queue: map[string][]*logicQueued{},
+		timers:  map[string]gcpscale.Timer{},
 		rootCtx: ctx, cancel: cancel,
 	}
 	p.http = p.newHTTPClient()
@@ -333,6 +350,17 @@ func (p *LogicProvider) detachLocked(w *logicWorkflow) logicLiveSet {
 	key := w.key()
 	delete(p.wf, key)
 
+	for qk, q := range p.queue {
+		if strings.HasPrefix(qk, key+"|") {
+			for _, e := range q {
+				e.live.cancel()
+				close(e.live.done)
+			}
+
+			delete(p.queue, qk)
+		}
+	}
+
 	var set logicLiveSet
 
 	for rk, l := range p.live {
@@ -398,6 +426,7 @@ func (p *LogicProvider) Reset() {
 	p.wf = map[string]*logicWorkflow{}
 	live := p.live
 	p.live = map[string]*logicLive{}
+	p.queue = map[string][]*logicQueued{}
 	p.mu.Unlock()
 
 	p.stopAllTimers()

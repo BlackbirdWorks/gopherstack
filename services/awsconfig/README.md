@@ -8,17 +8,10 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 102 (102 ok) |
-| Known gaps | 4 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- Generic ValidationException remains on ops whose declared error set has no validation-shaped code (DeleteConfigurationAggregator, DeleteConfigRule, DeleteEvaluationResults, Start/Stop/DeleteConfigurationRecorder, DeleteConformancePack, PutDeliveryChannel s3BucketName, DeleteDeliveryChannel, DeleteOrganizationConfigRule, DeleteOrganizationConformancePack; verified against configservice@v1.68.4); the real code is not determinable from the SDK. InvalidS3KeyPrefixException has no documented rule to enforce (bd: gopherstack-eboy).
-- InvalidRecordingGroupException does not enforce the 'limit of the number of resource types' trigger: the limit is not published.
-- MaxNumberOfConnectorsExceededException is not enforced: the per-account connector limit is not published in AWS docs.
-- DeleteRemediationConfiguration.ResourceType is ignored (remediation configurations are keyed by rule name only); the SDK documents it only as "The type of a resource".
 
 ### Structural gaps
 

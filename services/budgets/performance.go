@@ -64,7 +64,7 @@ func (b *InMemoryBackend) BudgetPerformance(
 		periods = append(periods, item)
 	}
 
-	pg, err := paginate(periods, token, maxResults, maxPageSize)
+	pg, err := paginate(b.now(), periods, token, maxResults, maxPageSize)
 	if err != nil {
 		return nil, "", err
 	}

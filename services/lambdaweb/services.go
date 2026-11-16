@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
 
 // LogSink delivers execution environment output to CloudWatch Logs.
@@ -120,11 +123,66 @@ func (b *InMemoryBackend) preflight(rev *Revision) error {
 		}
 	}
 
+	if rev.KmsKeyArn != "" {
+		if err := roleauth.AuthorizeResource(
+			b.authorizer(), roleauth.PrincipalLambda, "kms:Decrypt", rev.KmsKeyArn, rev.ARN,
+		); err != nil {
+			return fmt.Errorf("%w: %w", errKMSDecryption, err)
+		}
+	}
+
 	return nil
 }
 
-// checkKey rejects a revision whose KMS key is missing, disabled or not a symmetric encryption key.
-func (b *InMemoryBackend) checkKey(ctx context.Context, region, keyARN string) error {
+// logsAllowed reports whether the revision's execution role may write the revision's log group; without that
+// permission Lambda cannot deliver any log event.
+func (b *InMemoryBackend) logsAllowed(rev *Revision) bool {
+	auth := b.authorizer()
+	if auth == nil {
+		return true
+	}
+
+	group := arn.Build("logs", rev.Region, rev.AccountID, "log-group:"+logGroupOf(rev)+":*")
+
+	for _, action := range []string{"logs:CreateLogStream", "logs:PutLogEvents"} {
+		role := rev.ServiceConfig.ExecutionRoleArn
+		if err := roleauth.Authorize(auth, roleauth.PrincipalLambda, role, action, group); err != nil {
+			logger.Load(context.Background()).Warn(
+				"lambdaweb: execution role cannot write the log group; log events are not delivered",
+				"role", rev.ServiceConfig.ExecutionRoleArn, "logGroup", logGroupOf(rev), "action", action,
+			)
+
+			return false
+		}
+	}
+
+	return true
+}
+
+// SetRoleAuthorizer enforces the Lambda service principal's and the execution role's permissions (KMS key policy,
+// S3 bucket policy, CloudWatch Logs) under IAM enforcement.
+func (b *InMemoryBackend) SetRoleAuthorizer(a roleauth.Authorizer) {
+	b.mu.Lock("SetRoleAuthorizer")
+	defer b.mu.Unlock()
+
+	b.roleAuth = a
+}
+
+func (b *InMemoryBackend) authorizer() roleauth.Authorizer {
+	b.mu.RLock("authorizer")
+	defer b.mu.RUnlock()
+
+	return b.roleAuth
+}
+
+// pendingRevisionARN stands for the revision ARN Lambda generates after the checks that carry it as aws:SourceArn.
+func (b *InMemoryBackend) pendingRevisionARN(region, fn string) string {
+	return revisionARN(region, b.accountID, fn, "pending")
+}
+
+// checkKey rejects a revision whose KMS key is missing, disabled, not a symmetric encryption key, or whose key
+// policy does not let the Lambda service principal decrypt.
+func (b *InMemoryBackend) checkKey(ctx context.Context, region, fn, keyARN string) error {
 	if keyARN == "" {
 		return nil
 	}
@@ -133,12 +191,17 @@ func (b *InMemoryBackend) checkKey(ctx context.Context, region, keyARN string) e
 	keys := b.keys
 	b.mu.RUnlock()
 
-	if keys == nil {
-		return nil
+	if keys != nil {
+		if err := keys.CheckKey(ctx, region, keyARN); err != nil {
+			return validationError("The KMS key %s cannot be used: %v", keyARN, err)
+		}
 	}
 
-	if err := keys.CheckKey(ctx, region, keyARN); err != nil {
-		return validationError("The KMS key %s cannot be used: %v", keyARN, err)
+	if err := roleauth.AuthorizeResource(
+		b.authorizer(), roleauth.PrincipalLambda, "kms:Decrypt", keyARN, b.pendingRevisionARN(region, fn),
+	); err != nil {
+		return accessDeniedError(
+			"The key policy of %s does not allow %s to call kms:Decrypt.", keyARN, ServicePrincipal)
 	}
 
 	return nil

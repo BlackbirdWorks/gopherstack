@@ -9,14 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 26 (26 ok) |
 | Feature families | 5 (5 ok) |
-| Known gaps | 8 |
+| Known gaps | 7 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Catalog: quotas without a documented code are absent (the General Reference prints codes only for adjustable quotas; SQS and SNS print none), and docs defaults that vary by Region use the Region-independent value, else us-east-1; codes are not verified against the live API.
 - ContextId/QuotaContext: resource-level quotas are not modeled; ContextId is rejected with IllegalArgumentException
 - QuotaUtilization: only S3 buckets, EC2 Elastic IPs, VPCs, IAM roles/users/groups and DynamoDB tables report usage; the other catalogued quotas have no live counter
 - AutoManagement: NotifyAndAdjust sends the 95% notification only (as documented) but files no automatic increase request: the Automatic Management page (docs.aws.amazon.com/servicequotas/latest/userguide/automatic-management.html) does not state the requested value or which quotas qualify for automated approval

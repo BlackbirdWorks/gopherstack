@@ -24,19 +24,33 @@ import (
 
 // fakeRuntime starts an in-process listener on the published host port, standing in for the container's app.
 type fakeRuntime struct {
+	pingErr   error
+	pullErr   error
+	createErr error
 	listeners map[string]net.Listener
 	logLines  string
 	specs     []container.Spec
 	removed   []string
 	delay     time.Duration
 	mu        sync.Mutex
+	noImage   bool
 }
+
+func (r *fakeRuntime) Ping(context.Context) error { return r.pingErr }
+
+func (r *fakeRuntime) HasImage(context.Context, string) (bool, error) { return !r.noImage, nil }
+
+func (r *fakeRuntime) PullImage(context.Context, string) error { return r.pullErr }
 
 func (r *fakeRuntime) CreateAndStart(_ context.Context, spec container.Spec) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	r.specs = append(r.specs, spec)
+
+	if r.createErr != nil {
+		return "", r.createErr
+	}
 
 	if r.delay < 0 {
 		return "ctr-1", nil
@@ -226,7 +240,10 @@ func TestDockerLauncher_Launch(t *testing.T) {
 	require.Len(t, rt.specs, 1)
 	cs := rt.specs[0]
 	assert.Equal(t, "docker.io/library/node:24-slim", cs.Image)
-	assert.Equal(t, []string{"node", "server.js"}, cs.Cmd)
+	assert.Equal(t, []string{
+		"node", "--max-http-header-size=131072", "--require",
+		"/var/task/.gopherstack-lambdaweb-preload.cjs", "server.js",
+	}, cs.Cmd)
 	assert.Equal(t, "/var/task", cs.WorkingDir)
 	assert.True(t, strings.HasSuffix(cs.Mounts[0], ":/var/task:ro"))
 	assert.ElementsMatch(t, []string{
@@ -274,7 +291,11 @@ func TestDockerLauncher_DefaultEntrypoint(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { e.Close(context.Background()) })
 
-	assert.Equal(t, []string{"node", "index.js"}, rt.specs[0].Cmd)
+	assert.Equal(t,
+		[]string{
+			"node", "--max-http-header-size=131072", "--require",
+			"/var/task/.gopherstack-lambdaweb-preload.cjs", "index.js",
+		}, rt.specs[0].Cmd)
 }
 
 func TestDockerLauncher_NeverListens(t *testing.T) {

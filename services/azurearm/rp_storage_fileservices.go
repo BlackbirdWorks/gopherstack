@@ -26,12 +26,38 @@ const (
 type FileServices interface {
 	SetShareRetention(account string, enabled bool, days int32)
 	ShareRetention(account string) (bool, int32)
+	SetCORS(account string, rules []FileCORSRule) error
+	CORS(account string) []FileCORSRule
+	SetSMB(account string, s FileSMBSettings)
+	SMB(account string) FileSMBSettings
 }
+
+// FileCORSRule is one properties.cors.corsRules entry.
+type FileCORSRule struct {
+	AllowedOrigins  []string
+	AllowedMethods  []string
+	AllowedHeaders  []string
+	ExposedHeaders  []string
+	MaxAgeInSeconds int32
+}
+
+// FileSMBSettings is properties.protocolSettings.smb; list values are semicolon separated strings.
+type FileSMBSettings struct {
+	Versions                 string
+	AuthenticationMethods    string
+	KerberosTicketEncryption string
+	ChannelEncryption        string
+	MultichannelEnabled      bool
+}
+
+const defaultShareRetentionDays = 7
 
 // memFileServices is the standalone default: it only remembers the policy.
 type memFileServices struct {
 	mu       *lockmetrics.RWMutex
 	policies map[string]retentionState
+	cors     map[string][]FileCORSRule
+	smb      map[string]FileSMBSettings
 }
 
 type retentionState struct {
@@ -40,7 +66,10 @@ type retentionState struct {
 }
 
 func newMemFileServices() *memFileServices {
-	return &memFileServices{mu: lockmetrics.New("azurearm.memfileservices"), policies: map[string]retentionState{}}
+	return &memFileServices{
+		mu: lockmetrics.New("azurearm.memfileservices"), policies: map[string]retentionState{},
+		cors: map[string][]FileCORSRule{}, smb: map[string]FileSMBSettings{},
+	}
 }
 
 func (m *memFileServices) SetShareRetention(account string, enabled bool, days int32) {
@@ -54,9 +83,42 @@ func (m *memFileServices) ShareRetention(account string) (bool, int32) {
 	m.mu.RLock("ShareRetention")
 	defer m.mu.RUnlock()
 
-	s := m.policies[strings.ToLower(account)]
+	s, ok := m.policies[strings.ToLower(account)]
+	if !ok {
+		return true, defaultShareRetentionDays
+	}
 
 	return s.enabled, s.days
+}
+
+func (m *memFileServices) SetCORS(account string, rules []FileCORSRule) error {
+	m.mu.Lock("SetCORS")
+	defer m.mu.Unlock()
+
+	m.cors[strings.ToLower(account)] = rules
+
+	return nil
+}
+
+func (m *memFileServices) CORS(account string) []FileCORSRule {
+	m.mu.RLock("CORS")
+	defer m.mu.RUnlock()
+
+	return m.cors[strings.ToLower(account)]
+}
+
+func (m *memFileServices) SetSMB(account string, s FileSMBSettings) {
+	m.mu.Lock("SetSMB")
+	defer m.mu.Unlock()
+
+	m.smb[strings.ToLower(account)] = s
+}
+
+func (m *memFileServices) SMB(account string) FileSMBSettings {
+	m.mu.RLock("SMB")
+	defer m.mu.RUnlock()
+
+	return m.smb[strings.ToLower(account)]
 }
 
 // SetFileServices gives the Microsoft.Storage provider (if any) a data-plane
@@ -81,8 +143,39 @@ func (p *StorageProvider) ownsAccount(id ResourceID) bool {
 	return ok
 }
 
-func fileServiceBody(id ResourceID, enabled bool, days int32) map[string]any {
+func corsRulesBody(rules []FileCORSRule) []any {
+	out := make([]any, 0, len(rules))
+
+	for _, r := range rules {
+		out = append(out, map[string]any{
+			"allowedOrigins": r.AllowedOrigins, "allowedMethods": r.AllowedMethods,
+			"allowedHeaders": r.AllowedHeaders, "exposedHeaders": r.ExposedHeaders,
+			"maxAgeInSeconds": r.MaxAgeInSeconds,
+		})
+	}
+
+	return out
+}
+
+func smbBody(s FileSMBSettings) map[string]any {
+	out := map[string]any{"multichannel": map[string]any{acrWebhookEnabled: s.MultichannelEnabled}}
+
+	for k, v := range map[string]string{
+		"versions": s.Versions, "authenticationMethods": s.AuthenticationMethods,
+		"kerberosTicketEncryption": s.KerberosTicketEncryption, "channelEncryption": s.ChannelEncryption,
+	} {
+		if v != "" {
+			out[k] = v
+		}
+	}
+
+	return out
+}
+
+func fileServiceBody(id ResourceID, fs FileServices, account string) map[string]any {
+	enabled, days := fs.ShareRetention(account)
 	policy := map[string]any{acrWebhookEnabled: enabled}
+
 	if enabled {
 		policy["days"] = days
 	}
@@ -93,7 +186,8 @@ func fileServiceBody(id ResourceID, enabled bool, days int32) map[string]any {
 		"type":      namespaceMicrosoftStorage + "/" + storageAccountsType + "/" + fileServicesType,
 		acrFieldSKU: map[string]any{fieldName: "Standard_LRS", cosmosFieldTier: skuTierStandard},
 		"properties": map[string]any{
-			"cors":                       map[string]any{"corsRules": []any{}},
+			"cors":                       map[string]any{"corsRules": corsRulesBody(fs.CORS(account))},
+			"protocolSettings":           map[string]any{"smb": smbBody(fs.SMB(account))},
 			"shareDeleteRetentionPolicy": policy,
 		},
 	}
@@ -194,14 +288,91 @@ func (h *Handler) handleFileServices(c *echo.Context, segs []string) error {
 		if update.present {
 			sp.fileServices.SetShareRetention(account, update.enabled, update.days)
 		}
+
+		if applyErr := applyFileServiceSettings(sp.fileServices, account, body); applyErr != nil {
+			return h.writeAPIError(c, applyErr)
+		}
 	}
 
-	enabled, days := sp.fileServices.ShareRetention(account)
-	out := fileServiceBody(id, enabled, days)
+	out := fileServiceBody(id, sp.fileServices, account)
 
 	if len(segs) == fileServicesListLen {
 		return h.writeJSON(c, http.StatusOK, map[string]any{"value": []any{out}})
 	}
 
 	return h.writeJSON(c, http.StatusOK, out)
+}
+
+func anyStrings(v any) []string {
+	raw, _ := v.([]any)
+	out := make([]string, 0, len(raw))
+
+	for _, e := range raw {
+		if s, ok := e.(string); ok {
+			out = append(out, s)
+		}
+	}
+
+	return out
+}
+
+// applyFileServiceSettings stores properties.cors and properties.protocolSettings.smb when present.
+func applyFileServiceSettings(fs FileServices, account string, body map[string]any) error {
+	props, _ := body[fieldProperties].(map[string]any)
+
+	if cors, ok := props["cors"].(map[string]any); ok {
+		raw, _ := cors["corsRules"].([]any)
+		rules := make([]FileCORSRule, 0, len(raw))
+
+		for _, e := range raw {
+			m, _ := e.(map[string]any)
+			age, _ := m["maxAgeInSeconds"].(float64)
+			rules = append(rules, FileCORSRule{
+				AllowedOrigins: anyStrings(m["allowedOrigins"]), AllowedMethods: anyStrings(m["allowedMethods"]),
+				AllowedHeaders: anyStrings(m["allowedHeaders"]), ExposedHeaders: anyStrings(m["exposedHeaders"]),
+				MaxAgeInSeconds: int32(age),
+			})
+		}
+
+		if err := fs.SetCORS(account, rules); err != nil {
+			return fmt.Errorf("%w: cors: %s", ErrInvalidRequestBody, err.Error())
+		}
+	}
+
+	ps, _ := props["protocolSettings"].(map[string]any)
+	if smb, ok := ps["smb"].(map[string]any); ok {
+		s := FileSMBSettings{}
+		s.Versions, _ = smb["versions"].(string)
+		s.AuthenticationMethods, _ = smb["authenticationMethods"].(string)
+		s.KerberosTicketEncryption, _ = smb["kerberosTicketEncryption"].(string)
+		s.ChannelEncryption, _ = smb["channelEncryption"].(string)
+
+		if mc, mcOk := smb["multichannel"].(map[string]any); mcOk {
+			s.MultichannelEnabled, _ = mc[acrWebhookEnabled].(bool)
+		}
+
+		fs.SetSMB(account, s)
+	}
+
+	return nil
+}
+
+// AccountSKUName returns the SKU name (for example Premium_LRS) of the storage account with this name.
+func (p *StorageProvider) AccountSKUName(account string) (string, bool) {
+	p.mu.RLock("AccountSKUName")
+	defer p.mu.RUnlock()
+
+	for _, a := range p.accounts {
+		if !strings.EqualFold(a.name, account) {
+			continue
+		}
+
+		if name, ok := a.sku[fieldName].(string); ok && name != "" {
+			return name, true
+		}
+
+		return verSALRS, true
+	}
+
+	return "", false
 }

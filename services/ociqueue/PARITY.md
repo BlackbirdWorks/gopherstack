@@ -38,9 +38,6 @@ families:
   vault_integration: {status: ok, note: "When OCI Vault runs in the same process, customEncryptionKeyId is checked against its keys (must exist and be ENABLED); standalone any ocid1.key. OCID is accepted."}
   observability: {status: ok, note: "telemetry.WrapEchoHandler feeds ExtractOperation/ExtractResource; one lockmetrics.RWMutex guards all state."}
 items_still_open:
-  - "The LARGE_MESSAGES capability is rejected; the 256 KB standard message limit applies and the capability's larger limit is not documented in the pages read."
-  - "The 64 character channel id limit and the 1 to 100 channelConsumptionLimit range are undocumented (the SDK describes channelConsumptionLimit only as the percentage of queue capacity one channel may use); deadLetterQueueDeliveryCount 0 disables the DLQ per the SDK while the overview states a range of 1 to 20."
-  - "channelFilter is an exact match on GetMessages and a substring match on ListChannels; the documentation says a filter can match several channels (one is chosen at random) but not how ids are matched."
   - "The documented service limits (1,000 requests/s per API per queue, 10 MB/s ingress and egress, 2 GB storage per queue and 20 GB per tenancy, 100,000 in-flight messages, 256 channels per queue, 10 queues per tenancy per region) and channelConsumptionLimit are not enforced; their error codes are undocumented."
   - "Messages are held in memory and in snapshots, so large backlogs grow the snapshot."
   - "IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
@@ -52,3 +49,9 @@ items_still_open:
 - The SDK exposes no operation that reads the DLQ (queue/*_client.go lists CreateConsumerGroup, GetMessages, GetStats, PurgeQueue and the other operations routed here), so a DLQ that is only counted and purged matches the service.
 - opc-retry-token: SDK request docs state the token expires after 24 hours; 409 InvalidatedRetryToken comes from https://docs.oracle.com/en-us/iaas/Content/API/References/apierrors.htm. Tokens persist in the snapshot as retryTokens.
 - Tags are checked by pkgs/ocitags against OCI Identity when linked (https://docs.oracle.com/en-us/iaas/Content/Tagging/Concepts/taggingoverview.htm).
+
+## Emulator choices where the vendor is silent
+
+- The LARGE_MESSAGES capability is rejected; the 256 KB standard message limit applies and the capability's larger limit is not documented in the pages read.
+- The 64 character channel id limit and the 1 to 100 channelConsumptionLimit range are undocumented (the SDK describes channelConsumptionLimit only as the percentage of queue capacity one channel may use); deadLetterQueueDeliveryCount 0 disables the DLQ per the SDK while the overview states a range of 1 to 20.
+- channelFilter is an exact match on GetMessages and a substring match on ListChannels; the documentation says a filter can match several channels (one is chosen at random) but not how ids are matched.

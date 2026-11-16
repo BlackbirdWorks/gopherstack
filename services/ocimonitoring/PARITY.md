@@ -37,8 +37,11 @@ items_still_open:
   - "Suppressions silence the notification of the covered metric streams (ALARM level or a dimension subset of the firing streams, and the clearing notice when every previously firing stream is covered); the alarm state, history and RetrieveDimensionStates still change. The recurrence start default (00:00:00 UTC) and a WEEKLY rule without BYDAY (weekday of timeSuppressFrom, per RFC 5545) follow the SDK comment and the RFC."
   - "Alarm evaluation is per alarm, not per metric stream: isNotificationsPerMetricDimensionEnabled is stored but notifications are always grouped, and alarm overrides, ruleName rules and evaluationSlackDuration are stored but not evaluated."
   - "MQL lacks grouping(), joins, arithmetic and nested queries; see families.mql. Metrics emitted by other OCI services (oci_computeagent and so on) do not exist, only posted custom metrics."
-  - "The notification JSON layout follows the documented alarm message format only approximately; the SDK does not document its fields."
   - "Datapoints are held in memory and in snapshots, so heavy ingestion grows the snapshot; there is no per-stream cap."
   - "Content-encoding gzip request bodies, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
   - "systemTags are never set."
 ---
+
+## Emulator choices where the vendor is silent
+
+- The notification JSON layout follows the documented alarm message format only approximately; the SDK does not document its fields.

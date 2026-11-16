@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	iamsdk "github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/lambdaweb"
 	lwtypes "github.com/aws/aws-sdk-go-v2/service/lambdaweb/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -33,7 +34,7 @@ func createLambdaWebClient(t *testing.T) *lambdaweb.Client {
 	return lambdaweb.NewFromConfig(cfg, func(o *lambdaweb.Options) { o.BaseEndpoint = aws.String(endpoint) })
 }
 
-func lambdaWebRevisionConfig(bucket string) *lwtypes.RevisionConfig {
+func lambdaWebRevisionConfig(bucket, roleARN string) *lwtypes.RevisionConfig {
 	return &lwtypes.RevisionConfig{
 		BuildConfig: &lwtypes.BuildConfig{
 			CodeConfig: &lwtypes.CodeConfig{
@@ -41,8 +42,34 @@ func lambdaWebRevisionConfig(bucket string) *lwtypes.RevisionConfig {
 			},
 			RuntimeConfig: &lwtypes.RuntimeConfig{Runtime: aws.String("nodejs24.x")},
 		},
-		ServiceConfig: &lwtypes.ServiceConfig{ExecutionRoleArn: aws.String("arn:aws:iam::000000000000:role/web-role")},
+		ServiceConfig: &lwtypes.ServiceConfig{ExecutionRoleArn: aws.String(roleARN)},
 	}
+}
+
+// createLambdaWebRole creates an execution role the Lambda service principal may assume; without one an
+// environment start answers 502 Platform.CannotAssumeRole.
+func createLambdaWebRole(t *testing.T) string {
+	t.Helper()
+
+	iamClient := createIAMClient(t)
+	roleName := "lambdaweb-it-" + lambdaWebSuffix()
+
+	out, err := iamClient.CreateRole(t.Context(), &iamsdk.CreateRoleInput{
+		RoleName: aws.String(roleName),
+		AssumeRolePolicyDocument: aws.String(
+			`{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+				`"Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`),
+	})
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = iamClient.DeleteRole(cleanupCtx, &iamsdk.DeleteRoleInput{RoleName: aws.String(roleName)})
+	})
+
+	return aws.ToString(out.Role.Arn)
 }
 
 // TestIntegration_LambdaWeb_Lifecycle drives the Lambda Web Functions control plane through the real SDK client
@@ -55,12 +82,14 @@ func TestIntegration_LambdaWeb_Lifecycle(t *testing.T) {
 	client := createLambdaWebClient(t)
 	s3c := createS3Client(t)
 
+	roleARN := createLambdaWebRole(t)
+
 	bucket := "lambdaweb-it-" + lambdaWebSuffix()
 	_, err := s3c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 
 	_, err = client.CreateWebFunction(ctx, &lambdaweb.CreateWebFunctionInput{
-		FunctionName: aws.String("it-unversioned"), RevisionConfig: lambdaWebRevisionConfig(bucket),
+		FunctionName: aws.String("it-unversioned"), RevisionConfig: lambdaWebRevisionConfig(bucket, roleARN),
 	})
 	require.Error(t, err, "an unversioned bucket is rejected")
 	assert.True(t, hasAPIErrorCode(err, "ValidationException"))
@@ -78,7 +107,7 @@ func TestIntegration_LambdaWeb_Lifecycle(t *testing.T) {
 
 	name := "it-" + lambdaWebSuffix()
 	created, err := client.CreateWebFunction(ctx, &lambdaweb.CreateWebFunctionInput{
-		FunctionName: aws.String(name), RevisionConfig: lambdaWebRevisionConfig(bucket),
+		FunctionName: aws.String(name), RevisionConfig: lambdaWebRevisionConfig(bucket, roleARN),
 		EndpointConfig: &lwtypes.EndpointConfig{
 			EndpointName: aws.String("prod"), EndpointType: lwtypes.EndpointTypeHomeRegion,
 			AuthType: lwtypes.AuthTypeApplicationManaged,
@@ -121,8 +150,8 @@ func TestIntegration_LambdaWeb_Lifecycle(t *testing.T) {
 	)
 
 	second, err := client.CreateWebFunctionRevision(ctx, &lambdaweb.CreateWebFunctionRevisionInput{
-		FunctionName: aws.String(name), BuildConfig: lambdaWebRevisionConfig(bucket).BuildConfig,
-		ServiceConfig: lambdaWebRevisionConfig(bucket).ServiceConfig,
+		FunctionName: aws.String(name), BuildConfig: lambdaWebRevisionConfig(bucket, roleARN).BuildConfig,
+		ServiceConfig: lambdaWebRevisionConfig(bucket, roleARN).ServiceConfig,
 	})
 	require.NoError(t, err)
 
@@ -165,8 +194,8 @@ func TestIntegration_LambdaWeb_Lifecycle(t *testing.T) {
 
 	assert.True(t, found)
 
-	// Data plane: the endpoint domain is routed by Host header; the default stub engine answers 503, an unknown
-	// endpoint domain 404 with the platform error type.
+	// Data plane: the endpoint domain is routed by Host header; the server container has no container runtime, so the
+	// docker engine answers 503; an unknown endpoint domain 404 with the platform error type.
 	for host, want := range map[string]int{
 		domain: http.StatusServiceUnavailable,
 		"aaaaaaaaaaaaaaaa.zzz.lambda-web.us-east-1.on.aws": http.StatusNotFound,

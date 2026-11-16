@@ -67,7 +67,6 @@ families:
   Tags: {status: fixed, note: "TagResource/UntagResource now sync storedLocation.Tags and storedTask.Tags in addition to storedAgent.Tags and the canonical b.tags map, closing the dead-code asymmetry flagged (but not fixed) in the prior sweep"}
 gaps: []
 items_still_open:
-  - "LocationUri schemes \"object-storage://\" and \"azure-blob://\" violate the published LocationUri pattern (^(efs|nfs|s3|smb|hdfs|fsx[a-z0-9-]+)://...$ in API_DescribeLocationObjectStorage.html), and no AWS doc or SDK text names the scheme real AWS returns for these two types (re-checked 2026-10-07); not changed to a guessed scheme."
   - "LocationUri scheme fsxl:// for FSx Lustre matches the published pattern fsx[a-z0-9-]+ but the exact scheme is not published: checked API_DescribeLocationFsxLustre.html, API_LocationListEntry.html, API_DescribeLocationFsxOntap.html and the CloudFormation LocationFSxLustre page, none of which gives an example value"
 structural_gaps:
   - "AgentListEntry.Platform (agent software Version) is never emitted: it describes the real agent appliance, and CreateAgent has no input to source it from."
@@ -315,3 +314,7 @@ CreateTask/UpdateTask store the Options defaults documented on types.Options (At
 
 ## Primary-source checks (2026-11-13)
 - datasync: LocationUri pattern ^(efs|nfs|s3|smb|hdfs|fsx[a-z0-9-]+)://... and TYPE://GLOBAL_ID/SUBDIR format confirmed on API_DescribeLocationFsxLustre.html and API_LocationListEntry.html.
+
+## Emulator choices where the vendor is silent
+
+- LocationUri schemes "object-storage://" and "azure-blob://" violate the published LocationUri pattern (^(efs|nfs|s3|smb|hdfs|fsx[a-z0-9-]+)://...$ in API_DescribeLocationObjectStorage.html), and no AWS doc or SDK text names the scheme real AWS returns for these two types (re-checked 2026-10-07); not changed to a guessed scheme.

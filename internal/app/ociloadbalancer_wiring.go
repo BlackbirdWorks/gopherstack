@@ -1,10 +1,13 @@
 package app
 
 import (
+	"time"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
 	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
 	ociloadbalancer "github.com/blackbirdworks/gopherstack/services/ociloadbalancer"
+	"github.com/blackbirdworks/gopherstack/services/ocilogging"
 )
 
 // GetOCILoadBalancerSettings returns OCI Load Balancer settings (ociloadbalancer.ConfigProvider).
@@ -28,6 +31,14 @@ func wireOCILoadBalancer(byName map[string]service.Registerable) {
 			ref, live := coreH.Backend.LookupSubnet(id)
 
 			return ref.CidrBlock, live
+		})
+	}
+
+	if logH, found := byName["OCILogging"].(*ocilogging.Handler); found {
+		lbH.Backend.SetLogSink(func(lbID, category string, at time.Time, data map[string]any) {
+			logH.Backend.EmitServiceLog("loadbalancer", lbID, category, ocilogging.ServiceEvent{
+				Time: at, Type: "com.oraclecloud.loadbalancer." + category, Subject: lbID, Data: data,
+			})
 		})
 	}
 }

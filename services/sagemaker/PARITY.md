@@ -304,8 +304,7 @@ families:
 
 gaps: []
 
-items_still_open:
-  - "DescribeJobSchemaVersion/ListJobSchemaVersions serve one synthetic JobConfigSchemaVersion (\"1.0\") with a generic per-JobCategory schema: checked api_op_DescribeJobSchemaVersion.go and the API reference, neither publishes per-category schema content, so there is no ground truth to model."
+items_still_open: []
 structural_gaps:
   - "Container-backed workloads need a reachable container runtime (SAGEMAKER_ENGINE=docker, or --engines=docker/auto): with the default stub engine endpoints and jobs stay control-plane objects and InvokeEndpoint returns ServiceUnavailable. Files created by containers running as root in new sub-directories of the staging area may not be removable by the emulator user."
   - "Presigned URL expiry (2026-10-07): ExpiresInSeconds/SessionExpirationDurationInSeconds are range-checked against the API reference but not enforced; the synthetic AuthorizedUrl is not served by anything that could expire or single-use it."
@@ -6953,3 +6952,7 @@ DeleteEndpoint now moves the endpoint to Deleting and removes it after the lifec
 ## 2026-10-12 (deep realism pass)
 
 An unspecified ProductionVariant.InitialVariantWeight now defaults to 1.0 (sagemaker@v1.263.2 types.go:18228), so DescribeEndpoint reports DesiredWeight 1 instead of 0; an explicit 0 is kept (`TestEndpointConfig_VariantWeightDefaultsToOne`). Training S3ModelArtifacts is `<S3OutputPath>/<job>/output/model.tar.gz`, not `<S3OutputPath>/output/...` (`TestCreateTrainingJob_ModelArtifactsRequiredWhileInProgress`). DescribeNotebookInstance Url is `<name>.notebook.<region>.sagemaker.aws` instead of a host built from the ARN (`TestNotebookInstance_UrlHost`). Pipeline executions list one step per step of the pipeline definition, Executing until the execution succeeds or is stopped (`TestPipelineExecution_StepsFollowDefinition`). Not changed: ModelApprovalStatus stays empty when omitted at CreateModelPackage (AWS default not determinable from the SDK).
+
+## Emulator choices where the vendor is silent
+
+- DescribeJobSchemaVersion/ListJobSchemaVersions serve one synthetic JobConfigSchemaVersion ("1.0") with a generic per-JobCategory schema: checked api_op_DescribeJobSchemaVersion.go and the API reference, neither publishes per-category schema content, so there is no ground truth to model.

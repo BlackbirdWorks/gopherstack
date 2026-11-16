@@ -153,6 +153,11 @@ var router = restroute.New([]restroute.Route{
 	{Method: http.MethodGet, Path: secretsBase + "/secretbundles/actions/getByName", Op: opGetBundleByName},
 	{Method: http.MethodGet, Path: secretsBase + "/secretbundles/{secretId}", Op: opGetSecretBundle},
 	{Method: http.MethodGet, Path: secretsBase + "/secretbundles/{secretId}/versions", Op: opListBundleVersions},
+	{Method: http.MethodPost, Path: ekmsPath, Op: opCreateEkms},
+	{Method: http.MethodGet, Path: ekmsPath, Op: opListEkms},
+	{Method: http.MethodGet, Path: ekmsPath + "/{ekmsPrivateEndpointId}", Op: opGetEkms},
+	{Method: http.MethodPut, Path: ekmsPath + "/{ekmsPrivateEndpointId}", Op: opUpdateEkms},
+	{Method: http.MethodDelete, Path: ekmsPath + "/{ekmsPrivateEndpointId}", Op: opDeleteEkms},
 })
 
 type route struct {

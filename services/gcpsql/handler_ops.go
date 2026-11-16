@@ -2,6 +2,7 @@ package gcpsql
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/labstack/echo/v5"
 )
@@ -28,6 +29,12 @@ func (h *Handler) registerInstanceOps() {
 	}
 	h.ops[opCloneInstance] = h.cloneInstance
 	h.ops[opPromoteReplica] = func(c *echo.Context, rt route) error {
+		if failover, _ := strconv.ParseBool(c.QueryParam("failover")); failover {
+			v, err := h.Backend.FailoverPromote(rt.project, rt.instance)
+
+			return h.reply(c, v, err)
+		}
+
 		v, err := h.Backend.PromoteReplica(rt.project, rt.instance)
 
 		return h.reply(c, v, err)
@@ -48,6 +55,12 @@ func (h *Handler) registerInstanceOps() {
 		return h.reply(c, v, err)
 	}
 	h.ops[opFailover] = h.failover
+	h.ops[opSwitchover] = func(c *echo.Context, rt route) error {
+		v, err := h.Backend.Switchover(rt.project, rt.instance)
+
+		return h.reply(c, v, err)
+	}
+	h.ops[opExecuteSQL] = h.executeSQL
 	h.ops[opTruncateLog] = h.truncateLog
 	h.ops[opRotateServerCa] = h.rotateServerCa
 	h.ops[opResetSslConfig] = func(c *echo.Context, rt route) error {
@@ -410,4 +423,15 @@ func (h *Handler) rotateServerCa(c *echo.Context, rt route) error {
 	op, err := h.Backend.RotateServerCa(rt.project, rt.instance, in.RotateServerCaContext.NextVersion)
 
 	return h.reply(c, op, err)
+}
+
+func (h *Handler) executeSQL(c *echo.Context, rt route) error {
+	in, err := decode[ExecuteSQLInput](c)
+	if err != nil {
+		return err
+	}
+
+	v, err := h.Backend.ExecuteSQL(c.Request().Context(), rt.project, rt.instance, in)
+
+	return h.reply(c, v, err)
 }

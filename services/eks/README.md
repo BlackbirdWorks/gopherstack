@@ -8,14 +8,10 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 71 (71 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 5 |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- DescribeClusterVersions IncludeAll has no documented default exclusion (checked api_op_DescribeClusterVersions.go and API_DescribeClusterVersions.html), so it stays a no-op; DescribeAddonVersions owner/publisher filter values and the ConfigUpdate UpdateParam encoding are not stated by the pinned SDK or the API reference.
 
 ### Structural gaps
 

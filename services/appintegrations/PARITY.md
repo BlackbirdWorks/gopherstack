@@ -36,7 +36,6 @@ families:
 gaps: []
 items_still_open:
   - "DataIntegrationAssociation.LastExecutionStatus: never emitted because no AppFlow execution exists"
-  - "CreateDataIntegrationAssociation duplicate: the code for a second association of one DataIntegration is not documented; the emulator uses InvalidRequestException"
 structural_gaps:
   - "No AppFlow data plane: data integrations never pull data, so executions, schedules and file configuration have no effect beyond being stored."
 deferred: []
@@ -50,3 +49,7 @@ Protocol is REST-JSON (SigV4 signing name `app-integrations`); shapes and the ex
 Resources live in one namespace keyed by name or ID, not per Region; the ARN keeps the creating Region. Pagination uses the opaque offset token with MaxResults 1-50.
 
 Pass 2026-11-13: CreateDataIntegration KmsKey resolves against the KMS emulator when wired: it must name an existing, enabled, symmetric ENCRYPT_DECRYPT key (ID, ARN or alias); every failure is InvalidRequestException, the only client error API_CreateDataIntegration lists for a bad argument.
+
+## Emulator choices where the vendor is silent
+
+- CreateDataIntegrationAssociation duplicate: the code for a second association of one DataIntegration is not documented; the emulator uses InvalidRequestException

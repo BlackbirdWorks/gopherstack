@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -64,6 +65,7 @@ type S3Handler struct {
 	notificationCtx context.Context
 	Backend         StorageBackend
 	metrics         cwmetric.Sink
+	observer        atomic.Pointer[requestObserverHolder]
 	notifier        NotificationDispatcher
 	janitor         *Janitor
 	// pendingObjectLambdaRequests holds in-flight WriteGetObjectResponse tokens
@@ -242,7 +244,7 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 	inner := h.serveHandler()
 
 	return func(c *echo.Context) error {
-		if !h.metrics.Enabled() {
+		if !h.metrics.Enabled() && h.observer.Load() == nil {
 			return inner(c)
 		}
 
@@ -260,6 +262,7 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 
 		err := inner(c)
 		h.emitRequestMetrics(c, start, firstByte)
+		h.observeRequest(c)
 
 		return err
 	}

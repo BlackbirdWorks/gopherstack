@@ -221,6 +221,44 @@ func (p *WebProvider) checkSlotName(app, slot string) error {
 	return nil
 }
 
+func newSlotRecord(
+	parent *storedWebSite,
+	sub, slot string,
+	body, props map[string]any,
+	ident resourceIdentity,
+	existing *storedWebSite,
+) *storedWebSite {
+	rec := &storedWebSite{
+		Name:          parent.Name,
+		Sub:           sub,
+		Slot:          slot,
+		ResourceGroup: parent.ResourceGroup,
+		Location:      parent.Location,
+		Kind:          parent.Kind,
+		Created:       time.Now().UTC(),
+		Tags:          stringTags(body[fieldTags]),
+		Managed:       ident,
+		Configs:       map[string]map[string]any{},
+		Extra:         webSiteExtra(props),
+	}
+	rec.Extra[webFieldServerFarmID] = parent.Extra[webFieldServerFarmID]
+
+	if existing != nil {
+		rec.Created, rec.Location, rec.Configs, rec.LastSwap = existing.Created, existing.Location, existing.Configs,
+			existing.LastSwap
+	}
+
+	if loc, _ := body[fieldLocation].(string); loc != "" {
+		rec.Location = loc
+	}
+
+	if kind, _ := body[webFieldKind].(string); kind != "" && isFunctionAppKind(kind) == isFunctionAppKind(parent.Kind) {
+		rec.Kind = kind
+	}
+
+	return rec
+}
+
 func (p *WebProvider) putSlot(ctx context.Context, id ResourceID, body map[string]any) (map[string]any, error) {
 	parent, ok := p.site(id.ResourceGroup, id.Names[0])
 	if !ok {
@@ -240,33 +278,7 @@ func (p *WebProvider) putSlot(ctx context.Context, id ResourceID, body map[strin
 		return nil, err
 	}
 
-	rec := &storedWebSite{
-		Name:          parent.Name,
-		Sub:           id.SubscriptionID,
-		Slot:          slot,
-		ResourceGroup: parent.ResourceGroup,
-		Location:      parent.Location,
-		Kind:          parent.Kind,
-		Created:       time.Now().UTC(),
-		Tags:          stringTags(body[fieldTags]),
-		Managed:       ident,
-		Configs:       map[string]map[string]any{},
-		Extra:         webSiteExtra(props),
-	}
-	rec.Extra[webFieldServerFarmID] = parent.Extra[webFieldServerFarmID]
-
-	if exists {
-		rec.Created, rec.Location, rec.Configs, rec.LastSwap = existing.Created, existing.Location, existing.Configs,
-			existing.LastSwap
-	}
-
-	if loc, _ := body[fieldLocation].(string); loc != "" {
-		rec.Location = loc
-	}
-
-	if kind, _ := body[webFieldKind].(string); kind != "" && isFunctionAppKind(kind) == isFunctionAppKind(parent.Kind) {
-		rec.Kind = kind
-	}
+	rec := newSlotRecord(parent, id.SubscriptionID, slot, body, props, ident, existing)
 
 	settings, err := p.applySlotProps(parent, rec, props, !exists)
 	if err != nil {
@@ -295,6 +307,12 @@ func (p *WebProvider) putSlot(ctx context.Context, id ResourceID, body map[strin
 	}
 
 	parent.Slots[strings.ToLower(slot)] = rec
+
+	p.syncIdentities()
+
+	if exists {
+		p.restartOnIdentityChange(rec.dpName(), existing, ident)
+	}
 
 	return p.siteBody(ctx, id, rec, info), nil
 }
@@ -439,6 +457,7 @@ func (p *WebProvider) deleteSlot(id ResourceID) error {
 	}
 
 	delete(parent.Slots, key)
+	p.syncIdentities()
 
 	return nil
 }
@@ -538,6 +557,10 @@ func (p *WebProvider) swapSides(id ResourceID, body map[string]any) (*slotSides,
 		return nil, badWebRequest(fmt.Errorf("%w: source and target slots are the same", ErrWebInvalidSiteConfig))
 	}
 
+	return newSlotSides(parent, rec, target), nil
+}
+
+func newSlotSides(parent, rec, target *storedWebSite) *slotSides {
 	label := func(s *storedWebSite) string {
 		if s.Slot == "" {
 			return webSlotProduction
@@ -549,7 +572,7 @@ func (p *WebProvider) swapSides(id ResourceID, body map[string]any) (*slotSides,
 	return &slotSides{
 		parent: parent, source: rec, target: target, sourceLabel: label(rec), targetLabel: label(target),
 		appSticky: stickyNames(parent, "appSettingNames"), connSticky: stickyNames(parent, "connectionStringNames"),
-	}, nil
+	}
 }
 
 func connStringsOf(s *storedWebSite) map[string]any {
@@ -758,6 +781,7 @@ func (p *WebProvider) completeSwap(sd *slotSides) error {
 	now := time.Now().UTC()
 	status := &swapStatus{Time: now, Source: sd.sourceLabel, Destination: sd.targetLabel}
 	src.LastSwap, tgt.LastSwap = status, status
+	p.syncIdentities()
 
 	return nil
 }

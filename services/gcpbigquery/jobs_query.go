@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/gcpbigquery/bqsql"
@@ -45,6 +46,8 @@ func intOf(v any) (int, bool) {
 		return n, err == nil
 	case float64:
 		return int(t), true
+	case int64:
+		return int(t), true
 	case string:
 		n, err := strconv.Atoi(t)
 
@@ -72,7 +75,7 @@ func decodeQueryConfig(raw any) (queryConfig, error) {
 // execQuery runs a query-job statement; the caller holds the write lock.
 func (b *InMemoryBackend) execQuery(
 	ctx context.Context,
-	project string,
+	project, jobID string,
 	qc queryConfig,
 	dryRun bool,
 ) (*outcome, error) {
@@ -84,7 +87,7 @@ func (b *InMemoryBackend) execQuery(
 		return nil, errInvalidQuery("Query text is required")
 	}
 
-	st, err := bqsql.ParseStatement(qc.Query)
+	sc, err := bqsql.ParseScript(qc.Query)
 	if err != nil {
 		return nil, fromSQL(err)
 	}
@@ -94,12 +97,17 @@ func (b *InMemoryBackend) execQuery(
 		return nil, err
 	}
 
-	in := &bqsql.Input{Catalog: catalog{b: b}, Project: project, Params: params}
+	in := &bqsql.Input{Catalog: catalog{b: b}, Project: project, Params: params, User: principalFrom(ctx)}
 	if qc.DefaultDataset != nil {
 		in.Dataset = qc.DefaultDataset.DatasetID
 		if qc.DefaultDataset.ProjectID != "" {
 			in.Project = qc.DefaultDataset.ProjectID
 		}
+	}
+
+	st, single := sc.Single()
+	if !single {
+		return b.execScript(ctx, project, jobID, sc, in, dryRun)
 	}
 
 	res, err := bqsql.Run(ctx, st, in, dryRun)
@@ -214,6 +222,10 @@ func (b *InMemoryBackend) writeDestination(
 		return &jobError{Reason: litInvalid, Message: "Cannot write to view " + ref.TableID}
 	}
 
+	if t.isExternal() {
+		return &jobError{Reason: litInvalid, Message: "Cannot write to external table " + ref.TableID}
+	}
+
 	return b.fillExisting(t, ref, fields, rows, write, replaceSchema)
 }
 
@@ -225,6 +237,8 @@ func (b *InMemoryBackend) fillExisting(
 	write string,
 	replaceSchema bool,
 ) *jobError {
+	t.record(nowMs())
+
 	switch write {
 	case writeEmpty:
 		if len(t.Rows) > 0 {
@@ -236,6 +250,8 @@ func (b *InMemoryBackend) fillExisting(
 
 		fallthrough
 	case writeTruncate:
+		t.RowPolicies = nil
+
 		if replaceSchema || len(t.Schema) == 0 {
 			t.Schema = fields
 		} else if len(fields) != len(t.Schema) {
@@ -296,6 +312,12 @@ func (b *InMemoryBackend) applyEffect(e bqsql.Effect) error {
 		return b.effectDropSchema(e)
 	case bqsql.OpAlter:
 		return b.effectAlter(e)
+	case bqsql.OpCreateRoutine, bqsql.OpDropRoutine:
+		return b.applyRoutineEffect(e)
+	case bqsql.OpRefreshView:
+		return b.effectRefresh(e)
+	case bqsql.OpCreateRowPolicy, bqsql.OpDropRowPolicy:
+		return b.effectRowPolicy(e)
 	}
 
 	return errInvalidQuery("Unsupported catalog operation " + e.Op)
@@ -320,6 +342,8 @@ func (b *InMemoryBackend) effectWrite(e bqsql.Effect) error {
 	if err != nil {
 		return err
 	}
+
+	t.record(nowMs())
 
 	t.Rows, t.Schema = e.Rows, e.Fields
 	t.Modified = nowMs()
@@ -349,8 +373,22 @@ func (b *InMemoryBackend) effectCreate(e bqsql.Effect) error {
 		t.Rows = [][]any{}
 	}
 
+	applyPartitioning(t.Meta, e)
+
+	if e.External {
+		if err := b.externalFromEffect(e, t); err != nil {
+			return err
+		}
+	}
+
+	if e.Materialized {
+		t.MV = materializedOptions(e.Options, now)
+	}
+
 	if old, exists := d.live(e.Ref.Table); exists && e.OrReplace {
 		t.Created = old.Created
+		old.record(now)
+		t.History = old.History
 	}
 
 	d.Tables[e.Ref.Table] = t
@@ -416,6 +454,12 @@ func (b *InMemoryBackend) effectAlter(e bqsql.Effect) error {
 	case "OPTIONS":
 		mergePatch(t.Meta, optionsMeta(e.Options))
 	default:
+		if err = t.checkPolicyColumns(e.Fields); err != nil {
+			return err
+		}
+
+		t.record(nowMs())
+
 		t.Schema, t.Rows = e.Fields, e.Rows
 	}
 
@@ -451,6 +495,10 @@ func optionsMeta(opts map[string]string) map[string]any {
 		meta["labels"] = labels
 	}
 
+	if v, ok := opts["require_partition_filter"]; ok {
+		meta["requirePartitionFilter"] = strings.EqualFold(strings.TrimSpace(v), "true")
+	}
+
 	if v, ok := opts["expiration_timestamp"]; ok {
 		s := strings.Trim(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(v), "TIMESTAMP")), `"'`)
 		if t, err := bqsql.ParseTemporal(bqsql.KindTimestamp, s); err == nil {
@@ -459,6 +507,16 @@ func optionsMeta(opts map[string]string) map[string]any {
 	}
 
 	return meta
+}
+
+func applyPartitioning(meta map[string]any, e bqsql.Effect) {
+	if e.PartitionKey != "" {
+		meta[e.PartitionKey] = e.Partition
+	}
+
+	if len(e.Cluster) > 0 {
+		meta["clustering"] = map[string]any{litClusterFields: e.Cluster}
+	}
 }
 
 func apiReason(err error) string {
@@ -475,4 +533,42 @@ func apiMessage(err error) string {
 	}
 
 	return err.Error()
+}
+
+func (b *InMemoryBackend) effectRefresh(e bqsql.Effect) error {
+	t, err := b.effectTable(e)
+	if err != nil {
+		return err
+	}
+
+	if t.MV == nil {
+		return errInvalidQuery(e.Ref.String() + " is not a materialized view")
+	}
+
+	t.MV["lastRefreshTime"] = msString(nowMs())
+	t.Modified = nowMs()
+	t.Seq = b.nextSeq()
+
+	return nil
+}
+
+// materializedOptions maps the OPTIONS of CREATE MATERIALIZED VIEW onto the REST materializedView settings.
+func materializedOptions(opts map[string]string, now int64) map[string]any {
+	mv := map[string]any{"lastRefreshTime": msString(now)}
+
+	if v, ok := opts["enable_refresh"]; ok {
+		mv["enableRefresh"] = strings.EqualFold(v, "true")
+	}
+
+	if v, ok := opts["refresh_interval_minutes"]; ok {
+		if minutes, err := strconv.ParseFloat(v, 64); err == nil {
+			mv["refreshIntervalMs"] = strconv.FormatInt(int64(minutes*float64(time.Minute.Milliseconds())), 10)
+		}
+	}
+
+	if v, ok := opts["max_staleness"]; ok {
+		mv["maxStaleness"] = v
+	}
+
+	return mv
 }

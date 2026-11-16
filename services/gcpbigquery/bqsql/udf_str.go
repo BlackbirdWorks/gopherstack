@@ -75,10 +75,6 @@ func addStringUDFs(d map[string]udfDef) {
 	d["string"] = udfDef{n: -1, fn: udfStringOf}
 	d["generate_uuid"] = udfDef{n: 0, rand: true, fn: udfUUID}
 	d["error"] = udfDef{n: 1, fn: func(a []driver.Value) (driver.Value, error) { return nil, errBQ("%s", toStr(a[0])) }}
-	d["session_user"] = udfDef{
-		n:  0,
-		fn: func([]driver.Value) (driver.Value, error) { return "gopherstack@localhost", nil },
-	}
 	d["like"] = udfDef{n: argc2, fn: udfLike}
 	d["json_value"] = udfDef{n: -1, fn: udfJSONValue(true)}
 	d["json_query"] = udfDef{n: -1, fn: udfJSONValue(false)}

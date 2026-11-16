@@ -40,6 +40,8 @@ type FileShareInput struct {
 	Bandwidth      *int64
 	BurstIops      *int64
 	BurstBandwidth *int64
+	IncludedBurst  *int64
+	BurstCredits   *int64
 	PaidBursting   *bool
 	Tier           string
 	Protocols      string
@@ -60,6 +62,8 @@ type FileShareView struct {
 	Bandwidth      *int64
 	BurstIops      *int64
 	BurstBandwidth *int64
+	IncludedBurst  *int64
+	BurstCredits   *int64
 	PaidBursting   *bool
 	SnapshotVDir   *bool
 	Name           string
@@ -401,6 +405,8 @@ func fileShareExtras(props map[string]any, v FileShareView) {
 		props["provisionedBandwidthMibps"] = *v.Bandwidth
 	}
 
+	burstFigures(props, v)
+
 	if v.PaidBursting != nil || v.BurstIops != nil || v.BurstBandwidth != nil {
 		pb := map[string]any{}
 		if v.PaidBursting != nil {
@@ -487,4 +493,14 @@ func (h *Handler) handleFileShareList(c *echo.Context, segs []string) error {
 	}
 
 	return h.writeJSON(c, http.StatusOK, out)
+}
+
+func burstFigures(props map[string]any, v FileShareView) {
+	if v.IncludedBurst != nil {
+		props["includedBurstIops"] = *v.IncludedBurst
+	}
+
+	if v.BurstCredits != nil {
+		props["maxBurstCreditsForIops"] = *v.BurstCredits
+	}
 }

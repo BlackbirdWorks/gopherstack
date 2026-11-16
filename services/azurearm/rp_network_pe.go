@@ -683,7 +683,7 @@ func (p *NetworkProvider) addZoneRecords(pe *netParent, zg *netObj) {
 			if idx < 0 {
 				k = &netObj{
 					Name: r.name, Etag: uuid.NewString(), GUID: uuid.NewString(),
-					Props: map[string]any{propTTL: peDNSTTL, "aRecords": []any{}}, Aux: map[string]string{},
+					Props: map[string]any{propTTL: peDNSTTL, dnsFieldARecords: []any{}}, Aux: map[string]string{},
 				}
 				zone.Kids["A"] = append(zone.Kids["A"], k)
 			}
@@ -692,9 +692,9 @@ func (p *NetworkProvider) addZoneRecords(pe *netParent, zg *netObj) {
 				k.Aux = map[string]string{}
 			}
 
-			recs := anyList(k.Props["aRecords"])
+			recs := anyList(k.Props[dnsFieldARecords])
 			if !hasA(recs, r.ip) {
-				k.Props["aRecords"] = append(recs, map[string]any{"ipv4Address": r.ip})
+				k.Props[dnsFieldARecords] = append(recs, map[string]any{"ipv4Address": r.ip})
 			}
 
 			k.Aux["ip:"+r.ip] = zgID
@@ -730,7 +730,7 @@ func (p *NetworkProvider) removeZoneRecords(pe *netParent, zg *netObj) {
 		for _, k := range zone.Kids["A"] {
 			var left []any
 
-			for _, r := range anyList(k.Props["aRecords"]) {
+			for _, r := range anyList(k.Props[dnsFieldARecords]) {
 				m, _ := r.(map[string]any)
 				ip := strOf(m, "ipv4Address")
 
@@ -743,11 +743,11 @@ func (p *NetworkProvider) removeZoneRecords(pe *netParent, zg *netObj) {
 				left = append(left, r)
 			}
 
-			if len(left) == 0 && len(anyList(k.Props["aRecords"])) > 0 {
+			if len(left) == 0 && len(anyList(k.Props[dnsFieldARecords])) > 0 {
 				continue
 			}
 
-			k.Props["aRecords"] = left
+			k.Props[dnsFieldARecords] = left
 			kept = append(kept, k)
 		}
 

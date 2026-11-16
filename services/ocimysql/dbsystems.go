@@ -29,6 +29,7 @@ const (
 	defaultWindow     = "00:00"
 	sourceNone        = "NONE"
 	sourceBackup      = "BACKUP"
+	sourcePitr        = "PITR"
 	enabled           = "ENABLED"
 	disabled          = "DISABLED"
 	modeReadWrite     = "READ_WRITE"
@@ -40,6 +41,17 @@ const (
 	retainBackups     = "RETAIN"
 	deleteBackups     = "DELETE"
 	hostLabelMax      = 63
+	keyPort           = "port"
+	keyIPAddress      = "ipAddress"
+	keyAD             = "availabilityDomain"
+	keyFD             = "faultDomain"
+	keyStatus         = "status"
+	keyIPVersion      = "ipAddressVersion"
+	keyModes          = "modes"
+	keyPortX          = "portX"
+	keyResourceType   = "resourceType"
+	ipv4              = "IPV4"
+	modeRead          = "READ"
 )
 
 //nolint:gochecknoglobals // immutable reserved-name list and label pattern
@@ -53,7 +65,7 @@ var (
 	}
 	hostLabelRe = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$`)
 	extraKeys   = []string{
-		"rest", "databaseConsole", "secureConnections", "encryptData", "customerContacts", "readEndpoint",
+		"rest", "databaseConsole", featureSecure, "encryptData", "customerContacts", featureReadEndpoint,
 		"telemetryConfiguration", "securityAttributes", "nsgIds", "ipv6AddressIpv6SubnetCidrPairDetails",
 		"isIpv6Enabled",
 	}
@@ -85,8 +97,10 @@ type DataStorageIn struct {
 
 // SourceIn is the create source details.
 type SourceIn struct {
-	SourceType string `json:"sourceType"`
-	BackupID   string `json:"backupId"`
+	RecoveryPoint *time.Time `json:"recoveryPoint"`
+	SourceType    string     `json:"sourceType"`
+	BackupID      string     `json:"backupId"`
+	DBSystemID    string     `json:"dbSystemId"`
 }
 
 // CreateDBSystemIn is the CreateDBSystem body.
@@ -315,15 +329,36 @@ func (b *InMemoryBackend) checkSubnet(id string) (SubnetInfo, *APIError) {
 	return sub, nil
 }
 
-// allocIP picks the DB system's address in its subnet: want when given and free, else the first free host.
-func (b *InMemoryBackend) allocIP(sub SubnetInfo, want, exceptID string) (string, *APIError) {
+// takenAddrs lists the addresses in use in a subnet by DB systems, their read load balancers and read replicas.
+func (b *InMemoryBackend) takenAddrs(subnetID, exceptSystem string) map[string]bool {
 	taken := map[string]bool{}
 
 	for _, s := range b.systems {
-		if s.SubnetID == sub.ID && s.State != stateDeleted && s.ID != exceptID {
+		if s.SubnetID != subnetID || s.State == stateDeleted {
+			continue
+		}
+
+		taken[s.ReadIP] = s.ReadIP != ""
+
+		if s.ID != exceptSystem {
 			taken[s.IP] = true
 		}
 	}
+
+	for _, r := range b.replicas {
+		if r.State != stateDeleted && b.systems[r.DBSystemID].SubnetID == subnetID {
+			taken[r.IP] = true
+		}
+	}
+
+	delete(taken, "")
+
+	return taken
+}
+
+// allocIP picks the DB system's address in its subnet: want when given and free, else the first free host.
+func (b *InMemoryBackend) allocIP(sub SubnetInfo, want, exceptID string) (string, *APIError) {
+	taken := b.takenAddrs(sub.ID, exceptID)
 
 	if want != "" {
 		switch {
@@ -392,6 +427,7 @@ func (b *InMemoryBackend) resolveConfig(id, shape string, ha bool) (string, *API
 type createPlan struct {
 	sys    *DBSystem
 	backup *Backup
+	pitr   *pitrPlan
 	dump   []byte
 }
 
@@ -401,7 +437,7 @@ func (b *InMemoryBackend) checkSource(in *SourceIn) (*Source, *Backup, *APIError
 	}
 
 	if !strings.EqualFold(in.SourceType, sourceBackup) {
-		return nil, nil, errParam("source.sourceType " + in.SourceType + " is not supported; use NONE or BACKUP")
+		return nil, nil, errParam("source.sourceType " + in.SourceType + " is not supported; use NONE, BACKUP or PITR")
 	}
 
 	if in.BackupID == "" {
@@ -425,21 +461,30 @@ func (b *InMemoryBackend) buildSystem(in CreateDBSystemIn) (*createPlan, *APIErr
 		return nil, aerr
 	}
 
-	src, bk, aerr := b.checkSource(in.Source)
+	src, bk, pp, aerr := b.resolveSource(&in)
 	if aerr != nil {
 		return nil, aerr
 	}
 
 	user, pass := in.AdminUsername, in.AdminPassword
-	if bk == nil || user != "" || pass != "" {
+
+	switch {
+	case bk == nil && pp == nil, user != "" || pass != "":
 		if aerr = validAdmin(user, pass); aerr != nil {
 			return nil, aerr
 		}
-	} else if bk.Snapshot != nil {
+	case pp != nil:
+		user, pass = pp.admin, pp.pass
+	case bk.Snapshot != nil:
 		user, pass = bk.Snapshot.AdminUser, bk.Snapshot.AdminPass
 	}
 
-	return b.assemble(in, src, bk, user, pass)
+	plan, aerr := b.assemble(in, src, bk, user, pass)
+	if plan != nil {
+		plan.pitr = pp
+	}
+
+	return plan, aerr
 }
 
 func (b *InMemoryBackend) validateCreateFields(in CreateDBSystemIn) *APIError {
@@ -504,7 +549,7 @@ func (b *InMemoryBackend) assemble(
 		AutomaticBackupRetention: deleteBackups, FinalBackup: skipFinalBackup,
 	}, in.DeletionPolicy)
 
-	if aerr = firstErr(validPorts(port, portX), aerr2, aerr3); aerr != nil {
+	if aerr = firstErr(validPorts(port, portX), aerr2, aerr3, validatePitrPolicy(in.ShapeName, policy)); aerr != nil {
 		return nil, aerr
 	}
 
@@ -599,6 +644,10 @@ func (b *InMemoryBackend) finishSystem(in CreateDBSystemIn, p systemParts) *crea
 		Maintenance: mergeMaintenance(in.Maintenance), Extra: in.Extra,
 	}
 
+	if p.policy.PitrEnabled {
+		s.PitrBase = &now
+	}
+
 	if ds := in.DataStorage; ds != nil {
 		if ds.IsAutoExpandStorageEnabled != nil {
 			s.AutoExpand = *ds.IsAutoExpandStorageEnabled
@@ -637,6 +686,45 @@ func orStr(vals ...string) string {
 	return ""
 }
 
+// createSystemLocked validates and records a DB system and starts its server; it must be called with the lock held.
+func (b *InMemoryBackend) createSystemLocked(in CreateDBSystemIn) (*DBSystem, string, *APIError) {
+	plan, aerr := b.buildSystem(in)
+	if aerr != nil {
+		return nil, "", aerr
+	}
+
+	s := plan.sys
+
+	if aerr = b.checkSystemLimits(s); aerr != nil {
+		return nil, "", aerr
+	}
+
+	s.TransitionAt = b.transitionAt()
+
+	if b.eng != nil {
+		s.TransitionAt = nil
+	}
+
+	wr := b.newWR(wrCreateDBSystem, s.CompartmentID, entityDBSystem, s.ID, actionCreated, s.TransitionAt)
+	b.systems[s.ID] = s
+	b.retry.Remember("CreateDbSystem", in.RetryToken, ociretry.Join(s.ID, wr), b.nowUTC())
+
+	if b.eng != nil {
+		in := launchIn{
+			admin: s.AdminUser, password: s.AdminPass, dump: plan.dump, fresh: true, pitr: s.BackupPolicy.PitrEnabled,
+		}
+		work := b.launchWork(s.ID, in)
+
+		if plan.pitr != nil {
+			work = b.recoveryWork(s.ID, plan.pitr, in)
+		}
+
+		b.spawn(s.ID, wr, work, func(s *DBSystem) { s.State = stateActive })
+	}
+
+	return s, wr, nil
+}
+
 // CreateDBSystem creates a DB system in CREATING state and returns its body, etag and work request.
 func (b *InMemoryBackend) CreateDBSystem(in CreateDBSystemIn) (Doc, string, string, error) {
 	b.mu.Lock("CreateDbSystem")
@@ -660,26 +748,9 @@ func (b *InMemoryBackend) CreateDBSystem(in CreateDBSystemIn) (Doc, string, stri
 		return b.systemDoc(s), s.Etag, rwr, nil
 	}
 
-	plan, aerr := b.buildSystem(in)
+	s, wr, aerr := b.createSystemLocked(in)
 	if aerr != nil {
 		return nil, "", "", aerr
-	}
-
-	s := plan.sys
-	s.TransitionAt = b.transitionAt()
-
-	if b.eng != nil {
-		s.TransitionAt = nil
-	}
-
-	wr := b.newWR(wrCreateDBSystem, s.CompartmentID, entityDBSystem, s.ID, actionCreated, s.TransitionAt)
-	b.systems[s.ID] = s
-	b.retry.Remember("CreateDbSystem", in.RetryToken, ociretry.Join(s.ID, wr), b.nowUTC())
-
-	if b.eng != nil {
-		b.spawn(s.ID, wr, b.launchWork(s.ID, launchIn{
-			admin: s.AdminUser, password: s.AdminPass, dump: plan.dump, fresh: true,
-		}), func(s *DBSystem) { s.State = stateActive })
 	}
 
 	return b.systemDoc(s), s.Etag, wr, nil
@@ -689,6 +760,15 @@ func (b *InMemoryBackend) CreateDBSystem(in CreateDBSystemIn) (Doc, string, stri
 type Doc = map[string]any
 
 func newSecret() string { return newEtag() + newEtag() }
+
+// portXFor is the X protocol port clients reach: the published port under the engine, else the configured one.
+func portXFor(s *DBSystem) int {
+	if s.EngineXPort != 0 {
+		return s.EngineXPort
+	}
+
+	return s.PortX
+}
 
 func (b *InMemoryBackend) endpointFor(s *DBSystem) (string, int) {
 	if s.EngineHost != "" && s.EnginePort != 0 {
@@ -700,7 +780,7 @@ func (b *InMemoryBackend) endpointFor(s *DBSystem) (string, int) {
 
 func (b *InMemoryBackend) endpointDoc(s *DBSystem) Doc {
 	ip, port := b.endpointFor(s)
-	status := "ACTIVE"
+	status := stateActive
 
 	switch s.State {
 	case stateInactive, stateFailed, stateDeleted:
@@ -710,8 +790,8 @@ func (b *InMemoryBackend) endpointDoc(s *DBSystem) Doc {
 	}
 
 	d := Doc{
-		"ipAddress": ip, "port": port, "portX": s.PortX, "ipAddressVersion": "IPV4",
-		"modes": []string{"READ", "WRITE"}, "status": status, "resourceType": "DBSYSTEM", "resourceId": s.ID,
+		keyIPAddress: ip, keyPort: port, keyPortX: portXFor(s), keyIPVersion: ipv4,
+		keyModes: []string{modeRead, "WRITE"}, keyStatus: status, keyResourceType: "DBSYSTEM", "resourceId": s.ID,
 	}
 	if s.Hostname != "" {
 		d["hostname"] = s.Hostname
@@ -756,6 +836,15 @@ func (b *InMemoryBackend) sourceDoc(s *Source) Doc {
 		return Doc{keySourceType: sourceNone}
 	}
 
+	if s.SourceType == sourcePitr {
+		d := Doc{keySourceType: sourcePitr, paramDBSystem: s.DBSystemID}
+		if s.RecoveryPoint != nil {
+			d["recoveryPoint"] = *s.RecoveryPoint
+		}
+
+		return d
+	}
+
 	return Doc{keySourceType: s.SourceType, "backupId": s.BackupID}
 }
 
@@ -777,17 +866,17 @@ func (b *InMemoryBackend) systemBase(s *DBSystem) Doc {
 		keyDisplayName:              s.Name,
 		keyCompartment:              s.CompartmentID,
 		keyLifecycle:                s.State,
-		"mysqlVersion":              s.Version,
+		keyMysqlVer:                 s.Version,
 		keyTimeCreated:              s.TimeCreated,
 		keyTimeUpdated:              s.TimeUpdated,
 		"databaseMode":              s.DatabaseMode,
 		"accessMode":                s.AccessMode,
 		"isHighlyAvailable":         s.HA,
 		"isHeatWaveClusterAttached": s.HeatWave != nil,
-		"availabilityDomain":        s.AD,
-		"faultDomain":               s.FD,
+		keyAD:                       s.AD,
+		keyFD:                       s.FD,
 		keyShapeName:                s.Shape,
-		"currentPlacement":          Doc{"availabilityDomain": s.AD, "faultDomain": s.FD},
+		"currentPlacement":          Doc{keyAD: s.AD, keyFD: s.FD},
 		"endpoints":                 []Doc{b.endpointDoc(s)},
 		"deletionPolicy":            b.deletionDoc(s.Deletion),
 		"backupPolicy":              b.policyDoc(s.BackupPolicy),
@@ -818,8 +907,16 @@ func (b *InMemoryBackend) systemDoc(s *DBSystem) Doc {
 		"dataStorageSizeInGBs": s.DataGB, "dataStorageSizeLimitInGBs": max(maxGB, maxStorageGB),
 	}
 	d["maintenance"], d["source"] = s.Maintenance, b.sourceDoc(s.Source)
-	d["configurationId"], d["ipAddress"], d["port"], d["portX"] = s.ConfigID, ip, port, s.PortX
+	d["endpoints"] = append([]Doc{b.endpointDoc(s)}, b.replicaEndpoints(s)...)
+	d["configurationId"], d[keyIPAddress], d[keyPort], d["portX"] = s.ConfigID, ip, port, portXFor(s)
 	d["channels"] = b.channelsOf(s.ID)
+
+	if s.Controlled != nil {
+		d["controlledUpdate"] = Doc{
+			"targetMysqlVersion": s.Controlled.Version,
+			"targetDbInstances":  s.Controlled.Targets,
+		}
+	}
 
 	if s.HeatWave != nil {
 		d["heatWaveCluster"] = b.heatWaveSummary(s)
@@ -830,9 +927,8 @@ func (b *InMemoryBackend) systemDoc(s *DBSystem) Doc {
 	}
 
 	if s.BackupPolicy.PitrEnabled {
-		d["pointInTimeRecoveryDetails"] = Doc{
-			"timeEarliestRecoveryPoint": s.TimeCreated, "timeLatestRecoveryPoint": b.nowUTC(),
-		}
+		earliest, latest := b.pitrWindow(s)
+		d["pointInTimeRecoveryDetails"] = Doc{"timeEarliestRecoveryPoint": earliest, "timeLatestRecoveryPoint": latest}
 	}
 
 	for k, v := range s.Extra {

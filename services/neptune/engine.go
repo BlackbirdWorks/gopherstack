@@ -278,6 +278,9 @@ func (b *InMemoryBackend) provisionClusterLocked(c *DBCluster) {
 		svcPort: cmp.Or(c.Port, defaultNeptunePort),
 	}
 
+	lb.rdf.info = b.engineInfoFn(lb)
+	b.applyStreamPolicyLocked(lb.region, lb.id)
+
 	if old, ok := e.units[lb.key]; ok {
 		e.reap(old)
 	}
@@ -438,6 +441,10 @@ func (b *InMemoryBackend) awaitAndMark(lb *liveCluster) {
 		return
 	}
 
+	if b.containerMode() {
+		b.restoreContainerGraph(lb, addr)
+	}
+
 	b.markUnitReady(lb)
 }
 
@@ -577,6 +584,8 @@ func (b *InMemoryBackend) execUnitOp(lb *liveCluster, id string, op unitOp) {
 	defer cancel()
 
 	if op == opStop {
+		b.captureContainerGraph(lb)
+
 		if err := rt.StopContainer(ctx, id); err != nil {
 			b.failUnit(lb)
 

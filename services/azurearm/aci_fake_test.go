@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 
@@ -222,4 +223,49 @@ func (f *fakeShares) tree(account, share string) azurearm.ACIShareTree {
 	defer f.mu.Unlock()
 
 	return f.trees[account+"/"+share]
+}
+
+func (f *fakeACIRuntime) ExecStream(_ context.Context, id string, cmd []string, out io.Writer) (int, error) {
+	f.mu.Lock()
+	b := f.boxes[id]
+	f.mu.Unlock()
+
+	if b == nil || b.removed {
+		return 0, errFakeBox
+	}
+
+	_, err := io.WriteString(out, "ran:"+strings.Join(cmd, " "))
+
+	return 0, err
+}
+
+func (f *fakeACIRuntime) ExecStdin(
+	ctx context.Context, id string, cmd []string, stdin io.Reader, out io.Writer, term azurearm.ACITerminalSize,
+) (int, error) {
+	if _, err := f.ExecStream(ctx, id, cmd, out); err != nil {
+		return 0, err
+	}
+
+	if term.Rows > 0 {
+		fmt.Fprintf(out, " tty=%dx%d", term.Rows, term.Cols)
+	}
+
+	if !strings.HasSuffix(strings.Join(cmd, " "), "cat") {
+		return 0, nil
+	}
+
+	buf := make([]byte, 64)
+
+	var err error
+
+	for err == nil {
+		var n int
+
+		n, err = stdin.Read(buf)
+		if n > 0 {
+			_, _ = io.WriteString(out, "stdin:"+string(buf[:n]))
+		}
+	}
+
+	return 0, nil
 }

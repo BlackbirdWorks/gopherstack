@@ -1,6 +1,5 @@
 ---
 items_still_open:
-  - "ListContacts Filter.FilteredStatus without a TopicFilter is not applied: the SDK does not say what it filters against. With both set it matches the topic preference, falling back to the topic default only when UseDefaultIfPreferenceUnavailable is true; that fallback and the status-alone case are from the SDK prose, not observed AWS."
   - "SendEmail/SendBulkEmail tenant-association mismatch error code is not published (checked API_SendEmail.html and the sesv2 SDK docs: TenantName says only that the send succeeds when all referenced resources are associated with the tenant; the modeled errors are BadRequestException, NotFoundException, AccountSuspendedException, MailFromDomainNotVerifiedException, MessageRejected, SendingPausedException, LimitExceededException and TooManyRequestsException); BadRequestException is used"
 structural_gaps:
   - "GetDeliverabilityTestReport OverallPlacement (required output) is never emitted: its Inbox/Spam/Dkim/Spf percentages are results of real seed-mailbox placement tests across ISPs, which this backend cannot run; synthesizing them would be fabricated data."
@@ -942,3 +941,7 @@ GetEmailIdentity no longer emits EmailIdentity (not on GetEmailIdentityOutput).
 
 ## Primary-source checks (2026-11-13)
 - sesv2: API_SendEmail.html and the SDK confirm the tenant rule that every referenced identity, configuration set and template must be associated with the tenant.
+
+## Emulator choices where the vendor is silent
+
+- ListContacts Filter.FilteredStatus without a TopicFilter is not applied: the SDK does not say what it filters against. With both set it matches the topic preference, falling back to the topic default only when UseDefaultIfPreferenceUnavailable is true; that fallback and the status-alone case are from the SDK prose, not observed AWS.

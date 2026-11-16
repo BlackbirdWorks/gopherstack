@@ -138,6 +138,35 @@ func ruleSetsOf(lb *LoadBalancer, l *Listener) []*RuleSet {
 }
 
 func (d *dataPlane) serveHTTP(w http.ResponseWriter, r *http.Request, s portSpec) {
+	sink := d.b.sink()
+	if sink == nil {
+		d.serve(w, r, s, &accessInfo{})
+
+		return
+	}
+
+	cw := &countingWriter{ResponseWriter: w}
+	info := &accessInfo{}
+	start := d.b.nowUTC()
+
+	d.serve(cw, r, s, info)
+
+	end := d.b.nowUTC()
+
+	if lb := d.b.activeLB(s.lbID); lb != nil {
+		if cw.status == 0 {
+			cw.status = http.StatusOK
+		}
+
+		sink(s.lbID, logCategoryAccess, end, accessRecord(r, cw, *info, lb, start, end))
+
+		if cw.status == http.StatusServiceUnavailable && info.backend == "" {
+			sink(s.lbID, logCategoryError, end, errorRecord(end, "backEnd", "No healthy backends available"))
+		}
+	}
+}
+
+func (d *dataPlane) serve(w http.ResponseWriter, r *http.Request, s portSpec, info *accessInfo) {
 	lb := d.b.activeLB(s.lbID)
 	if lb == nil {
 		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
@@ -151,6 +180,8 @@ func (d *dataPlane) serveHTTP(w http.ResponseWriter, r *http.Request, s portSpec
 
 		return
 	}
+
+	info.listener = l.Name
 
 	sc := reqScope{scheme: schemeHTTP, port: s.port, ip: clientAddr(r)}
 	if s.tls {
@@ -184,6 +215,8 @@ func (d *dataPlane) serveHTTP(w http.ResponseWriter, r *http.Request, s portSpec
 	}
 
 	defer ch.release()
+
+	info.backend = net.JoinHostPort(ch.be.IPAddress, itoa(ch.be.Port))
 
 	d.proxy(w, r, lb, l, ch, respRules)
 }

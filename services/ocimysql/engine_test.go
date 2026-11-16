@@ -55,7 +55,7 @@ func TestEngineLifecycle(t *testing.T) {
 	require.NotNil(t, inst)
 	assert.Equal(t, adminPass, inst.admins[adminUser])
 	assert.True(t, l.specs[0].Fresh)
-	assert.Equal(t, "mysql:8.4", l.specs[0].Image)
+	assert.Equal(t, "mysql:9.7", l.specs[0].Image)
 	assert.NotEmpty(t, l.specs[0].RootSecret)
 
 	_, err = e.db.StopDbSystem(ctx, my.StopDbSystemRequest{
@@ -151,7 +151,7 @@ func TestEngineBackupAndRestore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, my.BackupLifecycleStateCreating, resp.LifecycleState)
 
-	bk := e.awaitBackup(t, resp.Id, my.BackupLifecycleStateActive)
+	bk := e.awaitBackup(t, resp.Id)
 	assert.GreaterOrEqual(t, *bk.BackupSizeInGBs, 1)
 
 	l.addTable(*src.Id, "after_backup")
@@ -238,7 +238,7 @@ func TestEngineUpdate(t *testing.T) {
 
 	e, l := newEngineEnv(t)
 	ctx := t.Context()
-	db := e.mkEngineDB(t, "upd", nil)
+	db := e.mkEngineDB(t, "upd", func(d *my.CreateDbSystemDetails) { d.MysqlVersion = new("8.4.6") })
 	l.addTable(*db.Id, testTable)
 
 	_, err := e.db.UpdateDbSystem(ctx, my.UpdateDbSystemRequest{

@@ -155,7 +155,7 @@ func (sc *suggestCtx) passes(d *Doc) bool {
 }
 
 func queryTokens(text string) []string {
-	toks := standardAnalyzer(nil, false, nil)(text)
+	toks := standardAnalyzer(nil, false)(text)
 	out := make([]string, len(toks))
 
 	for i, t := range toks {

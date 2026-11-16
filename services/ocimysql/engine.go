@@ -2,16 +2,37 @@ package ocimysql
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/binary"
 	"errors"
 	"log/slog"
+	"maps"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/mysqlengine"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/tcpfront"
 )
 
 const enginePrefix = "gopherstack-ocimysql"
+
+const (
+	serverIDMin  = 2
+	serverIDSpan = 1<<31 - serverIDMin
+)
+
+func randomServerID() uint32 {
+	var buf [4]byte
+
+	_, _ = rand.Read(buf[:])
+
+	return binary.BigEndian.Uint32(buf[:])%serverIDSpan + serverIDMin
+}
+
+var errNoPITR = errors.New("ocimysql: the engine cannot do point-in-time recovery")
 
 var errNoServer = errors.New("ocimysql: the DB system has no running server")
 
@@ -33,7 +54,38 @@ type LaunchSpec struct {
 	ID         string
 	Image      string
 	RootSecret string
+	Network    string
+	NetworkID  string
+	ServerID   uint32
 	Fresh      bool
+	PublishX   bool
+}
+
+// Recoverer is implemented by servers that keep a binary log base for point-in-time recovery.
+type Recoverer interface {
+	UserDatabases(ctx context.Context) ([]string, error)
+	EnablePITR(ctx context.Context, dbs []string) (time.Time, error)
+	DisablePITR(ctx context.Context) error
+	PrepareRecovery(ctx context.Context, at time.Time) (mysqlengine.Recovery, error)
+	ApplyRecovery(ctx context.Context, rec mysqlengine.Recovery) error
+}
+
+// XEndpointer is implemented by servers that publish the X protocol port.
+type XEndpointer interface {
+	XEndpoint() (string, int)
+}
+
+// Querier is implemented by servers that answer SQL queries; the first row holds the column names.
+type Querier interface {
+	Query(ctx context.Context, db, query string) ([][]string, error)
+}
+
+// Replicable is implemented by servers that can feed or follow a read replica.
+type Replicable interface {
+	UserDatabases(ctx context.Context) ([]string, error)
+	ReplicationSource(ctx context.Context) (mysqlengine.ReplSource, error)
+	ReplicaSeed(ctx context.Context, dbs []string) ([]byte, error)
+	AttachReplica(ctx context.Context, src mysqlengine.ReplSource, seed []byte) error
 }
 
 // Launcher starts servers.
@@ -55,7 +107,11 @@ type DockerConfig struct {
 type dbEngine struct {
 	launcher Launcher
 	live     map[string]Instance
+	retained map[string]Instance
+	fronts   map[string]*tcpfront.Front
+	route    map[string]string
 	image    string
+	rr       atomic.Uint64
 }
 
 type dockerLauncher struct{ e *mysqlengine.Engine }
@@ -63,6 +119,7 @@ type dockerLauncher struct{ e *mysqlengine.Engine }
 func (l dockerLauncher) Launch(ctx context.Context, spec LaunchSpec) (Instance, error) {
 	return l.e.Launch(ctx, mysqlengine.Spec{
 		ID: spec.ID, Image: spec.Image, RootPassword: spec.RootSecret, Persist: true, Fresh: spec.Fresh,
+		ServerID: spec.ServerID, Network: spec.Network, NetworkID: spec.NetworkID, PublishX: spec.PublishX,
 	})
 }
 
@@ -86,13 +143,24 @@ func (b *InMemoryBackend) EnableDockerEngine(cfg DockerConfig) error {
 // SetLauncher switches the backend to engine mode with a custom Launcher; image overrides the per-version image.
 func (b *InMemoryBackend) SetLauncher(l Launcher, image string) {
 	b.mu.Lock("SetLauncher")
-	b.eng = &dbEngine{launcher: l, live: map[string]Instance{}, image: image}
+	b.eng = &dbEngine{
+		launcher: l,
+		live:     map[string]Instance{},
+		retained: map[string]Instance{},
+		fronts:   map[string]*tcpfront.Front{},
+		route:    map[string]string{},
+		image:    image,
+	}
 	b.mu.Unlock()
 }
 
 func (e *dbEngine) imageFor(version string) string {
 	if e.image != "" {
 		return e.image
+	}
+
+	if strings.HasPrefix(version, "9.7.") {
+		return "mysql:9.7"
 	}
 
 	f, _ := familyOf(version)
@@ -108,6 +176,9 @@ func (b *InMemoryBackend) detachAllLocked() map[string]Instance {
 
 	out := b.eng.live
 	b.eng.live = map[string]Instance{}
+
+	maps.Copy(out, b.eng.retained)
+	b.eng.retained = map[string]Instance{}
 
 	return out
 }
@@ -130,72 +201,268 @@ func (b *InMemoryBackend) instance(id string) Instance {
 		return nil
 	}
 
-	return b.eng.live[id]
+	if inst, ok := b.eng.live[id]; ok {
+		return inst
+	}
+
+	return b.eng.retained[id]
 }
 
 type launchIn struct {
+	rec             *mysqlengine.Recovery
 	admin, password string
 	dump            []byte
 	fresh           bool
+	pitr            bool
 }
 
 // launchWork starts (or restarts, on an existing volume) the server of a DB system and records its endpoint.
 func (b *InMemoryBackend) launchWork(id string, in launchIn) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
-		b.mu.RLock("launchWork")
+		b.mu.Lock("launchWork")
 		s, ok := b.systems[id]
 
 		if !ok {
-			b.mu.RUnlock()
+			b.mu.Unlock()
 
 			return nil
 		}
 
-		spec := LaunchSpec{ID: id, Image: b.eng.imageFor(s.Version), RootSecret: s.RootSecret, Fresh: in.fresh}
-		b.mu.RUnlock()
+		if s.ServerID == 0 {
+			s.ServerID = randomServerID()
+		}
+
+		spec := LaunchSpec{
+			ID: id, Image: b.eng.imageFor(s.Version), RootSecret: s.RootSecret, Fresh: in.fresh, ServerID: s.ServerID,
+			PublishX: true,
+		}
+		cfgID, vars, set := s.ConfigID, b.configOverrides(s.ConfigID), settingsOf(s)
+		b.mu.Unlock()
+
+		if in.rec != nil && in.rec.Source != nil {
+			spec.Network, spec.NetworkID = in.rec.Source.Network, in.rec.Source.NetworkID
+		}
 
 		inst, err := b.eng.launcher.Launch(ctx, spec)
 		if err != nil {
 			return err //nolint:wrapcheck // launcher errors carry the cause
 		}
 
-		if err = prepareInstance(ctx, inst, in); err != nil {
+		base, err := setupInstance(ctx, inst, in, vars, set)
+		if err != nil {
 			inst.Close(ctx, in.fresh)
 
 			return err
 		}
 
-		host, port := inst.Endpoint()
-
-		b.mu.Lock("launchWork")
-		defer b.mu.Unlock()
-
-		cur, found := b.systems[id]
-		if !found || ctx.Err() != nil {
-			go inst.Close(context.WithoutCancel(ctx), in.fresh)
-
-			return nil
-		}
-
-		cur.EngineHost, cur.EnginePort = host, port
-		b.eng.live[id] = inst
+		b.adoptInstance(ctx, id, inst, in.fresh, cfgID, base)
 
 		return nil
 	}
 }
 
-func prepareInstance(ctx context.Context, inst Instance, in launchIn) error {
-	if len(in.dump) > 0 {
-		if err := inst.Restore(ctx, in.dump); err != nil {
-			return err //nolint:wrapcheck // engine errors carry the cause
+// setupInstance loads a new server's data and administrator, then applies its configuration and server settings.
+func setupInstance(
+	ctx context.Context, inst Instance, in launchIn, vars map[string]any, set serverSettings,
+) (*time.Time, error) {
+	base, err := prepareInstance(ctx, inst, in)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(vars) > 0 {
+		if err = configureInstance(ctx, inst, vars, false); err != nil {
+			return nil, err
 		}
 	}
 
-	if in.admin == "" {
-		return nil
+	if !set.isDefault() {
+		if err = applyServerSettings(ctx, inst, set); err != nil {
+			return nil, err
+		}
 	}
 
-	return inst.EnsureAdmin(ctx, in.admin, in.password) //nolint:wrapcheck // engine errors carry the cause
+	return base, nil
+}
+
+// adoptInstance records a launched server's endpoints on its DB system.
+func (b *InMemoryBackend) adoptInstance(
+	ctx context.Context, id string, inst Instance, purge bool, cfgID string, base *time.Time,
+) {
+	host, port := inst.Endpoint()
+	b.mu.RLock("adoptInstance")
+	front := b.eng.fronts[id]
+	b.mu.RUnlock()
+
+	if front != nil {
+		host, port = front.Addr()
+	}
+
+	xport := 0
+	if xe, isX := inst.(XEndpointer); isX {
+		_, xport = xe.XEndpoint()
+	}
+
+	b.mu.Lock("launchWork")
+	defer b.mu.Unlock()
+
+	cur, found := b.systems[id]
+	if !found || ctx.Err() != nil {
+		go inst.Close(context.WithoutCancel(ctx), purge)
+
+		return
+	}
+
+	cur.EngineHost, cur.EnginePort, cur.EngineXPort, cur.AppliedConfig = host, port, xport, cfgID
+	logRecordedFeatures(ctx, id, cur.Extra)
+	b.eng.live[id] = inst
+
+	if base != nil {
+		cur.PitrBase = base
+	}
+}
+
+// prepareInstance loads the data a new server starts from and its administrator; the returned time is when
+// point-in-time recovery got its base, if it was switched on.
+func prepareInstance(ctx context.Context, inst Instance, in launchIn) (*time.Time, error) {
+	if len(in.dump) > 0 {
+		if err := inst.Restore(ctx, in.dump); err != nil {
+			return nil, err //nolint:wrapcheck // engine errors carry the cause
+		}
+	}
+
+	if in.rec != nil {
+		rc, ok := inst.(Recoverer)
+		if !ok {
+			return nil, errNoPITR
+		}
+
+		if err := rc.ApplyRecovery(ctx, *in.rec); err != nil {
+			return nil, err //nolint:wrapcheck // engine errors carry the cause
+		}
+	}
+
+	if in.admin != "" {
+		if err := inst.EnsureAdmin(ctx, in.admin, in.password); err != nil {
+			return nil, err //nolint:wrapcheck // engine errors carry the cause
+		}
+	}
+
+	if !in.pitr {
+		return nil, nil //nolint:nilnil // no recovery base was taken
+	}
+
+	return enablePITR(ctx, inst)
+}
+
+func enablePITR(ctx context.Context, inst Instance) (*time.Time, error) {
+	rc, ok := inst.(Recoverer)
+	if !ok {
+		return nil, errNoPITR
+	}
+
+	dbs, err := rc.UserDatabases(ctx)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // engine errors carry the cause
+	}
+
+	t, err := rc.EnablePITR(ctx, dbs)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // engine errors carry the cause
+	}
+
+	return &t, nil
+}
+
+// togglePITR switches point-in-time recovery on or off on the running server of a DB system.
+func (b *InMemoryBackend) togglePITR(ctx context.Context, id string, on bool) error {
+	inst := b.instance(id)
+	if inst == nil {
+		return errNoServer
+	}
+
+	if !on {
+		rc, ok := inst.(Recoverer)
+		if !ok {
+			return errNoPITR
+		}
+
+		return rc.DisablePITR(ctx) //nolint:wrapcheck // engine errors carry the cause
+	}
+
+	base, err := enablePITR(ctx, inst)
+	if err != nil {
+		return err
+	}
+
+	b.mu.Lock("togglePITR")
+	defer b.mu.Unlock()
+
+	if s, ok := b.systems[id]; ok {
+		s.PitrBase = base
+	}
+
+	return nil
+}
+
+// recoveryWork starts a DB system from another one's binary logs, replayed up to the recovery point.
+func (b *InMemoryBackend) recoveryWork(id string, p *pitrPlan, in launchIn) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
+		src, err := b.waitSourceOrStart(ctx, p.srcID)
+		if err != nil {
+			return err
+		}
+
+		rc, ok := src.(Recoverer)
+		if !ok {
+			return errNoPITR
+		}
+
+		rec, err := rc.PrepareRecovery(ctx, p.at)
+		if err != nil {
+			return err //nolint:wrapcheck // engine errors carry the cause
+		}
+
+		in.rec = &rec
+
+		err = b.launchWork(id, in)(ctx)
+		b.restopRetained(ctx, p.srcID, src)
+
+		return err
+	}
+}
+
+// restopRetained stops a deleted DB system's retained server again once a recovery has replayed from it.
+func (b *InMemoryBackend) restopRetained(ctx context.Context, id string, inst Instance) {
+	b.mu.RLock("restopRetained")
+	s, ok := b.systems[id]
+	deleted := ok && s.State == stateDeleted
+	b.mu.RUnlock()
+
+	if deleted {
+		_ = inst.Stop(ctx)
+	}
+}
+
+// waitSourceOrStart returns the server of a DB system, starting it first when it is stopped.
+func (b *InMemoryBackend) waitSourceOrStart(ctx context.Context, id string) (Instance, error) {
+	inst := b.instance(id)
+	if inst == nil {
+		return nil, errNoServer
+	}
+
+	b.mu.RLock("waitSourceOrStart")
+	s, ok := b.systems[id]
+	stopped := ok && (s.State == stateInactive || s.State == stateDeleted)
+	b.mu.RUnlock()
+
+	if stopped {
+		if err := inst.Start(ctx); err != nil {
+			return nil, err //nolint:wrapcheck // engine errors carry the cause
+		}
+	}
+
+	return inst, nil
 }
 
 // spawn runs work off the lock and then settles the DB system: done on success, FAILED otherwise.
@@ -240,6 +507,9 @@ func (b *InMemoryBackend) relaunchLocked() {
 		}
 	}
 
+	b.interruptChannels()
+	b.interruptBlueGreens()
+
 	for _, s := range b.systems {
 		if s.State != stateActive && s.State != stateUpdating && s.State != stateCreating {
 			continue
@@ -248,5 +518,15 @@ func (b *InMemoryBackend) relaunchLocked() {
 		s.State, s.TransitionAt = stateUpdating, nil
 		b.spawn(s.ID, "", b.launchWork(s.ID, launchIn{admin: s.AdminUser, password: s.AdminPass}),
 			func(s *DBSystem) { s.State = stateActive })
+	}
+
+	for _, r := range b.replicas {
+		if r.State != stateActive && r.State != stateUpdating && r.State != stateCreating {
+			continue
+		}
+
+		fresh := r.State == stateCreating
+		r.State, r.TransitionAt = stateUpdating, nil
+		b.spawnReplica(r.ID, "", b.replicaWork(r.ID, fresh), func(r *Replica) { r.State = stateActive })
 	}
 }

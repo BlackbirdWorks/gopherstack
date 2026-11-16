@@ -34,11 +34,12 @@ func (h *Handler) extraOps(ops map[string]restroute.OpFunc) {
 func (h *Handler) analyticsOps(ops map[string]restroute.OpFunc) {
 	b := h.Backend
 
-	ops["AssociateAnalyticsDataSet"] = typed(b.AssociateAnalyticsDataSet)
-	ops["DisassociateAnalyticsDataSet"] = typed(b.DisassociateAnalyticsDataSet)
-	ops["BatchAssociateAnalyticsDataSet"] = typed(b.BatchAssociateAnalyticsDataSet)
-	ops["BatchDisassociateAnalyticsDataSet"] = typed(b.BatchDisassociateAnalyticsDataSet)
+	ops["AssociateAnalyticsDataSet"] = typedCtx(b.AssociateAnalyticsDataSet)
+	ops["DisassociateAnalyticsDataSet"] = typedCtx(b.DisassociateAnalyticsDataSet)
+	ops["BatchAssociateAnalyticsDataSet"] = typedCtx(b.BatchAssociateAnalyticsDataSet)
+	ops["BatchDisassociateAnalyticsDataSet"] = typedCtx(b.BatchDisassociateAnalyticsDataSet)
 	ops["ListAnalyticsDataAssociations"] = typed(b.ListAnalyticsDataAssociations)
+	ops["ListAnalyticsDataLakeDataSets"] = typed(b.ListAnalyticsDataLakeDataSets)
 	ops["GetPromptFile"] = typedCtx(b.GetPromptFile)
 }
 
@@ -293,6 +294,7 @@ func (h *Handler) searchOps(ops map[string]restroute.OpFunc) {
 	for op, fn := range map[string]func(*SearchRequest) (*SearchResult, error){
 		"SearchAgentStatuses":             b.SearchAgentStatuses,
 		"SearchContactFlowModules":        b.SearchContactFlowModules,
+		"SearchContactEvaluations":        b.SearchContactEvaluations,
 		"SearchContactFlows":              b.SearchContactFlows,
 		"SearchDataTables":                b.SearchDataTables,
 		"SearchEmailAddresses":            b.SearchEmailAddresses,
@@ -358,6 +360,7 @@ func (h *Handler) evaluationFormOps(ops map[string]restroute.OpFunc) {
 
 		return listBody("EvaluationFormVersionSummaryList", orEmpty(items), next), err
 	})
+	ops["ListEvaluationFormAIVersions"] = typed(b.ListEvaluationFormAIVersions)
 	ops["StartEvaluationFormValidation"] = typed(b.StartEvaluationFormValidation)
 	ops["GetEvaluationFormValidation"] = typed(b.GetEvaluationFormValidation)
 }

@@ -76,6 +76,7 @@ type loadJob struct {
 	endTime      time.Time
 	startTime    time.Time
 	cancel       context.CancelFunc
+	skip         map[string]bool
 	status       string
 	id           string
 	graph        string
@@ -83,10 +84,13 @@ type loadJob struct {
 	bucket       string
 	source       string
 	pg           string
+	parallelism  string
 	feeds        []*loadFeed
 	keys         []string
 	deps         []string
 	errors       []loadError
+	roles        []string
+	run          int
 	format       sparql.Format
 	edgeOnly     bool
 	allowEmpty   bool
@@ -286,10 +290,16 @@ func (rs *rdfService) newLoadJob(ctx context.Context, req loadRequest) (*loadJob
 		id:           uuid.NewString(), source: req.Source, bucket: bucket, format: format, keys: keys,
 		status: loadNotStarted, failOnErr: !strings.EqualFold(req.FailOnError, "FALSE"),
 		graph: req.Parser.NamedGraph, base: req.Parser.BaseURI, deps: req.Deps,
+		roles: splitRoleARNs(req.IAMRoleArn), parallelism: req.Parallelism,
 	}
 
 	for _, k := range keys {
 		job.feeds = append(job.feeds, &loadFeed{URI: "s3://" + bucket + "/" + k, Status: loadNotStarted, Run: 1})
+	}
+
+	mode := cmp.Or(strings.ToUpper(req.Mode), loadModeAuto)
+	if err = rs.loader.applyMode(job, mode); err != nil {
+		return nil, "Failed to start new load for the source " + strconv.Quote(req.Source) + ": " + err.Error()
 	}
 
 	return job, ""
@@ -422,33 +432,47 @@ func (ls *loaderState) finish(ctx context.Context, rs *rdfService, id string) {
 }
 
 func (rs *rdfService) runLoad(ctx context.Context, job *loadJob) {
-	status := loadCompleted
-
 	order := make([]int, len(job.keys))
 	for i := range order {
 		order[i] = i
 	}
 
-	var cache map[string][]byte
+	waves := [][]int{order}
+
+	var cache feedCache
 
 	if job.pg != "" {
-		order, cache = rs.pgOrder(ctx, job)
+		var nodes int
+
+		order, nodes, cache = rs.pgOrder(ctx, job)
+		waves = [][]int{order[:nodes], order[nodes:]}
 	}
 
-	for _, i := range order {
-		key, feed := job.keys[i], job.feeds[i]
-		st := rs.loadFeed(ctx, job, cache, feed, key)
+	workers := loaderThreads(job.parallelism, rs.cpuCount())
+	results := make([]string, len(job.keys))
 
-		if st != loadCompleted {
-			status = loadFailed
+	for _, wave := range waves {
+		rs.runWave(ctx, job, cache, wave, workers, results)
 
-			if st == loadCancelledUser || st == loadS3ReadError {
-				status = st
-			}
+		if job.failOnErr && slices.ContainsFunc(wave, func(i int) bool {
+			return results[i] != "" && results[i] != loadCompleted
+		}) {
+			break
+		}
+	}
 
-			if job.failOnErr {
-				break
-			}
+	status := loadCompleted
+
+	for _, st := range results {
+		if st == "" || st == loadCompleted {
+			continue
+		}
+
+		status = loadFailed
+		if st == loadCancelledUser {
+			status = st
+
+			break
 		}
 	}
 
@@ -473,7 +497,7 @@ type feedResult struct {
 }
 
 func (rs *rdfService) loadFeed(
-	ctx context.Context, job *loadJob, cache map[string][]byte, feed *loadFeed, key string,
+	ctx context.Context, job *loadJob, cache feedCache, feed *loadFeed, key string,
 ) string {
 	ls := rs.loader
 	start := time.Now()
@@ -496,7 +520,7 @@ func (rs *rdfService) loadFeed(
 }
 
 func (rs *rdfService) readFeed(
-	ctx context.Context, job *loadJob, cache map[string][]byte, uri, key string,
+	ctx context.Context, job *loadJob, cache feedCache, uri, key string,
 ) feedResult {
 	if ctx.Err() != nil {
 		return feedResult{status: loadCancelledUser}
@@ -506,13 +530,12 @@ func (rs *rdfService) readFeed(
 		return rs.readPGFeed(ctx, job, cache, uri, key)
 	}
 
-	data, err := rs.readObject(ctx, job.bucket, key)
-	if err != nil {
-		return feedResult{
-			status: loadS3ReadError,
-			errs:   []loadError{{Code: "S3_ACCESS_DENIED_ERROR", Message: err.Error(), File: uri}},
-		}
+	obj, fail := rs.fetchFeed(ctx, job, cache, key)
+	if fail != nil {
+		return fail.result(uri)
 	}
+
+	data := obj.data
 
 	opts := sparql.ParseOptions{Base: job.base}
 	if job.graph != "" {
@@ -611,7 +634,7 @@ func feedCount(job *loadJob) []map[string]int {
 }
 
 func overallStatus(job *loadJob) loadFeed {
-	o := loadFeed{URI: job.source, Status: job.status, Run: 1, Start: job.startTime.Unix()}
+	o := loadFeed{URI: job.source, Status: job.status, Run: max(job.run, 1), Start: job.startTime.Unix()}
 	if job.startTime.IsZero() {
 		o.Start = 0
 	}

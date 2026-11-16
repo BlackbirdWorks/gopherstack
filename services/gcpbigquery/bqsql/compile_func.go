@@ -132,7 +132,7 @@ func addMathFuncs(t map[string]*fnDef) {
 func addStringFuncs(t map[string]*fnDef) {
 	str := fixed(KindString)
 	for name, spec := range map[string][3]int{
-		"LOWER": {1, 1, int(KindString)}, "UPPER": {1, 1, int(KindString)}, "INITCAP": {1, 2, int(KindString)},
+		modeLower: {1, 1, int(KindString)}, "UPPER": {1, 1, int(KindString)}, "INITCAP": {1, 2, int(KindString)},
 		"REVERSE": {1, 1, int(KindString)}, "REPEAT": {2, 2, int(KindString)}, "REPLACE": {3, 3, int(KindString)},
 		"TRIM": {1, 2, int(KindString)}, "LTRIM": {1, 2, int(KindString)}, "RTRIM": {1, 2, int(KindString)},
 		"LPAD": {2, 3, int(KindString)}, "RPAD": {2, 3, int(KindString)}, litLeft: {2, 2, int(KindString)},
@@ -257,7 +257,13 @@ func addMiscFuncs(t map[string]*fnDef) {
 
 		return &gx{sql: "NULLIF(" + a[0].sql + ", " + coerceLiteral(a[1], a[0].typ).sql + ")", typ: a[0].typ}, nil
 	})
+	addNetFuncs(t)
+	addGeoFuncs(t)
+	hllFuncs(t)
+	addIntervalFuncs(t)
+	addSearchFuncs(t)
 	t["GENERATE_UUID"] = def("generate_uuid", 0, 0, fixed(KindString))
+	t["FARM_FINGERPRINT"] = def("farm_fingerprint", 1, 1, fixed(KindInt))
 	t["ERROR"] = def("error", 1, 1, fixedType(Type{}))
 	t["JSON_EXTRACT_SCALAR"], t["JSON_VALUE"] = def(
 		"json_value",
@@ -282,7 +288,7 @@ func addMiscFuncs(t map[string]*fnDef) {
 		fixed(KindJSON),
 	)
 	t["PARSE_JSON"] = def("parse_json", 1, arityTwo, fixed(KindJSON))
-	t["SESSION_USER"] = def("session_user", 0, 0, fixed(KindString))
+	t["SESSION_USER"] = custom(0, 0, genSessionUser)
 }
 
 func (c *compiler) args(n *node, sc *scope) ([]*gx, error) {
@@ -305,7 +311,7 @@ func arityOK(d *fnDef, n int) bool { return n >= d.min && (d.max < 0 || n <= d.m
 func (c *compiler) call(n *node, sc *scope) (*gx, error) {
 	d, ok := c.fns[n.name]
 	if !ok {
-		return nil, invalid("Function not found: %s at [1:%d]", n.name, n.pos+1)
+		return c.userCall(n, sc)
 	}
 
 	if !arityOK(d, len(n.args)) {
@@ -314,6 +320,10 @@ func (c *compiler) call(n *node, sc *scope) (*gx, error) {
 
 	if d.gen != nil {
 		return d.gen(c, n, sc)
+	}
+
+	if hasNamedArgs(n) {
+		return nil, invalid("Function %s does not support named arguments", n.name)
 	}
 
 	if n.distinct || n.over != nil {
@@ -416,7 +426,8 @@ func genToJSONString(c *compiler, n *node, sc *scope) (*gx, error) {
 		return &gx{sql: "COALESCE(CAST(" + x.sql + " AS TEXT), 'null')", typ: scalar(KindString)}, nil
 	case KindJSON:
 		return &gx{sql: x.sql, typ: scalar(KindString)}, nil
-	case KindUnknown, KindString, KindBytes, KindTimestamp, KindDate, KindTime, KindDatetime, KindGeography:
+	case KindUnknown, KindString, KindBytes, KindTimestamp, KindDate, KindTime, KindDatetime, KindGeography,
+		KindInterval:
 	}
 
 	return &gx{sql: "COALESCE(json_quote(" + jsonVal(x) + "), 'null')", typ: scalar(KindString)}, nil

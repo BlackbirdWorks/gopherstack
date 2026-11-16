@@ -42,3 +42,4 @@ Timestamps in ExportStatus and ExecutionStatus use the date-time format: sending
 - COST_AND_USAGE_DASHBOARD columns per table-dictionary-cur-dashboard.html (column types are not published; costs are Decimal, the rest String).
 - MaxResults 1-300 and ServiceQuotaExceeded ServiceCode AWSBillingAndCostManagementDataExports per API_DataExports_ListExports/ListExecutions/ListTables/ListTagsForResource/CreateExport.
 - Manifest and data layout per dataexports-export-delivery.html.
+- line_item_resource_id (INCLUDE_RESOURCES) and resource_tags carry the resource id and tags of metered rows (internal/app/ce_metering_wiring_test.go, TestMeteredResourceAndTagReachDataExportsRows).

@@ -21,6 +21,7 @@ const (
 	fmtNameJSON      = "JSON"
 	fmtNameCSV       = "CSV"
 	fmtNameParquet   = "PARQUET"
+	fmtNameORC       = "ORC"
 	compressionNone  = "NONE"
 	compressionGzip  = "GZIP"
 	fileSeqWidth     = 5
@@ -52,10 +53,11 @@ type outFormat struct {
 
 // outCol maps a destination column to a source result column; src < 0 writes NULL.
 type outCol struct {
-	name string
-	typ  string
-	src  int
-	id   int
+	nestedIDs map[string]int
+	name      string
+	typ       string
+	src       int
+	id        int
 }
 
 // writePlan is the write side of a CTAS, INSERT or UNLOAD.
@@ -191,11 +193,7 @@ func (p *writePlan) validateProps() statementOutcome {
 	}
 
 	switch name {
-	case fmtNameText, fmtNameJSON, fmtNameCSV, fmtNameParquet, fmtNameAvro:
-	case "ORC":
-		return stmtFail(athenaErrTypeSyntax,
-			"NOT_SUPPORTED: format ORC is not supported by the embedded SQL engine; "+
-				"use PARQUET, AVRO, TEXTFILE, CSV or JSON")
+	case fmtNameText, fmtNameJSON, fmtNameCSV, fmtNameParquet, fmtNameAvro, fmtNameORC:
 	default:
 		return stmtFail(athenaErrTypeSyntax, "INVALID_TABLE_PROPERTY: line 1:1: invalid format '%s'", name)
 	}
@@ -205,6 +203,8 @@ func (p *writePlan) validateProps() statementOutcome {
 		p.format.kind = fmtJSON
 	case fmtNameParquet:
 		p.format.kind = fmtParquet
+	case fmtNameORC:
+		p.format.kind = fmtORC
 	case fmtNameAvro:
 		p.format.kind = fmtAvro
 	case fmtNameCSV:
@@ -229,7 +229,8 @@ func (p *writePlan) validateProps() statementOutcome {
 func (p *writePlan) validateCompression() statementOutcome {
 	props := p.stmt.props
 	c := strings.ToUpper(orDefault(firstProp(props, propWriteCompression),
-		orDefault(firstProp(props, propCompression), firstProp(props, propParquetComp))))
+		orDefault(firstProp(props, propCompression),
+			orDefault(firstProp(props, propParquetComp), firstProp(props, "orc_compression")))))
 
 	if out := p.checkCompression(c); out.failed {
 		return out
@@ -253,6 +254,18 @@ func (p *writePlan) checkCompression(c string) statementOutcome {
 		default:
 			return stmtFail(athenaErrTypeSyntax,
 				"NOT_SUPPORTED: compression %s is not supported for AVRO; use SNAPPY, DEFLATE or NONE", c)
+		}
+	}
+
+	if p.format.kind == fmtORC {
+		switch c {
+		case "", "ZLIB", codecSnappy, "ZSTD", "LZ4", compressionNone:
+			p.format.codec = c
+
+			return stmtOK()
+		default:
+			return stmtFail(athenaErrTypeSyntax,
+				"NOT_SUPPORTED: compression %s is not supported for ORC; use ZLIB, SNAPPY, LZ4, ZSTD or NONE", c)
 		}
 	}
 
@@ -407,6 +420,10 @@ func (p *writePlan) apply(ctx context.Context, res *sqlResult, limits EngineLimi
 		return out
 	}
 
+	if p.nestedFormat() {
+		inferNestedColumns(res)
+	}
+
 	switch p.stmt.kind {
 	case writeInsert:
 		return p.applyInsert(ctx, res, limits)
@@ -416,6 +433,20 @@ func (p *writePlan) apply(ctx context.Context, res *sqlResult, limits EngineLimi
 		return p.applyIcebergDML(ctx, res, limits)
 	default:
 		return p.applyCTAS(ctx, res, limits)
+	}
+}
+
+// nestedFormat reports whether the destination stores ARRAY/MAP/ROW columns natively.
+func (p *writePlan) nestedFormat() bool {
+	if p.iceCTAS || p.ice != nil {
+		return true
+	}
+
+	switch p.format.kind {
+	case fmtParquet, fmtORC, fmtAvro:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -498,6 +529,11 @@ func (p *writePlan) ctasDef(data, parts []outCol) GlueTableDef {
 		def.SerdeLibrary = parquetSerde
 		def.InputFormat = parquetInputFmt
 		def.OutputFormat = parquetOutFmt
+		def.SerdeParameters = map[string]string{serdeParamFmtKey: "1"}
+	case fmtORC:
+		def.SerdeLibrary = orcSerde
+		def.InputFormat = orcInputFmt
+		def.OutputFormat = orcOutFmt
 		def.SerdeParameters = map[string]string{serdeParamFmtKey: "1"}
 	case fmtAvro:
 		def.SerdeLibrary = avroSerdeLib
@@ -838,6 +874,8 @@ func (p *writePlan) encodeGroup(res *sqlResult, g *rowGroup, data []outCol) ([]b
 	switch p.format.kind {
 	case fmtParquet:
 		return encodeParquetRows(res, g.rows, data, p.format.codec)
+	case fmtORC:
+		return encodeORCRows(res, g.rows, data, p.format.codec)
 	case fmtAvro:
 		return encodeAvroRows(res, g.rows, data, p.format.codec)
 	case fmtJSON:
@@ -875,6 +913,8 @@ func (p *writePlan) putObject(ctx context.Context, loc string, seq int, body []b
 		name += ".parquet"
 	case p.format.kind == fmtAvro:
 		name += ".avro"
+	case p.format.kind == fmtORC:
+		name += ".orc"
 	case p.format.gzip:
 		name += ".gz"
 	}

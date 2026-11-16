@@ -99,19 +99,20 @@ type apimEntity struct {
 
 // apimService is the state of one API Management service instance.
 type apimService struct {
-	CreatedAt   time.Time              `json:"createdAt"`
-	ReadyAt     time.Time              `json:"readyAt"`
-	ProductAPIs map[string]bool        `json:"productApis,omitempty"`
-	Identity    map[string]any         `json:"identity,omitempty"`
-	Extra       map[string]any         `json:"extra,omitempty"`
-	APIs        map[string]*apimEntity `json:"apis,omitempty"`
-	Ops         map[string]*apimEntity `json:"operations,omitempty"`
-	Products    map[string]*apimEntity `json:"products,omitempty"`
-	Subs        map[string]*apimEntity `json:"subscriptions,omitempty"`
-	Named       map[string]*apimEntity `json:"namedValues,omitempty"`
-	Backends    map[string]*apimEntity `json:"backends,omitempty"`
-	Policies    map[string]*apimEntity `json:"policies,omitempty"`
-	Tags        map[string]string      `json:"tags,omitempty"`
+	CreatedAt   time.Time                         `json:"createdAt"`
+	ReadyAt     time.Time                         `json:"readyAt"`
+	ProductAPIs map[string]bool                   `json:"productApis,omitempty"`
+	Identity    map[string]any                    `json:"identity,omitempty"`
+	Extra       map[string]any                    `json:"extra,omitempty"`
+	APIs        map[string]*apimEntity            `json:"apis,omitempty"`
+	Ops         map[string]*apimEntity            `json:"operations,omitempty"`
+	Products    map[string]*apimEntity            `json:"products,omitempty"`
+	Subs        map[string]*apimEntity            `json:"subscriptions,omitempty"`
+	Named       map[string]*apimEntity            `json:"namedValues,omitempty"`
+	Backends    map[string]*apimEntity            `json:"backends,omitempty"`
+	Generic     map[string]map[string]*apimEntity `json:"generic,omitempty"`
+	Policies    map[string]*apimEntity            `json:"policies,omitempty"`
+	Tags        map[string]string                 `json:"tags,omitempty"`
 	now         func() time.Time
 	Transition  string `json:"transition,omitempty"`
 	SubID       string `json:"subscriptionId"`
@@ -437,17 +438,26 @@ func (s *apimService) clone() *apimService {
 		*m.dst = maps.Clone(m.src)
 	}
 
+	c.Generic = make(map[string]map[string]*apimEntity, len(s.Generic))
+	for k, v := range s.Generic {
+		c.Generic[k] = maps.Clone(v)
+	}
+
 	return &c
 }
 
 func newAPIMService(sub, rg, name string, now time.Time) *apimService {
-	return &apimService{
+	s := &apimService{
 		Name: name, ResourceGrp: rg, SubID: sub, Location: DefaultLocation, CreatedAt: now.UTC(),
 		NotifyEmail: apimDefaultNotifyMail, PublicAcc: sqlDefaultPublic, Extra: map[string]any{},
 		APIs: map[string]*apimEntity{}, Ops: map[string]*apimEntity{}, Products: map[string]*apimEntity{},
 		Subs: map[string]*apimEntity{}, Named: map[string]*apimEntity{}, Backends: map[string]*apimEntity{},
 		Policies: map[string]*apimEntity{}, ProductAPIs: map[string]bool{},
 	}
+
+	seedAPIMPortal(s)
+
+	return s
 }
 
 func gatewayHost(name string) string { return name + apimGatewaySuffix }

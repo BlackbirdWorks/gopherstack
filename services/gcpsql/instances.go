@@ -27,14 +27,15 @@ var instanceNameRe = regexp.MustCompile(`^[a-z]([-a-z0-9]*[a-z0-9])?$`)
 
 // InstanceInput is the writable part of sql#instance.
 type InstanceInput struct {
-	Settings           map[string]any `json:"settings"`
-	Name               string         `json:"name"`
-	Region             string         `json:"region"`
-	DatabaseVersion    string         `json:"databaseVersion"`
-	RootPassword       string         `json:"rootPassword"`
-	InstanceType       string         `json:"instanceType"`
-	MasterInstanceName string         `json:"masterInstanceName"`
-	MaintenanceVersion string         `json:"maintenanceVersion"`
+	Settings           map[string]any      `json:"settings"`
+	ReplicationCluster *ReplicationCluster `json:"replicationCluster"`
+	Name               string              `json:"name"`
+	Region             string              `json:"region"`
+	DatabaseVersion    string              `json:"databaseVersion"`
+	RootPassword       string              `json:"rootPassword"`
+	InstanceType       string              `json:"instanceType"`
+	MasterInstanceName string              `json:"masterInstanceName"`
+	MaintenanceVersion string              `json:"maintenanceVersion"`
 }
 
 func randomPassword() string {
@@ -57,7 +58,9 @@ func validateInstance(in *InstanceInput) error {
 		return errInvalid("Missing parameter: Tier.")
 	}
 
-	return nil
+	_, err := authorizedNets(in.Settings)
+
+	return err
 }
 
 func serviceAccount(project, name string) string {
@@ -222,6 +225,10 @@ func (b *InMemoryBackend) UpdateInstance(project, name string, in InstanceInput,
 		return nil, err
 	}
 
+	if err = b.applyClusterLocked(rec, in.ReplicationCluster); err != nil {
+		return nil, err
+	}
+
 	rec.Inst.Settings = next
 	syncZones(rec)
 	b.touchLocked(rec)
@@ -252,6 +259,14 @@ func nextSettings(rec *instRec, in InstanceInput, replace bool) (map[string]any,
 
 	next["settingsVersion"] = bumpVersion(settingString(cur, "settingsVersion"))
 
+	if _, err := authorizedNets(next); err != nil {
+		return nil, err
+	}
+
+	if err := checkDiskShrink(cur, next); err != nil {
+		return nil, err
+	}
+
 	return next, nil
 }
 
@@ -273,6 +288,8 @@ func (b *InMemoryBackend) settingsTask(rec *instRec, old, next map[string]any) f
 	return func(ctx context.Context) error {
 		switch {
 		case oldPolicy != policyNever && newPolicy == policyNever:
+			b.dropStandby(ctx, rec)
+
 			return b.suspend(ctx, rec)
 		case oldPolicy == policyNever && newPolicy != policyNever:
 			return b.resume(ctx, rec)
@@ -284,18 +301,28 @@ func (b *InMemoryBackend) settingsTask(rec *instRec, old, next map[string]any) f
 			}
 		}
 
-		if flagsChanged {
-			if err := b.restartEngine(ctx, rec, newFlags); err != nil {
-				return err
-			}
-		}
-
-		if pitrChanged {
-			return b.syncPITR(ctx, rec, b.engineOf(rec))
-		}
-
-		return nil
+		return b.applyEngineChanges(ctx, rec, flagsChanged, pitrChanged, newFlags, tierChanged)
 	}
+}
+
+func (b *InMemoryBackend) applyEngineChanges(
+	ctx context.Context, rec *instRec, flagsChanged, pitrChanged bool, flags []Flag, tierChanged bool,
+) error {
+	if flagsChanged {
+		if err := b.restartEngine(ctx, rec, flags); err != nil {
+			return err
+		}
+	}
+
+	if pitrChanged {
+		if err := b.syncPITR(ctx, rec, b.engineOf(rec)); err != nil {
+			return err
+		}
+	}
+
+	b.reconcileStandby(ctx, rec, flagsChanged || tierChanged)
+
+	return nil
 }
 
 // relaunch recreates the engine container so a new tier's CPU and memory limits apply. It only does so when the
@@ -319,6 +346,7 @@ func (b *InMemoryBackend) relaunch(ctx context.Context, rec *instRec) (bool, err
 		return false, nil
 	}
 
+	b.dropStandby(ctx, rec)
 	eng.Close(ctx)
 
 	return true, b.bringUp(ctx, rec)
@@ -375,11 +403,14 @@ func (b *InMemoryBackend) DeleteInstance(project, name string) (*Operation, erro
 
 	return b.submitLocked(rec, project, "DELETE", opMeta{}, func(ctx context.Context) error {
 		b.mu.Lock("DeleteInstance.task")
-		eng := rec.eng
-		rec.eng, rec.gone = nil, true
+		eng, sb, front, quota := rec.eng, rec.standby, rec.front, rec.quotaStop
+		rec.eng, rec.standby, rec.front, rec.quotaStop, rec.gone = nil, nil, nil, nil, true
 		delete(b.instances, instKey(project, name))
 		b.mu.Unlock()
 
+		stopQuota(quota)
+		closeFront(front)
+		purgeEngine(ctx, sb)
 		purgeEngine(ctx, eng)
 
 		return nil
@@ -439,6 +470,7 @@ func (b *InMemoryBackend) resume(ctx context.Context, rec *instRec) error {
 		}
 
 		b.setState(rec, stateRunnable)
+		b.reconcileStandby(ctx, rec, false)
 
 		return nil
 	}
@@ -452,7 +484,7 @@ func (b *InMemoryBackend) launchSpec(ctx context.Context, rec *instRec) (LaunchS
 	b.mu.RLock("launchSpec")
 	spec := LaunchSpec{
 		ID: rec.Inst.Name, Project: rec.Inst.Project, Version: rec.Inst.DatabaseVersion, Password: rec.RootPassword,
-		ServerID: rec.ServerID, Persist: true, Recovery: rec.recovery, Fresh: rec.fresh,
+		ServerID: rec.ServerID, Persist: true, Recovery: rec.recovery, Fresh: rec.fresh, Slot: rec.Slot,
 	}
 	tier := settingString(rec.Inst.Settings, "tier")
 	replica := b.isReplica(rec)
@@ -493,8 +525,10 @@ func (b *InMemoryBackend) sweepVolumes(ctx context.Context, l Launcher) {
 
 	keep := map[string]bool{}
 	for _, r := range b.instances {
-		keep[volumeName("data", r.Inst.Project, r.Inst.Name)] = true
-		keep[volumeName("pitr", r.Inst.Project, r.Inst.Name)] = true
+		for _, slot := range []string{"", slotB} {
+			keep[volumeName("data", slot, r.Inst.Project, r.Inst.Name)] = true
+			keep[volumeName("pitr", slot, r.Inst.Project, r.Inst.Name)] = true
+		}
 	}
 	b.mu.Unlock()
 
@@ -550,10 +584,14 @@ func (b *InMemoryBackend) bringUp(ctx context.Context, rec *instRec) error {
 
 	b.mu.Lock("bringUp")
 	rec.eng, rec.recovery, rec.fresh = eng, nil, false
-	rec.Inst.IPAddresses, rec.Inst.GopherstackEndpoint = addresses(eng)
+	b.openFrontLocked(ctx, rec)
+	b.startQuotaLocked(rec)
+	rec.Inst.IPAddresses, rec.Inst.GopherstackEndpoint = addresses(b.clientEndpoint(rec))
 	rec.Inst.State = stateRunnable
 	b.touchLocked(rec)
 	b.mu.Unlock()
+
+	b.reconcileStandby(ctx, rec, false)
 
 	return nil
 }
@@ -642,6 +680,10 @@ func (b *InMemoryBackend) attachReplica(
 }
 
 func (b *InMemoryBackend) primaryRec(rec *instRec) (*instRec, error) {
+	if rec.Inst.MasterInstanceName == "" {
+		return rec, nil
+	}
+
 	name, err := masterName(rec.Inst.Project, rec.Inst.MasterInstanceName)
 	if err != nil {
 		return nil, err

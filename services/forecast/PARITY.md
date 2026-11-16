@@ -117,8 +117,7 @@ families:
   ListOperations_Pagination: {status: ok, note: "malformed NextToken returns InvalidNextTokenException (page.ValidateToken wired into listOutput); not touched this pass"}
   Tags: {status: ok, note: "Tag/Untag/ListTagsForResource validate the ARN exists via arnIndex before mutating/reading tag state. 2026-09-06 (gopherstack-jrhh): TagResource now enforces the documented 50-tags-per-resource maximum -- see ops table. 2026-09-18 (gopherstack-21my): every Create*Input's Tags was stored verbatim and leaked as a fabricated member on every Describe*/Create-echo response (no real output type declares Tags); fixed via stripEchoOnlyFields in store.go."}
 gaps: []
-items_still_open:
-  - "ListExplainabilityExports Filters Key ResourceArn is left unapplied: ExplainabilityExportSummary has no ResourceArn and the SDK does not say whether it means the export's ExplainabilityArn or that explainability's ResourceArn."
+items_still_open: []
 deferred: []            # all three deferred items from the prior audit (Domain/DatasetType/
                          # DataFrequency/ImportMode enum validation; cross-resource FK
                          # existence validation on Create*; Delete* status/ResourceInUse
@@ -597,3 +596,7 @@ ListMonitorEvaluations Filters/MaxResults/NextToken are false positives (the too
 ## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
 
 InternalServerException (handler.go:606) is the default 500 clause; the pinned SDK models no internal-error type.
+
+## Emulator choices where the vendor is silent
+
+- ListExplainabilityExports Filters Key ResourceArn is left unapplied: ExplainabilityExportSummary has no ResourceArn and the SDK does not say whether it means the export's ExplainabilityArn or that explainability's ResourceArn.

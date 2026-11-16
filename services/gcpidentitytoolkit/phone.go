@@ -1,6 +1,7 @@
 package gcpidentitytoolkit
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"fmt"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	idtkv2 "google.golang.org/api/identitytoolkit/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
@@ -66,7 +69,7 @@ func hasClientIdentifier(r *authRequest) bool {
 }
 
 // SendVerificationCode starts phone sign-in; no SMS is sent and the code is read from the emulator endpoint.
-func (b *InMemoryBackend) SendVerificationCode(c call, r *authRequest) (*SessionResponse, error) {
+func (b *InMemoryBackend) SendVerificationCode(ctx context.Context, c call, r *authRequest) (*SessionResponse, error) {
 	b.mu.Lock("SendVerificationCode")
 	defer b.mu.Unlock()
 
@@ -104,6 +107,9 @@ func (b *InMemoryBackend) SendVerificationCode(c call, r *authRequest) (*Session
 		RequestType: reqPhoneSession, TenantID: sc.tenant, Phone: phone, VerifyCode: code,
 		Created: now.UnixMilli(), Expires: now.Add(phoneTTL).UnixMilli(),
 	}
+
+	logger.Load(ctx).InfoContext(ctx, "gcpidentitytoolkit: would send SMS (recorded, not delivered)",
+		"to", phone, "project", c.project)
 
 	return &SessionResponse{SessionInfo: session}, nil
 }

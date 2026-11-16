@@ -232,11 +232,14 @@ type InMemoryDB struct {
 	backups              *store.Table[Backup]
 	iteratorStore        *ShardIteratorStore
 	mu                   *lockmetrics.RWMutex
+	meterMu              *lockmetrics.RWMutex
+	meterCounters        atomic.Pointer[map[capacityKey]*capacityCounter]
 	deletingTables       *store.Table[Table]
 	defaultRegion        string
 	accountID            string
 	streamDisablingDelay time.Duration
 	createDelay          time.Duration
+	metering             atomic.Bool
 }
 
 // Backup holds the metadata and a point-in-time item snapshot for a DynamoDB on-demand backup.
@@ -391,6 +394,7 @@ func NewInMemoryDB() *InMemoryDB {
 		defaultRegion:        config.DefaultRegion,
 		accountID:            config.DefaultAccountID,
 		mu:                   lockmetrics.New("ddb"),
+		meterMu:              lockmetrics.New("ddb-meter"),
 		throttler:            NewThrottler(false),
 		txn:                  newTxnState(),
 	}

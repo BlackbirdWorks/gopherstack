@@ -9,18 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 21 (21 ok) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 6 |
+| Known gaps | 3 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Filter semantics: a missing field satisfies $ne and $nin and fails every other operator; s3-vectors-metadata-filtering.html only says '$ne: Not equal comparison' and '$nin: Match none of the values in array' and does not state how absent fields behave
-- PutVectors: a key repeated inside one batch keeps the last occurrence; API_S3VectorBuckets_PutVectors.html does not state the behaviour
 - Encryption: sseType and kmsKeyArn are stored and the key is checked on data operations, but vector data is not encrypted at rest
 - Bucket policies: stored and returned, not enforced
-- ServiceUnavailableException: never produced; the PutVectors page ties it to a request exceeding capacity without publishing a size
 - Memory: vectors live in process memory (4 bytes per dimension plus metadata) with no spill to disk
 
 ### Structural gaps

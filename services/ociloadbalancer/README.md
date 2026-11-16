@@ -9,20 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 61 (57 ok, 4 partial) |
 | Feature families | 16 (5 ok, 11 partial) |
-| Known gaps | 8 |
+| Known gaps | 3 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- Cipher suites ECDHE-RSA-AES128-SHA256 and ECDHE-ECDSA-AES128-SHA256 are accepted and stored by the control plane but deliberately not served by the data plane: suites Go classes as insecure (tls.InsecureCipherSuites) are never negotiated.
-- The shape catalogue is static. reservedIps, ipv6SubnetCidr and ipMode other than IPV4 are rejected. The SDK has no CancelWorkRequest, tag or lock operation for this service (oci-go-sdk loadbalancer/loadbalancer_client.go lists only GetWorkRequest and ListWorkRequests), so none is missing.
-- Rejected with 400: SOURCE_VCN_ID and SOURCE_VCN_IP_ADDRESS conditions (a loopback client has no VCN), areInvalidCharactersAllowed (net/http fixes the accepted header characters), certificateIds and trustedCertificateAuthorityIds (OCI Certificates service), passphrase-protected private keys, TLS protocols below 1.2.
-- Backend sets with verifyPeerCertificate=false skip verification only for loopback backend IPs (emulator-run targets; policy 2026-10-31); non-loopback backends are still verified, so they need their certificate uploaded as the bundle. verifyDepth is enforced on the verified chain (certificates above the leaf may not exceed it).
-- Not published (checked managingrulesets.htm, managingciphersuites.htm, balanceoverview.htm and the loadbalancer SDK comments): health status aggregation, the 409 code for in-flight work requests, listener port sharing by hostname, path route and rule precedence, REDIRECT multiple-condition semantics, HTTP 404 for non-matching virtual hosts, pathRouteSetName and routingPolicyName being mutually exclusive, the routing-policy condition grammar subset, and the cipher suite names oci-default-http2-*, oci-modern-ssl-cipher-suite-v1 and oci-tls-13-recommended-ssl-cipher-suite-v1 (managingciphersuites.htm names only default, wider-compatible, compatible and customized)
-- Addresses: public and private load balancers get an address from the emulator pool 198.18.0.0/15 (public) or the OCI Core subnet CIDR when wired; no real address is reachable, the data plane is on loopback ephemeral ports only. In containers those ports are not published; use the endpoints admin route from inside the container.
-- Health state is not persisted; backend maxConnections and balancing cursors are per process. No SNI-based backend selection, no OCSP or session-ticket handling, no per-listener access logging.
-- IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified. Private keys of certificates are not persisted, so TLS listeners need the certificate recreated after a restore.
+- reservedIps is rejected: attaching a reserved public IP needs the address and ownership of the Core public IP, and OCI Core exports no public-IP lookup (services/ocicore/refs.go exports only LookupSubnet, InstanceState, LookupNSG, VcnExists, LookupImage, ListVcns).
+- Rejected with 400: SOURCE_VCN_ID and SOURCE_VCN_IP_ADDRESS conditions (OCI Core has no client-address-to-VCN lookup, services/ocicore/refs.go, and a loopback client has no VCN); certificateIds and trustedCertificateAuthorityIds (no OCI Certificates service exists under services/); passphrase-protected private keys (crypto/x509 decrypts only the deprecated legacy PEM encryption, PKCS#8 encryption needs a new dependency); areInvalidCharactersAllowed (net/http fixes the accepted header characters).
+- IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified.
 
 ## More
 

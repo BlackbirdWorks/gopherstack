@@ -4,6 +4,7 @@ package azurearm
 const (
 	logicKCode             = "code"
 	logicKBody             = "body"
+	logicKOutputs          = "outputs"
 	logicKHeaders          = "headers"
 	logicKContent          = "content"
 	logicKActions          = "actions"

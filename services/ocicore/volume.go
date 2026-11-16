@@ -27,6 +27,7 @@ const (
 
 	srcBootVolumeBackup = "bootVolumeBackup"
 	srcBlockReplica     = "blockVolumeReplica"
+	srcBootReplica      = "bootVolumeReplica"
 )
 
 // blockAdRe accepts the availability domains of every region the emulator can hold block storage for.
@@ -48,7 +49,7 @@ type CreateVolumeIn struct {
 	KmsKeyID            string             `json:"kmsKeyId"`
 	VolumeBackupID      string             `json:"volumeBackupId"`
 	BackupPolicyID      string             `json:"backupPolicyId"`
-	AutotunePolicies    []any              `json:"autotunePolicies"`
+	AutotunePolicies    []AutotunePolicy   `json:"autotunePolicies"`
 	BlockVolumeReplicas []ReplicaDetailsIn `json:"blockVolumeReplicas"`
 }
 
@@ -179,10 +180,6 @@ func (b *InMemoryBackend) volumeChecks(in CreateVolumeIn) *APIError {
 		return errParam("availabilityDomain " + in.AvailabilityDomain + " is not a valid availability domain")
 	}
 
-	if len(in.AutotunePolicies) > 0 {
-		return errParam("autotunePolicies is not supported")
-	}
-
 	return b.checkKmsKey(in.KmsKeyID)
 }
 
@@ -218,6 +215,12 @@ func (b *InMemoryBackend) CreateVolume(in CreateVolumeIn) (Resource, string, *AP
 		return nil, "", aerr
 	}
 
+	if aerr = checkAutotune(vpus, in.AutotunePolicies); aerr != nil {
+		return nil, "", aerr
+	}
+
+	setAutotune(v, &v.AutotunePolicies, in.AutotunePolicies)
+
 	if state == statRestoring {
 		b.moveTo(v, statRestoring, statAvailable)
 	}
@@ -227,6 +230,7 @@ func (b *InMemoryBackend) CreateVolume(in CreateVolumeIn) (Resource, string, *AP
 	}
 
 	b.add(v)
+	b.retune(v, b.nowUTC())
 	b.applyReplicas(v, in.BlockVolumeReplicas)
 
 	if in.BackupPolicyID != "" {
@@ -239,32 +243,66 @@ func (b *InMemoryBackend) CreateVolume(in CreateVolumeIn) (Resource, string, *AP
 // UpdateVolumeIn is the UpdateVolume request body.
 type UpdateVolumeIn struct {
 	BlockVolumeReplicas *[]ReplicaDetailsIn `json:"blockVolumeReplicas"`
+	BootVolumeReplicas  *[]ReplicaDetailsIn `json:"bootVolumeReplicas"`
+	AutotunePolicies    *[]AutotunePolicy   `json:"autotunePolicies"`
 	SizeInGBs           *int64              `json:"sizeInGBs"`
 	VpusPerGB           *int64              `json:"vpusPerGB"`
 	IsAutoTuneEnabled   *bool               `json:"isAutoTuneEnabled"`
 	UpdateIn
 }
 
+// volumeParts is what a volume and a boot volume share when they are updated.
+type volumeParts struct {
+	policies *[]AutotunePolicy
+	gbs      *int64
+	mbs      *int64
+	vpus     *int64
+	auto     *bool
+	check    func() *APIError
+	apply    func()
+	grow     func()
+}
+
+func (b *InMemoryBackend) updateVolumeParts(r Resource, p volumeParts, in UpdateVolumeIn) *APIError {
+	if aerr := p.check(); aerr != nil {
+		return aerr
+	}
+
+	if aerr := applyVolumeChanges(p.gbs, p.mbs, p.vpus, p.auto, in); aerr != nil {
+		return aerr
+	}
+
+	if aerr := applyAutotune(r, *p.vpus, p.policies, in.AutotunePolicies); aerr != nil {
+		return aerr
+	}
+
+	b.retune(r, b.nowUTC())
+	p.apply()
+	p.grow()
+
+	return nil
+}
+
 // UpdateVolume changes a volume; the size can only grow.
 func (b *InMemoryBackend) UpdateVolume(id, ifMatch string, in UpdateVolumeIn) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(v *Volume) *APIError {
-		if in.BlockVolumeReplicas != nil {
-			if aerr := b.checkReplicas(v, *in.BlockVolumeReplicas); aerr != nil {
-				return aerr
-			}
-		}
+		return b.updateVolumeParts(v, volumeParts{
+			policies: &v.AutotunePolicies, gbs: &v.SizeInGBs, mbs: &v.SizeInMBs, vpus: &v.VpusPerGB,
+			auto: &v.IsAutoTuneEnabled,
+			check: func() *APIError {
+				if in.BlockVolumeReplicas == nil {
+					return nil
+				}
 
-		if aerr := applyVolumeChanges(&v.SizeInGBs, &v.SizeInMBs, &v.VpusPerGB, &v.IsAutoTuneEnabled, in); aerr != nil {
-			return aerr
-		}
-
-		if in.BlockVolumeReplicas != nil {
-			b.applyReplicas(v, *in.BlockVolumeReplicas)
-		}
-
-		b.growReplicas(v)
-
-		return nil
+				return b.checkReplicas(v, *in.BlockVolumeReplicas)
+			},
+			apply: func() {
+				if in.BlockVolumeReplicas != nil {
+					b.applyReplicas(v, *in.BlockVolumeReplicas)
+				}
+			},
+			grow: func() { b.growReplicas(v) },
+		}, in)
 	})
 }
 
@@ -297,13 +335,15 @@ func applyVolumeChanges(gbs, mbs, vpus *int64, auto *bool, in UpdateVolumeIn) *A
 // CreateBootVolumeIn is the CreateBootVolume request body.
 type CreateBootVolumeIn struct {
 	TagsIn
-	SizeInGBs          *int64        `json:"sizeInGBs"`
-	VpusPerGB          *int64        `json:"vpusPerGB"`
-	SourceDetails      *VolumeSource `json:"sourceDetails"`
-	CompartmentID      string        `json:"compartmentId"`
-	AvailabilityDomain string        `json:"availabilityDomain"`
-	DisplayName        string        `json:"displayName"`
-	KmsKeyID           string        `json:"kmsKeyId"`
+	SizeInGBs          *int64             `json:"sizeInGBs"`
+	VpusPerGB          *int64             `json:"vpusPerGB"`
+	SourceDetails      *VolumeSource      `json:"sourceDetails"`
+	CompartmentID      string             `json:"compartmentId"`
+	AvailabilityDomain string             `json:"availabilityDomain"`
+	DisplayName        string             `json:"displayName"`
+	KmsKeyID           string             `json:"kmsKeyId"`
+	BootVolumeReplicas []ReplicaDetailsIn `json:"bootVolumeReplicas"`
+	AutotunePolicies   []AutotunePolicy   `json:"autotunePolicies"`
 }
 
 // bootSource is what a new boot volume is cloned or restored from.
@@ -363,7 +403,11 @@ func (b *InMemoryBackend) newBootSource(in CreateBootVolumeIn) (bootSource, *API
 		}, nil
 	}
 
-	return bootSource{}, errParam("sourceDetails.type must be bootVolume or bootVolumeBackup")
+	if src.Type == srcBootReplica {
+		return b.bootReplicaSource(src.ID, in.AvailabilityDomain)
+	}
+
+	return bootSource{}, errParam("sourceDetails.type must be bootVolume, bootVolumeBackup or bootVolumeReplica")
 }
 
 // CreateBootVolume clones a boot volume or restores a boot volume backup.
@@ -400,6 +444,10 @@ func (b *InMemoryBackend) CreateBootVolume(in CreateBootVolumeIn) (Resource, str
 		vpus = *in.VpusPerGB
 	}
 
+	if aerr = checkAutotune(vpus, in.AutotunePolicies); aerr != nil {
+		return nil, "", aerr
+	}
+
 	bv := &BootVolume{
 		Base:               b.newBase(kindBootVolume, in.CompartmentID, in.DisplayName, in.TagsIn),
 		AvailabilityDomain: src.ad, ImageID: src.imageID, SizeInGBs: size, SizeInMBs: size * bytesGB,
@@ -409,7 +457,14 @@ func (b *InMemoryBackend) CreateBootVolume(in CreateBootVolumeIn) (Resource, str
 		b.moveTo(bv, statRestoring, statAvailable)
 	}
 
+	if aerr = b.checkBootReplicas(bv, in.BootVolumeReplicas); aerr != nil {
+		return nil, "", aerr
+	}
+
+	setAutotune(bv, &bv.AutotunePolicies, in.AutotunePolicies)
 	b.add(bv)
+	b.applyBootReplicas(bv, in.BootVolumeReplicas)
+	b.retune(bv, b.nowUTC())
 
 	return bv.view(), bv.Internal.Etag, nil
 }
@@ -417,13 +472,30 @@ func (b *InMemoryBackend) CreateBootVolume(in CreateBootVolumeIn) (Resource, str
 // UpdateBootVolume changes a boot volume.
 func (b *InMemoryBackend) UpdateBootVolume(id, ifMatch string, in UpdateVolumeIn) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(v *BootVolume) *APIError {
-		return applyVolumeChanges(&v.SizeInGBs, &v.SizeInMBs, &v.VpusPerGB, &v.IsAutoTuneEnabled, in)
+		return b.updateVolumeParts(v, volumeParts{
+			policies: &v.AutotunePolicies, gbs: &v.SizeInGBs, mbs: &v.SizeInMBs, vpus: &v.VpusPerGB,
+			auto: &v.IsAutoTuneEnabled,
+			check: func() *APIError {
+				if in.BootVolumeReplicas == nil {
+					return nil
+				}
+
+				return b.checkBootReplicas(v, *in.BootVolumeReplicas)
+			},
+			apply: func() {
+				if in.BootVolumeReplicas != nil {
+					b.applyBootReplicas(v, *in.BootVolumeReplicas)
+				}
+			},
+			grow: func() { b.growBootReplicas(v) },
+		}, in)
 	})
 }
 
 func (b *InMemoryBackend) endBootVolume(bv *BootVolume) {
 	b.leaveVolumeGroup(bv)
 	b.dropAssignments(bv.ID)
+	b.endBootReplicas(bv)
 	b.markTerminating(bv)
 }
 
@@ -515,6 +587,12 @@ func (b *InMemoryBackend) AttachVolume(in AttachVolumeIn) (Resource, string, *AP
 		return nil, "", aerr
 	}
 
+	a := b.newAttachment(inst, vol, in)
+
+	return a.view(), a.Internal.Etag, nil
+}
+
+func (b *InMemoryBackend) newAttachment(inst *Instance, vol *Volume, in AttachVolumeIn) *VolumeAttachment {
 	a := &VolumeAttachment{
 		Base:           b.newBase(kindVolumeAttach, inst.CompartmentID, in.DisplayName, TagsIn{}),
 		AttachmentType: in.Type, AvailabilityDomain: inst.AvailabilityDomain, InstanceID: inst.ID, VolumeID: vol.ID,
@@ -538,7 +616,7 @@ func (b *InMemoryBackend) AttachVolume(in AttachVolumeIn) (Resource, string, *AP
 	b.moveTo(a, statAttaching, statAttached)
 	b.add(a)
 
-	return a.view(), a.Internal.Etag, nil
+	return a
 }
 
 // DetachVolume detaches a volume from an instance.

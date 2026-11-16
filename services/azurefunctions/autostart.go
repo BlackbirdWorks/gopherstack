@@ -7,8 +7,13 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
-// hasBackgroundTrigger reports whether a package declares an enabled non-HTTP trigger in a function.json file.
+// hasBackgroundTrigger reports whether a package declares an enabled non-HTTP trigger, in a function.json file or
+// in application code.
 func hasBackgroundTrigger(zipData []byte) bool {
+	return hasJSONTrigger(zipData) || hasCodeFirstTrigger(zipData)
+}
+
+func hasJSONTrigger(zipData []byte) bool {
 	for _, def := range scanFunctions(zipData) {
 		if disabled, _ := def.Config["disabled"].(bool); disabled {
 			continue

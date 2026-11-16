@@ -177,6 +177,17 @@ func acaContainerWire(c map[string]any, secrets map[string]string, port int) aci
 	return w
 }
 
+// acaInitWire maps a template init container; command and args become one argv because an init container's
+// command replaces the image entrypoint.
+func acaInitWire(c map[string]any, secrets map[string]string) aciInitWire {
+	w := acaContainerWire(c, secrets, 0)
+
+	return aciInitWire{Name: w.Name, Properties: aciInitPropsWire{
+		Image: w.Properties.Image, Command: append(w.Properties.Command, w.Properties.Args...),
+		EnvironmentVariables: w.Properties.EnvironmentVariables, VolumeMounts: w.Properties.VolumeMounts,
+	}}
+}
+
 // buildSpec captures how to run rev. The caller holds p.mu.
 func (p *ContainerAppsProvider) buildSpec(a *storedACAApp, rev *storedACARevision) (*acaRevSpec, error) {
 	env := p.envByID(a.EnvironmentID)
@@ -208,6 +219,10 @@ func (p *ContainerAppsProvider) buildSpec(a *storedACAApp, rev *storedACARevisio
 		}
 
 		props.Containers = append(props.Containers, acaContainerWire(mapOf(e), secrets, cport))
+	}
+
+	for _, e := range acaList(rev.Template[fieldInitContainer]) {
+		props.InitContainers = append(props.InitContainers, acaInitWire(mapOf(e), secrets))
 	}
 
 	if port > 0 {

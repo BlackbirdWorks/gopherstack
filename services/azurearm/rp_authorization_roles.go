@@ -11,6 +11,10 @@ const (
 	roleCodeNotFound   = "RoleDefinitionDoesNotExist"
 	roleCodeSameName   = "RoleDefinitionWithSameNameExists"
 	roleCodeHasAssigns = "RoleDefinitionHasAssignments"
+	roleCodeLimit      = "RoleDefinitionLimitExceeded"
+
+	// Limit from learn.microsoft.com/azure/role-based-access-control/troubleshoot-limits.
+	roleDefLimit = 5000
 )
 
 func (b *builtinRole) permissions() []authPermission { return nonNilPermissions(b.Permissions) }
@@ -175,12 +179,21 @@ func (p *AuthorizationProvider) putRoleDefinition(req authReq) (authResp, error)
 	p.mu.Lock("putRoleDefinition")
 	defer p.mu.Unlock()
 
+	if err = p.assignableScopesExist(spec.AssignableScopes); err != nil {
+		return authResp{}, err
+	}
+
 	if _, builtin := p.builtinRoles[key]; builtin {
 		return authResp{}, authBad("The role definition '%s' is built in and cannot be modified.", req.Name)
 	}
 
 	if err = p.checkRoleNameFree(spec.RoleName, key); err != nil {
 		return authResp{}, err
+	}
+
+	if _, exists := p.roleDefs[key]; !exists && len(p.roleDefs) >= roleDefLimit {
+		return authResp{}, authErr(http.StatusBadRequest, roleCodeLimit,
+			"Role definition limit exceeded. No more role definitions can be created (code: %s)", roleCodeLimit)
 	}
 
 	now := p.now()
@@ -367,4 +380,36 @@ func (p *AuthorizationProvider) deleteRoleDefinition(req authReq) (authResp, err
 	delete(p.roleDefs, key)
 
 	return authResp{Status: http.StatusOK, Body: p.customRoleBody(d)}, nil
+}
+
+// SetScopeChecker lets role definitions verify that their subscription and resource group assignable scopes exist.
+func (p *AuthorizationProvider) SetScopeChecker(subscriptionID string, rgExists func(name string) bool) {
+	p.mu.Lock("SetScopeChecker")
+	defer p.mu.Unlock()
+
+	p.scopeSub, p.rgExists = subscriptionID, rgExists
+}
+
+func (p *AuthorizationProvider) assignableScopesExist(scopes []string) error {
+	if p.rgExists == nil {
+		return nil
+	}
+
+	for _, s := range scopes {
+		sc, _ := parseAuthScope(splitARMPath(s))
+
+		switch sc.kind {
+		case authScopeSubscription, authScopeResourceGroup, authScopeResource:
+			if !strings.EqualFold(sc.sub, p.scopeSub) {
+				return authBad("The assignable scope '%s' does not exist: subscription '%s' was not found.", s, sc.sub)
+			}
+
+			if sc.rg != "" && !p.rgExists(sc.rg) {
+				return authBad("The assignable scope '%s' does not exist: resource group '%s' was not found.", s, sc.rg)
+			}
+		case authScopeTenant, authScopeManagementGroup:
+		}
+	}
+
+	return nil
 }

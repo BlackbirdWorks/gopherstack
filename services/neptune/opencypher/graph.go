@@ -4,7 +4,8 @@
 // DETACH DELETE, WITH, UNWIND, RETURN with DISTINCT, ORDER BY, SKIP, LIMIT, parameters, variable-length
 // relationships, CASE, list/map expressions, the common scalar functions and the count, collect, sum, avg,
 // min and max aggregates, read-only UNION / UNION ALL, pattern predicates, size() of a pattern and list
-// comprehensions. Not supported (as in Neptune): CALL, FOREACH, LOAD CSV, shortestPath, constraints and indexes.
+// comprehensions, read-only CALL subqueries and reduce(). Not supported (as in Neptune): CALL procedures, FOREACH,
+// LOAD CSV, shortestPath, constraints and indexes.
 package opencypher
 
 import (
@@ -12,8 +13,11 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/services/neptune/streamlog"
 )
 
 // IDProperty is the property key that sets or reads an entity id.
@@ -45,18 +49,19 @@ type Path struct {
 
 // Graph is a thread-safe in-memory property graph with an openCypher executor.
 type Graph struct {
-	funcs map[string]scalarFunc
-	sem   chan struct{}
-	nodes map[string]*Node
-	rels  map[string]*Rel
-	out   map[string][]*Rel
-	in    map[string][]*Rel
-	seq   int
+	funcs  map[string]scalarFunc
+	sem    chan struct{}
+	stream *streamlog.Log
+	nodes  map[string]*Node
+	rels   map[string]*Rel
+	out    map[string][]*Rel
+	in     map[string][]*Rel
+	seq    int
 }
 
 // NewGraph returns an empty graph.
 func NewGraph() *Graph {
-	g := &Graph{sem: make(chan struct{}, 1), funcs: builtinFuncs()}
+	g := &Graph{sem: make(chan struct{}, 1), funcs: builtinFuncs(), stream: streamlog.New()}
 	g.reset()
 
 	return g
@@ -232,7 +237,7 @@ func (g *Graph) Execute(ctx context.Context, src string, params map[string]any) 
 	}
 	defer g.release()
 
-	return g.runLocked(ctx, q, params)
+	return g.runLocked(ctx, q, params, true)
 }
 
 func (g *Graph) acquire(ctx context.Context) error {
@@ -246,7 +251,7 @@ func (g *Graph) acquire(ctx context.Context) error {
 
 func (g *Graph) release() { <-g.sem }
 
-func (g *Graph) runLocked(ctx context.Context, q *query, params map[string]any) (*Result, error) {
+func (g *Graph) runLocked(ctx context.Context, q *query, params map[string]any, record bool) (*Result, error) {
 	var snap snapshot
 	if q.write {
 		snap = g.snapshot()
@@ -261,6 +266,10 @@ func (g *Graph) runLocked(ctx context.Context, q *query, params map[string]any) 
 		}
 
 		return nil, err
+	}
+
+	if q.write && record {
+		g.recordCommit(snap)
 	}
 
 	res.Write = q.write
@@ -295,7 +304,7 @@ func (t *Tx) Execute(ctx context.Context, src string, params map[string]any) (*R
 		return nil, constraint("transaction is closed")
 	}
 
-	return t.g.runLocked(ctx, q, params)
+	return t.g.runLocked(ctx, q, params, false)
 }
 
 // Store exposes the transaction's graph for other query languages; valid until Commit or Rollback.
@@ -305,6 +314,7 @@ func (t *Tx) Store() *Store { return &Store{g: t.g} }
 func (t *Tx) Commit() {
 	if !t.done {
 		t.done = true
+		t.g.recordCommit(t.snap)
 		t.g.release()
 	}
 }
@@ -316,4 +326,48 @@ func (t *Tx) Rollback() {
 		t.g.restore(t.snap)
 		t.g.release()
 	}
+}
+
+// Stats summarises the graph for the DFE statistics endpoints: distinct label and property-key sets (signatures),
+// nodes (instances) and distinct property keys plus relationship types (predicates).
+func (g *Graph) Stats() (int, int, int) {
+	g.sem <- struct{}{}
+	defer func() { <-g.sem }()
+
+	sigs := map[string]struct{}{}
+	preds := map[string]struct{}{}
+
+	for _, n := range g.nodes {
+		labels := append([]string(nil), n.Labels...)
+		sort.Strings(labels)
+
+		keys := make([]string, 0, len(n.Props))
+		for k := range n.Props {
+			keys = append(keys, k)
+			preds[k] = struct{}{}
+		}
+
+		sort.Strings(keys)
+		sigs[strings.Join(labels, ",")+"|"+strings.Join(keys, ",")] = struct{}{}
+	}
+
+	for _, r := range g.rels {
+		preds[r.Type] = struct{}{}
+	}
+
+	return len(sigs), len(g.nodes), len(preds)
+}
+
+// Wipe empties the graph and its stream log, as the fast reset does.
+func (g *Graph) Wipe(ctx context.Context) error {
+	if err := g.acquire(ctx); err != nil {
+		return err
+	}
+	defer g.release()
+
+	g.reset()
+	g.seq = 0
+	g.stream.Reset()
+
+	return nil
 }

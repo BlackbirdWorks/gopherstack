@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 32 (32 ok) |
 | Feature families | 9 (9 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- Layer DefaultRecipes and DefaultSecurityGroupNames are never returned: the SDK documents only the shape (types.go:1263/1268) and AWS retired OpsWorks Stacks, so docs.aws.amazon.com/opsworks API_Layer and user-guide pages now return 404 and the per-layer-type values cannot be sourced. Layer settings round-trip verbatim without validation.
 
 ### Structural gaps
 

@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 11 (10 ok, 1 partial) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 4 |
+| Known gaps | 2 |
 | Structural gaps (can't be emulated) | 5 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -17,9 +17,7 @@
 ### Known gaps
 
 - chaos.FaultError cannot carry ModelErrorException's OriginalStatusCode/ResourceName: needs a per-service extension point in shared pkgs/chaos, outside this service (bd: gopherstack-ayfw).
-- AsyncInvokeStatusFailed/FailureMessage are unreachable: the janitor only moves InProgress -> Completed; the StartAsyncInvoke/GetAsyncInvoke docs name no condition that produces Failed.
 - Ollama backend (GOPHERSTACK_BEDROCK_BACKEND=ollama): stopReason stop_sequence is never reported (Ollama says done_reason=stop for stop-sequence hits), toolChoice is accepted but not enforced (no Ollama equivalent), Converse documents are limited to txt/md/csv/html, InvokeModel families are Anthropic Claude (messages and legacy prompt), Titan text/embed-text, Nova text, Llama, Mistral, Cohere Embed (float) and Command R; other families (AI21, Stability, Titan image/multimodal, Cohere Command text) return ValidationException; InvokeModelWithBidirectionalStream and CountTokens stay mock/estimated.
-- Converse guardrailConfig accepts an identifier without a version: GuardrailConfiguration marks both members optional (patterns allow empty) and no doc says a version is required (InvokeModel's header rule is documented; patterns and trace/streamProcessingMode enums are enforced).
 
 ### Structural gaps
 

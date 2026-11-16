@@ -142,8 +142,8 @@ func TestReplicaCreateErrors(t *testing.T) {
 			want: http.StatusBadRequest, wantMsg: "another project",
 		},
 		{
-			name: "replica of replica", in: sqladmin.DatabaseInstance{MasterInstanceName: "pgrep"},
-			want: http.StatusBadRequest, wantMsg: "Replicas of replicas",
+			name: "fifth level", in: sqladmin.DatabaseInstance{MasterInstanceName: "pgrep4"},
+			want: http.StatusBadRequest, wantMsg: "4 levels",
 		},
 		{
 			name: "wrong instance type",
@@ -158,6 +158,8 @@ func TestReplicaCreateErrors(t *testing.T) {
 	e.createInstance(t, "pg", "POSTGRES_16", nil)
 	e.createInstance(t, "my", "MYSQL_8_0", nil)
 	e.createReplica(t, "pgrep", "pg", "POSTGRES_16")
+	e.createReplica(t, "pgrep3", "pgrep", "POSTGRES_16")
+	e.createReplica(t, "pgrep4", "pgrep3", "POSTGRES_16")
 
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -5,8 +5,10 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +22,7 @@ const (
 	kuduZip         = "/api/zip/site/wwwroot"
 	kuduLatest      = "latest"
 	statusSuccess   = 4
+	statusFailed    = 3
 )
 
 type deploymentJSON struct {
@@ -70,9 +73,17 @@ func toDeploymentJSON(r *http.Request, name string, d Deployment, active bool) d
 
 	if d.Succeeded {
 		out.LastSuccessEnd = ts(d.Finished)
+	} else {
+		out.Status, out.StatusText = statusFailed, "Failed"
 	}
 
 	return out
+}
+
+func writeBody(w http.ResponseWriter, v any) {
+	if raw, err := json.Marshal(v, jsonx.V1()); err == nil {
+		_, _ = w.Write(raw) // #nosec G705
+	}
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
@@ -114,13 +125,18 @@ func (b *InMemoryBackend) serveKudu(w http.ResponseWriter, r *http.Request, name
 
 	p := strings.TrimSuffix(r.URL.Path, "/")
 
+	if !b.routeKuduDeploy(w, r, name, p) && !b.routeKuduTools(w, r, name, p) {
+		http.NotFound(w, r)
+	}
+}
+
+// routeKuduDeploy serves the deployment endpoints; it reports whether the path was one of them.
+func (b *InMemoryBackend) routeKuduDeploy(w http.ResponseWriter, r *http.Request, name, p string) bool {
 	switch {
 	case p == kuduZipDeploy:
 		b.kuduDeploy(w, r, name, "ZipDeploy")
 	case p == kuduPublish:
 		b.kuduPublish(w, r, name)
-	case strings.HasPrefix(r.URL.Path, kuduVFS):
-		b.kuduVFS(w, r, name)
 	case p == kuduZip:
 		b.kuduDownload(w, r, name)
 	case p == kuduDeployments:
@@ -128,8 +144,30 @@ func (b *InMemoryBackend) serveKudu(w http.ResponseWriter, r *http.Request, name
 	case strings.HasPrefix(p, kuduDeployments+"/"):
 		b.kuduGet(w, r, name, strings.TrimPrefix(p, kuduDeployments+"/"))
 	default:
-		http.NotFound(w, r)
+		return false
 	}
+
+	return true
+}
+
+// routeKuduTools serves command, logstream, WebJobs and vfs; it reports whether the path was one of them.
+func (b *InMemoryBackend) routeKuduTools(w http.ResponseWriter, r *http.Request, name, p string) bool {
+	switch {
+	case p == kuduCommand:
+		b.kuduCommand(w, r, name)
+	case p == kuduLogstream:
+		b.kuduLogstream(w, r, name)
+	case p == kuduContinuous || strings.HasPrefix(p, kuduContinuous+"/"):
+		b.kuduContinuous(w, r, name, p)
+	case p == kuduWebJobs || p == kuduTriggered || strings.HasPrefix(p, kuduTriggered+"/"):
+		b.kuduWebJobs(w, r, name, p)
+	case strings.HasPrefix(r.URL.Path, kuduVFS) || p == strings.TrimSuffix(kuduVFS, "/"):
+		b.kuduVFS(w, r, name)
+	default:
+		return false
+	}
+
+	return true
 }
 
 func (b *InMemoryBackend) kuduPublish(w http.ResponseWriter, r *http.Request, name string) {
@@ -142,12 +180,6 @@ func (b *InMemoryBackend) kuduPublish(w http.ResponseWriter, r *http.Request, na
 
 	if !strings.EqualFold(t, "zip") {
 		http.Error(w, "unsupported publish type "+t+"; the emulator supports type=zip", http.StatusBadRequest)
-
-		return
-	}
-
-	if strings.EqualFold(q.Get("RemoteBuild"), "true") {
-		http.Error(w, "remote build is not supported; deploy a package with its dependencies", http.StatusBadRequest)
 
 		return
 	}
@@ -169,7 +201,24 @@ func (b *InMemoryBackend) kuduDeploy(w http.ResponseWriter, r *http.Request, nam
 		return
 	}
 
-	d, err := b.Deploy(name, data, deployer, "Created via a push deployment")
+	data, buildLog, err := b.maybeBuild(r, name, data, deployer)
+	if err != nil {
+		code := http.StatusBadRequest
+		switch {
+		case errors.Is(err, ErrAppNotFound):
+			code = http.StatusNotFound
+		case errors.Is(err, errBuildFailed):
+			code = http.StatusInternalServerError
+		case errors.Is(err, errBuildNoExec), errors.Is(err, errNoRuntime):
+			code = http.StatusServiceUnavailable
+		}
+
+		http.Error(w, err.Error()+"\n"+buildLog, code)
+
+		return
+	}
+
+	d, err := b.deploy(name, data, deployer, "Created via a push deployment", buildLog)
 	if err != nil {
 		code := http.StatusBadRequest
 		if errors.Is(err, ErrAppNotFound) {
@@ -181,6 +230,8 @@ func (b *InMemoryBackend) kuduDeploy(w http.ResponseWriter, r *http.Request, nam
 		return
 	}
 
+	b.afterDeploy(name)
+
 	w.Header().Set("Location", "http://"+r.Host+kuduDeployments+"/"+kuduLatest)
 
 	if strings.EqualFold(r.URL.Query().Get("isAsync"), "true") {
@@ -190,6 +241,47 @@ func (b *InMemoryBackend) kuduDeploy(w http.ResponseWriter, r *http.Request, nam
 	}
 
 	writeJSON(w, toDeploymentJSON(r, name, d, true))
+}
+
+// maybeBuild runs the remote build when the deployment asks for one; a failed build is recorded as a failed
+// deployment and leaves the running package alone.
+func (b *InMemoryBackend) maybeBuild(
+	r *http.Request, name string, data []byte, deployer string,
+) ([]byte, string, error) {
+	b.mu.RLock("maybeBuild")
+	a, err := b.appLocked(name)
+
+	var (
+		settings map[string]string
+		flex     bool
+	)
+
+	if err == nil {
+		settings, flex = maps.Clone(a.Settings), a.Flex
+	}
+	b.mu.RUnlock()
+
+	if err != nil {
+		return nil, "", err
+	}
+
+	flag := strings.EqualFold(r.URL.Query().Get("RemoteBuild"), "true")
+	if !wantsRemoteBuild(flag, settings, flex) {
+		return data, "", nil
+	}
+
+	if err = validatePackage(data); err != nil {
+		return nil, "", err
+	}
+
+	built, buildLog, err := b.Build(r.Context(), name, data)
+	if err != nil {
+		b.recordFailedDeployment(name, deployer, buildLog+"\n"+err.Error())
+
+		return nil, buildLog, err
+	}
+
+	return built, buildLog, nil
 }
 
 func (b *InMemoryBackend) kuduDownload(w http.ResponseWriter, r *http.Request, name string) {
@@ -204,6 +296,16 @@ func (b *InMemoryBackend) kuduDownload(w http.ResponseWriter, r *http.Request, n
 	_, _ = w.Write(data)
 }
 
+func activeIndex(ds []Deployment) int {
+	for i, d := range slices.Backward(ds) {
+		if d.Succeeded {
+			return i
+		}
+	}
+
+	return -1
+}
+
 func (b *InMemoryBackend) kuduList(w http.ResponseWriter, r *http.Request, name string) {
 	ds, err := b.Deployments(name)
 	if err != nil {
@@ -212,15 +314,27 @@ func (b *InMemoryBackend) kuduList(w http.ResponseWriter, r *http.Request, name 
 		return
 	}
 
+	active := activeIndex(ds)
 	out := make([]deploymentJSON, 0, len(ds))
+
 	for i, d := range slices.Backward(ds) {
-		out = append(out, toDeploymentJSON(r, name, d, i == len(ds)-1))
+		out = append(out, toDeploymentJSON(r, name, d, i == active))
 	}
 
 	writeJSON(w, out)
 }
 
-func (b *InMemoryBackend) kuduGet(w http.ResponseWriter, r *http.Request, name, id string) {
+type logEntryJSON struct {
+	DetailsURL *string `json:"details_url"`
+	LogTime    string  `json:"log_time"`
+	ID         string  `json:"id"`
+	Message    string  `json:"message"`
+	Type       int     `json:"type"`
+}
+
+func (b *InMemoryBackend) kuduGet(w http.ResponseWriter, r *http.Request, name, rest string) {
+	id, wantLog := strings.CutSuffix(rest, "/log")
+
 	ds, err := b.Deployments(name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
@@ -228,12 +342,32 @@ func (b *InMemoryBackend) kuduGet(w http.ResponseWriter, r *http.Request, name, 
 		return
 	}
 
+	active := activeIndex(ds)
+
 	for i, d := range slices.Backward(ds) {
-		if id == kuduLatest && i == len(ds)-1 || d.ID == id {
-			writeJSON(w, toDeploymentJSON(r, name, d, i == len(ds)-1))
+		if id != kuduLatest && d.ID != id || id == kuduLatest && i != len(ds)-1 {
+			continue
+		}
+
+		if !wantLog {
+			writeJSON(w, toDeploymentJSON(r, name, d, i == active))
 
 			return
 		}
+
+		entries := []logEntryJSON{}
+
+		for n, line := range strings.Split(d.Log, "\n") {
+			if strings.TrimSpace(line) != "" {
+				entries = append(entries, logEntryJSON{
+					LogTime: d.Finished.UTC().Format(time.RFC3339Nano), ID: d.ID + "-" + strconv.Itoa(n), Message: line,
+				})
+			}
+		}
+
+		writeJSON(w, entries)
+
+		return
 	}
 
 	http.NotFound(w, r)

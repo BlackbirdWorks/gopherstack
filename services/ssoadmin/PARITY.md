@@ -104,8 +104,7 @@ families:
   Region: {status: ok, note: "ListRegions pagination added this sweep"}
   Tags: {status: ok, note: "TagResource/UntagResource/ListTagsForResource confirmed as the sole tag-retrieval path for Application/Instance/TrustedTokenIssuer (all three previously had fabricated inline Tags members on their Describe/singular-Get responses, now removed)"}
 gaps: []
-items_still_open:
-  - "ListApplicationAuthenticationMethods/ListApplicationGrants/ListTagsForResource: the SDK gives these ops NextToken but no MaxResults, and documents no server page size, so when to paginate cannot be determined."
+items_still_open: []
 deferred: []
 leaks: {status: fixed, note: "no new goroutines/janitors introduced this sweep; all fixes are pure request-parsing/response-shape/backend-field changes inside the existing coarse-lock methods. identityStoreArn() helper reads b.instances while b.mu is already held by the caller (CreateApplication/AddApplicationInternal) -- safe because store.Table.Get has no internal locking (backend-level coarse lock only, confirmed in pkgs/store/table.go), consistent with every other Table access pattern in this backend. 2026-09-04 (gopherstack-2fa): fixed cascadeDeleteInstance leaking b.provisionedAt/b.assignmentCreationIDs rows for force-deleted permission sets (see ops table note above); everything else re-checked this pass (all Delete* handlers) confirmed clean -- tags live as a struct field (immune), applicationScopes/AuthMethods/Grants/AssignConfig/Sessions and customerManagedPolicies/permissionBoundaries are all cleaned on both DeleteApplication/DeletePermissionSet and the DeleteInstance cascade."}
 ---
@@ -493,3 +492,7 @@ ListApplicationAuthenticationMethods, ListApplicationGrants and ListTagsForResou
 ## 2026-10-05 (gopherstack-uox6 pass 8, value semantics)
 
 CreateApplication ignored its Status input and always stored ENABLED; it now persists ENABLED or DISABLED (default ENABLED) and rejects other values (api_op_CreateApplication.go:80). Partial UpdateApplication keeps Status. Recorded, unchanged: CreatePermissionSet SessionDuration has no SDK default text. Proof: `TestApplication_CreateStatusPersistsAndPartialUpdateKeepsIt`.
+
+## Emulator choices where the vendor is silent
+
+- ListApplicationAuthenticationMethods/ListApplicationGrants/ListTagsForResource: the SDK gives these ops NextToken but no MaxResults, and documents no server page size, so when to paginate cannot be determined.

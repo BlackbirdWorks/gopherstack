@@ -88,29 +88,29 @@ func pgFeedIsEdge(data []byte, cypher bool) (bool, bool) {
 }
 
 // pgOrder prefetches every feed and orders vertex feeds before edge feeds unless edgeOnlyLoad is set.
-func (rs *rdfService) pgOrder(ctx context.Context, job *loadJob) ([]int, map[string][]byte) {
+func (rs *rdfService) pgOrder(ctx context.Context, job *loadJob) ([]int, int, feedCache) {
 	order := make([]int, len(job.keys))
 	for i := range order {
 		order[i] = i
 	}
 
-	cache := make(map[string][]byte, len(job.keys))
+	cache := make(feedCache, len(job.keys))
 
 	var edge []int
 
 	nodes := order[:0:0]
 
 	for _, i := range order {
-		data, err := rs.readObject(ctx, job.bucket, job.keys[i])
+		obj, err := rs.readObjectData(ctx, job.bucket, job.keys[i])
 		if err != nil {
 			nodes = append(nodes, i)
 
 			continue
 		}
 
-		cache[job.keys[i]] = data
+		cache[job.keys[i]] = obj
 
-		if isEdge, _ := pgFeedIsEdge(data, job.pg == pgOpenCypher); isEdge && !job.edgeOnly {
+		if isEdge, _ := pgFeedIsEdge(obj.data, job.pg == pgOpenCypher); isEdge && !job.edgeOnly {
 			edge = append(edge, i)
 
 			continue
@@ -119,11 +119,11 @@ func (rs *rdfService) pgOrder(ctx context.Context, job *loadJob) ([]int, map[str
 		nodes = append(nodes, i)
 	}
 
-	return slices.Concat(nodes, edge), cache
+	return slices.Concat(nodes, edge), len(nodes), cache
 }
 
 func (rs *rdfService) readPGFeed(
-	ctx context.Context, job *loadJob, cache map[string][]byte, uri, key string,
+	ctx context.Context, job *loadJob, cache feedCache, uri, key string,
 ) feedResult {
 	if rs.graph == nil {
 		return feedResult{
@@ -132,17 +132,12 @@ func (rs *rdfService) readPGFeed(
 		}
 	}
 
-	data, ok := cache[key]
-	if !ok {
-		var err error
-
-		if data, err = rs.readObject(ctx, job.bucket, key); err != nil {
-			return feedResult{
-				status: loadS3ReadError,
-				errs:   []loadError{{Code: "S3_ACCESS_DENIED_ERROR", Message: err.Error(), File: uri}},
-			}
-		}
+	obj, fail := rs.fetchFeed(ctx, job, cache, key)
+	if fail != nil {
+		return fail.result(uri)
 	}
+
+	data := obj.data
 
 	res := feedResult{status: loadCompleted}
 	cypher := job.pg == pgOpenCypher

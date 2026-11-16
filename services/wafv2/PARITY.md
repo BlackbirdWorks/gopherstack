@@ -114,9 +114,7 @@ families:
   persistence: {status: ok, note: "Handler.Snapshot/Restore delegate to Backend.Snapshot/Restore (persistence.go); clean tables via store.Registry, dirty tables (managedRuleSets/apiKeys) via DTO registry with Region json:\"-\" round-trip; version-gated (wafv2SnapshotVersion) with clean discard on mismatch"}
   errCodeLookup: {status: ok, note: "fixed: ErrUnavailableEntity/ErrConfigurationWarning sentinels existed but had no switch case in handleError, would have 500'd if ever returned (currently unreachable/dead -- no handler returns them yet, but the lookup gap is now closed for when they are wired up)"}
 gaps: []
-items_still_open:
-  - "GetWebACL ApplicationIntegrationURL: the SDK and developer guide define when it appears (ATP, ACFP, targeted Bot Control) but publish no URL format, so the value cannot be determined."
-  - "DescribeAllManagedProducts/DescribeManagedProductsByVendor/DescribeManagedRuleGroup Scope: the SDK does not say which managed products differ between REGIONAL and CLOUDFRONT, so per-scope availability cannot be determined (Scope is now validated)."
+items_still_open: []
 structural_gaps:
   - "GetRevenueStatistics/GetRevenueStatisticsSummary/GetRevenueStatisticsTimeSeries/ListSettlementRecords (added in aws-sdk-go-v2/service/wafv2@v1.76.0) always return honestly empty/zero results. This emulator has no real HTTP traffic, no AI-bot detection pipeline, and no billing/blockchain-settlement system, so there is no genuine revenue, bot, path, or settlement data to report -- exactly the same class of gap already documented for GetRateBasedStatementManagedKeys/GetSampledRequests/GetTopPathStatisticsByTraffic above. Deliberately NOT fabricated: no invented dollar amounts, bot names, path statistics, or settlement records. Every field validated (required-ness, enums, CLOUDFRONT-only Scope, Currency=USDC, 90-day TimeWindow cap, Filter enum values, Limit bounds) is checked for real; only the *data*, which cannot exist in this backend (no traffic source, no AI/ML bot-detection engine, no settlement/billing system), is honestly absent -- not a buildable state model."
   - "ManagedRuleSet Description and LabelNamespace: no API input can set them (vendor onboarding is outside the WAFv2 API), so they are correctly always absent."
@@ -748,3 +746,8 @@ WAFv2 REGIONAL-scope resources are region-isolated: the backend already partitio
 - CreateWebACL/UpdateWebACL reject more than 1500 WCUs with WAFLimitsExceededException using the existing capacity model (`TestWebACLCapacityLimit`).
 - Error messages no longer repeat the exception name (`TestErrorMessageOmitsCode`).
 - Kept lenient: a rule group's declared Capacity is not compared with its rules' computed capacity because the AWS error for that case is not stated in the SDK.
+
+## Emulator choices where the vendor is silent
+
+- GetWebACL ApplicationIntegrationURL: the SDK and developer guide define when it appears (ATP, ACFP, targeted Bot Control) but publish no URL format, so the value cannot be determined.
+- DescribeAllManagedProducts/DescribeManagedProductsByVendor/DescribeManagedRuleGroup Scope: the SDK does not say which managed products differ between REGIONAL and CLOUDFRONT, so per-scope availability cannot be determined (Scope is now validated).

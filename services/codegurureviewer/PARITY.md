@@ -27,7 +27,6 @@ gaps: []
 items_still_open:
   - "PullRequest reviews: CreateCodeReview only creates RepositoryAnalysis reviews, so ListCodeReviews Type=PullRequest is always empty; the emulator has no provider webhook that opens a pull-request review"
   - "ConnectionArn of Bitbucket/GitHub Enterprise Server associations is stored, not looked up in the CodeConnections/CodeStar Connections emulators"
-  - "Error codes per operation (NotFoundException for associations, ResourceNotFoundException for reviews, feedback and tags) are an emulator choice; the SDK documents the exception set but not which operation raises which"
 structural_gaps:
   - "Reviews of Bitbucket, GitHub and GitHub Enterprise Server repositories fail with an explanatory StateReason: there is no emulated source host to clone from."
   - "CodeGuru's ML detectors cannot exist here; findings come from the five documented heuristics only, and MeteredLinesOfCodeCount counts non-blank lines of recognised code files."
@@ -46,3 +45,7 @@ State is time-derived: records keep a settle time and the view settles Associati
 aws-codeguru-reviewer.yml is parsed: excludeFiles globs (** crosses directories) drop files from the analysis and feed SuppressedLinesOfCodeCount; invalid YAML or a non-list excludeFiles reports PresentWithErrors (docs: recommendation-suppression and create-code-reviews pages; the glob dialect is taken from their examples).
 
 Pass 2026-11-13: AssociateRepository KMSKeyDetails.KMSKeyId (CUSTOMER_MANAGED_CMK) resolves against the KMS emulator when wired: an existing, enabled, symmetric ENCRYPT_DECRYPT key is required, else ValidationException (API_AssociateRepository error list).
+
+## Emulator choices where the vendor is silent
+
+- Error codes per operation (NotFoundException for associations, ResourceNotFoundException for reviews, feedback and tags) are an emulator choice; the SDK documents the exception set but not which operation raises which

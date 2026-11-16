@@ -39,9 +39,12 @@ families:
   auth: {status: partial, note: "No request is authenticated or authorised; IAM policies are stored but not enforced."}
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; dropped tasks are logged at warn. gRPC calls are not fed to the shared telemetry operation metrics."}
 items_still_open:
-  - "Queue max_burst_size is an emulator-chosen derivation; real Cloud Tasks burst sizing is not documented."
   - "Persisted in-flight attempts are not resumed mid-flight: after a restore the task is simply due again and its attempt count keeps the interrupted attempt."
 leaks: {status: clean, note: "Background resources are the grpc.Server, the dispatcher ticker goroutine and in-flight delivery goroutines; Shutdown cancels the run context and joins all of them (goleak in TestMain)."}
 ---
 
 Initial implementation (2026-10-18): google.cloud.tasks.v2 CloudTasks gRPC verified against cloud.google.com/go/cloudtasks v1.20.0 through the official client in the package tests; dispatch and retry timing covered with a fake clock and a testing/synctest run of the real ticker loop.
+
+## Emulator choices where the vendor is silent
+
+- Queue max_burst_size is an emulator-chosen derivation; real Cloud Tasks burst sizing is not documented.

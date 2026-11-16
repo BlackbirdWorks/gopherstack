@@ -431,6 +431,8 @@ func (rs *logicRunState) aggregate(env *logicEnv, inner map[string]any, iters []
 
 		rs.addAggregate(env, agg)
 	}
+
+	rs.recordRepetitions(inner, iters)
 }
 
 func mergeAggregate(agg, rec *logicActionRec) {

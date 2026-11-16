@@ -11,7 +11,7 @@ const (
 )
 
 var supportedSources = map[string]bool{ //nolint:gochecknoglobals // read-only
-	"azureblob": true, "cosmosdb": true, "azuretable": true,
+	"azureblob": true, "cosmosdb": true, "azuretable": true, "azuresql": true, "adlsgen2": true,
 }
 
 func validObjectName(name string) bool {
@@ -115,7 +115,7 @@ func validateDataSource(o Object) error {
 	if !supportedSources[typ] {
 		return badf(
 			"The request is invalid. Details: data source type '%s' is not supported; "+
-				"supported types are azureblob, cosmosdb and azuretable.",
+				"supported types are azureblob, adlsgen2, cosmosdb, azuretable and azuresql.",
 			typ,
 		)
 	}

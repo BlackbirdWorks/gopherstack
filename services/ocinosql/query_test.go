@@ -2,6 +2,7 @@ package ocinosql_test
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/oracle/oci-go-sdk/v65/nosql"
@@ -332,6 +333,58 @@ func TestSummarizeStatement(t *testing.T) {
 
 			assert.Equal(t, tt.ifExists, resp.IsIfExists != nil && *resp.IsIfExists)
 			assert.Equal(t, tt.ifNotExist, resp.IsIfNotExists != nil && *resp.IsIfNotExists)
+		})
+	}
+}
+
+func TestQueryMaxReadInKBs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		maxKB *int
+		pages []int
+	}{
+		{name: "unset", maxKB: nil, pages: []int{6}},
+		{name: "one kb", maxKB: new(1), pages: []int{1, 1, 1, 1, 1, 1}},
+		{name: "two kb", maxKB: new(2), pages: []int{3, 3}},
+		{name: "ample", maxKB: new(64), pages: []int{6}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, envOpts{})
+			e.mkTable(t, "big", usersDDL("big"))
+
+			for i := 1; i <= 6; i++ {
+				e.put(t, "big", map[string]any{"id": i, "name": strings.Repeat("x", 600)})
+			}
+
+			var (
+				sizes []int
+				token *string
+				seen  []int
+			)
+
+			for {
+				resp, err := e.client.Query(t.Context(), nosql.QueryRequest{
+					Page: token, CompartmentId: new(testCompartment), Statement: new("SELECT * FROM big"),
+					MaxReadInKBs: tc.maxKB,
+				})
+				require.NoError(t, err)
+
+				sizes = append(sizes, len(resp.Items))
+				seen = append(seen, ids(resp.Items)...)
+
+				if token = resp.OpcNextPage; token == nil {
+					break
+				}
+			}
+
+			assert.Equal(t, tc.pages, sizes)
+			assert.Equal(t, []int{1, 2, 3, 4, 5, 6}, seen)
 		})
 	}
 }

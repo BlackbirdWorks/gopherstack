@@ -230,3 +230,39 @@ func (c Client) GetBlob(ctx context.Context, repo, digest string, maxBytes int64
 
 	return io.ReadAll(&rec.body)
 }
+
+// PutBlob stores data as the blob digest of repo through the registry's upload protocol.
+func (c Client) PutBlob(ctx context.Context, repo, digest string, data []byte) error {
+	start, err := c.do(ctx, http.MethodPost, "/v2/"+repo+"/blobs/uploads/", nil, 0)
+	if err != nil {
+		return err
+	}
+
+	if err = statusErr(start); err != nil {
+		return err
+	}
+
+	loc, err := url.Parse(start.header.Get("Location"))
+	if err != nil || loc.Path == "" {
+		return fmt.Errorf("%w: upload location %q", ErrRegistry, start.header.Get("Location"))
+	}
+
+	q := loc.Query()
+	q.Set("digest", digest)
+
+	done, err := c.doBody(ctx, http.MethodPut, loc.Path+"?"+q.Encode(), data,
+		map[string]string{"Content-Type": "application/octet-stream"}, 0)
+	if err != nil {
+		return err
+	}
+
+	if err = statusErr(done); err != nil {
+		return err
+	}
+
+	if done.status != http.StatusCreated {
+		return fmt.Errorf("%w: blob upload answered %d", ErrRegistry, done.status)
+	}
+
+	return nil
+}

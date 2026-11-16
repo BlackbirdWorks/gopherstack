@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -47,11 +48,14 @@ type cypherFront struct {
 	graph          *opencypher.Graph
 	rdf            *rdfService
 	queries        *queryTracker
+	resets         *resetTokens
 	gremlin        *gremlin.Server
 	gremlinQueries *queryTracker
 	auth           func() clusterAuth
 	cancel         context.CancelFunc
+	started        time.Time
 	upstream       string
+	tlsCertPEM     []byte
 	port           int
 	up             atomic.Bool
 }
@@ -87,7 +91,9 @@ func startCypherFront(
 		graph:   graph,
 		rdf:     rdf,
 		queries: newQueryTracker(),
+		resets:  newResetTokens(),
 		tr:      httpclient.NewTransport(),
+		started: time.Now(),
 	}
 	f.ctx, f.cancel = context.WithCancel(context.Background())
 
@@ -98,13 +104,26 @@ func startCypherFront(
 		})
 	} else {
 		f.upstream = innerAddr
-		f.proxy = httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: innerAddr})
+		f.proxy = httputil.NewSingleHostReverseProxy(&url.URL{Scheme: schemeHTTP, Host: innerAddr})
 		f.proxy.Transport = f.tr
 	}
 
 	f.srv = &http.Server{Handler: f, ReadHeaderTimeout: cypherReadHeader}
 
-	go func() { _ = f.srv.Serve(bolt.Split(sgfilter.Guard(ln, admit), f.serveBolt)) }()
+	guarded := sgfilter.Guard(ln, admit)
+
+	if strings.EqualFold(os.Getenv(envTLS), "true") {
+		tl, pem, terr := tlsListener(guarded, host)
+		if terr != nil {
+			_ = ln.Close()
+
+			return nil, terr
+		}
+
+		guarded, f.tlsCertPEM = tl, pem
+	}
+
+	go func() { _ = f.srv.Serve(bolt.Split(guarded, f.serveBolt)) }()
 
 	return f, nil
 }
@@ -141,7 +160,7 @@ func (f *cypherFront) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if f.serveRDF(w, r) {
+	if f.serveRDF(w, r) || f.serveGraphAdmin(w, r) {
 		return
 	}
 
@@ -367,7 +386,14 @@ func writeCypherFailure(ctx context.Context, w http.ResponseWriter, err error) {
 		return
 	}
 
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+	if errors.Is(err, context.DeadlineExceeded) {
+		writeCypherError(w, http.StatusInternalServerError, "TimeLimitExceededException",
+			"Operation terminated (deadline exceeded)")
+
+		return
+	}
+
+	if errors.Is(err, context.Canceled) {
 		writeCypherError(w, http.StatusInternalServerError, "TimeLimitExceededException", err.Error())
 
 		return

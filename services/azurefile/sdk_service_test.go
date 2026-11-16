@@ -282,13 +282,6 @@ func TestSDK_DataPlaneIgnoresRetentionElement(t *testing.T) {
 	require.NoError(t, resp.Body.Close())
 	require.Equal(t, http.StatusAccepted, resp.StatusCode)
 
-	enabled, _ := e.h.Backend.ShareRetention("devstoreaccount1")
-	assert.False(t, enabled, "soft delete is configured through ARM only")
-
-	sc := e.svc.NewShareClient("stillhard")
-	_, err = sc.Create(ctx(t), nil)
-	require.NoError(t, err)
-	_, err = sc.Delete(ctx(t), nil)
-	require.NoError(t, err)
-	assert.Empty(t, listNames(t, e, &service.ListSharesOptions{Include: service.ListSharesInclude{Deleted: true}}))
+	_, days := e.h.Backend.ShareRetention("devstoreaccount1")
+	assert.EqualValues(t, 7, days, "soft delete is configured through ARM only")
 }

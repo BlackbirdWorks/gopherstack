@@ -13,6 +13,7 @@ import (
 
 const (
 	dnsAllRecords    = "ALL"
+	dnsFieldARecords = "aRecords"
 	dnsSOA           = "SOA"
 	dnsCNAME         = "CNAME"
 	dnsApex          = "@"
@@ -172,7 +173,7 @@ func recordData(rt, name string, props, out map[string]any) error {
 	bad := func(format string, a ...any) error { return netErr(http.StatusBadRequest, dnsCodeBad, format, a...) }
 
 	field := map[string]string{
-		"A": "aRecords", dnsAAAA: "aaaaRecords", "MX": "mxRecords", dnsPTR: "ptrRecords", dnsSRV: "srvRecords",
+		"A": dnsFieldARecords, dnsAAAA: "aaaaRecords", "MX": "mxRecords", dnsPTR: "ptrRecords", dnsSRV: "srvRecords",
 		dnsTXT: "txtRecords",
 	}[rt]
 
@@ -297,7 +298,7 @@ func (p *NetworkProvider) bodyRecord(zone *netParent, rt string, id ResourceID, 
 	maps.Copy(props, k.Props)
 
 	props["fqdn"] = recordFQDN(zone.Obj.Name, k.Name)
-	props["isAutoRegistered"] = false
+	props["isAutoRegistered"] = k.Aux[auxDNSAuto] != ""
 
 	return map[string]any{
 		netFieldID: id.ARMID(), fieldName: k.Name, fieldType: dnsZoneTypePath + "/" + rt,
@@ -338,6 +339,12 @@ func (p *NetworkProvider) writeLink(zone *netParent, name string, body map[strin
 
 	if _, set := out["registrationEnabled"].(bool); !set {
 		out["registrationEnabled"] = false
+	}
+
+	if on, _ := out["registrationEnabled"].(bool); on {
+		if err := p.checkRegistrationLink(zone, name, vid); err != nil {
+			return false, err
+		}
 	}
 
 	o := &netObj{

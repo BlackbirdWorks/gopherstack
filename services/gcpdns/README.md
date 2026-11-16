@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 8 (2 ok, 5 partial, 1 gap) |
-| Known gaps | 4 |
+| Known gaps | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -16,7 +16,6 @@
 
 - Responses are never DNSSEC-signed (no RRSIG/NSEC/NSEC3); DNSKEY private keys are discarded and DNSSEC state transfer is stored only.
 - Response policies and rules, server policies, private zones, forwarding and peering are stored but have no effect on resolution; routing policies are answered as the union of their items.
-- Error message texts (validation, containerNotEmpty, quota) and a few conditions (rrsets.* calls appearing in the change history, change completion timing, project number, non-fixed quota values) were chosen without a production reference.
 - Zone cloudLoggingConfig effects (no query logs: the dns_queries log name and dns_query resource labels are not published), reverse-lookup and Service Directory zones are not implemented beyond storing their configuration.
 
 ## More

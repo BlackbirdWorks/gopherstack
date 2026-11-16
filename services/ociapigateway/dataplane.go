@@ -19,11 +19,16 @@ const maxDataBody = 10 << 20
 
 // target is the deployment a data-plane request resolved to.
 type target struct {
-	spec    *compiledSpec
-	depID   string
-	rel     string
-	gateway string
-	cacheOn bool
+	spec     *compiledSpec
+	cacheCfg *respCacheDetails
+	reach    func(srcIP, vnicID string, port int) Reachability
+	logSink  LogSink
+	depID    string
+	rel      string
+	gateway  string
+	vnic     string
+	gwName   string
+	private  bool
 }
 
 func writeGWError(w http.ResponseWriter, status int, msg string) {
@@ -31,7 +36,7 @@ func writeGWError(w http.ResponseWriter, status int, msg string) {
 	w.WriteHeader(status)
 
 	out, _ := json.Marshal(
-		map[string]any{"code": status, "message": msg},
+		map[string]any{"code": status, keyMessage: msg},
 		jsonx.V1(),
 	) //nolint:errchkjson // static shape
 	_, _ = w.Write(out)
@@ -68,7 +73,9 @@ func (b *InMemoryBackend) resolveTarget(r *http.Request) (target, bool) {
 	}
 
 	return target{
-		spec: b.specs[best.ID], depID: best.ID, rel: rel, gateway: gwID, cacheOn: cacheOnFor(b.gateways[gwID]),
+		spec: b.specs[best.ID], depID: best.ID, rel: rel, gateway: gwID, cacheCfg: externalCacheOf(b.gateways[gwID]),
+		vnic: b.gateways[gwID].VnicID, private: b.gateways[gwID].EndpointType == endpointPrivate, reach: b.reachFn(),
+		logSink: b.logSink, gwName: b.gateways[gwID].DisplayName,
 	}, true
 }
 
@@ -118,9 +125,28 @@ func (b *InMemoryBackend) ServeData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !peerAllowed(r, tgt) {
+		dropConnection(w)
+
+		return
+	}
+
+	started := b.clock()
+	r, lg := b.startLog(r, tgt)
+	rec := &statusRecorder{ResponseWriter: w}
+	w = rec
+
+	defer lg.access(r, rec, started)
+
 	rp := tgt.spec.doc.RequestPolicies
 
 	if d := b.checkMTLS(r, tgt); d.status != 0 {
+		code := d.code
+		if code == "" {
+			code = "mutualTls.clientCertificateInvalid"
+		}
+
+		lg.exec(levelWarn, code, "The client certificate was refused.")
 		writeGWError(w, d.status, d.msg)
 
 		return
@@ -149,6 +175,7 @@ func (b *InMemoryBackend) ServeData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	lg.routeLevel(m.route.doc.LoggingPolicies)
 	b.serveRoute(w, r, tgt, m)
 }
 
@@ -195,7 +222,14 @@ func (b *InMemoryBackend) rateLimited(c *routeCtx) bool {
 	}
 
 	ok, retry := b.limiter.allow(key, *rp.RateLimiting.Rate, b.clock())
-	if !ok {
+	lg := logFrom(c.r.Context())
+
+	if ok {
+		lg.exec(levelInfo, "rateLimiting.requestPermitted", "The request was permitted by the rate limiting policy.",
+			"configuredLimit", *rp.RateLimiting.Rate, "configuredUnit", "SECOND")
+	} else {
+		lg.exec(levelWarn, "rateLimiting.requestDenied", "The request was denied by the rate limiting policy.",
+			"configuredLimit", *rp.RateLimiting.Rate, "configuredUnit", "SECOND")
 		c.deny(http.StatusTooManyRequests, "Too Many Requests", "Retry-After", strconv.Itoa(retry))
 	}
 
@@ -212,7 +246,10 @@ type admitted struct {
 func (b *InMemoryBackend) gate(c *routeCtx, rv *reqView, body []byte) (admitted, bool) {
 	rp := c.tgt.spec.doc.RequestPolicies
 
+	lg := logFrom(c.r.Context())
 	d := b.authorize(c.r, rp, c.m.route, rv)
+	logAuth(lg, rp, rv, d)
+
 	if d.status != 0 {
 		h := d.hdr
 		if d.www != "" {
@@ -225,6 +262,8 @@ func (b *InMemoryBackend) gate(c *routeCtx, rv *reqView, body []byte) (admitted,
 	}
 
 	uv := b.enforceUsage(c.r, usagePolicy(rp), c.tgt.depID)
+	logUsage(lg, uv, usagePolicy(rp) != nil)
+
 	if uv.status != 0 {
 		var h []string
 		if uv.retry > 0 {
@@ -238,6 +277,7 @@ func (b *InMemoryBackend) gate(c *routeCtx, rv *reqView, body []byte) (admitted,
 
 	fail, soft := validateRequest(c.r, c.m.route.doc.RequestPolicies, body)
 	if fail != "" {
+		lg.exec(levelWarn, "requestValidation.validationError", fail)
 		b.refundQuota(uv.refund)
 		c.deny(http.StatusBadRequest, fail)
 
@@ -245,6 +285,7 @@ func (b *InMemoryBackend) gate(c *routeCtx, rv *reqView, body []byte) (admitted,
 	}
 
 	if soft != "" {
+		lg.exec(levelWarn, "requestValidation.validationError", soft)
 		logger.Load(c.r.Context()).
 			InfoContext(c.r.Context(), "ociapigateway: request failed PERMISSIVE validation", "reason", soft)
 	}
@@ -261,6 +302,7 @@ func (b *InMemoryBackend) serveRoute(w http.ResponseWriter, r *http.Request, tgt
 
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxDataBody))
 	if err != nil {
+		logFrom(r.Context()).exec(levelWarn, "request.bodyTooLarge", "The request body was too large.")
 		writeGWError(w, http.StatusRequestEntityTooLarge, "Request Entity Too Large")
 
 		return
@@ -279,7 +321,8 @@ func (b *InMemoryBackend) serveRoute(w http.ResponseWriter, r *http.Request, tgt
 	}
 
 	rc := cachePlan(tgt, m.route, r, adm.claims)
-	if rc.active && !rc.bypass && b.cacheServe(w, r, rc, c.cors) {
+	rc, served := b.serveCached(w, r, tgt, rc, c.cors)
+	if served {
 		return
 	}
 
@@ -324,9 +367,9 @@ func (b *InMemoryBackend) respond(w http.ResponseWriter, r *http.Request, res ba
 	if storable {
 		stored := res.header.Clone()
 		now := b.clock()
-		b.cache.put(o.cache.key, &cacheEntry{
-			status: res.status, header: stored, body: captured, dep: o.tgt.depID, expires: now.Add(o.cache.ttl),
-		}, now)
+		b.cacheStore(r.Context(), o.tgt, o.cache.key, &storedResponse{
+			Status: res.status, Header: stored, Body: captured, Expires: now.Add(o.cache.ttl).UnixNano(),
+		}, o.cache.ttl)
 	}
 
 	switch {
@@ -361,6 +404,7 @@ type denial struct {
 	claims map[string]any
 	www    string
 	msg    string
+	code   string
 	hdr    []string
 	status int
 }
@@ -449,4 +493,72 @@ func failureDenial(f *failureDoc, rv *reqView) denial {
 	}
 
 	return d
+}
+
+func logAuth(lg *reqLog, rp *requestPolicies, rv *reqView, d denial) {
+	if lg == nil {
+		return
+	}
+
+	a, _ := authPolicy(rp, rv)
+	if a == nil {
+		return
+	}
+
+	prefix := map[string]string{
+		authJWT: "jwtAuthentication", authToken: "tokenAuthentication", authCustom: "customAuthentication",
+	}[a.Type]
+
+	switch {
+	case d.status == http.StatusForbidden:
+		lg.exec(levelWarn, "authorization.unauthorizedRequest", "Authorization failed for the request.")
+	case d.status != 0:
+		lg.exec(levelWarn, prefix+".authenticationFailed", "Authentication failed.")
+	default:
+		lg.exec(levelInfo, prefix+".successfulAuthentication", "Authentication successful.")
+	}
+}
+
+func logUsage(lg *reqLog, v usageVerdict, enabled bool) {
+	switch {
+	case !enabled:
+	case v.status == http.StatusForbidden:
+		lg.exec(levelWarn, "usagePlans.eligibleNotEntitled", "The deployment is not the target of an entitlement.")
+	case v.status != 0:
+		lg.exec(levelWarn, "usagePlans.requestRejected", "Request from a usage plan subscriber was rejected.")
+	case v.breached:
+		lg.exec(levelWarn, "usagePlans.requestBreachedButAllowed",
+			"The request was allowed although the usage plan quota was exceeded.")
+	default:
+		lg.exec(levelInfo, "usagePlans.requestPermitted", "Request from a usage plan subscriber was allowed.")
+	}
+}
+
+// serveCached answers from the response cache; a cache server problem turns the request into a BYPASS.
+func (b *InMemoryBackend) serveCached(
+	w http.ResponseWriter, r *http.Request, tgt target, rc routeCache, cors *corsDoc,
+) (routeCache, bool) {
+	lg := logFrom(r.Context())
+
+	if rc.active && !rc.bypass {
+		hit, err := b.cacheLookup(r.Context(), tgt, rc.key)
+
+		switch {
+		case err != nil:
+			rc.bypass = true
+		case hit != nil:
+			lg.exec(levelInfo, "responseCache.lookupResultSuccess", "A response was read from the cache.")
+			b.writeCached(w, r, hit, cors)
+
+			return rc, true
+		default:
+			lg.exec(levelInfo, "responseCache.lookupResultNotFound", "A response was not found in the cache.")
+		}
+	}
+
+	if rc.active && rc.bypass {
+		lg.exec(levelInfo, "responseCache.lookupAborted", "The response cache was not used.")
+	}
+
+	return rc, false
 }

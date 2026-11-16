@@ -918,6 +918,7 @@ func (p *NetworkProvider) afterTopRemoved(it *netParent, _ ResourceID) {
 func (p *NetworkProvider) reconcileLocked() {
 	p.pruneDanglingLocked()
 	p.reconcilePeeringsLocked()
+	p.reconcileDNSAutoLocked()
 
 	for _, ip := range p.ofType(netPIPs) {
 		assoc := p.pipUser(ip.armID()) != ""

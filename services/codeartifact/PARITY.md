@@ -76,8 +76,6 @@ families:
   list_summary_shape: {status: fixed, note: "gopherstack-tuh5: ListPackages/ListPackageVersions each reused their Describe sibling's full converter (packageToMap/packageVersionToMap) unscoped, leaking Get-only members (see ops). ListPackages' packageToMap also had a wrong-key inverse bug: the package identifier was emitted as \"name\" where types.PackageSummary's real deserializer only recognises \"package\" — a distinct bug class from the leak (a real client loses the field rather than merely receiving extras it ignores), found and fixed in the same function. Both now have a dedicated *SummaryToMap converter built by reading that op's own types.*Summary struct and deserializer individually. Regression coverage in handler_list_summary_test.go: raw-body assertions for both leaks (an SDK client discards unrecognised keys and can't observe an over-wide response), plus a real aws-sdk-go-v2 client test for the wrong-key loss specifically (a raw-body assertion is weak there — only a typed caller shows PackageSummary.Package actually reaching the caller)."}
 gaps: []
 items_still_open:
-  - "DescribePackageVersion displayName is set for npm only (the one format the SDK documents: '@vue/ui'); the SDK says only that displayName 'varies depending on the package version's format', and summary/homePage/sourceCodeRepository/licenses key mapping beyond npm package.json is undocumented."
-  - "GetRepositoryEndpoint validates endpointType (ipv4|dualstack) but returns the same hostname for both: API_GetRepositoryEndpoint gives the enum and no dualstack hostname."
   - "Error codes for blocked publishes and the undeletable root group are not published: API_PublishPackageVersion and API_DeletePackageGroup model AccessDeniedException 403, ConflictException 409 and ValidationException 400 without saying which applies, and package-group-origin-controls describes the PUBLISH BLOCK setting without an error; the emulator returns ValidationException for a PUBLISH restriction and for DeletePackageGroup on '/*'"
 structural_gaps:
   - "Package-group weak-match confusable-character normalization needs the full Unicode confusables table (external data, go.mod is fixed); such packages match neither STRONG nor WEAK."
@@ -402,3 +400,8 @@ FIXED: ListPackageVersionAssets pages by max-results/next-token and ListPackageV
 
 ## Primary-source checks (2026-11-13)
 - codeartifact: PUBLISH BLOCK semantics match package-group-origin-controls (versions cannot be published directly to any repository).
+
+## Emulator choices where the vendor is silent
+
+- DescribePackageVersion displayName is set for npm only (the one format the SDK documents: '@vue/ui'); the SDK says only that displayName 'varies depending on the package version's format', and summary/homePage/sourceCodeRepository/licenses key mapping beyond npm package.json is undocumented.
+- GetRepositoryEndpoint validates endpointType (ipv4|dualstack) but returns the same hostname for both: API_GetRepositoryEndpoint gives the enum and no dualstack hostname.

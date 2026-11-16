@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	ociapigateway "github.com/blackbirdworks/gopherstack/services/ociapigateway"
 	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
 	ocifunctions "github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
+	ocilogging "github.com/blackbirdworks/gopherstack/services/ocilogging"
 	ocivaultbackend "github.com/blackbirdworks/gopherstack/services/ocivault"
 )
 
@@ -60,6 +62,14 @@ func wireOCIAPIGateway(byName map[string]service.Registerable) {
 		gwH.Backend.SetFunctionInvoker(ociAPIGatewayFunctions{fn: fnH.Backend})
 	}
 
+	if logH, found := byName["OCILogging"].(*ocilogging.Handler); found {
+		gwH.Backend.SetLogSink(func(deploymentID, category, eventType string, at time.Time, data map[string]any) {
+			logH.Backend.EmitServiceLog("apigateway", deploymentID, category, ocilogging.ServiceEvent{
+				Time: at, Type: eventType, Subject: deploymentID, Data: data,
+			})
+		})
+	}
+
 	if vaultH, found := byName["OCIVault"].(*ocivaultbackend.Handler); found {
 		gwH.Backend.SetSecretResolver(func(id string, version int64) (string, bool) {
 			w, _, err := vaultH.Backend.GetSecretBundle(id, ocivaultbackend.BundleSelector{VersionNumber: &version})
@@ -88,9 +98,16 @@ func ociAPIGatewayNetwork(core *ocicorebackend.InMemoryBackend) ociapigateway.Ne
 			public := r.Public
 
 			nic, err := core.CreateServiceNic(ocicorebackend.ServiceNicIn{
-				CompartmentID: r.CompartmentID, AD: ref.AvailabilityDomain, SubnetID: r.SubnetID,
-				DisplayName: r.DisplayName, AssignPublicIP: &public, ReservedPublicIPIDs: r.ReservedIPIDs,
-				Ipv6Addresses: r.IPv6Addresses, Ipv6SubnetCidrs: r.IPv6SubnetCidrs, AssignIPv6: r.AssignIPv6,
+				CompartmentID:       r.CompartmentID,
+				AD:                  ref.AvailabilityDomain,
+				SubnetID:            r.SubnetID,
+				DisplayName:         r.DisplayName,
+				NsgIDs:              r.NSGIDs,
+				AssignPublicIP:      &public,
+				ReservedPublicIPIDs: r.ReservedIPIDs,
+				Ipv6Addresses:       r.IPv6Addresses,
+				Ipv6SubnetCidrs:     r.IPv6SubnetCidrs,
+				AssignIPv6:          r.AssignIPv6,
 			})
 			if err != nil {
 				if ae, ok := errors.AsType[*ocicorebackend.APIError](err); ok {
@@ -110,5 +127,27 @@ func ociAPIGatewayNetwork(core *ocicorebackend.InMemoryBackend) ociapigateway.Ne
 			}, nil
 		},
 		Release: core.DeleteServiceNic,
+		SetNsgs: func(vnicID string, ids []string) error {
+			err := core.SetServiceNicNsgs(vnicID, ids)
+			if ae, ok := errors.AsType[*ocicorebackend.APIError](err); ok {
+				return &ociapigateway.APIError{Status: ae.Status, Code: ae.Code, Message: ae.Message}
+			}
+
+			return err
+		},
+		Reach: func(srcIP, vnicID string, port int) ociapigateway.Reachability {
+			switch core.ClassifyPeer(srcIP, vnicID, ocicorebackend.Flow{Protocol: "tcp", Port: port}) {
+			case ocicorebackend.PeerAllowed:
+				return ociapigateway.ReachAllowed
+			case ocicorebackend.PeerDenied:
+				return ociapigateway.ReachDenied
+			case ocicorebackend.PeerOtherVCN:
+				return ociapigateway.ReachForeign
+			case ocicorebackend.PeerUnknown:
+				return ociapigateway.ReachUnknown
+			}
+
+			return ociapigateway.ReachUnknown
+		},
 	}
 }

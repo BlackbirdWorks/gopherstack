@@ -144,7 +144,7 @@ func (h *Handler) indexCollection(req *request) error {
 			map[string]any{fieldContext: "https://" + req.host() + "/$metadata#indexes", fieldValue: list},
 		)
 	case http.MethodPost:
-		def, err := decodeDefJSON(req.body)
+		def, err := h.decodeDef(req)
 		if err != nil {
 			return err
 		}
@@ -215,7 +215,7 @@ func ifMatch(req *request) string { return req.r.Header.Get("If-Match") }
 func ifNone(req *request) string { return req.r.Header.Get("If-None-Match") }
 
 func (h *Handler) putIndex(req *request, name string) error {
-	def, err := decodeDefJSON(req.body)
+	def, err := h.decodeDef(req)
 	if err != nil {
 		return err
 	}
@@ -411,7 +411,7 @@ func (h *Handler) routeObjects(req *request, kind string, t []string) error {
 
 		return h.respond(req, http.StatusOK, out)
 	case http.MethodPut:
-		def, err := decodeDefJSON(req.body)
+		def, err := h.decodeDef(req)
 		if err != nil {
 			return err
 		}
@@ -469,7 +469,7 @@ func (h *Handler) objectCollection(req *request, kind string) error {
 			map[string]any{fieldContext: "https://" + req.host() + "/$metadata#" + kind, fieldValue: list},
 		)
 	case http.MethodPost:
-		def, err := decodeDefJSON(req.body)
+		def, err := h.decodeDef(req)
 		if err != nil {
 			return err
 		}

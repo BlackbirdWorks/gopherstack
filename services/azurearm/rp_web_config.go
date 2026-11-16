@@ -308,6 +308,10 @@ func (p *WebProvider) putWebConfig(s *storedWebSite, props map[string]any) error
 		return err
 	}
 
+	if err := p.checkAutoSwap(s, cur); err != nil {
+		return err
+	}
+
 	flex := mapOf(s.Extra[webFieldFlexConfig])
 	oldCfg, newCfg := siteAppConfig(s.Kind, s.Configs[webConfigWeb], flex), siteAppConfig(s.Kind, cur, flex)
 
@@ -318,6 +322,7 @@ func (p *WebProvider) putWebConfig(s *storedWebSite, props map[string]any) error
 	}
 
 	s.Configs[webConfigWeb] = cur
+	p.syncIdentities()
 
 	return nil
 }
@@ -490,6 +495,8 @@ func (p *WebProvider) restore(snap *webSnapshot) {
 			p.sites[k] = s
 		}
 	}
+
+	p.syncIdentities()
 
 	for k, pl := range snap.Plans {
 		if pl != nil {

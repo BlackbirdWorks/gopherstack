@@ -154,8 +154,8 @@ func jsonElem(v driver.Value) any {
 	if s, ok := v.(string); ok {
 		var parsed any
 		if t := strings.TrimPrefix(s, containerMark); len(t) > 0 && (t[0] == '[' || t[0] == '{') &&
-			json.Unmarshal([]byte(t), &parsed, jsonx.V1()) == nil {
-			return parsed
+			json.Unmarshal([]byte(t), &parsed, jsonx.V1(), jsonx.UseNumber()) == nil {
+			return numbersByText(parsed)
 		}
 	}
 

@@ -2,6 +2,7 @@ package ociapigateway
 
 import (
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
@@ -433,7 +434,7 @@ func (b *InMemoryBackend) UpdateUsagePlan(id, ifMatch string, in updateUsagePlan
 		}
 
 		p.Entitlements = in.Entitlements
-		b.usage.forgetPlan(id)
+		b.forgetPlanCounters(id)
 	}
 
 	if in.DisplayName != nil && *in.DisplayName != "" {
@@ -462,6 +463,8 @@ func (b *InMemoryBackend) DeleteUsagePlan(id, ifMatch string) (string, error) {
 			return "", errConflict("usage plan " + id + " is used by subscriber " + s.ID)
 		}
 	}
+
+	b.forgetPlanCounters(id)
 
 	p.State, p.TransitionAt = stateDeleting, b.transitionAt()
 	p.TimeUpdated = b.nowUTC()
@@ -648,6 +651,9 @@ func (b *InMemoryBackend) DeleteSubscriber(id, ifMatch string) (string, error) {
 		return "", err
 	}
 
+	b.usage.forgetSubscriber(id)
+	b.limiter.forget(func(k string) bool { return strings.HasPrefix(k, "usage|") && strings.HasSuffix(k, "|"+id) })
+
 	s.State, s.TransitionAt = stateDeleting, b.transitionAt()
 	s.TimeUpdated = b.nowUTC()
 
@@ -738,4 +744,9 @@ func (h *Handler) changeSubscriberCompartment(q *req) error {
 	return withBody(q, func(in changeCompartmentIn) (string, error) {
 		return h.Backend.ChangeSubscriberCompartment(q.param("subscriberId"), q.ifMatch(), in)
 	})
+}
+
+func (b *InMemoryBackend) forgetPlanCounters(planID string) {
+	b.usage.forgetPlan(planID)
+	b.limiter.forget(func(k string) bool { return strings.HasPrefix(k, "usage|"+planID+"|") })
 }

@@ -2,11 +2,14 @@ package azurefunctions_test
 
 import (
 	"net/http"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/services/azurefunctions"
 )
 
@@ -74,4 +77,40 @@ func TestPersistence_IncompatibleVersionStartsEmpty(t *testing.T) {
 	e.backend.PutApp("a", azurefunctions.AppConfig{})
 	require.NoError(t, e.handler.Restore(t.Context(), []byte(`{"version":999}`)))
 	assert.Empty(t, e.backend.Names())
+}
+
+func TestPersistence_WebJobRunsAndBuildLog(t *testing.T) {
+	t.Parallel()
+
+	src := newEnv(t, true)
+	src.rt.onExec = func(container.Spec, []string) container.ExecResult {
+		return container.ExecResult{Stdout: "job output"}
+	}
+	src.backend.PutApp("keep", azurefunctions.AppConfig{LinuxFx: "NODE|20"})
+
+	pkg := zipOf(t, map[string]string{"host.json": `{}`, "App_Data/jobs/triggered/j/run.sh": "true"})
+	_, err := src.backend.Deploy("keep", pkg, "ZipDeploy", "m")
+	require.NoError(t, err)
+
+	auth, scm := src.kuduAuth(t, "keep"), "keep.scm."+testDomain
+	src.do(t, http.MethodPost, scm, "/api/triggeredwebjobs/j/run", nil, auth)
+
+	require.Eventually(t, func() bool {
+		_, body := src.do(t, http.MethodGet, scm, "/api/triggeredwebjobs/j", nil, auth)
+
+		return strings.Contains(body, `"status":"Success"`)
+	}, 10*time.Second, 20*time.Millisecond)
+
+	dst := newEnv(t, false)
+	require.NoError(t, dst.handler.Restore(t.Context(), src.handler.Snapshot(t.Context())))
+
+	_, body := dst.do(
+		t,
+		http.MethodGet,
+		"keep.scm."+testDomain,
+		"/api/triggeredwebjobs/j/history",
+		nil,
+		dst.kuduAuth(t, "keep"),
+	)
+	assert.Contains(t, body, `"status":"Success"`)
 }

@@ -55,6 +55,8 @@ func statusText(status int) string {
 		return "PERMISSION_DENIED"
 	case http.StatusPreconditionFailed:
 		return "FAILED_PRECONDITION"
+	case http.StatusTooManyRequests:
+		return "RESOURCE_EXHAUSTED"
 	case http.StatusRequestEntityTooLarge:
 		return "INVALID_ARGUMENT"
 	}

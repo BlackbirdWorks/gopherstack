@@ -138,6 +138,13 @@ var peTargets = map[string]peTarget{
 		),
 		actionKey: propActionsRequired,
 	},
+	"microsoft.search/searchservices": {
+		groups: single(
+			"searchService",
+			grp("search.windows.net", "search.windows.net", plainFQDN("search.windows.net")),
+		),
+		actionKey: propActionsRequired,
+	},
 	"microsoft.web/sites": {
 		groups:    single("sites", grp("azurewebsites.net", "azurewebsites.net", plainFQDN("azurewebsites.net"))),
 		actionKey: propActionsRequired,

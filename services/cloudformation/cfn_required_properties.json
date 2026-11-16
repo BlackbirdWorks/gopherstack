@@ -1107,6 +1107,20 @@
   "AWS::Lambda::Version": [
     "FunctionName"
   ],
+  "AWS::Lambda::WebFunction": [
+    "FunctionName"
+  ],
+  "AWS::Lambda::WebFunctionEndpoint": [
+    "AuthType",
+    "EndpointName",
+    "EndpointType",
+    "FunctionName"
+  ],
+  "AWS::Lambda::WebFunctionRevision": [
+    "BuildConfig",
+    "FunctionName",
+    "ServiceConfig"
+  ],
   "AWS::Logs::Delivery": [
     "DeliveryDestinationArn",
     "DeliverySourceName"

@@ -9,15 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 20 (19 ok, 1 partial) |
 | Feature families | 11 (11 ok) |
-| Known gaps | 2 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- DLQ-redrive moves publish no AWS/SQS counters (NumberOfMessagesSent/Received/Deleted for the move): neither the pinned SDK nor the SQS metrics documentation says whether AWS counts them, so none are invented. Depth gauges are sampled on the 30s janitor tick, not AWS's 1-minute cadence.
-- SqsManagedSseEnabled and KmsMasterKeyId together: API_CreateQueue.html says only "Only one server-side encryption option is supported per queue" with no reject / auto-clear / last-wins rule (re-checked 2026-10-07), and existing tests set both against the default; left unenforced rather than guess.
 
 ### Structural gaps
 

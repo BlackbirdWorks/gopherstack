@@ -33,13 +33,19 @@ type EngineConfig struct {
 type liveCluster struct {
 	cancel      context.CancelFunc
 	containerID string
+	joinToken   string
+	image       string
+	serverIP    string
 	lbHost      []int
+	agentIDs    []string
 	port        int
+	ready       bool
 }
 
 type clusterEngine struct {
 	core  *k3sengine.Engine
 	live  map[string]*liveCluster
+	nodes map[string]*agentNode
 	image string
 	wg    sync.WaitGroup
 }
@@ -57,7 +63,9 @@ func (b *InMemoryBackend) EnableEngine(cfg EngineConfig) error {
 	b.mu.Lock("EnableEngine")
 	defer b.mu.Unlock()
 
-	b.engine = &clusterEngine{core: core, live: map[string]*liveCluster{}, image: cfg.Image}
+	b.engine = &clusterEngine{
+		core: core, live: map[string]*liveCluster{}, nodes: map[string]*agentNode{}, image: cfg.Image,
+	}
 
 	return nil
 }
@@ -87,6 +95,7 @@ func (e *clusterEngine) imageFor(version string) string {
 func (e *clusterEngine) reap(lcs []*liveCluster) {
 	for _, lc := range lcs {
 		lc.cancel()
+		e.removeAgents(lc.agentIDs)
 
 		if lc.containerID != "" {
 			e.wg.Go(func() { e.core.Remove(lc.containerID, append([]int{lc.port}, lc.lbHost...)...) })
@@ -101,6 +110,7 @@ func (b *InMemoryBackend) detachAllLocked() []*liveCluster {
 
 	out := make([]*liveCluster, 0, len(b.engine.live))
 	for k, lc := range b.engine.live {
+		lc.agentIDs = b.takeAgentsLocked(k)
 		out = append(out, lc)
 		delete(b.engine.live, k)
 	}
@@ -115,6 +125,7 @@ func (b *InMemoryBackend) reapLocked(id string) {
 	}
 
 	if lc, ok := b.engine.live[id]; ok {
+		lc.agentIDs = b.takeAgentsLocked(id)
 		delete(b.engine.live, id)
 		b.engine.reap([]*liveCluster{lc})
 	}
@@ -146,9 +157,9 @@ func joinToken() string {
 func (b *InMemoryBackend) launchLocked(c *Cluster, wrID string) {
 	e := b.engine
 	ctx, cancel := context.WithCancel(b.runCtx)
-	lc := &liveCluster{cancel: cancel}
-	e.live[c.ID] = lc
 	id, image := c.ID, e.imageFor(c.Version)
+	lc := &liveCluster{cancel: cancel, joinToken: joinToken(), image: image}
+	e.live[c.ID] = lc
 
 	b.wg.Go(func() { b.runEngine(ctx, id, lc, image, wrID) })
 }
@@ -156,7 +167,7 @@ func (b *InMemoryBackend) launchLocked(c *Cluster, wrID string) {
 func (b *InMemoryBackend) runEngine(ctx context.Context, id string, lc *liveCluster, image, wrID string) {
 	e := b.engine
 
-	inst, err := e.core.Launch(ctx, k3sengine.Node{Name: ocidTail(id, longTail), Image: image, JoinToken: joinToken()},
+	inst, err := e.core.Launch(ctx, k3sengine.Node{Name: ocidTail(id, longTail), Image: image, JoinToken: lc.joinToken},
 		func(i *k3sengine.Instance) bool { return b.recordLive(id, lc, i) })
 	if err != nil {
 		if !errors.Is(err, k3sengine.ErrSuperseded) {
@@ -218,6 +229,8 @@ func (b *InMemoryBackend) readyEngine(id string, lc *liveCluster, addr string, c
 	engineEndpoints(c, addr)
 	c.CAPEM, c.Token = string(ca), b.engine.core.Token()
 	c.State, c.TransitionAt, c.Details = stateActive, nil, ""
+	lc.ready = true
+	b.syncAgentsLocked(id)
 
 	if wr, found := b.workReqs[wrID]; found {
 		wr.FinishAt = &now

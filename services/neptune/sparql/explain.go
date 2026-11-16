@@ -66,20 +66,24 @@ func nodeText(n node) string {
 	return n.Term.String()
 }
 
+func explainBGP(sb *strings.Builder, x *bgpEl, pad string) {
+	for _, tp := range x.Triples {
+		p := nodeText(tp.P)
+		if tp.Path != nil {
+			p = "<path>"
+		}
+
+		fmt.Fprintf(sb, "%sTriplePattern(%s %s %s)\n", pad, nodeText(tp.S), p, nodeText(tp.O))
+	}
+}
+
 func explainGroup(sb *strings.Builder, g *group, depth int) {
 	pad := strings.Repeat("  ", depth)
 
 	for _, el := range g.Elems {
 		switch x := el.(type) {
 		case *bgpEl:
-			for _, tp := range x.Triples {
-				p := nodeText(tp.P)
-				if tp.Path != nil {
-					p = "<path>"
-				}
-
-				fmt.Fprintf(sb, "%sTriplePattern(%s %s %s)\n", pad, nodeText(tp.S), p, nodeText(tp.O))
-			}
+			explainBGP(sb, x, pad)
 		case *optionalEl:
 			sb.WriteString(pad + "LeftJoin\n")
 			explainGroup(sb, x.G, depth+1)
@@ -104,6 +108,8 @@ func explainGroup(sb *strings.Builder, g *group, depth int) {
 		case *subSelectEl:
 			sb.WriteString(pad + "SubSelect\n")
 			explainGroup(sb, x.Q.Where, depth+1)
+		case *serviceEl:
+			fmt.Fprintf(sb, "%sService(%s)\n", pad, nodeText(x.Name))
 		case *groupEl:
 			sb.WriteString(pad + "Group\n")
 			explainGroup(sb, x.G, depth+1)

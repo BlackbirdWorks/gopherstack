@@ -18,6 +18,10 @@ const (
 	cmpActionVMSize = "vmSizes"
 
 	cmpQueryStatusOnly = "statusOnly"
+
+	cmpVMSSInstActionSegs = 11
+	cmpRollingSegs        = 10
+	cmpRollingIdx         = 8
 )
 
 //nolint:gochecknoglobals // static route table, read-only after init
@@ -84,6 +88,8 @@ func (h *Handler) computeSpecial(c *echo.Context, cp *ComputeProvider, segs []st
 	}
 
 	switch {
+	case isVMSSScaleSetCall(segs, method):
+		return true, h.computeScaleSetCall(c, cp, segs)
 	case len(segs) == cmpRGActionSegs && method == http.MethodGet:
 		return h.computeGetSub(c, cp, segs)
 	case len(segs) == cmpRGActionSegs && method == http.MethodPost:
@@ -218,12 +224,8 @@ func (h *Handler) computeAction(c *echo.Context, cp *ComputeProvider, segs []str
 
 	action := segs[cmpRGActionIdx]
 
-	if strings.EqualFold(firstType(id), cmpSSHKeys) && strings.EqualFold(action, sshActionGenerate) {
-		return h.computeSSHAction(c, cp, id)
-	}
-
-	if strings.EqualFold(firstType(id), cmpGalleries) && strings.EqualFold(action, galleryActionShare) {
-		return h.computeGalleryShare(c, cp, id)
+	if handled, serr := h.computeBodyAction(c, cp, id, action); handled {
+		return serr
 	}
 
 	var actErr error
@@ -243,6 +245,10 @@ func (h *Handler) computeAction(c *echo.Context, cp *ComputeProvider, segs []str
 
 	if strings.EqualFold(action, vmActionGeneralize) {
 		return c.NoContent(http.StatusOK)
+	}
+
+	if strings.EqualFold(action, vmActionSimEvict) && strings.EqualFold(firstType(id), cmpVMs) {
+		return c.NoContent(http.StatusNoContent)
 	}
 
 	h.setNSOperation(c, id, true)
@@ -292,4 +298,101 @@ func (h *Handler) computeListByLocation(c *echo.Context, segs []string) error {
 	}
 
 	return h.writeJSON(c, http.StatusOK, h.pageNS(c, filtered, nsDefaultTop(id.Namespace)))
+}
+
+func (h *Handler) computeAttachDetach(c *echo.Context, cp *ComputeProvider, id ResourceID) error {
+	body, err := decodeJSONBody(c.Request())
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	out, err := cp.AttachDetachDataDisks(id, body)
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	return h.writeJSON(c, http.StatusOK, out)
+}
+
+// computeBodyAction serves the actions whose reply is not the generic 202.
+func (h *Handler) computeBodyAction(c *echo.Context, cp *ComputeProvider, id ResourceID, action string) (bool, error) {
+	typ := firstType(id)
+
+	switch {
+	case strings.EqualFold(typ, cmpVMs) && strings.EqualFold(action, vmActionAttachDetach):
+		return true, h.computeAttachDetach(c, cp, id)
+	case strings.EqualFold(typ, cmpSSHKeys) && strings.EqualFold(action, sshActionGenerate):
+		return true, h.computeSSHAction(c, cp, id)
+	case strings.EqualFold(typ, cmpGalleries) && strings.EqualFold(action, galleryActionShare):
+		return true, h.computeGalleryShare(c, cp, id)
+	}
+
+	return false, nil
+}
+
+func isVMSSScaleSetCall(segs []string, method string) bool {
+	return (isVMSSRollingPath(segs) && (method == http.MethodGet || method == http.MethodPost)) ||
+		(len(segs) == cmpVMSSInstActionSegs && method == http.MethodPost && isVMSSInstancePath(segs))
+}
+
+func (h *Handler) computeScaleSetCall(c *echo.Context, cp *ComputeProvider, segs []string) error {
+	if isVMSSRollingPath(segs) {
+		return h.computeRolling(c, cp, segs)
+	}
+
+	return h.computeInstanceAction(c, cp, segs)
+}
+
+func isVMSSInstancePath(segs []string) bool {
+	return segAt(segs, cmpRGTypeIdx, cmpVMSS) && segAt(segs, cmpRGActionIdx, cmpVMs)
+}
+
+func isVMSSRollingPath(segs []string) bool {
+	return len(segs) == cmpRollingSegs && segAt(segs, cmpRGTypeIdx, cmpVMSS) &&
+		segAt(segs, cmpRollingIdx, "rollingUpgrades")
+}
+
+func (h *Handler) computeInstanceAction(c *echo.Context, cp *ComputeProvider, segs []string) error {
+	id, err := ParseGenericResourcePath("/" + joinSegs(segs[:cmpVMSSInstActionSegs-1]))
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	if err = cp.VMSSInstanceAction(id, segs[cmpVMSSInstActionSegs-1]); err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	h.setNSOperation(c, id, true)
+
+	return c.NoContent(http.StatusAccepted)
+}
+
+// computeRolling serves rollingUpgrades/latest and rollingUpgrades/cancel of a scale set.
+func (h *Handler) computeRolling(c *echo.Context, cp *ComputeProvider, segs []string) error {
+	id, err := ParseGenericResourcePath("/" + joinSegs(segs[:cmpRGActionIdx]))
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	op := segs[cmpRollingSegs-1]
+
+	switch {
+	case c.Request().Method == http.MethodGet && strings.EqualFold(op, rollingLatest):
+		out, gerr := cp.RollingUpgradeLatest(id)
+		if gerr != nil {
+			return h.writeAPIError(c, gerr)
+		}
+
+		return h.writeJSON(c, http.StatusOK, out)
+	case c.Request().Method == http.MethodPost && strings.EqualFold(op, "cancel"):
+		if cerr := cp.RollingUpgradeCancel(id); cerr != nil {
+			return h.writeAPIError(c, cerr)
+		}
+
+		h.setNSOperation(c, id, true)
+
+		return c.NoContent(http.StatusAccepted)
+	}
+
+	return h.writeNotFound(c)
 }

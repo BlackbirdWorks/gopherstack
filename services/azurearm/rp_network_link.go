@@ -12,6 +12,8 @@ func (p *NetworkProvider) putLinkTop(top string, id ResourceID, body map[string]
 		return p.putSEP(id, body)
 	case netWatchers:
 		return p.putWatcher(id, body)
+	case netLNGs, netVNGs, netConns, netERCs:
+		return p.putVPNTop(top, id, body)
 	default:
 		return p.putTap(id, body)
 	}
@@ -27,6 +29,8 @@ func (p *NetworkProvider) bodyLinkTop(id ResourceID, it *netParent) map[string]a
 		return p.bodySEP(id, it)
 	case netWatchers:
 		return p.bodyWatcher(id, it)
+	case netLNGs, netVNGs, netConns, netERCs:
+		return p.bodyVPNTop(id, it)
 	default:
 		return p.bodyTap(id, it)
 	}
@@ -47,6 +51,8 @@ func (p *NetworkProvider) checkLinkTopDelete(it *netParent) error {
 				"Virtual network tap %s is used by network interface tap configuration %s and cannot be deleted.",
 				it.armID(), cfgs[0])
 		}
+	case netLNGs, netVNGs, netERCs:
+		return p.checkVPNTopDelete(it)
 	case netLBs:
 		if users := p.plsUsingLB(it.armID()); len(users) > 0 {
 			return netErr(http.StatusBadRequest, "InUseLoadBalancerCannotBeDeleted",

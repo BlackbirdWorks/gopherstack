@@ -535,3 +535,23 @@ func TestBackendPeekLimitBounds(t *testing.T) {
 		})
 	}
 }
+
+func TestBackendAppendMessage(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	q := e.mkQueue(t, "append", nil)
+
+	require.True(t, e.backend.QueueActive(*q.Id))
+	assert.False(t, e.backend.QueueActive("ocid1.queue.oc1..nope"))
+
+	require.NoError(t, e.backend.AppendMessage(*q.Id, "", "plain"))
+	require.NoError(t, e.backend.AppendMessage(*q.Id, "chan-a", "channeled"))
+	require.Error(t, e.backend.AppendMessage("ocid1.queue.oc1..nope", "", "x"))
+
+	got, err := e.backend.Peek(*q.Id, false, 10)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "plain", got[0].Content)
+	assert.Equal(t, "chan-a", got[1].Channel)
+}

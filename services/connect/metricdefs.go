@@ -16,6 +16,7 @@ const (
 	metricSaved     = "SAVED"
 	metricPublished = "PUBLISHED"
 	metricCategory  = "CUSTOM"
+	metricBuilder   = "METRIC_BUILDER"
 	labelMetric     = "Metric"
 	maxMetricName   = 128
 	maxMetricDesc   = 500
@@ -45,12 +46,14 @@ type MetricCalculation struct {
 // MetricDefinition is a metric definition.
 type MetricDefinition struct {
 	CreatedTime       *awstime.EpochTime `json:"CreatedTime,omitempty"`
+	EffectiveTime     *awstime.EpochTime `json:"EffectiveTime,omitempty"`
 	MetricCalculation *MetricCalculation `json:"MetricCalculation,omitempty"`
 	Tags              map[string]string  `json:"Tags,omitempty"`
 	Stamp
 	Status                 string   `json:"Status,omitempty"`
 	Arn                    string   `json:"Arn"`
 	Category               string   `json:"Category"`
+	CreationMethod         string   `json:"CreationMethod,omitempty"`
 	Description            string   `json:"Description,omitempty"`
 	ID                     string   `json:"Id"`
 	Name                   string   `json:"Name"`
@@ -252,7 +255,8 @@ func (b *Backend) CreateMetric(ctx context.Context, in *CreateMetricInput) (*Met
 			Tags: cloneTags(in.Tags), Filters: []any{}, Groupings: []string{},
 		}}
 		t := awstime.NewEpochTime(b.now())
-		rec.Metric.CreatedTime = &t
+		rec.Metric.CreatedTime, rec.Metric.EffectiveTime = &t, &t
+		rec.Metric.CreationMethod = metricBuilder
 		b.touchMetric(ctx, rec)
 		b.metricDefs.put(rec)
 
@@ -260,9 +264,15 @@ func (b *Backend) CreateMetric(ctx context.Context, in *CreateMetricInput) (*Met
 	})
 }
 
-// DescribeMetric returns a customer-managed metric definition.
+// DescribeMetric returns a customer-managed metric definition, or an AWS-managed one by its name.
 func (b *Backend) DescribeMetric(inst, id string) (*MetricDefinition, error) {
 	return readInstance(b, "DescribeMetric", inst, func(inst string) (*MetricDefinition, error) {
+		if isManagedMetricID(id) {
+			m := b.managedMetric(inst, strings.ToUpper(id))
+
+			return &m, nil
+		}
+
 		m, err := b.metricDefs.get(inst, id)
 		if err != nil {
 			return nil, err
@@ -274,7 +284,7 @@ func (b *Backend) DescribeMetric(inst, id string) (*MetricDefinition, error) {
 	})
 }
 
-// ListMetrics pages through the metric definitions; AWS-managed metrics are not modeled.
+// ListMetrics pages through the metric definitions; no type filter lists the customer-managed ones.
 func (b *Backend) ListMetrics(inst, typ, token string, maxResults int32) ([]MetricSummary, string, error) {
 	if typ != "" {
 		if err := oneOf("type", typ, metricAWS, metricCustomer); err != nil {
@@ -286,7 +296,7 @@ func (b *Backend) ListMetrics(inst, typ, token string, maxResults int32) ([]Metr
 		var out []MetricSummary
 
 		if typ == metricAWS {
-			return out, nil
+			return b.managedMetricSummaries(inst), nil
 		}
 
 		for _, m := range b.metricDefs.in(inst) {

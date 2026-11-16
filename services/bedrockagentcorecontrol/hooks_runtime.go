@@ -19,6 +19,10 @@ const (
 func cloneDoc(doc map[string]any) map[string]any { return maps.Clone(doc) }
 
 func (b *InMemoryBackend) validateRuntimeInput(sc scope, in args) error {
+	if err := validateEnvironmentSize(in.obj("environmentVariables")); err != nil {
+		return err
+	}
+
 	art := in.obj("agentRuntimeArtifact")
 	if art == nil {
 		return nil
@@ -124,11 +128,12 @@ func validateJWTAuthorizer(ac map[string]any) error {
 	}
 
 	u := strOf(jwt, "discoveryUrl")
-	if !strings.HasPrefix(u, "https://") || !strings.HasSuffix(u, "/.well-known/openid-configuration") {
-		return invalid("discoveryUrl must be an https URL ending in /.well-known/openid-configuration")
+	if !strings.HasPrefix(u, "https://") || !discoveryPattern.MatchString(u) {
+		return invalid("discoveryUrl must be an https URL ending in /.well-known/openid-configuration " +
+			"or /.well-known/oauth-authorization-server")
 	}
 
-	return nil
+	return validateJWTMembers(jwt)
 }
 
 func (b *InMemoryBackend) validateRuntimeUpdate(sc scope, patch map[string]any) error {

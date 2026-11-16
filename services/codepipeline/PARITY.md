@@ -139,12 +139,9 @@ families:
   approvalGate: {status: ok, note: "NEW in the 2026-07-23 pass: StartPipelineExecution/PutActionRevision/PutApprovalResult/RetryStageExecution/RollbackStage all now share one action-run engine (action_engine.go) that gates on Approval-category actions with a real system-generated token, exposed only via GetPipelineState (matching real AWS -- there is no other way for a real client to obtain it). This closed 3 of the 4 gaps and all 3 deferred items from the 2026-07-12 audit at once, since they all stemmed from the SAME missing action-state machine. Unchanged, not re-diffed this pass."}
 gaps: []
 items_still_open:
-  - "Source/CodeStarSourceConnection always FAILS the action (ConfigurationError): the emulator's codeconnections service stores connection metadata only and holds no GitHub/Bitbucket/GitLab repository content to build an artifact from. Source/CodeCommit supports OutputArtifactFormat CODE_ZIP only (CODEBUILD_CLONE_REF fails)."
   - "No automatic source-change detection: PollForSourceChanges and EventBridge-driven triggers for S3/ECR/CodeCommit sources are not modelled; executions start via StartPipelineExecution (or an EventBridge/Scheduler target). Source/ECR therefore always reads the current tag at execution start and ignores source-revision overrides."
   - "Deploy/ECS completion is read from the ECS backend's per-deployment rolloutState (a single remaining deployment with rollout COMPLETED, falling back to runningCount >= desiredCount); the emulator's ECS reconciler takes ~10s to settle a one-task service. DeploymentTimeout (default 60 min) is enforced against the backend clock (SetClock). Deploy/CloudFormation ignores RoleArn for authorization and writes OutputFileName as the only file in the output artifact (real CodePipeline's artifact layout for it is undocumented beyond 'a JSON file with the specified name'). Fn::GetArtifactAtt URL is https://s3.<region>.amazonaws.com/<bucket>/<key>."
   - "gopherstack-wlab (2026-09-08, reconfirmed 2026-09-18): CreateCustomActionType/DeleteCustomActionType/DeletePipeline/UpdatePipeline/OverrideStageCondition/RetryStageExecution/StopPipelineExecution each emit a wire error code (InvalidStructureException/ActionTypeNotFoundException/PipelineNotFoundException x2/PipelineExecutionNotFoundException x3) absent from that op's own declared set per botocore codepipeline/2015-07-09/service-2.json; every declared candidate's doc text was checked and none fits, and a real client's errors.As still resolves each to its own concrete type (undeclared_error_codes_test.go). The real code is not determinable from the SDK."
-  - "No AWS-documented derivation or evidence: ListRuleTypes omits RuleType.InputArtifactDetails (no documented per-provider min/max counts)."
-  - "handleError's InvalidActionException (unknown-action routing fallback) names no type codepipeline@v1.49.4 declares; see the 2026-08-29 errcodeaudit note."
 structural_gaps:
   - "Rule providers other than VariableCheck and LambdaInvoke (DeploymentWindow, CloudWatchAlarm, Commands) always Succeed: no wall-clock window, alarm backend or compute to consult."
   - "ListActionTypes lists only custom action types; the AWS-owned and third-party built-in catalog (artifact details, settings) is AWS-owned reference data with no SDK source, so ActionOwnerFilter=AWS returns nothing."
@@ -675,3 +672,12 @@ file-reference docs, output variables RegistryId/RepositoryName/ImageTag/ImageDi
 (branch head files as a zip, CommitId/BranchName/RepositoryName/CommitMessage variables). Backends are wired in
 internal/app/codepipeline_action_wiring.go. Tests: internal/app/codepipeline_actions_test.go (SDK) and
 services/codepipeline/async_builtin_actions_test.go.
+
+## Emulator choices where the vendor is silent
+
+- No AWS-documented derivation or evidence: ListRuleTypes omits RuleType.InputArtifactDetails (no documented per-provider min/max counts).
+- handleError's InvalidActionException (unknown-action routing fallback) names no type codepipeline@v1.49.4 declares; see the 2026-08-29 errcodeaudit note.
+
+## External effects that are recorded, not performed
+
+- Source/CodeStarSourceConnection fails the action with ConfigurationError because the emulator holds no GitHub/Bitbucket/GitLab repository content; nothing is fabricated. Source/CodeCommit supports CODE_ZIP only.

@@ -7784,6 +7784,39 @@
         "Version": {}
       }
     },
+    "AWS::Lambda::WebFunction": {
+      "Attributes": {
+        "CreatedAt": {},
+        "FunctionArn": {},
+        "State": {},
+        "StateReason": {},
+        "UpdatedAt": {}
+      }
+    },
+    "AWS::Lambda::WebFunctionEndpoint": {
+      "Attributes": {
+        "CreatedAt": {},
+        "DomainName": {},
+        "EndpointArn": {},
+        "FunctionArn": {},
+        "RegionalEndpoints": {},
+        "State": {},
+        "StateReason": {},
+        "UpdateStatus": {},
+        "UpdateStatusReason": {},
+        "UpdatedAt": {}
+      }
+    },
+    "AWS::Lambda::WebFunctionRevision": {
+      "Attributes": {
+        "CreatedAt": {},
+        "FunctionArn": {},
+        "RevisionArn": {},
+        "RevisionId": {},
+        "State": {},
+        "StateReason": {}
+      }
+    },
     "AWS::LaunchWizard::Deployment": {
       "Attributes": {
         "Arn": {},

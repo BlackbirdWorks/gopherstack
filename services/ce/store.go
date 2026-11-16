@@ -113,8 +113,16 @@ type InMemoryBackend struct {
 	accountID               string
 	region                  string
 	costLedger              []CostEntry
+	meterIdx                map[string]int
+	holdingSources          []HoldingSource
+	usageSources            []UsageSource
+	prices                  PriceLookup
+	clock                   func() time.Time
+	lastAccrual             time.Time
+	lastPrune               string
 	backfillJobs            []*BackfillJob
 	anomalyTTL              time.Duration
+	resourceLevel           bool
 }
 
 // NewInMemoryBackend creates a new backend for the given account and region.
@@ -125,7 +133,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		region:     region,
 		mu:         lockmetrics.New("ce"),
 		anomalyTTL: DefaultAnomalyTTL,
+		clock:      time.Now,
 	}
+	b.lastAccrual = b.clock()
 	registerAllTables(b)
 	b.seedCostLedger()
 
@@ -142,7 +152,9 @@ func (b *InMemoryBackend) Reset() {
 
 	b.registry.ResetAll()
 	b.costLedger = nil
+	b.meterIdx = nil
 	b.backfillJobs = nil
+	b.lastAccrual = b.clock()
 	b.seedCostLedger()
 }
 

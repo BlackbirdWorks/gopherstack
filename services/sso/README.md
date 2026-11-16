@@ -8,15 +8,10 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 4 (4 ok) |
-| Known gaps | 2 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- ListAccountRoles/GetRoleCredentials for an unassigned account or role: answers ResourceNotFoundException "No access"; real AWS reports ForbiddenException, which the pinned SDK does not model (bd: gopherstack-cefu7.3)
-- max_result bounds: default 10, cap 1000, below 1 is InvalidRequestException; AWS bounds are not in the SDK (bd: gopherstack-cefu7.3)
 
 ### Structural gaps
 

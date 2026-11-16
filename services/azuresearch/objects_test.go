@@ -96,7 +96,7 @@ func TestDataSourceRedaction(t *testing.T) {
 	assert.Contains(t, snap, "AccountKey=c2VjcmV0", "echoing the redacted value keeps the stored secret")
 
 	for name, def := range map[string]map[string]any{
-		"unsupported type": {"name": "x", "type": "azuresql", "credentials": map[string]any{"connectionString": "c"}, "container": map[string]any{"name": "t"}}, //nolint:lll // test fixture
+		"unsupported type": {"name": "x", "type": "mysql", "credentials": map[string]any{"connectionString": "c"}, "container": map[string]any{"name": "t"}}, //nolint:lll // test fixture
 		"no credentials":   {"name": "x", "type": "azureblob", "container": map[string]any{"name": "t"}},
 		"no container":     {"name": "x", "type": "azureblob", "credentials": map[string]any{"connectionString": "c"}},
 	} {

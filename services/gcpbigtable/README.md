@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 43 (36 ok, 7 partial) |
 | Feature families | 7 (4 ok, 3 partial) |
-| Known gaps | 7 |
+| Known gaps | 6 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -21,7 +21,6 @@
 - Clusters share one copy of the data: replication, per-cluster storage and routing are not simulated, app profile routing is validated but does not place requests, and autoscaling never resizes a cluster.
 - App profile warnings (ignore_warnings) are never raised, and storage-type specific autoscaling storage targets, KMS key rules and node scaling factor constraints are not validated.
 - ReadRows never splits large cell values across chunks and reports only the iteration counts in request stats; SampleRowKeys does no size-based sampling.
-- Several error codes were chosen without a production reference: unknown column family on mutate (NOT_FOUND), duplicate/missing family on ModifyColumnFamilies, unknown consistency token (INVALID_ARGUMENT), row_sample_filter outside (0, 1) and a chain or interleave of fewer than two filters are rejected as INVALID_ARGUMENT.
 
 ## More
 

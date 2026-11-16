@@ -39,17 +39,38 @@ func newQueryTracker() *queryTracker {
 
 // begin registers a query and returns its cancellable, time-limited context and the finish callback.
 func (t *queryTracker) begin(parent context.Context, query string) (context.Context, func()) {
-	ctx, cancelCause := context.WithCancelCause(parent)
-	ctx, cancelTimeout := context.WithTimeout(ctx, cypherQueryTimeout)
+	ctx, finish, _ := t.beginWith(parent, query, "", cypherQueryTimeout)
 
-	q := &runningQuery{id: uuid.NewString(), query: query, started: time.Now(), cancel: cancelCause}
+	return ctx, finish
+}
+
+// beginWith is begin with a caller-chosen query id (empty: generated) and time limit; the bool is false when the
+// id is already in use.
+func (t *queryTracker) beginWith(
+	parent context.Context, query, id string, limit time.Duration,
+) (context.Context, func(), bool) {
+	if id == "" {
+		id = uuid.NewString()
+	}
+
+	ctx, cancelCause := context.WithCancelCause(parent)
+	ctx, cancelTimeout := context.WithTimeout(ctx, limit)
+
+	q := &runningQuery{id: id, query: query, started: time.Now(), cancel: cancelCause}
+	if _, taken := t.running.Get(id); taken {
+		cancelTimeout()
+		cancelCause(nil)
+
+		return ctx, func() {}, false
+	}
+
 	t.running.Set(q.id, q)
 
 	return ctx, func() {
 		t.running.Delete(q.id)
 		cancelTimeout()
 		cancelCause(nil)
-	}
+	}, true
 }
 
 type queryEvalStats struct {

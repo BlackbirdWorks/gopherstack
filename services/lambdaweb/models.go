@@ -26,6 +26,7 @@ const (
 const (
 	updateInProgress = "InProgress"
 	updateSuccessful = "Successful"
+	updateFailed     = "Failed"
 )
 
 // Endpoint types, auth types and deployment modes (types enums).
@@ -120,6 +121,7 @@ type Endpoint struct {
 	PendingUntil       time.Time
 	UpdatePendingUntil time.Time
 	RegionDomains      map[string]string
+	Replicas           map[string]*Replica
 	MaxEnvironments    *int32
 	RateLimit          *int32
 	AccountID          string
@@ -180,6 +182,13 @@ func (e *Endpoint) clone() *Endpoint {
 	cp.Regions = slices.Clone(e.Regions)
 	cp.Weights = slices.Clone(e.Weights)
 	cp.RegionDomains = maps.Clone(e.RegionDomains)
+
+	if e.Replicas != nil {
+		cp.Replicas = make(map[string]*Replica, len(e.Replicas))
+		for k, v := range e.Replicas {
+			cp.Replicas[k] = v.clone()
+		}
+	}
 
 	if e.MaxEnvironments != nil {
 		v := *e.MaxEnvironments

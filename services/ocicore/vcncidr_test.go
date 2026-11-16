@@ -311,7 +311,7 @@ func TestVcnIpv6Cidr(t *testing.T) {
 	assert.Equal(t, "InvalidParameter", svcErr(t, err).GetCode(), "not a ULA prefix")
 
 	_, err = add(core.AddVcnIpv6CidrDetails{Byoipv6CidrDetail: &core.Byoipv6CidrDetails{}})
-	assert.Equal(t, "InvalidParameter", svcErr(t, err).GetCode(), "no BYOIP")
+	assert.Equal(t, "NotAuthorizedOrNotFound", svcErr(t, err).GetCode(), "no BYOIP range")
 
 	r, err := add(core.AddVcnIpv6CidrDetails{})
 	require.NoError(t, err)
@@ -336,7 +336,7 @@ func TestVcnIpv6Cidr(t *testing.T) {
 	assert.Equal(t, 2, v6Rules, "the IPv6 default ingress rules are added")
 
 	_, err = add(core.AddVcnIpv6CidrDetails{})
-	assert.Equal(t, "Conflict", svcErr(t, err).GetCode(), "one Oracle-allocated prefix")
+	assert.Equal(t, "LimitExceeded", svcErr(t, err).GetCode(), "one Oracle-allocated prefix")
 
 	_, err = add(core.AddVcnIpv6CidrDetails{Ipv6PrivateCidrBlock: new("fd00:1::/64")})
 	require.NoError(t, err)

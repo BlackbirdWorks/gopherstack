@@ -90,7 +90,7 @@ func (p *ComputeProvider) rpcProps(r *cmpRes, expand bool) map[string]any {
 func (p *ComputeProvider) rpSourceMetadata(vm *cmpRes, exclude []any) (map[string]any, error) {
 	meta := map[string]any{cmpFieldVMID: vm.UID, fieldLocation: vm.Location}
 
-	for _, k := range []string{"hardwareProfile", "diagnosticsProfile", "securityProfile", rpFieldLicense, "userData"} {
+	for _, k := range []string{"hardwareProfile", cmpFieldDiagProfile, "securityProfile", rpFieldLicense, "userData"} {
 		if v, ok := vm.Props[k]; ok {
 			meta[k] = deepClone(v)
 		}

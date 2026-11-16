@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 95 (87 ok, 8 partial) |
 | Feature families | 14 (11 ok, 3 partial) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 8 |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- StartImport launch columns with no SDK output field: mgn:launch:iam-instance-profile:name, nic:*, placement:*, volume:*, tag:instance:*, map-tag-key, post-actions:enabled and per-action active/description/parameters literals are parsed, validated and stored on the launch configuration (LaunchTemplateContents; TestStartImport_LaunchTemplateColumns) but GetLaunchConfiguration has no member for them and services/ec2 launch templates model only ImageId/InstanceType, so no Ec2LaunchTemplateID is generated. Applied for real: instance-type and nic:0:subnet-id drive the EC2 instance StartTest/StartCutover launch (TestStartTest_LaunchesImportedInstanceType); post-actions ssmDocumentName/order/timeoutSeconds/mustSucceedForCutover/externalParameters land in PostLaunchActions.SsmDocuments, ordered by order. Remaining: the unexposed columns have no observable effect, and the import doc's literal parameters format does not match SsmParameterStoreParameter (name/type), so it is not mapped.
 
 ### Structural gaps
 

@@ -1,7 +1,6 @@
 package ocinosql
 
 import (
-	"regexp"
 	"slices"
 	"time"
 
@@ -10,11 +9,8 @@ import (
 )
 
 const (
-	percentDone  = 100
-	regionMaxLen = 64
+	percentDone = 100
 )
-
-var regionRe = regexp.MustCompile(`^[a-z]+(-[a-z0-9]+)+-[0-9]+$`)
 
 type replicaIn struct {
 	MaxReadUnits  *int   `json:"maxReadUnits"`
@@ -97,7 +93,7 @@ func (b *InMemoryBackend) checkReplicaCreate(t *Table, in replicaIn) *APIError {
 	switch {
 	case in.Region == "":
 		return errMissing("region is required")
-	case len(in.Region) > regionMaxLen || !regionRe.MatchString(in.Region):
+	case !knownRegion(in.Region):
 		return errParam(in.Region + " isn't known to this service, and is not a valid region name")
 	case in.Region == Region:
 		return errParam("region must be a remote region, not the region of the table (" + Region + ")")

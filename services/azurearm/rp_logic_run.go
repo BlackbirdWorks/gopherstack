@@ -2,7 +2,9 @@ package azurearm
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -50,6 +52,21 @@ func (p *LogicProvider) startRunLocked(w *logicWorkflow, f logicFire) (*logicSta
 	}
 
 	now := p.clock.Now().UTC()
+
+	if met, err := p.conditionsMet(w, f, now); !met {
+		p.recordSkippedTrigger(w, f, now, err)
+
+		return nil, errLogicTriggerSkipped
+	}
+
+	lim := triggerConcurrency(w.triggerDef(f.trigger))
+	queued := lim.runs > 0 && countRuns(w, f.trigger, logicStRunning) >= lim.runs
+
+	if queued && countRuns(w, f.trigger, logicStWaiting) >= lim.waiting {
+		return nil, logicFail(http.StatusTooManyRequests, "TooManyRequests",
+			"The trigger '%s' has reached its maximum of %d waiting runs.", f.trigger, lim.waiting)
+	}
+
 	name := p.newRunName(now)
 	tracking := uuid.NewString()
 	trig := logicRunTrigger{
@@ -88,21 +105,11 @@ func (p *LogicProvider) startRunLocked(w *logicWorkflow, f logicFire) (*logicSta
 		p: p, run: run, live: live, ctx: runCtx, stop: stop, vars: map[string]*logicVar{},
 		params: effectiveLogicParams(w), wfKey: w.key(), def: w.Definition, clock: p.clock.Now, wfName: w.Name,
 		trigger: map[string]any{
-			fieldName: f.trigger, "outputs": f.outputs, logicKStartTime: logicTime(now), logicKEndTime: logicTime(now),
+			fieldName: f.trigger, logicKOutputs: f.outputs,
+			logicKStartTime: logicTime(now), logicKEndTime: logicTime(now),
 			logicKScheduledTime: logicTime(f.scheduled), logicKStatus: logicStSucceeded, logicKTrackingID: tracking,
 		},
-		info: map[string]any{
-			"id":          w.armID(),
-			fieldName:     w.Name,
-			fieldType:     namespaceMicrosoftLogic + "/" + logicWorkflowsType,
-			fieldLocation: w.Location,
-			"tags":        tagsAny(w.Tags),
-			"run": map[string]any{
-				"id":      w.armID() + "/runs/" + name,
-				fieldName: name,
-				fieldType: "Microsoft.Logic/workflows/runs",
-			},
-		},
+		info: workflowInfo(w, name),
 	}
 
 	if f.hasInputs {
@@ -111,13 +118,38 @@ func (p *LogicProvider) startRunLocked(w *logicWorkflow, f logicFire) (*logicSta
 
 	p.live[w.key()+"|"+name] = live
 
-	p.wg.Go(func() {
-		defer cancel()
+	launch := func() {
+		p.wg.Go(func() {
+			defer cancel()
 
-		rs.execute()
-	})
+			rs.execute()
+		})
+	}
+
+	if queued {
+		run.Status = logicStWaiting
+		qk := w.key() + "|" + f.trigger
+		p.queue[qk] = append(p.queue[qk], &logicQueued{run: run, live: live, launch: launch})
+	} else {
+		launch()
+	}
 
 	return &logicStarted{runName: name, live: live}, nil
+}
+
+func workflowInfo(w *logicWorkflow, run string) map[string]any {
+	return map[string]any{
+		"id":          w.armID(),
+		fieldName:     w.Name,
+		fieldType:     namespaceMicrosoftLogic + "/" + logicWorkflowsType,
+		fieldLocation: w.Location,
+		"tags":        tagsAny(w.Tags),
+		"run": map[string]any{
+			"id":      w.armID() + "/runs/" + run,
+			fieldName: run,
+			fieldType: "Microsoft.Logic/workflows/runs",
+		},
+	}
 }
 
 func tagsAny(t map[string]string) map[string]any {
@@ -188,6 +220,7 @@ func (rs *logicRunState) execute() {
 	rs.run.End = rs.clock().UTC()
 
 	delete(rs.p.live, rs.wfKey+"|"+rs.run.Name)
+	rs.p.dispatchQueuedLocked(rs.wfKey, rs.run.Trigger.Name)
 }
 
 func (p *LogicProvider) fireRecurrence(wfKey, trigger string, scheduled time.Time) {
@@ -275,6 +308,9 @@ func (p *LogicProvider) runTriggerLocked(w *logicWorkflow, name string) error {
 	}
 
 	_, err := p.startRunLocked(w, logicFire{trigger: name, scheduled: p.clock.Now().UTC(), outputs: map[string]any{}})
+	if errors.Is(err, errLogicTriggerSkipped) {
+		return nil
+	}
 
 	return err
 }
@@ -284,6 +320,10 @@ func (p *LogicProvider) cancelRunLocked(w *logicWorkflow, run string) (*logicLiv
 	for _, r := range w.Runs {
 		if !strings.EqualFold(r.Name, run) {
 			continue
+		}
+
+		if r.Status == logicStWaiting {
+			return p.dropQueuedLocked(w, r), nil
 		}
 
 		l, ok := p.live[w.key()+"|"+r.Name]

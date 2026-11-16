@@ -628,6 +628,7 @@ func TestSDK_HardDeleteWithoutRetention(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t)
+	e.h.Backend.SetShareRetention("devstoreaccount1", false, 0)
 	sc := e.svc.NewShareClient("hardgone")
 	_, err := sc.Create(ctx(t), nil)
 	require.NoError(t, err)
@@ -680,4 +681,22 @@ func deletedVersion(t *testing.T, e *env, name string) string {
 	t.Fatalf("no deleted share %q listed", name)
 
 	return ""
+}
+
+func TestSDK_SoftDeleteOnByDefault(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	sc := e.svc.NewShareClient("defaultsoft")
+	_, err := sc.Create(ctx(t), nil)
+	require.NoError(t, err)
+	_, err = sc.Delete(ctx(t), nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"defaultsoft@deleted"},
+		listNames(t, e, &service.ListSharesOptions{Include: service.ListSharesInclude{Deleted: true}}))
+
+	enabled, days := e.h.Backend.ShareRetention("fresh-account")
+	assert.True(t, enabled)
+	assert.EqualValues(t, 7, days)
 }

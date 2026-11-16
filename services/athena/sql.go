@@ -17,6 +17,8 @@ type sqlColumn struct {
 	name string
 	typ  string
 	glue string
+	// nested marks an ARRAY/MAP/ROW result whose cells hold JSON text.
+	nested bool
 }
 
 func (r *sqlResult) isNull(row, col int) bool {

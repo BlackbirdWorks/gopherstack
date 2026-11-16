@@ -151,6 +151,10 @@ func validateLogicTrigger(name string, t any) error {
 		return invalidTemplate("the trigger '%s' has unknown type '%s'", name, stringOf(m[fieldType]))
 	}
 
+	if err := validateLogicConditions(name, m); err != nil {
+		return err
+	}
+
 	switch typ {
 	case logicTrigRecurrence:
 		return validateLogicRecurrence(name, m)
@@ -215,8 +219,10 @@ func validateLogicRecurrence(name string, m map[string]any) error {
 		)
 	}
 
-	if tz := stringOf(rc["timeZone"]); tz != "" && !strings.EqualFold(tz, "UTC") {
-		return invalidTemplate("the trigger '%s' recurrence time zone '%s' is not supported; use UTC", name, tz)
+	if tz := stringOf(rc["timeZone"]); tz != "" {
+		if _, err := logicLoadZone(tz); err != nil {
+			return invalidTemplate("the trigger '%s' recurrence time zone '%s' was not found", name, tz)
+		}
 	}
 
 	if st := stringOf(rc[logicKStartTime]); st != "" {

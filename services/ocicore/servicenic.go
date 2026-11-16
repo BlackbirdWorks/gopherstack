@@ -124,3 +124,53 @@ func (b *InMemoryBackend) DeleteServiceNic(vnicID string) {
 		b.endVnic(v)
 	}
 }
+
+// SetServiceNicNsgs replaces the network security groups of a VNIC made by CreateServiceNic.
+func (b *InMemoryBackend) SetServiceNicNsgs(vnicID string, nsgIDs []string) error {
+	if _, _, aerr := b.UpdateVnic(vnicID, "", UpdateVnicIn{NsgIDs: &nsgIDs}); aerr != nil {
+		return aerr
+	}
+
+	return nil
+}
+
+// PeerClass is how ClassifyPeer saw a source address.
+type PeerClass int
+
+const (
+	// PeerUnknown means no VNIC in the emulator owns the address.
+	PeerUnknown PeerClass = iota
+	// PeerOtherVCN means the source VNIC is in a different VCN than the destination.
+	PeerOtherVCN
+	// PeerAllowed means the security lists and NSGs of both VNICs permit the flow.
+	PeerAllowed
+	// PeerDenied means they do not.
+	PeerDenied
+)
+
+// ClassifyPeer evaluates a new connection from the private IP srcIP to a VNIC, for services that learn the
+// caller only from its connection address.
+func (b *InMemoryBackend) ClassifyPeer(srcIP, dstVnicID string, f Flow) PeerClass {
+	b.mu.RLock("ClassifyPeer")
+	s, serr := b.resolveEndpoint(Endpoint{IP: srcIP})
+	d, derr := b.resolveEndpoint(Endpoint{VnicID: dstVnicID})
+	b.mu.RUnlock()
+
+	switch {
+	case serr != nil || derr != nil:
+		return PeerUnknown
+	case s.subnet.VcnID != d.subnet.VcnID:
+		return PeerOtherVCN
+	}
+
+	v, err := b.CanReach(Endpoint{VnicID: s.vnic.ID, IP: srcIP}, Endpoint{VnicID: dstVnicID}, f)
+	if err != nil {
+		return PeerUnknown
+	}
+
+	if v.Allowed {
+		return PeerAllowed
+	}
+
+	return PeerDenied
+}

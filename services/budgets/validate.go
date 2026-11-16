@@ -12,50 +12,52 @@ import (
 )
 
 const (
-	maxNameLen            = 100
-	maxNotifications      = 5
-	maxSubscribers        = 11
-	maxActionsPerBudget   = 10
-	maxTags               = 50
-	maxTagKeyLen          = 128
-	maxTagValueLen        = 256
-	defaultPageSize       = 100
-	maxPageSize           = 100
-	maxBudgetsPageSize    = 1000
-	maxAutoAdjustPeriods  = 60
-	unitPercentage        = "PERCENTAGE"
-	defaultEndYear        = 2087
-	defaultEndMonth       = time.June
-	defaultEndDay         = 15
-	budgetTypeCost        = "COST"
-	budgetTypeUsage       = "USAGE"
-	timeUnitDaily         = "DAILY"
-	timeUnitMonthly       = "MONTHLY"
-	timeUnitQuarterly     = "QUARTERLY"
-	timeUnitAnnually      = "ANNUALLY"
-	timeUnitCustom        = "CUSTOM"
-	notifActual           = "ACTUAL"
-	notifForecasted       = "FORECASTED"
-	subEmail              = "EMAIL"
-	subSNS                = "SNS"
-	thresholdPercentage   = "PERCENTAGE"
-	thresholdAbsolute     = "ABSOLUTE_VALUE"
-	stateOK               = "OK"
-	stateAlarm            = "ALARM"
-	autoAdjustHistorical  = "HISTORICAL"
-	autoAdjustForecast    = "FORECAST"
-	approvalAutomatic     = "AUTOMATIC"
-	approvalManual        = "MANUAL"
-	actionIAM             = "APPLY_IAM_POLICY"
-	actionSCP             = "APPLY_SCP_POLICY"
-	actionSSM             = "RUN_SSM_DOCUMENTS"
-	healthyStatus         = "HEALTHY"
-	opGreater             = "GREATER_THAN"
-	opLess                = "LESS_THAN"
-	opEqual               = "EQUAL_TO"
-	maxHistoricalMonthly  = 60
-	maxHistoricalQuarter  = 20
-	maxHistoricalAnnually = 5
+	maxNameLen              = 100
+	maxNotifications        = 5
+	maxSubscribers          = 11
+	maxActionsPerBudget     = 10
+	maxTags                 = 50
+	maxTagKeyLen            = 128
+	maxTagValueLen          = 256
+	defaultPageSize         = 100
+	maxPageSize             = 100
+	maxBudgetsPageSize      = 1000
+	maxAutoAdjustPeriods    = 60
+	unitPercentage          = "PERCENTAGE"
+	defaultEndYear          = 2087
+	defaultEndMonth         = time.June
+	defaultEndDay           = 15
+	budgetTypeCost          = "COST"
+	budgetTypeRIUtilization = "RI_UTILIZATION"
+	budgetTypeRICoverage    = "RI_COVERAGE"
+	budgetTypeUsage         = "USAGE"
+	timeUnitDaily           = "DAILY"
+	timeUnitMonthly         = "MONTHLY"
+	timeUnitQuarterly       = "QUARTERLY"
+	timeUnitAnnually        = "ANNUALLY"
+	timeUnitCustom          = "CUSTOM"
+	notifActual             = "ACTUAL"
+	notifForecasted         = "FORECASTED"
+	subEmail                = "EMAIL"
+	subSNS                  = "SNS"
+	thresholdPercentage     = "PERCENTAGE"
+	thresholdAbsolute       = "ABSOLUTE_VALUE"
+	stateOK                 = "OK"
+	stateAlarm              = "ALARM"
+	autoAdjustHistorical    = "HISTORICAL"
+	autoAdjustForecast      = "FORECAST"
+	approvalAutomatic       = "AUTOMATIC"
+	approvalManual          = "MANUAL"
+	actionIAM               = "APPLY_IAM_POLICY"
+	actionSCP               = "APPLY_SCP_POLICY"
+	actionSSM               = "RUN_SSM_DOCUMENTS"
+	healthyStatus           = "HEALTHY"
+	opGreater               = "GREATER_THAN"
+	opLess                  = "LESS_THAN"
+	opEqual                 = "EQUAL_TO"
+	maxHistoricalMonthly    = 60
+	maxHistoricalQuarter    = 20
+	maxHistoricalAnnually   = 5
 )
 
 var (
@@ -347,9 +349,41 @@ func pageSize(limit *int32, upper int) (int, error) {
 	return int(*limit), nil
 }
 
-func paginate[T any](all []T, token string, limit *int32, upper int) (page.Page[T], error) {
-	if err := page.ValidateToken(token); err != nil {
-		return page.Page[T]{}, fail(ErrInvalidNextToken, "invalid NextToken")
+// pageTokenTTL is how long a NextToken stays valid; the API reference gives no lifetime.
+const pageTokenTTL = 24 * time.Hour
+
+func issueToken(now time.Time, inner string) string {
+	if inner == "" {
+		return ""
+	}
+
+	return strconv.FormatInt(now.Unix(), 10) + "." + inner
+}
+
+// openToken validates an issued NextToken and returns the page cursor inside it.
+func openToken(now time.Time, token string) (string, error) {
+	if token == "" {
+		return "", nil
+	}
+
+	stamp, inner, ok := strings.Cut(token, ".")
+
+	secs, err := strconv.ParseInt(stamp, 10, 64)
+	if !ok || err != nil || page.ValidateToken(inner) != nil {
+		return "", fail(ErrInvalidNextToken, "invalid NextToken")
+	}
+
+	if now.Sub(time.Unix(secs, 0)) > pageTokenTTL {
+		return "", fail(ErrExpiredNextToken, "the NextToken has expired")
+	}
+
+	return inner, nil
+}
+
+func paginate[T any](now time.Time, all []T, token string, limit *int32, upper int) (page.Page[T], error) {
+	cursor, err := openToken(now, token)
+	if err != nil {
+		return page.Page[T]{}, err
 	}
 
 	size, err := pageSize(limit, upper)
@@ -357,17 +391,20 @@ func paginate[T any](all []T, token string, limit *int32, upper int) (page.Page[
 		return page.Page[T]{}, err
 	}
 
-	if page.DecodeToken(token) > len(all) {
+	if page.DecodeToken(cursor) > len(all) {
 		return page.Page[T]{}, fail(ErrInvalidNextToken, "invalid NextToken")
 	}
 
-	return page.New(all, token, size, defaultPageSize), nil
+	pg := page.New(all, cursor, size, defaultPageSize)
+	pg.Next = issueToken(now, pg.Next)
+
+	return pg, nil
 }
 
 func oneOf(v string, set ...string) bool { return slices.Contains(set, v) }
 
 func validBudgetType(v string) bool {
-	return oneOf(v, budgetTypeUsage, budgetTypeCost, "RI_UTILIZATION", "RI_COVERAGE",
+	return oneOf(v, budgetTypeUsage, budgetTypeCost, budgetTypeRIUtilization, budgetTypeRICoverage,
 		"SAVINGS_PLANS_UTILIZATION", "SAVINGS_PLANS_COVERAGE")
 }
 

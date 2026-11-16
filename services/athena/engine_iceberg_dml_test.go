@@ -227,7 +227,7 @@ func TestIceberg_CTAS(t *testing.T) {
 		t,
 		e.failure(
 			t,
-			"CREATE TABLE bad WITH (table_type='ICEBERG', format='ORC', location='s3://lake/b/') AS SELECT id FROM orders",
+			"CREATE TABLE bad WITH (table_type='ICEBERG', format='CSV', location='s3://lake/b/') AS SELECT id FROM orders",
 		),
 		"ORC",
 	)

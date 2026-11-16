@@ -55,6 +55,10 @@ func (b *InMemoryBackend) updateLocked(rec *instRec, n resName, src *redispb.Ins
 		return err
 	}
 
+	if maskHas(paths, "redis_configs") && rec.pb.GetRedisConfigs()["databases"] != cand.GetRedisConfigs()["databases"] {
+		return errInvalid("The databases config can only be set when the instance is created.")
+	}
+
 	if maskHas(paths, "maintenance_policy") {
 		stampPolicy(cand.GetMaintenancePolicy(), now)
 	}
@@ -89,7 +93,7 @@ func (b *InMemoryBackend) applyAuthLocked(rec *instRec, cand *redispb.Instance) 
 	}
 
 	if rec.engine != nil {
-		rec.engine.Mini.RequireAuth(rec.authString)
+		rec.engine.RequireAuth(rec.authString)
 	}
 }
 

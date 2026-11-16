@@ -31,13 +31,14 @@ const (
 
 // Handler owns the HTTPS listener and the indexer scheduler.
 type Handler struct {
-	Backend  *InMemoryBackend
-	srvMu    *lockmetrics.RWMutex
-	srv      *http.Server
-	cancel   context.CancelFunc
-	done     *sync.WaitGroup
-	Settings Settings
-	Port     int
+	Backend   *InMemoryBackend
+	Authority TokenAuthority
+	srvMu     *lockmetrics.RWMutex
+	srv       *http.Server
+	cancel    context.CancelFunc
+	done      *sync.WaitGroup
+	Settings  Settings
+	Port      int
 }
 
 // NewHandler returns a Handler over backend.
@@ -180,4 +181,5 @@ func (h *Handler) Shutdown(ctx context.Context) {
 	}
 
 	h.done.Wait()
+	h.Backend.WaitRuns()
 }

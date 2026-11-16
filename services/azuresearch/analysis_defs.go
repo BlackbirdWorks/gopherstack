@@ -104,7 +104,14 @@ func buildAnalysisDefs(def map[string]any) (*analysisDefs, error) {
 func (d *analysisDefs) addTokenizer(o map[string]any) error {
 	name, kind := strOf(o, "name"), strOf(o, "@odata.type")
 	if kind != typePatternTokenizer {
-		return badf("The request is invalid. Details: tokenizer '%s' has unsupported type '%s'.", name, kind)
+		tok, err := buildTokenizer(name, kind, o)
+		if err != nil {
+			return err
+		}
+
+		d.tokenizers[name] = tok
+
+		return nil
 	}
 
 	re, err := patternFrom(o, name)
@@ -168,7 +175,7 @@ func buildFilter(name, kind string, o map[string]any) (tokenFilterFn, error) {
 		return gramFilter(name, kind, o)
 	}
 
-	return nil, badf("The request is invalid. Details: token filter '%s' has unsupported type '%s'.", name, kind)
+	return buildMoreFilter(name, kind, o)
 }
 
 func intProp(o map[string]any, key string, def int) int {

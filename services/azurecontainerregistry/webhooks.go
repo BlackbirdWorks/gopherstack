@@ -21,6 +21,9 @@ import (
 
 const (
 	actionPull        = "pull"
+	actionMetaRead    = "metadata_read"
+	actionMetaWrite   = "metadata_write"
+	schemeHTTPS       = "https"
 	actionPush        = "push"
 	actionDelete      = "delete"
 	actionChartPush   = "chart_push"

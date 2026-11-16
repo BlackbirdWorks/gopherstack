@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 66 (66 ok) |
 | Feature families | 14 (13 ok, 1 partial) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- CustomDetectionRule catalog content: all 12 CustomDetectionRule* ops are routed with real state (associations, org configurations, tags, 14-day DRY_RUN expiry, persistence), but the rule catalog itself is owned by GuardDuty and no SDK operation or doc page publishes its rule IDs/definitions (api_op_ListCustomDetectionRules.go, user guide custom-detection-rules-managing), so the backend ships empty and rules enter only through InMemoryBackend.RegisterCustomDetectionRule; until a rule is registered every Create/Get is ResourceNotFoundException and ListCustomDetectionRules is empty. Also not modelled: member-account association fan-out from an org configuration (the emulator serves one caller account), the AccessDeniedException a member account gets, and findings generation from live rules.
 
 ### Structural gaps
 

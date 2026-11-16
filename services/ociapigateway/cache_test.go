@@ -8,12 +8,31 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/oracle/oci-go-sdk/v65/apigateway"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func (e *env) mkCachedGateway(t *testing.T, name string) apigateway.Gateway {
+const cacheSecretID = "ocid1.vaultsecret.oc1..cache"
+
+func (e *env) startCacheServer(t *testing.T) *miniredis.Miniredis {
+	t.Helper()
+
+	mr := miniredis.RunT(t)
+	mr.RequireUserAuth("cacheuser", "cachepw")
+	e.backend.SetSecretResolver(func(id string, version int64) (string, bool) {
+		if id != cacheSecretID || version != 1 {
+			return "", false
+		}
+
+		return `{"username":"cacheuser","password":"cachepw"}`, true
+	})
+
+	return mr
+}
+
+func (e *env) mkCachedGateway(t *testing.T, name string, mr *miniredis.Miniredis) apigateway.Gateway {
 	t.Helper()
 
 	created, err := e.gw.CreateGateway(t.Context(), apigateway.CreateGatewayRequest{
@@ -21,9 +40,9 @@ func (e *env) mkCachedGateway(t *testing.T, name string) apigateway.Gateway {
 		SubnetId: new(testSubnet), DisplayName: new(name),
 		ResponseCacheDetails: apigateway.ExternalRespCache{
 			Servers: []apigateway.ResponseCacheRespServer{
-				{Host: new("cache.invalid"), Port: new(6379)},
+				{Host: new(mr.Host()), Port: new(mr.Server().Addr().Port)},
 			},
-			AuthenticationSecretId:            new("ocid1.vaultsecret.oc1..cache"),
+			AuthenticationSecretId:            new(cacheSecretID),
 			AuthenticationSecretVersionNumber: new(int64(1)),
 		},
 	})
@@ -35,7 +54,7 @@ func (e *env) mkCachedGateway(t *testing.T, name string) apigateway.Gateway {
 
 	ext, ok := got.ResponseCacheDetails.(apigateway.ExternalRespCache)
 	require.True(t, ok, "responseCacheDetails round-trips as EXTERNAL_RESP_CACHE")
-	assert.Equal(t, "cache.invalid", *ext.Servers[0].Host)
+	assert.Equal(t, mr.Host(), *ext.Servers[0].Host)
 
 	return got.Gateway
 }
@@ -62,7 +81,8 @@ func TestResponseCache(t *testing.T) {
 	t.Cleanup(backend.Close)
 
 	e := newEnv(t, envOpts{})
-	gw := e.mkCachedGateway(t, "cached")
+	mr := e.startCacheServer(t)
+	gw := e.mkCachedGateway(t, "cached", mr)
 	e.mkDeployment(t, *gw.Id, "/k", cachedSpec(backend.URL, `,"cacheKeyAdditions":["request.headers[Accept]"]`))
 
 	first := e.call(t, *gw.Id, http.MethodGet, "/k/c?ignored=1", map[string]string{"Accept": "a/b"}, "")
@@ -105,7 +125,8 @@ func TestResponseCacheRules(t *testing.T) {
 	t.Cleanup(backend.Close)
 
 	e := newEnv(t, envOpts{})
-	gw := e.mkCachedGateway(t, "cached-rules")
+	mr := e.startCacheServer(t)
+	gw := e.mkCachedGateway(t, "cached-rules", mr)
 	e.mkDeployment(t, *gw.Id, "/pub", cachedSpec(backend.URL, ""))
 	e.mkDeployment(t, *gw.Id, "/priv", cachedSpec(backend.URL, `,"isPrivateCachingEnabled":true`))
 
@@ -160,6 +181,17 @@ func TestGatewayResponseCacheValidation(t *testing.T) {
 				AuthenticationSecretVersionNumber: new(int64(1)),
 			},
 		},
+		{name: "two servers", detail: apigateway.ExternalRespCache{
+			Servers: []apigateway.ResponseCacheRespServer{
+				{Host: new("h"), Port: new(1)}, {Host: new("i"), Port: new(2)},
+			},
+			AuthenticationSecretId: new("s"), AuthenticationSecretVersionNumber: new(int64(1)),
+		}},
+		{name: "zero timeout", detail: apigateway.ExternalRespCache{
+			Servers:                []apigateway.ResponseCacheRespServer{{Host: new("h"), Port: new(1)}},
+			AuthenticationSecretId: new("s"), AuthenticationSecretVersionNumber: new(int64(1)),
+			ReadTimeoutInMs: new(0),
+		}},
 		{name: "no secret", detail: apigateway.ExternalRespCache{
 			Servers: []apigateway.ResponseCacheRespServer{{Host: new("h"), Port: new(1)}},
 		}},
@@ -176,4 +208,95 @@ func TestGatewayResponseCacheValidation(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode())
 		})
 	}
+}
+
+func TestResponseCacheUsesCacheServer(t *testing.T) {
+	t.Parallel()
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("body"))
+	}))
+	t.Cleanup(backend.Close)
+
+	e := newEnv(t, envOpts{})
+	mr := e.startCacheServer(t)
+	gw := e.mkCachedGateway(t, "stored", mr)
+	e.mkDeployment(t, *gw.Id, "/k", cachedSpec(backend.URL, ""))
+
+	assert.Equal(t, "MISS", e.call(t, *gw.Id, http.MethodGet, "/k/c", nil, "").header.Get("X-Cache-Status"))
+
+	keys := mr.Keys()
+	require.Len(t, keys, 1, "the response is written to the cache server")
+	assert.Equal(t, 60*time.Second, mr.TTL(keys[0]))
+
+	mr.FlushAll()
+
+	assert.Equal(t, "MISS", e.call(t, *gw.Id, http.MethodGet, "/k/c", nil, "").header.Get("X-Cache-Status"),
+		"entries live on the cache server, not in the gateway")
+}
+
+func TestResponseCacheOutage(t *testing.T) {
+	t.Parallel()
+
+	var hits atomic.Int32
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write([]byte("body"))
+	}))
+	t.Cleanup(backend.Close)
+
+	tests := []struct {
+		prepare func(e *env, mr *miniredis.Miniredis)
+		name    string
+	}{
+		{name: "server down", prepare: func(_ *env, mr *miniredis.Miniredis) { mr.Close() }},
+		{name: "secret unreadable", prepare: func(e *env, _ *miniredis.Miniredis) {
+			e.backend.SetSecretResolver(func(string, int64) (string, bool) { return "", false })
+		}},
+		{name: "wrong password", prepare: func(e *env, _ *miniredis.Miniredis) {
+			e.backend.SetSecretResolver(func(string, int64) (string, bool) { return `{"password":"nope"}`, true })
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, envOpts{})
+			mr := e.startCacheServer(t)
+			gw := e.mkCachedGateway(t, "outage", mr)
+			e.mkDeployment(t, *gw.Id, "/k", cachedSpec(backend.URL, ""))
+			tt.prepare(e, mr)
+
+			res := e.call(t, *gw.Id, http.MethodGet, "/k/c", nil, "")
+			assert.Equal(t, http.StatusOK, res.status, "the request is answered by the back end")
+			assert.Equal(t, "body", res.body)
+			assert.Equal(t, "BYPASS", res.header.Get("X-Cache-Status"))
+		})
+	}
+}
+
+func TestResponseCacheClientReleasedWithGateway(t *testing.T) {
+	t.Parallel()
+
+	backend := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	t.Cleanup(backend.Close)
+
+	e := newEnv(t, envOpts{})
+	mr := e.startCacheServer(t)
+	gw := e.mkCachedGateway(t, "released", mr)
+	dep := e.mkDeployment(t, *gw.Id, "/k", cachedSpec(backend.URL, ""))
+
+	e.call(t, *gw.Id, http.MethodGet, "/k/c", nil, "")
+	require.Positive(t, mr.CurrentConnectionCount())
+
+	_, err := e.dep.DeleteDeployment(t.Context(), apigateway.DeleteDeploymentRequest{DeploymentId: &dep})
+	require.NoError(t, err)
+	e.settle()
+
+	_, err = e.gw.DeleteGateway(t.Context(), apigateway.DeleteGatewayRequest{GatewayId: gw.Id})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool { return mr.CurrentConnectionCount() == 0 }, 5*time.Second, 10*time.Millisecond)
 }

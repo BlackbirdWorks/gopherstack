@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 5 (5 ok) |
 | Feature families | 2 (2 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- ValidationException (bad Path, out-of-range ListItems MaxResults) and PutObject's XAmzContentSHA256Mismatch are served but are not in any of the 5 per-op error models at v1.32.4 and no AWS page names the exact error codes; the names used are best-effort.
 
 ### Structural gaps
 

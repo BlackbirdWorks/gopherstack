@@ -17,8 +17,6 @@ gaps: []
 items_still_open:
   - "License-based metering (LicenseArn / concurrent agreements): BatchMeterUsage needs a ProductCode and LicenseArn is only echoed; there is no license catalog"
   - "Seeding is Go-API only (RegisterProduct, Subscribe, IssueRegistrationToken); there is no HTTP or config surface to declare products for out-of-process clients"
-  - "RegisterUsage signature is HS256 with an emulator key and PublicKeyRotationTimestamp is the product's first-seen time plus 90 days; clients cannot verify it against the AWS Marketplace public key"
-  - "BatchMeterUsage deduplicates per second-resolution timestamp: API_BatchMeterUsage.html (checked 2026-11-13) states idempotency for identical requests but no hourly aggregation rule; only MeterUsage rounds down to the hour (API_MeterUsage.html)."
   - "InvalidRegionException, InvalidEndpointRegionException, PlatformNotSupportedException, DisabledApiException, InvalidLicenseException and ThrottlingException are never raised"
 structural_gaps:
   - "No EC2 instance, ECS task or EKS pod identity exists to bind a product code to, so the region/platform checks of MeterUsage and RegisterUsage have no data source."
@@ -36,3 +34,11 @@ Wiring: `internal/app/marketplace_wiring.go` sets the Entitlement Service backen
 ## 2026-11-13 MeterUsage hour rounding
 
 MeterUsage rounds Timestamp down to the hour for the once-per-hour idempotency/DuplicateRequestException rule (API_MeterUsage.html); IdempotencyConflictException answers 400 as documented (was 409).
+
+## Emulator choices where the vendor is silent
+
+- BatchMeterUsage deduplicates per second-resolution timestamp: API_BatchMeterUsage.html (checked 2026-11-13) states idempotency for identical requests but no hourly aggregation rule; only MeterUsage rounds down to the hour (API_MeterUsage.html).
+
+## External effects that are recorded, not performed
+
+- Client limitation: RegisterUsage signs with an emulator key (HS256), so clients cannot verify it against the AWS Marketplace public key.

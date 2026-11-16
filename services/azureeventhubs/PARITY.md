@@ -35,7 +35,6 @@ items_still_open:
   - "Kafka endpoint for Event Hubs (port 9093) is not implemented."
   - "Capture, geo-replication, compaction and application-group features are not implemented."
   - "Geo-disaster recovery data plane: the alias FQDN does not resolve to the active namespace (AMQP and HTTP carry no namespace, so a client cannot connect through <alias> and see it move on failover), the secondary data plane is not read-only while paired (only ARM entity writes are refused), replication is synchronous and covers event hubs and consumer groups only, and the alias is not blocked for namespaces in the same dedicated cluster (clusters are not modelled)."
-  - "Geo-DR error codes and texts are unverified: the REST reference (rest/api/eventhub/disaster-recovery-configs, 2024-01-01) documents status codes only, so the 400s for a same-region pair, a tier mismatch, a re-paired secondary, a write to the secondary and fail over from the primary, the 409 for an alias in use and the NameInUse/InvalidName message texts are inferred from Learn (event-hubs/event-hubs-geo-dr, configure-geo-disaster-recovery)."
 leaks: {status: clean, note: "Shutdown closes the AMQP servers and HTTP listener; the sweeper stops with its context; receiver registrations are removed when links close."}
 ---
 
@@ -44,3 +43,7 @@ leaks: {status: clean, note: "Shutdown closes the AMQP servers and HTTP listener
 Partition keys are hashed with FNV-1a; real Event Hubs uses its own hash, so key-to-partition placement differs, only same-key-same-partition holds.
 
 Geo-DR: REST 2024-01-01 (learn.microsoft.com/rest/api/eventhub/disaster-recovery-configs: create-or-update 200/201, delete 200/204, break-pairing and fail-over 200, check-name-availability, list, get, authorization rules, listKeys) and Learn event-hubs/event-hubs-geo-dr. A PUT on the primary creates the alias with role Primary and a mirror with role Secondary on the partner; the partner must be an existing namespace of the same tier (Standard-Standard or Premium-Premium) in a different region and not already paired. Event hubs and consumer groups are copied to the secondary and kept in step on every primary write; the secondary refuses event hub and consumer group writes while paired. breakPairing (primary only) leaves PrimaryNotReplicating and removes the secondary config; failover (secondary only) leaves the secondary PrimaryNotReplicating and removes the pairing (Learn: "once-only", "the pairing is removed").
+
+## Emulator choices where the vendor is silent
+
+- Geo-DR error codes and texts are unverified: the REST reference (rest/api/eventhub/disaster-recovery-configs, 2024-01-01) documents status codes only, so the 400s for a same-region pair, a tier mismatch, a re-paired secondary, a write to the secondary and fail over from the primary, the 409 for an alias in use and the NameInUse/InvalidName message texts are inferred from Learn (event-hubs/event-hubs-geo-dr, configure-geo-disaster-recovery).

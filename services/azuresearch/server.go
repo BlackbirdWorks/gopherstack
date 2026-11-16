@@ -134,11 +134,20 @@ func errorOf(err error) apiErr {
 		err    error
 		status int
 	}{
-		{ErrBadRequest, http.StatusBadRequest}, {ErrIndexNotFound, http.StatusNotFound},
-		{ErrObjectNotFound, http.StatusNotFound}, {ErrDocumentNotFound, http.StatusNotFound},
-		{ErrServiceNotFound, http.StatusNotFound}, {ErrPrecondition, http.StatusPreconditionFailed},
-		{ErrUnauthorized, http.StatusUnauthorized}, {ErrForbidden, http.StatusForbidden},
-		{ErrTooLarge, http.StatusRequestEntityTooLarge}, {ErrQuota, http.StatusForbidden},
+		{ErrBadRequest, http.StatusBadRequest},
+		{ErrIndexNotFound, http.StatusNotFound},
+		{ErrObjectNotFound, http.StatusNotFound},
+		{ErrDocumentNotFound, http.StatusNotFound},
+		{ErrServiceNotFound, http.StatusNotFound},
+		{ErrPrecondition, http.StatusPreconditionFailed},
+		{ErrUnauthorized, http.StatusUnauthorized},
+		{ErrForbidden, http.StatusForbidden},
+		{
+			ErrTooLarge,
+			http.StatusRequestEntityTooLarge,
+		},
+		{ErrConflict, http.StatusConflict},
+		{ErrQuota, http.StatusForbidden},
 	}
 
 	for _, e := range table {

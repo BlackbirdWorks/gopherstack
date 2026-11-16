@@ -9,13 +9,9 @@
 | --- | --- |
 | PARITY entries audited | 21 (21 ok) |
 | Feature families | 7 (7 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- ListExplainabilityExports Filters Key ResourceArn is left unapplied: ExplainabilityExportSummary has no ResourceArn and the SDK does not say whether it means the export's ExplainabilityArn or that explainability's ResourceArn.
 
 ## More
 

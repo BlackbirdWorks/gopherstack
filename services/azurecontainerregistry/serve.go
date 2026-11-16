@@ -28,6 +28,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	path := r.URL.Path
 
+	if reg, ok := h.resolve(r); ok {
+		switch {
+		case !h.Backend.clientAllowed(reg, r):
+			writeNetworkDenied(w, r)
+
+			return
+		case !h.Backend.keyAvailable(reg):
+			writeKeyRevoked(w)
+
+			return
+		}
+	}
+
 	switch {
 	case path == prefixV2 || strings.HasPrefix(path, prefixV2+"/"):
 		h.serveRegistry(w, r)
@@ -98,10 +111,10 @@ func (h *Handler) unknownRegistry(w http.ResponseWriter) {
 
 func scheme(r *http.Request) string {
 	if r.TLS != nil {
-		return "https"
+		return schemeHTTPS
 	}
 
-	if p := r.Header.Get("X-Forwarded-Proto"); p == "https" {
+	if p := r.Header.Get("X-Forwarded-Proto"); p == schemeHTTPS {
 		return p
 	}
 
@@ -110,6 +123,7 @@ func scheme(r *http.Request) string {
 
 // principal is an authenticated caller; scoped callers are limited to the access their token records.
 type principal struct {
+	check  func(need) bool
 	access []tokenAccess
 	scoped bool
 }
@@ -134,6 +148,10 @@ func (h *Handler) authenticate(r *http.Request, reg string) (principal, bool) {
 
 		if b.VerifyAdmin(reg, user, pass) || b.VerifyRefresh(pass, reg) {
 			return principal{}, true
+		}
+
+		if b.VerifyToken(reg, user, pass) {
+			return principal{scoped: true, check: func(n need) bool { return b.tokenAllows(reg, user, n) }}, true
 		}
 
 		access, valid := b.accessScopes(pass, reg)
@@ -161,6 +179,10 @@ func (n need) scope() string { return n.typ + ":" + n.name + ":" + n.hint }
 func (p principal) allows(n need) bool {
 	if !p.scoped {
 		return true
+	}
+
+	if p.check != nil {
+		return p.check(n)
 	}
 
 	return slices.ContainsFunc(p.access, func(a tokenAccess) bool {
@@ -242,7 +264,7 @@ func actionsFor(method string) (string, string) {
 		return actionDelete, actionDelete
 	}
 
-	return "push", "pull,push"
+	return actionPush, "pull,push"
 }
 
 func denyScope(w http.ResponseWriter, r *http.Request, needs []need) {
@@ -287,6 +309,13 @@ func (h *Handler) serveRegistry(w http.ResponseWriter, r *http.Request) {
 		h.unknownRegistry(w)
 
 		return
+	}
+
+	if repo, ref, isManifest := manifestRef(
+		r.URL.Path,
+	); isManifest &&
+		(r.Method == http.MethodGet || r.Method == http.MethodHead) {
+		h.Backend.pullThrough(r.Context(), reg, app, repo, ref)
 	}
 
 	ociregistry.ServeObserved(app, w, r, h.observer(reg, app, r))

@@ -94,6 +94,7 @@ type WebProvider struct {
 	sites     map[string]*storedWebSite
 	plans     map[string]*storedWebPlan
 	ids       *identityService
+	idCache   *identityCache
 }
 
 // NewWebProvider creates a WebProvider; dataPlane may be nil.
@@ -104,7 +105,7 @@ func NewWebProvider(dataPlane FunctionApps) *WebProvider {
 
 	return &WebProvider{
 		mu: lockmetrics.New("azurearm.webprovider"), dataPlane: dataPlane,
-		sites: map[string]*storedWebSite{}, plans: map[string]*storedWebPlan{},
+		sites: map[string]*storedWebSite{}, plans: map[string]*storedWebPlan{}, idCache: newIdentityCache(),
 	}
 }
 
@@ -357,6 +358,12 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 
 	p.sites[webSiteKey(name)] = rec
 
+	p.syncIdentities()
+
+	if exists {
+		p.restartOnIdentityChange(name, existing, ident)
+	}
+
 	return p.siteBody(ctx, id, rec, info), nil
 }
 
@@ -585,6 +592,7 @@ func (p *WebProvider) Delete(_ context.Context, id ResourceID) error {
 		}
 
 		delete(p.sites, webSiteKey(s.Name))
+		p.syncIdentities()
 
 		return nil
 	case webSlotsType:
@@ -676,6 +684,8 @@ func (p *WebProvider) DeleteResourcesInGroup(_ context.Context, resourceGroup st
 			delete(p.sites, k)
 		}
 	}
+
+	p.syncIdentities()
 
 	for k, pl := range p.plans {
 		if resourceGroupsEqual(pl.ResourceGroup, resourceGroup) {

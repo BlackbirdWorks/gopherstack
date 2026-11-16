@@ -108,32 +108,53 @@ func crc64Jones(b []byte) uint64 {
 	return crc
 }
 
-// ExportRDB serialises the keyspace as a Redis RDB file (version 9). Streams are not representable and fail the
-// export; per-field hash TTLs are dropped because RDB 9 cannot carry them.
+// ExportRDB serialises the keyspace as a Redis RDB file. Plain data is written as version 9; streams (with their
+// consumer groups and pending entries) raise it to 11 and per-field hash TTLs to 12, the first versions that can
+// carry them. Streams are cut into listpack nodes following stream-node-max-bytes and stream-node-max-entries.
 func (e *Engine) ExportRDB() ([]byte, error) {
 	if e == nil || e.Mini == nil {
 		return nil, fmt.Errorf("%w: engine not running", ErrBadRDB)
 	}
 
-	return EncodeRDB(e.Mini)
+	return encodeRDB(e.Mini, e.auth, e.streamLimits())
 }
 
 // EncodeRDB is ExportRDB for a bare miniredis server.
 func EncodeRDB(mr *miniredis.Miniredis) ([]byte, error) {
-	var w bytes.Buffer
+	return encodeRDB(mr, "", defaultStreamLimits())
+}
 
-	w.WriteString(rdbMagic + fmt.Sprintf("%04d", rdbVersion))
-	w.WriteByte(rdbAux)
-	putString(&w, "redis-ver")
-	putString(&w, "7.0.0")
+type rdbEncoder struct {
+	cl      *localClient
+	now     time.Time
+	lim     streamLimits
+	version int
+}
+
+func (en *rdbEncoder) need(version int) { en.version = max(en.version, version) }
+
+func encodeRDB(mr *miniredis.Miniredis, auth string, lim streamLimits) ([]byte, error) {
+	cl, _ := newLocalClient(mr, auth)
+	en := &rdbEncoder{cl: cl, lim: lim, now: time.Now(), version: rdbVersion}
+
+	var body bytes.Buffer
+
+	body.WriteByte(rdbAux)
+	putString(&body, "redis-ver")
+	putString(&body, "7.0.0")
 
 	for i := range keyspaceDBs {
-		if err := encodeDB(&w, mr, i); err != nil {
+		if err := en.encodeDB(&body, mr, i); err != nil {
 			return nil, err
 		}
 	}
 
-	w.WriteByte(rdbEOF)
+	body.WriteByte(rdbEOF)
+
+	var w bytes.Buffer
+
+	w.WriteString(rdbMagic + fmt.Sprintf("%04d", en.version))
+	w.Write(body.Bytes())
 
 	var sum [8]byte
 
@@ -143,7 +164,7 @@ func EncodeRDB(mr *miniredis.Miniredis) ([]byte, error) {
 	return w.Bytes(), nil
 }
 
-func encodeDB(w *bytes.Buffer, mr *miniredis.Miniredis, idx int) error {
+func (en *rdbEncoder) encodeDB(w *bytes.Buffer, mr *miniredis.Miniredis, idx int) error {
 	db := mr.DB(idx)
 	keys := db.Keys()
 
@@ -167,7 +188,7 @@ func encodeDB(w *bytes.Buffer, mr *miniredis.Miniredis, idx int) error {
 	putLen(w, uint64(withTTL))
 
 	for _, k := range keys {
-		if err := encodeKey(w, db, idx, k); err != nil {
+		if err := en.encodeKey(w, db, idx, k); err != nil {
 			return err
 		}
 	}
@@ -175,29 +196,31 @@ func encodeDB(w *bytes.Buffer, mr *miniredis.Miniredis, idx int) error {
 	return nil
 }
 
-func encodeKey(w *bytes.Buffer, db *miniredis.RedisDB, idx int, k string) error {
+func (en *rdbEncoder) encodeKey(w *bytes.Buffer, db *miniredis.RedisDB, idx int, k string) error {
 	kd, ok := dumpKey(db, idx, k)
 	if !ok {
-		if db.Type(k) == typeStream {
-			return fmt.Errorf("%w: stream key %q", ErrUnsupportedRDB, k)
-		}
-
 		return nil
+	}
+
+	if kd.Type == typeStream {
+		if err := attachStreamState(en.cl, &kd); err != nil {
+			return fmt.Errorf("%w: stream key %q: %w", ErrUnsupportedRDB, k, err)
+		}
 	}
 
 	if kd.HasExpiry {
 		var ms [8]byte
 
-		binary.LittleEndian.PutUint64(ms[:], uint64(time.Now().Add(kd.TTL).UnixMilli()))
+		binary.LittleEndian.PutUint64(ms[:], epochMillis(en.now.Add(kd.TTL)))
 
 		w.WriteByte(rdbExpireMS)
 		w.Write(ms[:])
 	}
 
-	return encodeValue(w, &kd)
+	return en.encodeValue(w, &kd)
 }
 
-func encodeValue(w *bytes.Buffer, kd *keyDump) error {
+func (en *rdbEncoder) encodeValue(w *bytes.Buffer, kd *keyDump) error {
 	switch kd.Type {
 	case typeString:
 		w.WriteByte(rdbTypeString)
@@ -212,14 +235,7 @@ func encodeValue(w *bytes.Buffer, kd *keyDump) error {
 		putString(w, kd.Key)
 		putStrings(w, kd.Set)
 	case typeHash:
-		w.WriteByte(rdbTypeHash)
-		putString(w, kd.Key)
-		putLen(w, uint64(len(kd.Hash)))
-
-		for f, v := range kd.Hash {
-			putString(w, f)
-			putString(w, v)
-		}
+		en.putHash(w, kd)
 	case typeZSet:
 		w.WriteByte(rdbTypeZSet2)
 		putString(w, kd.Key)
@@ -233,6 +249,11 @@ func encodeValue(w *bytes.Buffer, kd *keyDump) error {
 			binary.LittleEndian.PutUint64(f[:], math.Float64bits(m.Score))
 			w.Write(f[:])
 		}
+	case typeStream:
+		en.need(rdbVersionStreams)
+		w.WriteByte(rdbTypeStreamV3)
+		putString(w, kd.Key)
+		putStreamValue(w, kd, en.lim)
 	default:
 		return fmt.Errorf("%w: %s key %q", ErrUnsupportedRDB, kd.Type, kd.Key)
 	}
@@ -285,7 +306,9 @@ func (e *Engine) ImportRDB(data []byte) error {
 		return fmt.Errorf("%w: engine not running", ErrBadRDB)
 	}
 
-	return DecodeRDB(e.Mini, data)
+	defer e.tuner.invalidate()
+
+	return decodeRDB(e.Mini, e.auth, data)
 }
 
 type rdbEntry struct {
@@ -294,7 +317,9 @@ type rdbEntry struct {
 }
 
 // DecodeRDB is ImportRDB for a bare miniredis server.
-func DecodeRDB(mr *miniredis.Miniredis, data []byte) error {
+func DecodeRDB(mr *miniredis.Miniredis, data []byte) error { return decodeRDB(mr, "", data) }
+
+func decodeRDB(mr *miniredis.Miniredis, auth string, data []byte) error {
 	entries, err := parseRDB(data)
 	if err != nil {
 		return err
@@ -302,11 +327,17 @@ func DecodeRDB(mr *miniredis.Miniredis, data []byte) error {
 
 	mr.FlushAll()
 
+	cl, _ := newLocalClient(mr, auth)
+
 	now := time.Now()
 
 	for i := range entries {
 		en := &entries[i]
 		if !en.expire.IsZero() && !en.expire.After(now) {
+			continue
+		}
+
+		if en.kd.Type == typeHash && len(en.kd.Hash) == 0 {
 			continue
 		}
 
@@ -318,6 +349,14 @@ func DecodeRDB(mr *miniredis.Miniredis, data []byte) error {
 
 		if !en.expire.IsZero() {
 			mr.DB(en.kd.DB).SetTTL(en.kd.Key, en.expire.Sub(now))
+		}
+
+		if en.kd.Type == typeStream {
+			if err = restoreStreamState(cl, mr, &en.kd); err != nil {
+				mr.FlushAll()
+
+				return fmt.Errorf("%w: key %q: %w", ErrBadRDB, en.kd.Key, err)
+			}
 		}
 	}
 
@@ -846,6 +885,10 @@ func (r *rdbReader) packedValue(typ byte, kd *keyDump) error {
 
 		return r.packedSet(kd, decodeListpack)
 	default:
-		return fmt.Errorf("%w: encoded value type %d for key %q", ErrUnsupportedRDB, typ, kd.Key)
+		return r.extendedValue(typ, kd)
 	}
+}
+
+func epochMillis(t time.Time) uint64 {
+	return uint64(t.UnixMilli())
 }

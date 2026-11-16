@@ -35,6 +35,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	}
 
 	handler := NewHandler(NewInMemoryBackend())
+	handler.Backend.SetEnforceThroughput(settings.EnforceThroughput)
 	handler.Port = settings.Port
 	handler.EnforceAuth = settings.EnforceAuth
 

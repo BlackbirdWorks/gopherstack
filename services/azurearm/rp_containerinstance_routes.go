@@ -82,10 +82,7 @@ var containerInstanceRoutes = []armRoute{
 		match: func(segs []string, r *http.Request) bool {
 			return isACIContainerOp(segs, r, http.MethodPost, "exec", "attach")
 		},
-		handle: func(h *Handler, c *echo.Context, _ []string) error {
-			return h.writeError(c, http.StatusNotImplemented, "NotImplemented",
-				"Interactive exec and attach need a websocket terminal session, which this emulator does not provide.")
-		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleACIExec(c, segs) },
 	},
 }
 
@@ -154,4 +151,41 @@ func (h *Handler) handleACILogs(c *echo.Context, segs []string) error {
 	}
 
 	return h.writeJSON(c, http.StatusOK, map[string]any{"content": content})
+}
+
+func (h *Handler) handleACIExec(c *echo.Context, segs []string) error {
+	p, id, ok := h.aciGroupFor(c, segs)
+	if !ok {
+		return nil
+	}
+
+	attach := strings.EqualFold(segs[len(segs)-1], "attach")
+
+	var (
+		command string
+		term    ACITerminalSize
+	)
+
+	if !attach {
+		body, err := decodeJSONBody(c.Request())
+		if err != nil {
+			return h.writeAPIError(c, err)
+		}
+
+		if command = strOf(body, "command"); command == "" {
+			return h.writeError(c, http.StatusBadRequest, aciCodeInvalid, "The property 'command' is required.")
+		}
+
+		var terr error
+		if term, terr = aciTerminalOf(body); terr != nil {
+			return h.writeError(c, http.StatusBadRequest, aciCodeInvalid, terr.Error())
+		}
+	}
+
+	uri, password, err := p.NewExecSession(c.Request().Host, id, segs[aciContainerIdx], command, attach, term)
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	return h.writeJSON(c, http.StatusOK, map[string]any{"webSocketUri": uri, "password": password})
 }

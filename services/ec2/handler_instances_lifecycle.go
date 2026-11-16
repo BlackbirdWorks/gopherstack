@@ -63,6 +63,10 @@ func (h *Handler) applyInstanceLaunchSettings(
 		}
 
 		if keyName != "" {
+			if err := h.Backend.SetInstanceLaunchConfig(inst.ID, keyName, nil); err != nil {
+				return err
+			}
+
 			inst.KeyName = keyName
 		}
 

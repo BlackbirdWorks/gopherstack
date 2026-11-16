@@ -88,7 +88,6 @@ families:
 gaps: []
 items_still_open:
   - "Grant-authorized use by identity: operations presented with a grant token do not check that the caller is the GranteePrincipal, and key-policy/IAM evaluation lives in the iam EnforcementMiddleware, which does not consult grants (gopherstack-tnqy.6)."
-  - "RotateKeyOnDemand on an EXTERNAL key with nothing pending, and a second NEW_KEY_MATERIAL import while one is pending, return KMSInvalidStateException: API_RotateKeyOnDemand.html requires the material to be PENDING_ROTATION and lists KMSInvalidStateException among its errors, but names no error for these two cases (re-checked 2026-10-07)."
 structural_gaps:
   - "External key store proxies are never contacted: XksProxyUriUnreachable/IncorrectAuthenticationCredential/InvalidResponse, XksKeyNotFound/XksKeyInvalidConfiguration for the external key itself, and VPC endpoint service existence checks need a real proxy or VPC."
 deferred:
@@ -1015,3 +1014,7 @@ Encrypt rejects empty Plaintext. Decrypt of a blob KMS did not produce returns I
 ## 2026-10-11 reserved ID-pinning tag (gopherstack-cefu7.23)
 
 `CreateKey` honours the emulator-only `gopherstack:id` tag to pin the KeyId (lowercase UUID, or `mrk-` plus 32 hex for multi-Region keys). The tag is consumed, never stored or listed; a malformed ID returns `ValidationException`, a reused ID `AlreadyExistsException`, and `TagResource` rejects the key with `TagException`. See docs/pinned-ids.md.
+
+## Emulator choices where the vendor is silent
+
+- RotateKeyOnDemand on an EXTERNAL key with nothing pending, and a second NEW_KEY_MATERIAL import while one is pending, return KMSInvalidStateException: API_RotateKeyOnDemand.html requires the material to be PENDING_ROTATION and lists KMSInvalidStateException among its errors, but names no error for these two cases (re-checked 2026-10-07).

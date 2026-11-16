@@ -59,8 +59,10 @@ type DeletionPolicy struct {
 
 // Source says where a DB system's data came from.
 type Source struct {
-	SourceType string `json:"sourceType"`
-	BackupID   string `json:"backupId,omitempty"`
+	RecoveryPoint *time.Time `json:"recoveryPoint,omitempty"`
+	SourceType    string     `json:"sourceType"`
+	BackupID      string     `json:"backupId,omitempty"`
+	DBSystemID    string     `json:"dbSystemId,omitempty"`
 }
 
 // DBSystem is a MySQL DB system. AdminPassword and RootSecret are never returned by the API.
@@ -69,13 +71,18 @@ type DBSystem struct {
 	TimeUpdated    time.Time                 `json:"timeUpdated"`
 	LastAutoBackup time.Time                 `json:"lastAutoBackup"`
 	Tags           Tags                      `json:"tags"`
+	PitrBase       *time.Time                `json:"pitrBase,omitempty"`
+	PitrFreeze     *time.Time                `json:"pitrFreeze,omitempty"`
 	TransitionAt   *time.Time                `json:"transitionAt,omitempty"`
 	Source         *Source                   `json:"source,omitempty"`
 	HeatWave       *HeatWaveCluster          `json:"heatWaveCluster,omitempty"`
 	Extra          map[string]jsontext.Value `json:"extra,omitempty"`
 	Maintenance    map[string]any            `json:"maintenance,omitempty"`
-	FD             string                    `json:"faultDomain"`
-	AdminUser      string                    `json:"adminUsername"`
+	Status         *StatusRec                `json:"status,omitempty"`
+	Estimate       *EstimateRec              `json:"memoryEstimate,omitempty"`
+	Controlled     *ControlledRec            `json:"controlledUpdate,omitempty"`
+	Hostname       string                    `json:"hostnameLabel,omitempty"`
+	RootSecret     string                    `json:"rootSecret,omitempty"`
 	ID             string                    `json:"id"`
 	CompartmentID  string                    `json:"compartmentId"`
 	Name           string                    `json:"displayName"`
@@ -84,7 +91,7 @@ type DBSystem struct {
 	Shape          string                    `json:"shapeName"`
 	Version        string                    `json:"mysqlVersion"`
 	ConfigID       string                    `json:"configurationId"`
-	Hostname       string                    `json:"hostnameLabel,omitempty"`
+	FD             string                    `json:"faultDomain"`
 	AD             string                    `json:"availabilityDomain"`
 	EngineHost     string                    `json:"engineHost,omitempty"`
 	State          string                    `json:"state"`
@@ -93,11 +100,13 @@ type DBSystem struct {
 	Etag           string                    `json:"etag"`
 	IP             string                    `json:"ipAddress"`
 	AdminPass      string                    `json:"adminPassword,omitempty"`
-	RootSecret     string                    `json:"rootSecret,omitempty"`
+	AdminUser      string                    `json:"adminUsername"`
 	DatabaseMode   string                    `json:"databaseMode"`
 	AccessMode     string                    `json:"accessMode"`
 	CrashRecovery  string                    `json:"crashRecovery"`
 	DBManagement   string                    `json:"databaseManagement"`
+	AppliedConfig  string                    `json:"appliedConfig,omitempty"`
+	ReadIP         string                    `json:"readEndpointIp,omitempty"`
 	Deletion       DeletionPolicy            `json:"deletionPolicy"`
 	BackupPolicy   BackupPolicy              `json:"backupPolicy"`
 	DataGB         int                       `json:"dataStorageSizeInGBs"`
@@ -105,35 +114,41 @@ type DBSystem struct {
 	Port           int                       `json:"port"`
 	PortX          int                       `json:"portX"`
 	EnginePort     int                       `json:"enginePort,omitempty"`
+	EngineXPort    int                       `json:"engineXPort,omitempty"`
 	Seq            int64                     `json:"seq"`
+	ServerID       uint32                    `json:"serverID,omitempty"`
 	AutoExpand     bool                      `json:"isAutoExpandStorageEnabled"`
 	HA             bool                      `json:"isHighlyAvailable"`
 }
 
 // Backup is a DB system backup. Dump holds the logical dump when the docker engine took it.
 type Backup struct {
-	TimeCreated   time.Time  `json:"timeCreated"`
-	TimeUpdated   time.Time  `json:"timeUpdated"`
-	TransitionAt  *time.Time `json:"transitionAt,omitempty"`
-	ScheduledAt   *time.Time `json:"scheduledAt,omitempty"`
-	RetainFrom    *time.Time `json:"retainFrom,omitempty"`
-	Snapshot      *DBSystem  `json:"snapshot,omitempty"`
-	Tags          Tags       `json:"tags"`
-	ID            string     `json:"id"`
-	CompartmentID string     `json:"compartmentId"`
-	DBSystemID    string     `json:"dbSystemId"`
-	Name          string     `json:"displayName"`
-	Description   string     `json:"description,omitempty"`
-	State         string     `json:"state"`
-	Details       string     `json:"details,omitempty"`
-	BackupType    string     `json:"backupType"`
-	CreationType  string     `json:"creationType"`
-	SoftDelete    string     `json:"softDelete"`
-	Etag          string     `json:"etag"`
-	Dump          []byte     `json:"dump,omitempty"`
-	Retention     int        `json:"retentionInDays"`
-	SizeGB        int        `json:"backupSizeInGBs"`
-	Seq           int64      `json:"seq"`
+	TimeCreated   time.Time         `json:"timeCreated"`
+	TimeUpdated   time.Time         `json:"timeUpdated"`
+	TransitionAt  *time.Time        `json:"transitionAt,omitempty"`
+	ScheduledAt   *time.Time        `json:"scheduledAt,omitempty"`
+	RetainFrom    *time.Time        `json:"retainFrom,omitempty"`
+	Snapshot      *DBSystem         `json:"snapshot,omitempty"`
+	Tags          Tags              `json:"tags"`
+	ID            string            `json:"id"`
+	CompartmentID string            `json:"compartmentId"`
+	DBSystemID    string            `json:"dbSystemId"`
+	Name          string            `json:"displayName"`
+	Description   string            `json:"description,omitempty"`
+	State         string            `json:"state"`
+	Details       string            `json:"details,omitempty"`
+	BackupType    string            `json:"backupType"`
+	CreationType  string            `json:"creationType"`
+	SoftDelete    string            `json:"softDelete"`
+	Etag          string            `json:"etag"`
+	Validation    *BackupValidation `json:"validation,omitempty"`
+	TimeCopied    *time.Time        `json:"timeCopyCreated,omitempty"`
+	ImmediateSrc  string            `json:"immediateSourceBackupId,omitempty"`
+	OriginalSrc   string            `json:"originalSourceBackupId,omitempty"`
+	Dump          []byte            `json:"dump,omitempty"`
+	Retention     int               `json:"retentionInDays"`
+	SizeGB        int               `json:"backupSizeInGBs"`
+	Seq           int64             `json:"seq"`
 }
 
 // ChannelSource is the replication source of a channel; the password is never stored.
@@ -143,6 +158,7 @@ type ChannelSource struct {
 	Hostname    string                    `json:"hostname"`
 	Username    string                    `json:"username"`
 	SslMode     string                    `json:"sslMode"`
+	Password    string                    `json:"-"`
 	Port        int                       `json:"port"`
 	HasPassword bool                      `json:"hasPassword"`
 }
@@ -158,12 +174,13 @@ type ChannelTarget struct {
 	DelayInSeconds                  int            `json:"delayInSeconds"`
 }
 
-// Channel is a replication channel. It records configuration and lifecycle only; no data is replicated.
+// Channel is a replication channel; under the docker engine its target server replicates from the source.
 type Channel struct {
 	TimeCreated   time.Time     `json:"timeCreated"`
 	TimeUpdated   time.Time     `json:"timeUpdated"`
 	Tags          Tags          `json:"tags"`
 	TransitionAt  *time.Time    `json:"transitionAt,omitempty"`
+	Live          *ChannelLive  `json:"-"`
 	Details       string        `json:"details,omitempty"`
 	ID            string        `json:"id"`
 	CompartmentID string        `json:"compartmentId"`
@@ -173,9 +190,16 @@ type Channel struct {
 	After         string        `json:"after,omitempty"`
 	Etag          string        `json:"etag"`
 	Target        ChannelTarget `json:"target"`
+	Status        *StatusRec    `json:"status,omitempty"`
 	Source        ChannelSource `json:"source"`
 	Seq           int64         `json:"seq"`
 	Enabled       bool          `json:"isEnabled"`
+}
+
+// ChannelLive is the replication health last read from the target server.
+type ChannelLive struct {
+	Errors  []string
+	Healthy bool
 }
 
 // Configuration is a DEFAULT or CUSTOM set of MySQL variables for a shape.
@@ -210,4 +234,5 @@ type WorkRequest struct {
 	Action        string     `json:"action"`
 	Failure       string     `json:"failure,omitempty"`
 	Seq           int64      `json:"seq"`
+	Canceled      bool       `json:"canceled,omitempty"`
 }

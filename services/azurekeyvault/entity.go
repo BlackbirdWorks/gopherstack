@@ -228,6 +228,7 @@ type vault struct {
 	Pending         map[string]*PendingCert    `json:"pending,omitempty"`
 	Contacts        *Contacts                  `json:"contacts,omitempty"`
 	Name            string                     `json:"name"`
+	Notifications   []LifetimeNotification     `json:"notifications,omitempty"`
 	RetentionDays   int                        `json:"retentionDays"`
 	PurgeProtection bool                       `json:"purgeProtection"`
 }

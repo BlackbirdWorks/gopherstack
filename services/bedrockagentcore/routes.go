@@ -18,6 +18,11 @@ func routes() []restroute.Route {
 	return []restroute.Route{
 		{Method: http.MethodPost, Path: rt + "/invocations", Op: "InvokeAgentRuntime"},
 		{Method: http.MethodGet, Path: rt + "/invocations/.well-known/agent-card.json", Op: "GetAgentCard"},
+		{
+			Method: http.MethodGet, Path: rt + "/invocations/.well-known/oauth-protected-resource",
+			Op: "GetRuntimeProtectedResourceMetadata",
+		},
+		{Method: http.MethodPost, Path: rt + "/commands", Op: "InvokeAgentRuntimeCommand"},
 		{Method: http.MethodPost, Path: rt + "/stopruntimesession", Op: "StopRuntimeSession"},
 
 		{Method: http.MethodPost, Path: mem + "/events", Op: "CreateEvent"},
@@ -53,6 +58,7 @@ func routes() []restroute.Route {
 		},
 		{Method: http.MethodPost, Path: "/identities/api-key", Op: "GetResourceApiKey"},
 		{Method: http.MethodPost, Path: "/identities/oauth2/token", Op: "GetResourceOauth2Token"},
+		{Method: http.MethodPost, Path: "/identities/CompleteResourceTokenAuth", Op: "CompleteResourceTokenAuth"},
 	}
 }
 
@@ -83,9 +89,10 @@ func (b *InMemoryBackend) ops() map[string]restroute.OpFunc {
 		"ListBrowserSessions": b.listSessionsOf(ToolBrowser),
 
 		"GetWorkloadAccessToken":          b.workloadToken(noUser),
-		"GetWorkloadAccessTokenForJWT":    b.workloadToken(userFromJWT),
+		"GetWorkloadAccessTokenForJWT":    b.workloadToken(b.userFromJWT),
 		"GetWorkloadAccessTokenForUserId": b.workloadToken(userFromID),
 		"GetResourceApiKey":               b.getResourceAPIKey,
 		"GetResourceOauth2Token":          b.getResourceOAuth2Token,
+		"CompleteResourceTokenAuth":       b.completeResourceTokenAuth,
 	}
 }

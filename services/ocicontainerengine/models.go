@@ -13,6 +13,7 @@ const (
 	stateDeleting = "DELETING"
 	stateDeleted  = "DELETED"
 	stateFailed   = "FAILED"
+	stateFailing  = "FAILING"
 )
 
 // Cluster types and pod network (CNI) types.
@@ -85,10 +86,30 @@ type ClusterOptions struct {
 	Admission         *Admission     `json:"admissionControllerOptions,omitempty"`
 	PersistentVolume  *TagCfg        `json:"persistentVolumeConfig,omitempty"`
 	ServiceLb         *TagCfg        `json:"serviceLbConfig,omitempty"`
-	OIDCAuth          jsontext.Value `json:"openIdConnectTokenAuthenticationConfig,omitempty"`
-	OIDCDiscovery     jsontext.Value `json:"openIdConnectDiscovery,omitempty"`
+	OIDCAuth          *OIDCAuth      `json:"openIdConnectTokenAuthenticationConfig,omitempty"`
+	OIDCDiscovery     *OIDCDiscovery `json:"openIdConnectDiscovery,omitempty"`
 	ServiceLbSubnetID []string       `json:"serviceLbSubnetIds,omitempty"`
 	IPFamilies        []string       `json:"ipFamilies,omitempty"`
+}
+
+// OIDCAuth is options.openIdConnectTokenAuthenticationConfig.
+type OIDCAuth struct {
+	IsEnabled         *bool      `json:"isOpenIdConnectAuthEnabled"`
+	IssuerURL         *string    `json:"issuerUrl,omitempty"`
+	ClientID          *string    `json:"clientId,omitempty"`
+	UsernameClaim     *string    `json:"usernameClaim,omitempty"`
+	UsernamePrefix    *string    `json:"usernamePrefix,omitempty"`
+	GroupsClaim       *string    `json:"groupsClaim,omitempty"`
+	GroupsPrefix      *string    `json:"groupsPrefix,omitempty"`
+	CACertificate     *string    `json:"caCertificate,omitempty"`
+	ConfigurationFile *string    `json:"configurationFile,omitempty"`
+	RequiredClaims    []KeyValue `json:"requiredClaims,omitempty"`
+	SigningAlgorithms []string   `json:"signingAlgorithms,omitempty"`
+}
+
+// OIDCDiscovery is options.openIdConnectDiscovery.
+type OIDCDiscovery struct {
+	IsEnabled *bool `json:"isOpenIdConnectDiscoveryEnabled,omitempty"`
 }
 
 // KeyDetail references an image signing key.
@@ -159,10 +180,11 @@ type NodeConfig struct {
 	IsPvEncryption *bool   `json:"isPvEncryptionInTransitEnabled,omitempty"`
 	PodNet         *PodNet `json:"nodePoolPodNetworkOptionDetails,omitempty"`
 	Tags
-	KmsKeyID   string      `json:"kmsKeyId,omitempty"`
-	Placements []Placement `json:"placementConfigs"`
-	NsgIDs     []string    `json:"nsgIds,omitempty"`
-	Size       int         `json:"size"`
+	KmsKeyID         string      `json:"kmsKeyId,omitempty"`
+	ComputeClusterID string      `json:"computeClusterId,omitempty"`
+	Placements       []Placement `json:"placementConfigs"`
+	NsgIDs           []string    `json:"nsgIds,omitempty"`
+	Size             int         `json:"size"`
 }
 
 // NodeSource is nodeSourceDetails.
@@ -194,6 +216,7 @@ type Node struct {
 	AD           string     `json:"availabilityDomain"`
 	SubnetID     string     `json:"subnetId"`
 	FaultDomain  string     `json:"faultDomain"`
+	Spec         string     `json:"spec,omitempty"`
 	PrivateIP    string     `json:"privateIp,omitempty"`
 	State        string     `json:"state"`
 }
@@ -210,6 +233,9 @@ type NodePool struct {
 	NodeMetadata   map[string]string `json:"nodeMetadata,omitempty"`
 	Eviction       jsontext.Value    `json:"eviction,omitempty"`
 	Cycling        jsontext.Value    `json:"cycling,omitempty"`
+	PrimaryVnic    map[string]any    `json:"primaryVnic,omitempty"`
+	SecondaryVnics []SecondaryVnic   `json:"secondaryVnics,omitempty"`
+	LaunchType     string            `json:"networkLaunchType,omitempty"`
 	ID             string            `json:"id"`
 	ClusterID      string            `json:"clusterId"`
 	CompartmentID  string            `json:"compartmentId"`

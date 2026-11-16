@@ -40,6 +40,9 @@ func (b *InMemoryBackend) sweepLocked() []string {
 		sweepSecret(s, now)
 	}
 
+	b.syncSecretReplicas()
+	b.sweepEkms(now)
+
 	return b.dueRotations(now)
 }
 
@@ -57,6 +60,9 @@ func (b *InMemoryBackend) sweepKey(k *Key, now time.Time) {
 	}
 
 	for _, kv := range k.Versions {
+		kv.settle(&kv.State, now)
+		promoteVersion(k, kv)
+
 		if kv.State == statePendingDeletion && due(kv.TimeOfDeletion, now) {
 			kv.State, kv.Material = stateDeleted, nil
 		}
@@ -80,7 +86,13 @@ func (b *InMemoryBackend) autoRotate(k *Key, now time.Time) {
 		return
 	}
 
-	kv := b.addVersion(k, v.Prefix, originInternal, material)
+	if aerr := b.checkVersionLimit(v, k.ProtectionMode, k.Shape, false); aerr != nil {
+		k.Rotation.LastStatus, k.Rotation.LastMessage = "FAILED", aerr.Message
+
+		return
+	}
+
+	kv := b.rotateVersion(k, v.Prefix, originInternal, material)
 	kv.AutoRotated = true
 
 	next := now.Add(time.Duration(k.Rotation.IntervalDays) * day)

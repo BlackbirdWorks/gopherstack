@@ -9,19 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 14 (13 ok, 1 partial) |
 | Feature families | 4 (2 ok, 2 partial) |
-| Known gaps | 7 |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- redis_configs are validated against the supported key set and Redis version and reported back, but miniredis has no CONFIG command so they never change engine behaviour (eviction, keyspace notifications, defrag).
-- memory_size_gb is not enforced as a maxmemory limit.
-- Import reads strings, lists, sets, sorted sets and hashes in every encoding Redis 6.2, 7.0 and 7.2 write (ziplist, intset, quicklist, listpack, LZF); files holding streams or hash field TTLs fail with INVALID_ARGUMENT. Export fails on instances holding streams and drops hash field TTLs.
-- STANDARD_HA and read replicas are metadata only: one server serves both the primary and read endpoint (read_endpoint equals host), and failover swaps zone labels.
+- STANDARD_HA and read replicas are metadata only: one server serves both the primary and read endpoint (read_endpoint equals host), and failover swaps zone labels. Real replicas need a replication path (miniredis registers no REPLICAOF or PSYNC), a second port per instance from the shared pool (engine.go bindEngine publishes one host and port) and READONLY enforcement on the replica.
 - RDB persistence_config is recorded but no periodic snapshots are taken (the emulator's own snapshot persistence covers restarts).
-- After a restore every instance starts on a new port and, for TLS, a new CA.
-- Cross-region replication and maintenance_version are stored or empty but not modelled.
+- After a restore every instance starts on a new port and, for TLS, a new CA: pkgs/portalloc has no acquire-specific-port call (Reserve marks the port reserved for good) and pkgs/devtls.CA cannot serialise its private key.
+- Cross-region replication, customer-managed keys, maintenance_version and suspension reasons are stored or empty but not modelled.
 
 ## More
 

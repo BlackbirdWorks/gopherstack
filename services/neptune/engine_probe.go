@@ -35,6 +35,7 @@ const (
 	wsKeyBytes      = 16
 	gremlinMime     = "application/vnd.gremlin-v3.0+json"
 	gremlinProbeQ   = "g.V().count()"
+	keyGremlin      = "gremlin"
 	gremlinPath     = "/gremlin"
 	gremlinOKStatus = 200
 	probeIOTimeout  = 5 * time.Second
@@ -115,7 +116,7 @@ func gremlinPayload() ([]byte, error) {
 	body, err := json.Marshal(gremlinRequest{
 		RequestID: uuid.NewString(),
 		Op:        "eval",
-		Args:      map[string]any{"gremlin": gremlinProbeQ, "language": "gremlin-groovy"},
+		Args:      map[string]any{keyGremlin: gremlinProbeQ, "language": "gremlin-groovy"},
 	}, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("encode gremlin request: %w", err)

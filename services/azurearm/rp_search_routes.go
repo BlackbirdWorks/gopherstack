@@ -15,6 +15,7 @@ const (
 	srchActDeleteQuery = "deleteQueryKey"
 	srchActCheckName   = "checkNameAvailability"
 	srchActUsages      = "usages"
+	srchActUpgrade     = "upgrade"
 	srchProvidersIdx   = 2
 	srchServiceLen     = 8
 	srchActionIdx      = 8
@@ -100,6 +101,12 @@ var searchRoutes = []armRoute{
 			return r.Method == http.MethodPatch && len(segs) == srchServiceLen && isSearchService(segs)
 		},
 		handle: func(h *Handler, c *echo.Context, _ []string) error { return h.handleSearchPatch(c) },
+	},
+	{
+		match: func(segs []string, r *http.Request) bool {
+			return isSearchAction(segs, r, http.MethodPost, srchActUpgrade, false)
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleSearchUpgrade(c, segs) },
 	},
 	{
 		match: func(segs []string, r *http.Request) bool {
@@ -218,6 +225,20 @@ func (h *Handler) handleSearchPatch(c *echo.Context) error {
 	out, err := p.Patch(c.Request().Context(), id, body)
 	if err != nil {
 		return h.writeAPIError(c, err)
+	}
+
+	return h.writeJSON(c, http.StatusOK, out)
+}
+
+func (h *Handler) handleSearchUpgrade(c *echo.Context, segs []string) error {
+	p, id, err := h.searchOrNotFound(c, segs)
+	if p == nil {
+		return err
+	}
+
+	out, uErr := p.Upgrade(id)
+	if uErr != nil {
+		return h.writeAPIError(c, uErr)
 	}
 
 	return h.writeJSON(c, http.StatusOK, out)

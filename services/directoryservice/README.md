@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 80 (73 ok, 7 partial) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- SettingEntry.DataType/Type unpopulated: the SDK gives only example values, no per-setting-name table to derive them from.
 
 ### Structural gaps
 

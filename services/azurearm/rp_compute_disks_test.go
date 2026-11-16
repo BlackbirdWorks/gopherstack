@@ -426,3 +426,76 @@ func TestComputeSDK_AttachOSDisk(t *testing.T) {
 	assert.Equal(t, "Attached", state)
 	assert.Equal(t, *got.ID, managedBy)
 }
+
+func TestComputeSDK_AttachDetachDataDisks(t *testing.T) {
+	t.Parallel()
+
+	s := newCmpStack(t)
+	vm := linuxVM(s.newNIC(t, "nic1"))
+	vm.Properties.StorageProfile.DataDisks = []*armcompute.DataDisk{{
+		Lun: new(int32(0)), Name: new("data0"), CreateOption: new(armcompute.DiskCreateOptionTypesEmpty),
+		DiskSizeGB: new(int32(16)),
+	}}
+	created := s.mustVM(t, "vm1", vm)
+
+	spare, err := s.putDisk(t, "spare", emptyDisk(8))
+	require.NoError(t, err)
+
+	other, err := s.putDisk(t, "other", emptyDisk(8))
+	require.NoError(t, err)
+
+	client := s.cf.NewVirtualMachinesClient()
+	run := func(req armcompute.AttachDetachDataDisksRequest) (armcompute.StorageProfile, error) {
+		poller, perr := client.BeginAttachDetachDataDisks(t.Context(), netRG, "vm1", req, nil)
+		if perr != nil {
+			return armcompute.StorageProfile{}, perr
+		}
+
+		res, perr := poller.PollUntilDone(t.Context(), pollFast())
+
+		return res.StorageProfile, perr
+	}
+
+	sp, err := run(armcompute.AttachDetachDataDisksRequest{DataDisksToAttach: []*armcompute.DataDisksToAttach{
+		{DiskID: spare.ID, Lun: new(int32(5)), Caching: new(armcompute.CachingTypesReadOnly)},
+		{DiskID: other.ID},
+	}})
+	require.NoError(t, err)
+	require.Len(t, sp.DataDisks, 3)
+
+	luns := map[string]int32{}
+	for _, d := range sp.DataDisks {
+		luns[*d.ManagedDisk.ID] = *d.Lun
+	}
+
+	assert.EqualValues(t, 5, luns[*spare.ID])
+	assert.EqualValues(t, 1, luns[*other.ID], "an omitted lun takes the lowest free one")
+
+	state, managedBy := s.diskState(t, "spare")
+	assert.Equal(t, "Attached", state)
+	assert.Equal(t, *created.ID, managedBy)
+
+	_, err = run(armcompute.AttachDetachDataDisksRequest{DataDisksToAttach: []*armcompute.DataDisksToAttach{
+		{DiskID: other.ID, Lun: new(int32(7))},
+	}})
+	require.Error(t, err, "a disk already attached cannot be attached again")
+
+	sp, err = run(armcompute.AttachDetachDataDisksRequest{DataDisksToDetach: []*armcompute.DataDisksToDetach{
+		{DiskID: spare.ID, DetachOption: new(armcompute.DiskDetachOptionTypesForceDetach)},
+	}})
+	require.NoError(t, err)
+	require.Len(t, sp.DataDisks, 2)
+
+	state, managedBy = s.diskState(t, "spare")
+	assert.Equal(t, "Unattached", state)
+	assert.Empty(t, managedBy)
+
+	_, err = run(armcompute.AttachDetachDataDisksRequest{DataDisksToDetach: []*armcompute.DataDisksToDetach{
+		{DiskID: spare.ID},
+	}})
+	require.Error(t, err, "a disk that is not attached cannot be detached")
+
+	got, err := client.Get(t.Context(), netRG, "vm1", nil)
+	require.NoError(t, err)
+	assert.Len(t, got.Properties.StorageProfile.DataDisks, 2)
+}

@@ -12,10 +12,31 @@ import (
 // Fetcher retrieves the document behind a LOAD source.
 type Fetcher func(ctx context.Context, src string) ([]byte, error)
 
-// UpdateOptions carries the update's external dependencies.
-type UpdateOptions struct {
-	Fetch Fetcher
+// Document is a fetched LOAD source with the Content-Type the server reported.
+type Document struct {
+	ContentType string
+	Data        []byte
 }
+
+// DocFetcher retrieves a LOAD source together with its Content-Type.
+type DocFetcher func(ctx context.Context, src string) (Document, error)
+
+// UpdateOptions carries the update's external dependencies; FetchDoc wins over Fetch.
+type UpdateOptions struct {
+	Fetch    Fetcher
+	FetchDoc DocFetcher
+	Service  ServiceFunc
+}
+
+// ParameterError is an invalid input value, such as a LOAD source that cannot be read or parsed.
+type ParameterError struct {
+	Err error
+	Msg string
+}
+
+func (e *ParameterError) Error() string { return e.Msg }
+
+func (e *ParameterError) Unwrap() error { return e.Err }
 
 // UpdateResult counts the triples an update changed.
 type UpdateResult struct{ Inserted, Deleted int }
@@ -55,6 +76,7 @@ type journalEntry struct {
 
 type updateTx struct {
 	s       *Store
+	service ServiceFunc
 	journal []journalEntry
 }
 
@@ -105,17 +127,22 @@ func (s *Store) Apply(ctx context.Context, u *Update, opts UpdateOptions) (Updat
 	s.mu.Lock("Update")
 	defer s.mu.Unlock()
 
-	tx := &updateTx{s: s}
+	tx := &updateTx{s: s, service: opts.Service}
+	s.begin()
 
 	var res UpdateResult
 
 	for i := range u.ops {
 		if err := tx.apply(ctx, &u.ops[i], opts, &res); err != nil {
 			tx.rollback()
+			s.pending = nil
+			s.recording = false
 
 			return UpdateResult{}, err
 		}
 	}
+
+	s.commit()
 
 	return res, nil
 }
@@ -219,6 +246,7 @@ func (t *updateTx) modify(ctx context.Context, op *updateOp, res *UpdateResult) 
 	}
 
 	ev := newEvaluator(ctx, ds, DefaultBase)
+	ev.svc, ev.prologue = t.service, op.Prologue
 
 	sols, err := ev.evalGroup(op.Where, Term{})
 	if err != nil {
@@ -294,6 +322,8 @@ func FormatForSource(src string) Format {
 		return FormatTurtle
 	case ".trig":
 		return FormatTriG
+	case ".jsonld", ".json":
+		return FormatJSONLD
 	case ".rdf", ".xml", ".owl":
 		return FormatRDFXML
 	default:
@@ -301,14 +331,52 @@ func FormatForSource(src string) Format {
 	}
 }
 
+// FormatForContentType maps the media types Neptune documents for SPARQL UPDATE LOAD to a format.
+func FormatForContentType(ct string) (Format, bool) {
+	mt, _, _ := strings.Cut(ct, ";")
+
+	switch strings.ToLower(strings.TrimSpace(mt)) {
+	case "text/plain", "application/n-triples":
+		return FormatNTriples, true
+	case "application/n-quads", "text/x-nquads":
+		return FormatNQuads, true
+	case "text/turtle", "application/x-turtle":
+		return FormatTurtle, true
+	case "text/rdf+n3", "text/n3":
+		return FormatTurtle, true
+	case "application/trig", "application/x-trig":
+		return FormatTriG, true
+	case "application/rdf+xml":
+		return FormatRDFXML, true
+	case "application/ld+json":
+		return FormatJSONLD, true
+	default:
+		return 0, false
+	}
+}
+
+func fetchDocument(ctx context.Context, src string, opts UpdateOptions) (Document, error) {
+	switch {
+	case opts.FetchDoc != nil:
+		return opts.FetchDoc(ctx, src)
+	case opts.Fetch != nil:
+		data, err := opts.Fetch(ctx, src)
+
+		return Document{Data: data}, err
+	default:
+		return Document{}, syntaxf("LOAD is not available: no document fetcher configured")
+	}
+}
+
 func (t *updateTx) load(ctx context.Context, op *updateOp, opts UpdateOptions) (int, error) {
-	if opts.Fetch == nil {
-		return 0, syntaxf("LOAD is not available: no document fetcher configured")
+	doc, err := fetchDocument(ctx, op.Src, opts)
+	if err != nil {
+		return 0, &ParameterError{Msg: "Failed to load " + op.Src + ": " + err.Error(), Err: err}
 	}
 
-	data, err := opts.Fetch(ctx, op.Src)
-	if err != nil {
-		return 0, err
+	format, known := FormatForContentType(doc.ContentType)
+	if !known {
+		format = FormatForSource(op.Src)
 	}
 
 	into := IRI(DefaultGraph)
@@ -316,9 +384,9 @@ func (t *updateTx) load(ctx context.Context, op *updateOp, opts UpdateOptions) (
 		into = op.Into
 	}
 
-	qs, err := ParseRDF(FormatForSource(op.Src), data, ParseOptions{Graph: into, Base: op.Src})
+	qs, err := ParseRDF(format, doc.Data, ParseOptions{Graph: into, Base: op.Src})
 	if err != nil {
-		return 0, err
+		return 0, &ParameterError{Msg: "Invalid syntax in the specified file", Err: err}
 	}
 
 	n := 0

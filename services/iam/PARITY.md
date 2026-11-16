@@ -150,8 +150,6 @@ structural_gaps:
   - "Role templates: the pinned SDK has no Create/Put/List op, so AddRoleTemplateVersionInternal is the only seam; AWS publishes no per-property value registry, so property values are untyped."
   - "Access advisor Granularity=ACTION_LEVEL: needs real per-action usage tracking; emulating it would fabricate data."
 items_still_open:
-  - "AcquireRole ReplacementValues with several Values: neither api_op_AcquireRole.go, API_ReplacementValueEntry.html nor the role-template user guide says how a multi-value parameter is substituted into the template (checked 2026-10-07)."
-  - "SimulateCustomPolicy/SimulatePrincipalPolicy MatchedStatements are not emitted: the API reference examples contradict each other on SourcePolicyType (\"Resource Policy\" vs the SDK enum \"resource\") and report Line 1 positions for multi-line input, so the Start/EndPosition and SourcePolicyType conventions cannot be derived. Top-level EvalResourceName stays '*'."
   - "RCP owner for single-account backends: KMS and Secrets Manager hold one account's resources (backend accountID), so a key or secret named by ID/name belongs to the default (management) account and RCPs do not apply to it; RCPs apply when the request names a member-account ARN. SQS (per-account queue scopes), S3 (bucket creator) and STS (role ARN account) resolve real owners. SimulateCustomPolicy does not report OrganizationsDecisionDetail: it takes no principal, so there is no account whose SCPs apply (docs only describe SCP evaluation for principal simulations; unverified for CallerArn)."
   - "Member-account root: SCP/RCP restriction is proven at the middleware level; the emulator's STS GetSessionToken mints root sessions only for the default (management) account, so an SDK-driven member-root session cannot be created."
   - "RCP implicit-deny AccessDenied text ('because no resource control policy allows the <action> action') is not published: checked troubleshoot_access-denied.html, which documents only the explicit-deny RCP wording (the emulator derives the implicit-deny text from the SCP and identity patterns)"
@@ -988,3 +986,8 @@ Authority: Organizations User Guide "Resource control policies (RCPs)" (fetched 
 
 ## Primary-source checks (2026-11-13)
 - iam: troubleshoot_access-denied.html documents the explicit-deny RCP message only; RCPFullAWSAccess id p-RCPFullAWSAccess confirmed on orgs_reference_available-policies.html.
+
+## Emulator choices where the vendor is silent
+
+- AcquireRole ReplacementValues with several Values: neither api_op_AcquireRole.go, API_ReplacementValueEntry.html nor the role-template user guide says how a multi-value parameter is substituted into the template (checked 2026-10-07).
+- SimulateCustomPolicy/SimulatePrincipalPolicy MatchedStatements are not emitted: the API reference examples contradict each other on SourcePolicyType ("Resource Policy" vs the SDK enum "resource") and report Line 1 positions for multi-line input, so the Start/EndPosition and SourcePolicyType conventions cannot be derived. Top-level EvalResourceName stays '*'.

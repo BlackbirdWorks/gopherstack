@@ -91,13 +91,15 @@ type DrgNetworkDetails struct {
 
 // DrgAttachment links a DRG to a network.
 type DrgAttachment struct {
-	NetworkDetails *DrgNetworkDetails `json:"networkDetails,omitempty"`
+	NetworkDetails     *DrgNetworkDetails `json:"networkDetails,omitempty"`
+	PreservesNatRoutes *bool              `json:"doesPreserveOriginalRoutesWithNat,omitempty"`
 	Base
 	DrgID                        string `json:"drgId"`
 	DrgRouteTableID              string `json:"drgRouteTableId,omitempty"`
 	ExportDrgRouteDistributionID string `json:"exportDrgRouteDistributionId,omitempty"`
 	RouteTableID                 string `json:"routeTableId,omitempty"`
 	VcnID                        string `json:"vcnId,omitempty"`
+	DrgNatPolicyID               string `json:"drgNatPolicyId,omitempty"`
 	IsCrossTenancy               bool   `json:"isCrossTenancy"`
 }
 
@@ -483,11 +485,11 @@ func (b *InMemoryBackend) CreateDrgAttachment(in CreateDrgAttachmentIn) (Resourc
 		return nil, "", aerr
 	}
 
-	if in.DrgNatPolicyID != "" {
-		return nil, "", errNotFound(in.DrgNatPolicyID)
+	if aerr := b.bindNatPolicy(in.DrgNatPolicyID); aerr != nil {
+		return nil, "", aerr
 	}
 
-	if flag(in.DoesPreserveOriginalRoutesWithNat) {
+	if in.DrgNatPolicyID == "" && flag(in.DoesPreserveOriginalRoutesWithNat) {
 		return nil, "", errParam("doesPreserveOriginalRoutesWithNat requires a drgNatPolicyId")
 	}
 
@@ -522,6 +524,10 @@ func (b *InMemoryBackend) CreateDrgAttachment(in CreateDrgAttachmentIn) (Resourc
 	a := &DrgAttachment{
 		Base: b.newBase(kindDrgAttachment, drg.CompartmentID, in.DisplayName, in.TagsIn), DrgID: drg.ID,
 		DrgRouteTableID: tableID, NetworkDetails: nd, VcnID: vcn.ID, RouteTableID: nd.RouteTableID,
+		DrgNatPolicyID: in.DrgNatPolicyID,
+	}
+	if in.DrgNatPolicyID != "" {
+		a.PreservesNatRoutes = in.DoesPreserveOriginalRoutesWithNat
 	}
 	b.moveTo(a, statAttaching, statAttached)
 	b.add(a)
@@ -558,22 +564,19 @@ func (b *InMemoryBackend) UpdateDrgAttachment(
 			return errState("The DRG attachment " + a.ID + " is " + a.LifecycleState)
 		}
 
-		if in.DrgNatPolicyID != nil && *in.DrgNatPolicyID != "" {
-			return errNotFound(*in.DrgNatPolicyID)
-		}
-
-		if flag(in.DoesPreserveOriginalRoutesWithNat) {
-			return errParam("doesPreserveOriginalRoutesWithNat requires a drgNatPolicyId")
-		}
-
 		next := *a
 
 		if aerr := b.applyAttachmentUpdate(&next, in); aerr != nil {
 			return aerr
 		}
 
+		if aerr := b.updateNatBinding(&next, in); aerr != nil {
+			return aerr
+		}
+
 		a.DrgRouteTableID, a.ExportDrgRouteDistributionID = next.DrgRouteTableID, next.ExportDrgRouteDistributionID
 		a.RouteTableID, a.NetworkDetails = next.RouteTableID, next.NetworkDetails
+		a.DrgNatPolicyID, a.PreservesNatRoutes = next.DrgNatPolicyID, next.PreservesNatRoutes
 
 		return nil
 	})
@@ -818,4 +821,32 @@ func (b *InMemoryBackend) UpgradeDrg(id string) (string, *APIError) {
 // AttachmentInfo is one entry of GetAllDrgAttachments.
 type AttachmentInfo struct {
 	ID string `json:"id"`
+}
+
+func (b *InMemoryBackend) updateNatBinding(a *DrgAttachment, in UpdateDrgAttachmentIn) *APIError {
+	policy := a.DrgNatPolicyID
+
+	if in.DrgNatPolicyID != nil {
+		if aerr := b.bindNatPolicy(*in.DrgNatPolicyID); aerr != nil {
+			return aerr
+		}
+
+		policy = *in.DrgNatPolicyID
+	}
+
+	if policy == "" && flag(in.DoesPreserveOriginalRoutesWithNat) {
+		return errParam("doesPreserveOriginalRoutesWithNat requires a drgNatPolicyId")
+	}
+
+	a.DrgNatPolicyID = policy
+
+	if in.DoesPreserveOriginalRoutesWithNat != nil && policy != "" {
+		a.PreservesNatRoutes = in.DoesPreserveOriginalRoutesWithNat
+	}
+
+	if policy == "" {
+		a.PreservesNatRoutes = nil
+	}
+
+	return nil
 }

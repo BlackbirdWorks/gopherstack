@@ -20,6 +20,7 @@ var logicWeekdays = map[string]time.Weekday{
 }
 
 type logicRecurrence struct {
+	loc       *time.Location
 	anchor    time.Time
 	end       time.Time
 	frequency string
@@ -48,13 +49,26 @@ func intList(v any) []int {
 func parseLogicRecurrence(trigger map[string]any, anchor time.Time) logicRecurrence {
 	rc, _ := objectOf(trigger["recurrence"])
 	n, _ := logicInt(normLogic(rc["interval"]))
-	r := logicRecurrence{frequency: strings.ToLower(stringOf(rc["frequency"])), interval: int(n), anchor: anchor}
+	r := logicRecurrence{
+		frequency: strings.ToLower(stringOf(rc["frequency"])), interval: int(n), anchor: anchor, loc: time.UTC,
+	}
+
+	if tz := stringOf(rc["timeZone"]); tz != "" {
+		if loc, err := logicLoadZone(tz); err == nil {
+			r.loc = loc
+		}
+	}
 
 	if st := stringOf(rc[logicKStartTime]); st != "" {
 		if ts, err := parseLogicTime(st); err == nil {
 			r.anchor = ts.t
+			if !ts.hasZone {
+				r.anchor = wallToUTC(ts.t, r.loc)
+			}
 		}
 	}
+
+	r.anchor = r.anchor.In(r.loc)
 
 	if et := stringOf(rc[logicKEndTime]); et != "" {
 		if ts, err := parseLogicTime(et); err == nil {
@@ -93,6 +107,13 @@ func (r logicRecurrence) unit() (time.Duration, bool) {
 }
 
 func (r logicRecurrence) periodStart(k int) time.Time {
+	switch r.frequency {
+	case logicUnitDay:
+		return r.anchor.AddDate(0, 0, k*r.interval)
+	case logicUnitWeek:
+		return r.anchor.AddDate(0, 0, logicDaysPerWeek*k*r.interval)
+	}
+
 	if d, ok := r.unit(); ok {
 		return r.anchor.Add(time.Duration(k*r.interval) * d)
 	}
@@ -123,7 +144,7 @@ func (r logicRecurrence) next(after time.Time) (time.Time, bool) {
 
 		for _, c := range r.candidates(ps) {
 			if c.After(after) && !c.Before(r.anchor) && (r.end.IsZero() || !c.After(r.end)) {
-				return c, true
+				return c.UTC(), true
 			}
 		}
 	}
@@ -150,7 +171,7 @@ func (r logicRecurrence) candidates(ps time.Time) []time.Time {
 	var out []time.Time
 
 	at := func(day time.Time, h, m int) {
-		out = append(out, time.Date(day.Year(), day.Month(), day.Day(), h, m, ps.Second(), ps.Nanosecond(), time.UTC))
+		out = append(out, time.Date(day.Year(), day.Month(), day.Day(), h, m, ps.Second(), ps.Nanosecond(), r.loc))
 	}
 
 	switch r.frequency {
@@ -165,7 +186,7 @@ func (r logicRecurrence) candidates(ps time.Time) []time.Time {
 			}
 		}
 	case logicUnitWeek:
-		weekStart := time.Date(ps.Year(), ps.Month(), ps.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, -int(ps.Weekday()))
+		weekStart := time.Date(ps.Year(), ps.Month(), ps.Day(), 0, 0, 0, 0, r.loc).AddDate(0, 0, -int(ps.Weekday()))
 		days := r.weekDays
 
 		if len(days) == 0 {
@@ -193,7 +214,7 @@ func (r logicRecurrence) candidates(ps time.Time) []time.Time {
 func (r logicRecurrence) monthCandidates(ps time.Time, hours, minutes []int) []time.Time {
 	var out []time.Time
 
-	last := time.Date(ps.Year(), ps.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day()
+	last := time.Date(ps.Year(), ps.Month()+1, 0, 0, 0, 0, 0, r.loc).Day()
 
 	for _, md := range orDefault(r.monthDays, r.anchor.Day()) {
 		day := md
@@ -207,7 +228,7 @@ func (r logicRecurrence) monthCandidates(ps time.Time, hours, minutes []int) []t
 
 		for _, h := range hours {
 			for _, m := range minutes {
-				out = append(out, time.Date(ps.Year(), ps.Month(), day, h, m, ps.Second(), ps.Nanosecond(), time.UTC))
+				out = append(out, time.Date(ps.Year(), ps.Month(), day, h, m, ps.Second(), ps.Nanosecond(), r.loc))
 			}
 		}
 	}

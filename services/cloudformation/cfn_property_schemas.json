@@ -3383,6 +3383,28 @@
     "ProvisionedConcurrencyConfig": "map",
     "RuntimePolicy": "map"
   },
+  "AWS::Lambda::WebFunction": {
+    "FunctionName": "string",
+    "Tags": "list"
+  },
+  "AWS::Lambda::WebFunctionEndpoint": {
+    "AuthType": "string",
+    "Description": "string",
+    "EndpointName": "string",
+    "EndpointType": "string",
+    "FunctionName": "string",
+    "Regions": "list",
+    "RevisionWeights": "list",
+    "ScalingConfig": "map",
+    "ThrottleConfig": "map"
+  },
+  "AWS::Lambda::WebFunctionRevision": {
+    "BuildConfig": "map",
+    "Description": "string",
+    "FunctionName": "string",
+    "KmsKeyArn": "string",
+    "ServiceConfig": "map"
+  },
   "AWS::Logs::Delivery": {
     "DeliveryDestinationArn": "string",
     "DeliverySourceName": "string",

@@ -62,6 +62,7 @@ type requestMetrics struct {
 	cw       *captureWriter
 	lease    *lease
 	throttle string
+	serve    string
 	scope    []string
 }
 
@@ -117,7 +118,7 @@ func (b *InMemoryBackend) recordRequest(ep *Endpoint, cw *captureWriter, rm *req
 	}
 	usage := append(
 		append([]cwmetric.Dimension{}, web...),
-		cwmetric.Dimension{Name: "ExecutionRegion", Value: ep.Region},
+		cwmetric.Dimension{Name: "ExecutionRegion", Value: rm.serve},
 	)
 
 	switch {
@@ -128,16 +129,16 @@ func (b *InMemoryBackend) recordRequest(ep *Endpoint, cw *captureWriter, rm *req
 	}
 
 	if rm.throttle != "" {
-		emitMetric(em, ep.Region, nsWebUsage, rm.throttle, unitCount, 1, usage)
+		emitMetric(em, rm.serve, nsWebUsage, rm.throttle, unitCount, 1, usage)
 	}
 
 	if rm.lease != nil {
 		emitMetric(em, ep.Region, nsWeb, "ExecutedRequests", unitCount, 1, web)
-		emitMetric(em, ep.Region, nsWebUsage, "ExecutedRequests", unitCount, 1, usage)
+		emitMetric(em, rm.serve, nsWebUsage, "ExecutedRequests", unitCount, 1, usage)
 	}
 
 	if len(rm.scope) > 0 {
 		active := float64(b.run.activeEnvironments(rm.scope))
-		emitMetric(em, ep.Region, nsWebUsage, "EndpointActiveEnvironments", unitCount, active, usage)
+		emitMetric(em, rm.serve, nsWebUsage, "EndpointActiveEnvironments", unitCount, active, usage)
 	}
 }

@@ -87,6 +87,18 @@ type ExecStreamAPIClient interface {
 	) (int, error)
 }
 
+// ExecStdinAPIClient is implemented by clients that can run a command with standard input attached.
+type ExecStdinAPIClient interface {
+	ContainerExecStdin(
+		ctx context.Context,
+		containerID string,
+		cmd []string,
+		stdin io.Reader,
+		out io.Writer,
+		rows, cols uint,
+	) (int, error)
+}
+
 // NetworkAPIClient is implemented by clients that can manage user-defined networks.
 type NetworkAPIClient interface {
 	NetworkCreate(ctx context.Context, name string) (string, error)
@@ -206,6 +218,17 @@ func (r *realDockerClient) ContainerExecStream(
 	stdout, stderr io.Writer,
 ) (int, error) {
 	return r.c.ContainerExecStream(ctx, containerID, cmd, stdout, stderr)
+}
+
+func (r *realDockerClient) ContainerExecStdin(
+	ctx context.Context,
+	containerID string,
+	cmd []string,
+	stdin io.Reader,
+	out io.Writer,
+	rows, cols uint,
+) (int, error) {
+	return r.c.ContainerExecStdin(ctx, containerID, cmd, stdin, out, rows, cols)
 }
 
 func (r *realDockerClient) ContainerListByLabel(ctx context.Context, label string) ([]ManagedContainer, error) {
@@ -677,6 +700,23 @@ func (r *DockerRuntime) ExecStream(ctx context.Context, containerID string, cmd 
 	}
 
 	code, err := api.ContainerExecStream(ctx, containerID, cmd, out, out)
+	if err != nil {
+		return 0, fmt.Errorf("container exec %q: %w", containerID, err)
+	}
+
+	return code, nil
+}
+
+// ExecStdin runs cmd like ExecStream with stdin relayed to the process; a non-zero rows and cols allocate a terminal.
+func (r *DockerRuntime) ExecStdin(
+	ctx context.Context, containerID string, cmd []string, stdin io.Reader, out io.Writer, rows, cols uint,
+) (int, error) {
+	api, ok := r.docker.(ExecStdinAPIClient)
+	if !ok {
+		return 0, ErrExecUnsupported
+	}
+
+	code, err := api.ContainerExecStdin(ctx, containerID, cmd, stdin, out, rows, cols)
 	if err != nil {
 		return 0, fmt.Errorf("container exec %q: %w", containerID, err)
 	}

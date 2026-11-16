@@ -31,9 +31,11 @@ type planTable struct {
 }
 
 type enginePlan struct {
-	get      S3Getter
-	list     S3Lister
-	write    *writePlan
+	get   S3Getter
+	list  S3Lister
+	write *writePlan
+	// replan rebuilds the plan against the catalog's current state after a lost commit race.
+	replan   func() *enginePlan
 	sql      string
 	bools    []bool
 	temporal []bool
@@ -182,6 +184,8 @@ func (b *InMemoryBackend) buildPlan(
 			return resolvedRef{display: display}
 		}
 
+		def = withAvroColumns(context.Background(), def, get)
+
 		pt := &planTable{def: def, schema: glueSchema(db), name: table, display: db + "." + base, metaTable: metaTable}
 		pt.travel = travel
 
@@ -196,7 +200,12 @@ func (b *InMemoryBackend) buildPlan(
 		seen[key] = pt
 		plan.tables = append(plan.tables, pt)
 
-		return resolvedRef{schema: pt.schema, name: pt.name, found: true, structCols: rowColumns(def)}
+		structCols := rowColumns(def)
+		if metaTable == metaPartitions {
+			structCols = []string{colPartition, "data"}
+		}
+
+		return resolvedRef{schema: pt.schema, name: pt.name, found: true, structCols: structCols}
 	}
 
 	sqlText, unresolved, err := translateSQL(query, resolve)
@@ -251,6 +260,9 @@ func (p *enginePlan) run(ctx context.Context, limits EngineLimits) (*sqlResult, 
 	}
 
 	loader := &tableLoader{get: p.get, list: p.list, limits: limits, want: referencedColumns(p.sql)}
+	if len(p.tables) == 1 {
+		loader.filters = whereTerms(p.sql)
+	}
 
 	if err = p.load(ctx, conn, loader); err != nil {
 		return nil, loader.scanned, engineFailure(err)
@@ -405,13 +417,19 @@ func (t *planTable) loadLocations(ctx context.Context, l *tableLoader, f tableFo
 	total := len(tableColumns(t.def))
 
 	if len(t.def.PartitionKeys) == 0 {
-		sink := &rowSink{stmt: stmt, kinds: kinds, nargs: total}
+		sink := &rowSink{stmt: stmt, kinds: kinds, nargs: total, rowTypes: rowTypesOf(t.def.Columns)}
 
 		return l.loadLocation(ctx, t.def.Location, f, t.def.Columns, sink)
 	}
 
 	for _, part := range t.parts {
-		sink := &rowSink{stmt: stmt, kinds: kinds, nargs: total, extra: partitionArgs(t.def, part)}
+		sink := &rowSink{
+			stmt:     stmt,
+			kinds:    kinds,
+			nargs:    total,
+			extra:    partitionArgs(t.def, part),
+			rowTypes: rowTypesOf(t.def.Columns),
+		}
 		if err := l.loadLocation(ctx, partitionLocation(t.def, part), f, t.def.Columns, sink); err != nil {
 			return err
 		}
@@ -612,21 +630,31 @@ func inferType(v any) string {
 }
 
 type resultBuilder struct {
-	res      *sqlResult
-	decls    []string
-	inferred []bool
-	temporal []bool
-	limits   EngineLimits
-	size     int64
-	display  bool
+	res        *sqlResult
+	decls      []string
+	inferred   []bool
+	nestedDecl []bool
+	rowDecl    []bool
+	temporal   []bool
+	limits     EngineLimits
+	size       int64
+	display    bool
 }
 
 // cellText formats one cell; display mode renders ARRAY/MAP/ROW values Trino-style.
 func (rb *resultBuilder) cellText(i int, v any) string {
 	s := formatCell(v, rb.decls[i])
 
-	if !strings.HasPrefix(s, containerMark) && !isComplexDecl(rb.decls[i]) {
+	if !strings.HasPrefix(s, containerMark) && !isComplexDecl(rb.decls[i]) && !rb.nestedDecl[i] {
 		return s
+	}
+
+	if !rb.display {
+		rb.res.columns[i].nested = true
+
+		if rb.rowDecl[i] {
+			rb.res.columns[i].typ = kindRow
+		}
 	}
 
 	if rb.display {
@@ -663,17 +691,21 @@ func newResultBuilder(
 	}
 
 	rb := &resultBuilder{
-		res:      &sqlResult{columns: make([]sqlColumn, len(names))},
-		limits:   limits,
-		display:  display,
-		decls:    make([]string, len(names)),
-		inferred: make([]bool, len(names)),
-		temporal: temporal,
+		res:        &sqlResult{columns: make([]sqlColumn, len(names))},
+		limits:     limits,
+		display:    display,
+		decls:      make([]string, len(names)),
+		inferred:   make([]bool, len(names)),
+		nestedDecl: make([]bool, len(names)),
+		rowDecl:    make([]bool, len(names)),
+		temporal:   temporal,
 	}
 
 	for i := range names {
 		rb.decls[i] = ctypes[i].DatabaseTypeName()
 		if !display && isComplexDecl(rb.decls[i]) {
+			rb.nestedDecl[i] = true
+			rb.rowDecl[i] = strings.EqualFold(rb.decls[i], declRow)
 			rb.decls[i] = declVarchar
 		}
 

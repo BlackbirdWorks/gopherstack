@@ -9,16 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 74 (74 ok) |
 | Feature families | 15 (15 ok) |
-| Known gaps | 6 |
+| Known gaps | 3 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 2 |
 | Resource leaks | bugs found |
 
 ### Known gaps
 
-- Introspection omits __Type.specifiedByURL and isOneOf (the AppSync guide does not document @specifiedBy/@oneOf support, so they stay unmodeled), and ListTypes/GetType/ListTypesByAssociation ignore the SDL/JSON format parameter; the real per-type JSON shape is unverified. 2026-10-01.
-- GetIntrospectionSchema returns an undeclared BadRequestException for an unknown format; no declared exception (GraphQLSchema/Internal/NotFound/Unauthorized) fits. 2026-10-01.
-- GraphqlApi dns is unmodeled: the GraphqlApi type and GetGraphqlApi pages say only "The DNS records for the API" and give no key set (Event API dns is modelled with HTTP and REALTIME).
 - OpenSearch/Elasticsearch data sources run in-process against services/opensearch domains matched by endpoint host (requests are not SigV4-signed; AMAZON_ELASTICSEARCH resolves against OpenSearch domains only, not services/elasticsearch); EventBridge and RDS (Data API) run in-process; the RDS JS select/insert/update/remove builders are a documented subset (no joins/groupBy/aggregates), MySQL returning is emulated with a follow-up SELECT. 2026-10-20.
 - Not implemented (docs do not define them or need delta-sync state): util.transform.toElasticsearchQueryDSL has no APPSYNC_JS equivalent in the developer guide; DynamoDB Sync with lastSync (delta table) needs conflict-detection/delta-sync writes that PutItem/UpdateItem/DeleteItem do not maintain (base-table Sync works); the @aws-appsync/utils/dynamodb batch/transact JS helpers are not in the documented module (write the request object by hand). Resolver-cache keys without cachingKeys use arguments+source+identity (AWS key composition unverified). 2026-10-25.
 - EvaluateCode codeErrors: LINT_ERROR is never produced (SDK CodeError docs name LINT_ERROR and PARSER_ERROR as examples, not an exhaustive list); not published: checked SDK types.CodeError / CodeErrorLocation and API_CodeError.html, which give no errorType for runtime exceptions and no span value for syntax errors (emulator: span -1, innermost-frame location, no errorType); toElasticsearchQueryDSL field order and single-operator wrapping are not published in devguide resolver-util-reference.html, built-in-util-js.html or resolver-reference-elasticsearch.html (emulator emits sorted field order)

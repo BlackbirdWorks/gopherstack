@@ -2,6 +2,7 @@ package ocimysql
 
 import (
 	"cmp"
+	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -87,13 +88,17 @@ func entityPath(entityType string) string {
 		return "backups"
 	case entityChannel:
 		return "channels"
+	case entityBlueGreen:
+		return "blueGreenDeployments"
+	case entityReplica:
+		return "replicas"
 	default:
 		return "dbSystems"
 	}
 }
 
 func (wr *WorkRequest) finished(now time.Time) bool {
-	return wr.Failure != "" || (wr.FinishAt != nil && !wr.FinishAt.After(now))
+	return wr.Canceled || wr.Failure != "" || (wr.FinishAt != nil && !wr.FinishAt.After(now))
 }
 
 // finishWR completes a work request at now; an empty failure means success.
@@ -103,8 +108,41 @@ func (b *InMemoryBackend) finishWR(id, failure string) {
 		return
 	}
 
+	if wr.Canceled {
+		return
+	}
+
 	now := b.nowUTC()
 	wr.FinishAt, wr.Failure = &now, failure
+}
+
+// CancelWorkRequest cancels a work request that has not finished; the resource transition it describes still runs.
+func (b *InMemoryBackend) CancelWorkRequest(id, ifMatch, token string) error {
+	b.mu.Lock("CancelWorkRequest")
+	defer b.mu.Unlock()
+
+	now := b.nowUTC()
+	if _, ok := b.retry.Lookup("CancelWorkRequest/"+id, token, now); ok {
+		return nil
+	}
+
+	wr, ok := b.workReqs[id]
+	if !ok {
+		return errNotFound(id)
+	}
+
+	if ifMatch != "" {
+		return errEtag()
+	}
+
+	if wr.finished(now) {
+		return errState("work request " + id + " has already finished")
+	}
+
+	wr.Canceled, wr.FinishAt = true, &now
+	b.retry.Remember("CancelWorkRequest/"+id, token, "", now)
+
+	return nil
 }
 
 func (b *InMemoryBackend) wrView(wr *WorkRequest) WorkRequestWire {
@@ -122,6 +160,12 @@ func (b *InMemoryBackend) wrView(wr *WorkRequest) WorkRequestWire {
 	}
 
 	out.TimeFinished, out.PercentComplete = wr.FinishAt, 100
+
+	if wr.Canceled {
+		out.Status, out.Resources[0].ActionType = "CANCELED", wrStatusPending
+
+		return out
+	}
 
 	if wr.Failure != "" {
 		out.Status, out.Resources[0].ActionType = "FAILED", "FAILED"
@@ -210,6 +254,8 @@ func (b *InMemoryBackend) WorkRequestLogs(id string, o ListOpts) (page.Page[wrLo
 	logs := []wrLogWire{{Timestamp: wr.Accepted, Message: wr.Operation + " accepted"}}
 
 	switch {
+	case wr.Canceled:
+		logs = append(logs, wrLogWire{Timestamp: *wr.FinishAt, Message: wr.Operation + " canceled"})
 	case wr.Failure != "":
 		logs = append(logs, wrLogWire{Timestamp: *wr.FinishAt, Message: wr.Operation + " failed: " + wr.Failure})
 	case wr.finished(b.nowUTC()):
@@ -241,6 +287,17 @@ func (h *Handler) getWorkRequest(q *req) error {
 	w, err := h.Backend.GetWorkRequest(q.param("workRequestId"))
 
 	return reply(q, w, "", err)
+}
+
+func (h *Handler) cancelWorkRequest(q *req) error {
+	err := h.Backend.CancelWorkRequest(q.param("workRequestId"), q.ifMatch(), q.r.Header.Get(headerRetry))
+	if err != nil {
+		return err
+	}
+
+	q.w.WriteHeader(http.StatusAccepted)
+
+	return nil
 }
 
 func (h *Handler) listWorkRequests(q *req) error {

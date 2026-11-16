@@ -16,13 +16,13 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
 	pathGatewayPrefix = "/agentcore/gateways/"
 	pathMCP           = "/mcp"
 	opGatewayMCP      = "InvokeGatewayMCP"
+	opGatewayMetadata = "GetGatewayProtectedResourceMetadata"
 	maxMCPBody        = 4 << 20
 	toolsPageSize     = 100
 	jsonRPCVersion    = "2.0"
@@ -60,6 +60,44 @@ func gatewayRoute(r *http.Request) (string, string, bool) {
 	return strings.ToLower(id), "", true
 }
 
+// gatewayMetadataRoute reports the gateway whose protected-resource metadata a request fetches.
+func gatewayMetadataRoute(r *http.Request) (string, string, bool) {
+	if r.Method != http.MethodGet {
+		return "", "", false
+	}
+
+	if m := gatewayHost.FindStringSubmatch(strings.ToLower(r.Host)); m != nil && r.URL.Path == protectedResourceSuffix {
+		return m[1], m[2], true
+	}
+
+	rest, found := strings.CutPrefix(r.URL.Path, pathGatewayPrefix)
+	if !found {
+		return "", "", false
+	}
+
+	id, tail, found := strings.Cut(rest, "/")
+	if !found || id == "" || "/"+tail != protectedResourceSuffix {
+		return "", "", false
+	}
+
+	return strings.ToLower(id), "", true
+}
+
+// serveGatewayMetadata answers the unauthenticated protected-resource metadata request of a JWT gateway.
+func (h *Handler) serveGatewayMetadata(c *echo.Context, gatewayID, region string) error {
+	gw, ok := h.Backend.gatewayByID(gatewayID, region)
+	if !ok {
+		return writeJSON(c, http.StatusNotFound, gatewayMsg("Gateway not found"))
+	}
+
+	cfg := objOf(objOf(gw.doc, "authorizerConfiguration"), "customJWTAuthorizer")
+	if cfg == nil {
+		return writeJSON(c, http.StatusNotFound, gatewayMsg("Gateway has no JWT authorizer"))
+	}
+
+	return writeJSON(c, http.StatusOK, protectedResourceMetadata(c.Request(), cfg))
+}
+
 type rpcRequest struct {
 	Method  string         `json:"method"`
 	JSONRPC string         `json:"jsonrpc"`
@@ -87,6 +125,8 @@ func rpcFail(id jsontext.Value, code int, msg string) rpcResponse {
 	return rpcResponse{JSONRPC: jsonRPCVersion, ID: id, Error: &rpcError{Code: code, Message: msg}}
 }
 
+func gatewayMsg(m string) map[string]string { return map[string]string{"message": m} }
+
 func writeJSON(c *echo.Context, status int, v any) error {
 	c.Response().Header().Set("Content-Type", "application/json")
 	c.Response().WriteHeader(status)
@@ -100,7 +140,7 @@ func (h *Handler) serveGateway(c *echo.Context, gatewayID, region string) error 
 
 	gw, ok := h.Backend.gatewayByID(gatewayID, region)
 	if !ok {
-		return writeJSON(c, http.StatusNotFound, map[string]string{"message": "Gateway not found"})
+		return writeJSON(c, http.StatusNotFound, gatewayMsg("Gateway not found"))
 	}
 
 	if fail := h.Backend.authorize(r.Context(), r, gw); fail != nil {
@@ -108,13 +148,21 @@ func (h *Handler) serveGateway(c *echo.Context, gatewayID, region string) error 
 			c.Response().Header().Set("WWW-Authenticate", fail.challenge)
 		}
 
-		return writeJSON(c, fail.status, map[string]string{"message": fail.message})
+		return writeJSON(c, fail.status, gatewayMsg(fail.message))
 	}
 
 	if r.Method != http.MethodPost {
 		c.Response().Header().Set("Allow", http.MethodPost)
 
 		return c.NoContent(http.StatusMethodNotAllowed)
+	}
+
+	if blocked, gerr := h.versionGate(c, gw); blocked {
+		return gerr
+	}
+
+	if r.Header.Get(hdrProtocol) == modernMCPVersion {
+		return h.serveModern(c, gw)
 	}
 
 	body, err := io.ReadAll(http.MaxBytesReader(c.Response(), r.Body, maxMCPBody))
@@ -213,10 +261,7 @@ func mcpInitialize(gw *gatewayView, params jsontext.Value) (any, *rpcError) {
 
 	proto := objOf(objOf(gw.doc, "protocolConfiguration"), "mcp")
 
-	versions := stringsOf(proto["supportedVersions"])
-	if len(versions) == 0 {
-		versions = defaultMCPVersions()
-	}
+	versions := legacyVersions(gw)
 
 	chosen := latestVersion(versions)
 	if slices.Contains(versions, p.ProtocolVersion) {
@@ -261,22 +306,12 @@ func (b *InMemoryBackend) mcpToolsList(ctx context.Context, gw *gatewayView, par
 
 	all := make([]any, 0)
 
-	for _, t := range gw.targets {
-		if t.status != stateReady {
-			continue
-		}
+	if searchEnabled(gw) {
+		all = append(all, searchToolDef())
+	}
 
-		entries, err := b.listTools(ctx, t)
-		if err != nil {
-			logger.Load(ctx).WarnContext(ctx, "bedrockagentcorecontrol: target tools unavailable",
-				"gateway", gw.id, "target", t.name, "error", err)
-
-			continue
-		}
-
-		for _, e := range entries {
-			all = append(all, prefixed(t.name, e))
-		}
+	for _, d := range b.gatewayTools(ctx, gw) {
+		all = append(all, d)
 	}
 
 	proto := objOf(objOf(gw.doc, "protocolConfiguration"), "mcp")
@@ -319,6 +354,10 @@ func (b *InMemoryBackend) mcpToolsCall(ctx context.Context, gw *gatewayView, req
 
 	if p.Arguments == nil {
 		p.Arguments = map[string]any{}
+	}
+
+	if p.Name == searchToolName && searchEnabled(gw) {
+		return b.searchTools(ctx, gw, p.Arguments)
 	}
 
 	res, err := b.callTool(ctx, gw, callInfo{

@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 66 (66 ok) |
 | Feature families | 9 (9 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- InstanceCollection.MarketType is not emitted: the SDK documents it only as 'On-Demand or Spot' (types.go:1000) with no enum or example, so the wire strings are unverifiable.
 
 ### Structural gaps
 

@@ -588,6 +588,81 @@ type ContainerRegistries interface {
 	DeleteWebhook(registry, name string) error
 	PingWebhook(registry, name string) (string, error)
 	WebhookEvents(registry, name string) ([]map[string]any, error)
+	ScopeMaps(registry string) ([]ContainerRegistryScopeMap, error)
+	SetScopeMap(registry, name, description string, actions []string) error
+	DeleteScopeMap(registry, name string) error
+	Tokens(registry string) ([]ContainerRegistryToken, error)
+	SetToken(registry, name, scopeMap string, enabled bool) error
+	DeleteToken(registry, name string) error
+	GenerateTokenPassword(registry, token, which string, expiry *time.Time) (ContainerRegistryTokenPassword, error)
+	ImportImage(ctx context.Context, registry string, req ContainerRegistryImport) error
+	SetNetworkRules(registry string, rules ContainerRegistryNetworkRules) error
+	SetCacheRule(registry string, rule ContainerRegistryCacheRule) error
+	DeleteCacheRule(registry, name string) error
+	CredentialHealth(usernameSecretID, passwordSecretID string) (healthy bool, code, message string)
+	CheckEncryptionKey(keyIdentifier string) error
+	SetEncryptionKey(registry, keyIdentifier string) error
+}
+
+// ContainerRegistryCacheCredentials locates a cache rule's upstream login in Key Vault.
+type ContainerRegistryCacheCredentials struct {
+	LoginServer    string
+	UsernameSecret string
+	PasswordSecret string
+}
+
+// ContainerRegistryCacheRule pulls Source into Target on first pull.
+type ContainerRegistryCacheRule struct {
+	Credentials *ContainerRegistryCacheCredentials
+	Name        string
+	Source      string
+	Target      string
+}
+
+// ContainerRegistryNetworkRules is the public-endpoint firewall the data plane enforces.
+type ContainerRegistryNetworkRules struct {
+	Allow          []string
+	PublicDisabled bool
+	DefaultDeny    bool
+}
+
+// ContainerRegistryImport is an importImage request; SourceRegistry names an emulated registry, SourceURI an
+// external one.
+type ContainerRegistryImport struct {
+	SourceRegistry  string
+	SourceURI       string
+	SourceImage     string
+	Username        string
+	Password        string
+	TargetTags      []string
+	UntaggedTargets []string
+	Force           bool
+}
+
+// ContainerRegistryScopeMap is a named set of repository permissions; System scope maps are read-only.
+type ContainerRegistryScopeMap struct {
+	CreatedAt   time.Time
+	Name        string
+	Description string
+	Actions     []string
+	System      bool
+}
+
+// ContainerRegistryToken is a registry token with the metadata of its generated passwords.
+type ContainerRegistryToken struct {
+	CreatedAt time.Time
+	Name      string
+	ScopeMap  string
+	Passwords []ContainerRegistryTokenPassword
+	Enabled   bool
+}
+
+// ContainerRegistryTokenPassword is a token password; Value is set only when it has just been generated.
+type ContainerRegistryTokenPassword struct {
+	Created time.Time
+	Expiry  *time.Time
+	Name    string
+	Value   string
 }
 
 // ContainerRegistryWebhook is a registry webhook the data plane fires on image and chart pushes and deletes.
@@ -632,6 +707,50 @@ func (noopContainerRegistries) PingWebhook(string, string) (string, error) {
 
 func (noopContainerRegistries) WebhookEvents(string, string) ([]map[string]any, error) {
 	return nil, ErrACRUnavailable
+}
+
+func (noopContainerRegistries) ScopeMaps(string) ([]ContainerRegistryScopeMap, error) {
+	return nil, ErrACRUnavailable
+}
+
+func (noopContainerRegistries) SetScopeMap(string, string, string, []string) error {
+	return ErrACRUnavailable
+}
+
+func (noopContainerRegistries) DeleteScopeMap(string, string) error { return ErrACRUnavailable }
+
+func (noopContainerRegistries) Tokens(string) ([]ContainerRegistryToken, error) {
+	return nil, ErrACRUnavailable
+}
+
+func (noopContainerRegistries) SetToken(string, string, string, bool) error { return ErrACRUnavailable }
+
+func (noopContainerRegistries) DeleteToken(string, string) error { return ErrACRUnavailable }
+
+func (noopContainerRegistries) SetNetworkRules(string, ContainerRegistryNetworkRules) error {
+	return nil
+}
+
+func (noopContainerRegistries) SetCacheRule(string, ContainerRegistryCacheRule) error { return nil }
+
+func (noopContainerRegistries) DeleteCacheRule(string, string) error { return nil }
+
+func (noopContainerRegistries) CredentialHealth(string, string) (bool, string, string) {
+	return false, "Unavailable", "The data plane is not available."
+}
+
+func (noopContainerRegistries) CheckEncryptionKey(string) error { return nil }
+
+func (noopContainerRegistries) SetEncryptionKey(string, string) error { return nil }
+
+func (noopContainerRegistries) ImportImage(context.Context, string, ContainerRegistryImport) error {
+	return ErrACRUnavailable
+}
+
+func (noopContainerRegistries) GenerateTokenPassword(
+	string, string, string, *time.Time,
+) (ContainerRegistryTokenPassword, error) {
+	return ContainerRegistryTokenPassword{}, ErrACRUnavailable
 }
 
 var _ ContainerRegistries = noopContainerRegistries{}

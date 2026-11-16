@@ -135,8 +135,7 @@ families:
 
 gaps: []
 
-items_still_open:
-  - "CreateModelInvocationJob/CreateEvaluationJob client-token replays are remembered for 5 minutes; the pinned SDK does not state how long AWS keeps a token, so the window is unverified."
+items_still_open: []
 structural_gaps:
   - "EvaluationJob AutomatedEvaluationConfig.CustomMetricConfig and RAGConfig's knowledgeBaseConfig/precomputedRagSourceConfig are stored verbatim as json.RawMessage (round trip: evaluation_job_unions_test.go): they wrap recursive unions (types/types.go:196, 6165-6344) that only an evaluation engine would interpret, and the job store never runs an evaluation."
   - "List-summary members with no domain source (no job engines, so no per-phase status, record counts or capability detection): EvaluationSummary.ModelIdentifiers/RagIdentifiers/CustomMetricsEvaluatorModelIdentifiers/InferenceConfigSummary; ImportedModelSummary.InstructSupported/ModelArchitecture; ModelCopyJobSummary.SourceModelName; ModelCustomizationJobSummary.StatusDetails; ModelInvocationJobSummary error/processed/total record counts and JobExpirationTime; CustomModelDeploymentSummary.FailureMessage."
@@ -1217,3 +1216,7 @@ GetCustomModel, GetGuardrail and GetModelCustomizationJob no longer emit tags (r
 ## 2026-10-12 (deep realism pass)
 
 ListGuardrails with a guardrailIdentifier (ID or ARN) lists the DRAFT and every numbered version, as the SDK doc states (`TestListGuardrails_IdentifierListsAllVersions`). GetModelCustomizationJob returns endTime once the job is terminal (`TestGetModelCustomizationJob_EndTimeOnCompletion`). The foundation-model catalogue stays at the five seeded models. bedrock-agent lives in services/bedrockagent and was not part of this pass.
+
+## Emulator choices where the vendor is silent
+
+- CreateModelInvocationJob/CreateEvaluationJob client-token replays are remembered for 5 minutes; the pinned SDK does not state how long AWS keeps a token, so the window is unverified.

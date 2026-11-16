@@ -69,8 +69,10 @@ type Index struct {
 
 // Usage is the consumption recorded for one minute.
 type Usage struct {
-	Reads  int `json:"reads"`
-	Writes int `json:"writes"`
+	Reads          int `json:"reads"`
+	Writes         int `json:"writes"`
+	ReadThrottles  int `json:"readThrottles,omitempty"`
+	WriteThrottles int `json:"writeThrottles,omitempty"`
 }
 
 // Table is a NoSQL table with its rows and indexes.
@@ -98,6 +100,7 @@ type Table struct {
 	RowSeq        int64             `json:"rowSeq"`
 	AutoReclaim   bool              `json:"autoReclaimable,omitempty"`
 	SchemaFrozen  bool              `json:"schemaFrozen,omitempty"`
+	window        secondWindow
 }
 
 // Replica is a remote-region copy of a table; the emulator records its metadata only.

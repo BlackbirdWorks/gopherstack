@@ -13,8 +13,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/parquetio"
 )
 
 const (
@@ -137,7 +135,7 @@ type boundCol struct {
 }
 
 // resolveFileCols binds each table column to the file's Parquet column.
-func resolveFileCols(pf *parquetio.File, cols []fileCol) []boundCol {
+func resolveFileCols(pf columnarFile, cols []fileCol) []boundCol {
 	ids := pf.ColumnIDs()
 	have := map[string]string{}
 
@@ -169,14 +167,14 @@ func resolveFileCols(pf *parquetio.File, cols []fileCol) []boundCol {
 // loadColumnarFile streams one Parquet data file into sink. skip rows are
 // zero-based positions removed by position deletes.
 func (l *tableLoader) loadColumnarFile(
-	ctx context.Context, bucket, key string, cols []fileCol, skip map[int64]bool, sink *rowSink,
+	ctx context.Context, bucket, key string, kind dataFormat, cols []fileCol, skip map[int64]bool, sink *rowSink,
 ) error {
 	data, err := l.readObject(ctx, bucket, key)
 	if err != nil {
 		return fmt.Errorf("HIVE_CANNOT_OPEN_SPLIT: Error opening split s3://%s/%s: %w", bucket, key, err)
 	}
 
-	pf, err := parquetio.Open(data)
+	pf, err := openColumnar(kind, data)
 	if err != nil {
 		return fmt.Errorf("HIVE_CANNOT_OPEN_SPLIT: Error opening split s3://%s/%s: %w", bucket, key, err)
 	}
@@ -211,7 +209,7 @@ func (l *tableLoader) loadColumnarFile(
 
 		return l.insertJSON(ctx, sink, rec, nulls)
 	})
-	if errors.Is(err, parquetio.ErrBadFile) {
+	if isBadColumnarFile(err) {
 		return fmt.Errorf("HIVE_CURSOR_ERROR: s3://%s/%s: %w", bucket, key, err)
 	}
 

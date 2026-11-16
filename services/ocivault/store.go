@@ -37,8 +37,11 @@ type InMemoryBackend struct {
 	vaults    map[string]*Vault
 	keys      map[string]*Key
 	secrets   map[string]*Secret
+	ekms      map[string]*EkmsEndpoint
+	subnets   SubnetResolver
 	Auth      *ociauth.Registry
 	invoke    FunctionInvoker
+	adb       AdbTarget
 	repl      map[string]*replOp
 	retry     *ociretry.Store
 	tagLookup ocitags.Lookup
@@ -59,6 +62,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		vaults:    map[string]*Vault{},
 		keys:      map[string]*Key{},
 		secrets:   map[string]*Secret{},
+		ekms:      map[string]*EkmsEndpoint{},
 		Auth:      ociauth.NewRegistry(),
 	}
 }
@@ -74,6 +78,7 @@ func (b *InMemoryBackend) SetClock(now func() time.Time) {
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	b.vaults, b.keys, b.secrets = map[string]*Vault{}, map[string]*Key{}, map[string]*Secret{}
+	b.ekms = map[string]*EkmsEndpoint{}
 	b.backupKey = newBackupKey()
 	b.repl = map[string]*replOp{}
 	b.retry = ociretry.New()

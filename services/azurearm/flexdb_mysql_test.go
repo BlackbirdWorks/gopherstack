@@ -155,15 +155,15 @@ func TestMySQLFlexServerValidation(t *testing.T) {
 		body   string
 		status int
 	}{
-		{"valid 5.7", myReq(myLoginPW + `,"version":"5.7"`), http.StatusCreated},
-		{"valid 8.4", myReq(myLoginPW + `,"version":"8.4"`), http.StatusCreated},
+		{"valid 5.7", myReq(myLoginPW + `,"version":"5.7"`), http.StatusAccepted},
+		{"valid 8.4", myReq(myLoginPW + `,"version":"8.4"`), http.StatusAccepted},
 		{"bad version", myReq(myLoginPW + `,"version":"8.1"`), http.StatusBadRequest},
 		{"storage below min", myReq(myLoginPW + `,"storage":{"storageSizeGB":19}`), http.StatusBadRequest},
 		{"storage above max", myReq(myLoginPW + `,"storage":{"storageSizeGB":16385}`), http.StatusBadRequest},
-		{"storage valid odd", myReq(myLoginPW + `,"storage":{"storageSizeGB":33}`), http.StatusCreated},
+		{"storage valid odd", myReq(myLoginPW + `,"storage":{"storageSizeGB":33}`), http.StatusAccepted},
 		{"retention zero", myReq(myLoginPW + `,"backup":{"backupRetentionDays":0}`), http.StatusBadRequest},
 		{"retention 36", myReq(myLoginPW + `,"backup":{"backupRetentionDays":36}`), http.StatusBadRequest},
-		{"retention 35", myReq(myLoginPW + `,"backup":{"backupRetentionDays":35}`), http.StatusCreated},
+		{"retention 35", myReq(myLoginPW + `,"backup":{"backupRetentionDays":35}`), http.StatusAccepted},
 		{"geo invalid", myReq(myLoginPW + `,"backup":{"geoRedundantBackup":"Maybe"}`), http.StatusBadRequest},
 		{"reserved root", myReq(login("root")), http.StatusBadRequest},
 		{"long login", myReq(login(strings.Repeat("a", 33))), http.StatusBadRequest},
@@ -203,10 +203,10 @@ func TestMySQLFlexSKUCatalog(t *testing.T) {
 		sku, tier string
 		status    int
 	}{
-		{"Standard_B1s", "Burstable", http.StatusCreated},
-		{"Standard_D2ads_v5", "GeneralPurpose", http.StatusCreated},
-		{"Standard_D96ads_v5", "GeneralPurpose", http.StatusCreated},
-		{"Standard_E20ds_v4", "MemoryOptimized", http.StatusCreated},
+		{"Standard_B1s", "Burstable", http.StatusAccepted},
+		{"Standard_D2ads_v5", "GeneralPurpose", http.StatusAccepted},
+		{"Standard_D96ads_v5", "GeneralPurpose", http.StatusAccepted},
+		{"Standard_E20ds_v4", "MemoryOptimized", http.StatusAccepted},
 		{"Standard_D2ds_v5", "GeneralPurpose", http.StatusBadRequest},
 		{"Standard_B1ms", "MemoryOptimized", http.StatusBadRequest},
 		{"Standard_B1s", "GeneralPurpose", http.StatusBadRequest},
@@ -517,7 +517,7 @@ func TestMySQLFlexPointInTimeRestore(t *testing.T) {
 	status, resp := s.raw(t, http.MethodPut, flexServerPath(myNS, "my-pitr-new"),
 		`{"location":"x","properties":{"createMode":"PointInTimeRestore","sourceServerResourceId":"`+*src.ID+
 			`","restorePointInTime":"`+created+`"}}`, flexAPIMy)
-	require.Equal(t, http.StatusCreated, status, resp)
+	require.Equal(t, http.StatusAccepted, status, resp)
 
 	props, _ := resp["properties"].(map[string]any)
 	assert.Equal(t, "myadmin", props["administratorLogin"])

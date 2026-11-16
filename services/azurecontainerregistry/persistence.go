@@ -79,6 +79,10 @@ func normalize(in map[string]*registry) (map[string]*registry, error) {
 			r.Repos = ociregistry.Ledger{}
 		}
 
+		if hasNilEntry(r.ScopeMaps) || hasNilEntry(r.CacheRules) || hasNilEntry(r.Tokens) {
+			return nil, fmt.Errorf("%w: registry %s", errNullEntry, r.Name)
+		}
+
 		if err := r.Repos.Normalize(); err != nil {
 			return nil, err
 		}
@@ -99,4 +103,14 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	}
 
 	return nil
+}
+
+func hasNilEntry[V any](m map[string]*V) bool {
+	for _, v := range m {
+		if v == nil {
+			return true
+		}
+	}
+
+	return false
 }

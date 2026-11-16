@@ -2,6 +2,7 @@ package bedrockagentcorecontrol
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -82,7 +83,7 @@ func (b *InMemoryBackend) validateTargetInput(sc scope, in map[string]any) error
 	}
 
 	if kind == "mcp" {
-		if err := b.validateMCPTarget(objOf(tc, "mcp")); err != nil {
+		if err := b.validateMCPTarget(sc, objOf(tc, "mcp")); err != nil {
 			return err
 		}
 	}
@@ -90,7 +91,7 @@ func (b *InMemoryBackend) validateTargetInput(sc scope, in map[string]any) error
 	return b.validateCredentialConfigs(sc, listOf(in, "credentialProviderConfigurations"))
 }
 
-func (b *InMemoryBackend) validateMCPTarget(mcp map[string]any) error {
+func (b *InMemoryBackend) validateMCPTarget(sc scope, mcp map[string]any) error {
 	kind, ok := exactlyOne(mcp, mcpTargetTypes())
 	if !ok {
 		return invalid("targetConfiguration.mcp must set exactly one of %s", strings.Join(mcpTargetTypes(), ", "))
@@ -112,6 +113,8 @@ func (b *InMemoryBackend) validateMCPTarget(mcp map[string]any) error {
 		if b.refs != nil && !b.refs.LambdaFunctionExists(arn) {
 			return invalid("Lambda function %q does not exist", arn)
 		}
+	case targetAPIGateway:
+		return b.validateAPIGatewayTarget(sc, objOf(mcp, targetAPIGateway))
 	case "mcpServer":
 		if u := strOf(objOf(mcp, "mcpServer"), "endpoint"); !strings.HasPrefix(u, "https://") {
 			return invalid("mcpServer endpoint must be an https URL")
@@ -293,19 +296,27 @@ func timesOf(op, key string) map[string]string {
 
 // syncOutcome is the result of discovering one target's tools.
 type syncOutcome struct {
-	reason string
-	tools  []any
+	reason    string
+	tools     []any
+	needsAuth bool
 }
 
 // synchronizeTargets rediscovers the tools of the named gateway targets; discovery runs outside the lock.
-func (b *InMemoryBackend) synchronizeTargets(sc scope, op string, in args) (*reply, error) {
+func (b *InMemoryBackend) synchronizeTargets(ctx context.Context, sc scope, op string, in args) (*reply, error) {
 	views, gwID, err := b.syncCandidates(sc, in)
 	if err != nil {
 		return nil, err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), syncTimeout)
+	ctx, cancel := context.WithTimeout(ctx, syncTimeout)
 	defer cancel()
+
+	docs := make([]map[string]any, len(views))
+	for i, v := range views {
+		docs[i] = v.doc
+	}
+
+	ctx = b.prepareAuthDocs(ctx, sc, docs)
 
 	outcomes := make([]syncOutcome, len(views))
 	for i, v := range views {
@@ -326,7 +337,7 @@ func (b *InMemoryBackend) synchronizeTargets(sc scope, op string, in args) (*rep
 			return nil, notFound("gateway target %q not found", v.id)
 		}
 
-		b.applySync(t, outcomes[i])
+		b.applySync(ctx, t, outcomes[i])
 		b.settle(t, "SYNCHRONIZING")
 		out = append(out, b.project(k, t, elemKeys(op, "targets"), timesOf(op, "targets"), "SYNCHRONIZING", nil))
 	}
@@ -379,6 +390,10 @@ func (b *InMemoryBackend) discoverTarget(ctx context.Context, t targetView) sync
 		return syncOutcome{}
 	}
 
+	if b.awaitingAuthorization(t) {
+		return syncOutcome{needsAuth: true}
+	}
+
 	if kind == targetLambda {
 		b.mu.RLock("discoverTarget")
 		refs := b.refs
@@ -412,9 +427,15 @@ func (b *InMemoryBackend) discoverTarget(ctx context.Context, t targetView) sync
 	return syncOutcome{tools: tools}
 }
 
-func (b *InMemoryBackend) applySync(t *Resource, o syncOutcome) {
+func (b *InMemoryBackend) applySync(ctx context.Context, t *Resource, o syncOutcome) {
 	now := b.now().UTC()
 	t.Doc["lastSynchronizedAt"] = now.Format(time.RFC3339Nano)
+
+	if o.needsAuth {
+		b.requireTargetAuth(ctx, t, "SYNCHRONIZE_PENDING_AUTH")
+
+		return
+	}
 
 	if o.reason != "" {
 		t.Status = "SYNCHRONIZE_UNSUCCESSFUL"
@@ -435,6 +456,25 @@ func elemKeys(op, key string) []string {
 	for _, f := range specs()[op].Out {
 		if f.Key == key {
 			return f.Elem
+		}
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) validateAPIGatewayTarget(sc scope, cfg map[string]any) error {
+	if strOf(cfg, "restApiId") == "" || strOf(cfg, "stage") == "" {
+		return invalid("apiGateway targets require restApiId and stage")
+	}
+
+	if len(listOf(objOf(cfg, "apiGatewayToolConfiguration"), "toolFilters")) == 0 {
+		return invalid("apiGateway targets require at least one tool filter")
+	}
+
+	if host, ok := b.refs.(RestAPIHost); ok {
+		if _, err := host.RestAPIExport(sc.region, strOf(cfg, "restApiId"), strOf(cfg, "stage")); err != nil &&
+			!errors.Is(err, ErrRestAPIHostUnavailable) {
+			return notFound("REST API %q stage %q not found", strOf(cfg, "restApiId"), strOf(cfg, "stage"))
 		}
 	}
 

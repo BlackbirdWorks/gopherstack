@@ -70,6 +70,8 @@ func (p *APIMProvider) restore(snap *apimSnapshot) {
 }
 
 func ensureAPIMMaps(s *apimService) {
+	seedAPIMPortal(s)
+
 	all := []*map[string]*apimEntity{&s.APIs, &s.Ops, &s.Products, &s.Subs, &s.Named, &s.Backends, &s.Policies}
 
 	for _, m := range all {

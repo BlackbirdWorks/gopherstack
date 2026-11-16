@@ -30,6 +30,7 @@ const (
 	flexStatusRunning = "InProgress"
 	flexStatusFailed  = "Failed"
 	flexRetryMS       = "100"
+	flexUpdateConfigs = "updateconfigurations"
 )
 
 func flexNS(s string) bool {
@@ -46,7 +47,7 @@ func isFlexScope(segs []string, n int) bool {
 func isFlexChildType(segs []string) bool {
 	switch strings.ToLower(segs[flexServerSegs]) {
 	case strings.ToLower(flexFirewallType), strings.ToLower(flexDatabasesType), strings.ToLower(flexConfigsType),
-		strings.ToLower(flexAdminType):
+		strings.ToLower(flexAdminType), strings.ToLower(flexBackupsType), strings.ToLower(flexBackupsV2Type):
 		return true
 	}
 
@@ -91,7 +92,7 @@ func isFlexAction(segs []string, r *http.Request) bool {
 	switch strings.ToLower(segs[flexServerSegs]) {
 	case aksActionStart, aksActionStop, "restart":
 		return true
-	case flexAdminFailover:
+	case flexAdminFailover, flexUpdateConfigs:
 		return strings.EqualFold(segs[flexNsIdx], namespaceDBforMySQL)
 	}
 
@@ -138,6 +139,12 @@ var flexRoutes = []armRoute{
 				isFlexSubOp(segs, r, flexLocSegs, "checkNameAvailability", http.MethodPost)
 		},
 		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleFlexCheckName(c, segs) },
+	},
+	{
+		match: func(segs []string, r *http.Request) bool {
+			return isFlexSubOp(segs, r, flexLocSegs, "checkVirtualNetworkSubnetUsage", http.MethodPost)
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleFlexSubnetUsage(c, segs) },
 	},
 	{
 		match: func(segs []string, r *http.Request) bool {
@@ -276,12 +283,16 @@ func (h *Handler) handleFlexWrite(c *echo.Context, segs []string) error {
 	status := http.StatusOK
 
 	if getErr != nil && method == http.MethodPut {
-		status = http.StatusCreated
+		status = http.StatusAccepted
 	}
 
 	res, err := p.Write(id, method, body)
 	if err != nil {
 		return h.writeAPIError(c, err)
+	}
+
+	if res.opID == "" {
+		return h.writeJSON(c, http.StatusOK, res.body)
 	}
 
 	h.setFlexOperation(c, p, id.SubscriptionID, res.opID)
@@ -308,6 +319,20 @@ func (h *Handler) handleFlexAction(c *echo.Context, segs []string) error {
 	p, id, err := h.flexFor(c, segs[:len(segs)-1])
 	if p == nil {
 		return err
+	}
+
+	if strings.EqualFold(segs[len(segs)-1], flexUpdateConfigs) {
+		body, derr := decodeJSONBody(c.Request())
+		if derr != nil {
+			return h.writeAPIError(c, derr)
+		}
+
+		values, berr := p.BatchUpdateConfigs(id, body)
+		if berr != nil {
+			return h.writeAPIError(c, berr)
+		}
+
+		return h.writeJSON(c, http.StatusOK, map[string]any{fieldValue: values})
 	}
 
 	opID, err := p.Action(id, strings.ToLower(segs[len(segs)-1]))
@@ -349,6 +374,34 @@ func (h *Handler) handleFlexCheckName(c *echo.Context, segs []string) error {
 	typ, _ := flexStr(body, fieldType)
 
 	return h.writeJSON(c, http.StatusOK, p.CheckName(c.Request().Context(), name, typ))
+}
+
+func (h *Handler) handleFlexSubnetUsage(c *echo.Context, segs []string) error {
+	p, ok := h.flexProviderFor(segs[flexSubNsIdx])
+	if !ok {
+		return h.writeNotFound(c)
+	}
+
+	body, err := decodeJSONBody(c.Request())
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	vnet, _ := flexStr(body, "virtualNetworkArmResourceId")
+	if mysql, set := flexStr(body, "virtualNetworkResourceId"); set {
+		vnet = mysql
+	}
+
+	if vnet == "" {
+		return h.writeAPIError(c, flexInvalid("The virtual network resource id is required."))
+	}
+
+	out, err := p.SubnetUsage(segs[1], segs[flexLocSegIdx+1], vnet)
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	return h.writeJSON(c, http.StatusOK, out)
 }
 
 func (h *Handler) handleFlexCapabilities(c *echo.Context, segs []string) error {

@@ -175,3 +175,49 @@ func TestInvokeAuth_ApplicationManagedIgnoresPolicy(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, d.get(t).StatusCode)
 }
+
+type fakeOrgs map[string]string
+
+func (f fakeOrgs) OrgIDForAccount(account string) string { return f[account] }
+
+func TestInvokeAuth_OrganizationConditionKeys(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		orgs      fakeOrgs
+		name      string
+		condition string
+		want      int
+	}{
+		{name: "principal org matches deny", orgs: fakeOrgs{"123456789012": "o-abc"},
+			condition: `"StringEquals":{"aws:PrincipalOrgID":"o-abc"}`, want: http.StatusForbidden},
+		{name: "principal org differs", orgs: fakeOrgs{"123456789012": "o-xyz"},
+			condition: `"StringEquals":{"aws:PrincipalOrgID":"o-abc"}`, want: http.StatusOK},
+		{name: "principal outside any org", orgs: fakeOrgs{},
+			condition: `"StringEquals":{"aws:PrincipalOrgID":"o-abc"}`, want: http.StatusOK},
+		{name: "resource org matches deny", orgs: fakeOrgs{"123456789012": "o-res"},
+			condition: `"StringEquals":{"aws:ResourceOrgID":"o-res"}`, want: http.StatusForbidden},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			d, _ := newIamEnv(t)
+			d.backend.SetPrincipalResolver(fakeResolver{principal: &awsmeta.Principal{
+				Arn: "arn:aws:iam::123456789012:user/alice", AccountID: "123456789012",
+			}})
+			d.backend.SetOrgResolver(tc.orgs)
+
+			_, err := d.client.PutResourcePolicy(t.Context(), &lwsdk.PutResourcePolicyInput{
+				ResourceArn: aws.String("arn:aws:lambda:us-east-1:123456789012:web-function/secure"),
+				Policy: aws.String(policyJSON(`{"Effect":"Deny","Principal":"*","Action":"` + invokeAct +
+					`","Resource":"*","Condition":{` + tc.condition + `}}`)),
+			})
+			require.NoError(t, err)
+
+			resp := d.do(t, http.MethodGet, d.domain, "/", signedRequest(t, "lambda"))
+			assert.Equal(t, tc.want, resp.StatusCode)
+		})
+	}
+}

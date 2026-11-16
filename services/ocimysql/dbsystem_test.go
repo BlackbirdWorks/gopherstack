@@ -36,7 +36,7 @@ func TestDbSystemLifecycle(t *testing.T) {
 	got := e.getDB(t, created.Id)
 	assert.Equal(t, my.DbSystemLifecycleStateActive, got.LifecycleState)
 	assert.Equal(t, "test", got.FreeformTags["env"])
-	assert.Equal(t, "8.4.6", *got.MysqlVersion)
+	assert.Equal(t, "9.7.4", *got.MysqlVersion)
 	assert.Equal(t, shapeSmall, *got.ShapeName)
 	assert.Equal(t, 50, *got.DataStorageSizeInGBs)
 	assert.Equal(t, "Uocm:US-ASHBURN-AD-2", *got.AvailabilityDomain)
@@ -498,7 +498,7 @@ func TestUpdateDbSystem(t *testing.T) {
 			t.Parallel()
 
 			e := newEnv(t, envOpts{})
-			db := e.mkDB(t, "upd", nil)
+			db := e.mkDB(t, "upd", func(d *my.CreateDbSystemDetails) { d.MysqlVersion = new("8.4.6") })
 
 			resp, err := e.db.UpdateDbSystem(t.Context(), my.UpdateDbSystemRequest{
 				DbSystemId: db.Id, UpdateDbSystemDetails: tt.upd,
@@ -767,7 +767,7 @@ func TestShapesAndVersions(t *testing.T) {
 
 	vers, err := e.aas.ListVersions(ctx, my.ListVersionsRequest{CompartmentId: new(testCompartment)})
 	require.NoError(t, err)
-	require.Len(t, vers.Items, 3)
+	require.Len(t, vers.Items, 4)
 
 	fams := map[string][]my.Version{}
 	for _, f := range vers.Items {
@@ -777,7 +777,7 @@ func TestShapesAndVersions(t *testing.T) {
 	assert.Contains(t, fams, "8.0")
 	assert.Contains(t, fams, "8.4")
 	assert.Contains(t, fams, "9.x")
-	assert.Equal(t, "8.4.3", *fams["8.4"][0].Version)
+	assert.Equal(t, "8.4.0", *fams["8.4"][0].Version)
 
 	status, _ := rawDo(t, http.MethodGet, e.base+"/20190415/shapes", "")
 	assert.Equal(t, http.StatusBadRequest, status, "compartmentId is required")

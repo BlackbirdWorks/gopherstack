@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	arnpkg "github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 var (
@@ -45,6 +46,11 @@ func (r *Runner) invokeExtraTarget(ctx context.Context, s *Schedule, payload []b
 	switch {
 	case strings.HasPrefix(arn, universalTargetPrefix):
 		return true, r.invokeUniversalTarget(ctx, s)
+	case arnpkg.HasService(arn, "inspector"):
+		logger.Load(ctx).InfoContext(ctx, "scheduler: would start Inspector assessment run (not performed)",
+			"schedule", s.Name, "template", arn)
+
+		return true, nil
 	case arnpkg.HasService(arn, "firehose"):
 		if r.extra.Firehose == nil {
 			return true, fmt.Errorf("%w: firehose target %q", errTargetUnwired, arn)

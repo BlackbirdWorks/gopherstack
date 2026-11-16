@@ -48,7 +48,6 @@ families:
 items_still_open:
   - "The Kafka compatibility API (bootstrap servers, SASL and the Kafka wire protocol) is not implemented; kafkaSettings are stored and returned and bootstrapServers is whatever the caller set."
   - "The documented tenancy partition allowance (default 200 on Monthly Universal Credits, 50 on Pay-as-You-Go or Promo) is not enforced and the status for exceeding it is undocumented; the 1 to 1000 partitions per stream range, stream counts per tenancy and the error code strings of failed PutMessages entries have no documentation."
-  - "Per-operation error mapping for a duplicate stream name (409 Conflict), deleting a non-empty pool (409 IncorrectState) and an unusable customEncryptionKey (400 InvalidParameter) is undocumented; the common errors page lists the codes but not which operation returns them."
   - "Private stream pools only store their subnet and NSG settings; endpoints are not network-isolated and endpointFqdn is the addressed host."
   - "Messages and consumer group state are held in memory and in snapshots, so large retained volumes grow the snapshot."
   - "IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
@@ -61,3 +60,7 @@ items_still_open:
 - PutMessages over 1 MiB is 400 InvalidParameter "Request size is limited to 1 MiB." and an uncommittable group cursor is 400 InvalidParameter "Trying to commit unreserved partition" (https://docs.oracle.com/en-us/iaas/Content/Streaming/Reference/troubleshootingstreaming.htm).
 - CreateStreamPool and CreateConnectHarness replay on opc-retry-token for 24 hours (SDK request docs, streaming/create_stream_pool_request_response.go) and answer 409 InvalidatedRetryToken once the resource was deleted (https://docs.oracle.com/en-us/iaas/Content/API/References/apierrors.htm); tokens persist in the snapshot as retryTokens. CreateStream has no retry token in the SDK.
 - Free-form and defined tags are checked by pkgs/ocitags (10 free-form and 64 defined tags, keys up to 100 and values up to 256 characters, 5 K total, retired tags rejected, unknown namespaces 404 NotAuthorizedOrNotFound "The following tag namespaces / keys are not authorized or not found", ENUM validators) against OCI Identity when it runs in the same process (https://docs.oracle.com/en-us/iaas/Content/Tagging/Concepts/taggingoverview.htm, troubleshooting page above).
+
+## Emulator choices where the vendor is silent
+
+- Per-operation error mapping for a duplicate stream name (409 Conflict), deleting a non-empty pool (409 IncorrectState) and an unusable customEncryptionKey (400 InvalidParameter) is undocumented; the common errors page lists the codes but not which operation returns them.

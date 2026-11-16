@@ -141,6 +141,11 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return nil
 		}
 
+		if ip, ok := h.containerInstanceProvider(); ok && strings.HasPrefix(r.URL.Path, aciExecPrefix) &&
+			ip.ServeExec(c.Response(), r) {
+			return nil
+		}
+
 		if ap, ok := h.apimProvider(); ok && ap.ServeGateway(c.Response(), r) {
 			return nil
 		}
@@ -230,10 +235,22 @@ func (h *Handler) dispatch(c *echo.Context, segs []string) error {
 		return err
 	}
 
-	if h.Settings.ValidateTokens {
+	if h.Settings.ValidateTokens && !h.Settings.EnforceRBAC {
 		if authErr := h.bearerTokenError(c); authErr != "" {
 			return h.writeUnauthorized(c, authErr)
 		}
+	}
+
+	if denied, denyErr := h.rbacDenied(c, segs); denied {
+		return denyErr
+	}
+
+	if denied, polErr := h.enforcePolicy(c, segs); denied {
+		return polErr
+	}
+
+	if handled, permErr := h.servePermissions(c, segs); handled {
+		return permErr
 	}
 
 	if locked, lockErr := h.enforceLocks(c, segs); locked {

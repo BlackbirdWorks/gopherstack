@@ -102,14 +102,27 @@ type versionFamily struct {
 	versions []string
 }
 
-//nolint:gochecknoglobals // immutable catalogue of representative MySQL releases
+// Versions are the releases announced for DB systems in
+// https://docs.oracle.com/en-us/iaas/releasenotes/services/mysql-database/ (8.0.37 onward); 9.7 LTS runs mysql:9.7.
+//
+//nolint:gochecknoglobals // immutable catalogue of documented MySQL releases
 var versionFamilies = []versionFamily{
-	{"8.0", "mysql:8.0", []string{"8.0.39", "8.0.40", "8.0.41", "8.0.42"}},
-	{"8.4", "mysql:8.4", []string{"8.4.3", "8.4.4", "8.4.5", "8.4.6"}},
-	{"9.x", "mysql:9", []string{"9.1.0", "9.2.0", "9.3.0", "9.4.0"}},
+	{"8.0", "mysql:8.0", []string{
+		"8.0.37", "8.0.38", "8.0.39", "8.0.40", "8.0.41", "8.0.42", "8.0.43", "8.0.44", "8.0.45", "8.0.46", "8.0.46-u1",
+	}},
+	{"8.4", "mysql:8.4", []string{
+		"8.4.0", "8.4.1", "8.4.2", "8.4.3", "8.4.4", "8.4.5", "8.4.6", "8.4.7", "8.4.8", "8.4.9", "8.4.10", "8.4.11",
+		"8.4.13",
+	}},
+	{"9.x", "mysql:9", []string{
+		"9.0.0", "9.0.1", "9.1.0", "9.1.1", "9.1.2", "9.2.0", "9.2.1", "9.2.2", "9.3.0", "9.3.1", "9.3.2", "9.4.0",
+		"9.4.1", "9.4.2", "9.5.0", "9.5.1", "9.5.2", "9.6.0", "9.7.0", "9.7.1", "9.7.2", "9.7.4",
+	}},
+	{"26.x", "mysql:innovation", []string{"26.7.0", "26.10.0"}},
 }
 
-const defaultVersion = "8.4.6"
+// defaultVersion is the 9.7 LTS release that became the default for new DB systems on 2026-09-29 (release notes).
+const defaultVersion = "9.7.4"
 
 func familyOf(version string) (versionFamily, bool) {
 	for _, f := range versionFamilies {
@@ -122,10 +135,13 @@ func familyOf(version string) (versionFamily, bool) {
 }
 
 // versionTuple parses "major.minor.patch" for ordering; ok is false for anything else.
-func versionTuple(v string) [3]int {
-	var out [3]int
+func versionTuple(v string) [4]int {
+	var out [4]int
 
-	for i, p := range strings.SplitN(v, ".", len(out)) {
+	v, upd, _ := strings.Cut(v, "-u")
+	out[3], _ = strconv.Atoi(upd)
+
+	for i, p := range strings.SplitN(v, ".", len(out)-1) {
 		out[i], _ = strconv.Atoi(p)
 	}
 

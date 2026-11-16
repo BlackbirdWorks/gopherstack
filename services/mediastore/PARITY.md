@@ -48,8 +48,7 @@ families:
   MetricPolicy: {status: ok, note: "Put validates ContainerLevelMetrics enum and >5-rule limit; Get/Delete round-trip full policy including MetricPolicyRules."}
   Tags: {status: ok, note: "Tag/Untag/ListTagsForResource keyed by ARN via containerNameFromARN; tags also settable at CreateContainer time."}
 gaps: []
-items_still_open:
-  - "UNVERIFIABLE + cross-service: DeleteContainer does not require an empty container. The SDK doc says containers must be emptied first but DeleteContainer models no error for it (only ContainerInUseException, whose doc is 'already exists or is being updated', ContainerNotFoundException, InternalServerError), so the code is not determinable; enforcing it also needs a container dimension in services/mediastoredata's object store (keyed by region only) plus a root wiring hook. A second DeleteContainer on a DELETING container is likewise unspecified (gopherstack-apg3)."
+items_still_open: []
 deferred: []
 leaks: {status: clean, note: "No goroutines, timers, or janitors in this service; InMemoryBackend is a single lockmetrics.RWMutex over per-region store.Table maps. The new container-lifecycle simulation (activationDelay/containerTransitions, see gap-closure note below) does NOT add a goroutine -- transitions are advanced lazily on read/mutate (advanceContainerStates), matching services/redshift's clusterTransitions pattern minus its optional background reconciler goroutine, which was deliberately not added here since lazy advancement alone is sufficient for every caller (SDK waiters always call Describe/List in a loop) and keeps this service goroutine-free."}
 ---
@@ -507,3 +506,7 @@ Clean. Create -> Describe -> Start/StopAccessLogging -> Describe keeps CreationT
 ## 2026-10-10 lifecycle dwell knob
 
 `--lifecycle-mediastore` (`MEDIASTORE_ACTIVATION_DELAY`, falls back to `--lifecycle-delay`, default `0s`) makes containers report `CREATING`/`DELETING` before settling. Proof: root `TestLifecycleDelayWiring/mediastore`.
+
+## Emulator choices where the vendor is silent
+
+- UNVERIFIABLE + cross-service: DeleteContainer does not require an empty container. The SDK doc says containers must be emptied first but DeleteContainer models no error for it (only ContainerInUseException, whose doc is 'already exists or is being updated', ContainerNotFoundException, InternalServerError), so the code is not determinable; enforcing it also needs a container dimension in services/mediastoredata's object store (keyed by region only) plus a root wiring hook. A second DeleteContainer on a DELETING container is likewise unspecified (gopherstack-apg3).

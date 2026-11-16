@@ -157,6 +157,31 @@ func errStatus(err error) *status.Status {
 	return grpcstatus.New(codes.NotFound, err.Error()).Proto()
 }
 
+// checkImportable fails an import call that cannot start: unknown repository, wrong format, no Cloud Storage
+// emulator or no source URIs.
+func (b *InMemoryBackend) checkImportable(
+	parent string, format artifactregistrypb.Repository_Format, uris []string,
+) (repoRef, error) {
+	ref, err := b.requireFormat(parent, format)
+	if err != nil {
+		return ref, err
+	}
+
+	b.mu.RLock("checkImportable")
+	store := b.objects
+	b.mu.RUnlock()
+
+	if store == nil {
+		return ref, errPrecondition("The Cloud Storage emulator is not available to Artifact Registry.")
+	}
+
+	if len(uris) == 0 {
+		return ref, errInvalid("gcs_source.uris is required.")
+	}
+
+	return ref, nil
+}
+
 // importSource is the gcs_source of an import request.
 type importSource struct {
 	uris      []string
@@ -205,7 +230,20 @@ func (b *InMemoryBackend) ImportAptArtifacts(
 ) (*longrunningpb.Operation, error) {
 	gcs := in.GetGcsSource()
 
-	ref, arts, errs, err := runImport(b, in.GetParent(), artifactregistrypb.Repository_APT,
+	pre, err := b.checkImportable(in.GetParent(), artifactregistrypb.Repository_APT, gcs.GetUris())
+	if err != nil {
+		return nil, err
+	}
+
+	meta := &artifactregistrypb.ImportAptArtifactsMetadata{}
+
+	return b.startOp(pre.parent(), meta, false, func() (proto.Message, error) { return b.importApt(in) })
+}
+
+func (b *InMemoryBackend) importApt(in *artifactregistrypb.ImportAptArtifactsRequest) (proto.Message, error) {
+	gcs := in.GetGcsSource()
+
+	_, arts, errs, err := runImport(b, in.GetParent(), artifactregistrypb.Repository_APT,
 		importSource{uris: gcs.GetUris(), wildcards: gcs.GetUseWildcards()}, b.addDeb,
 		func(f importFailure) *artifactregistrypb.ImportAptArtifactsErrorInfo {
 			return &artifactregistrypb.ImportAptArtifactsErrorInfo{
@@ -219,9 +257,7 @@ func (b *InMemoryBackend) ImportAptArtifacts(
 		return nil, err
 	}
 
-	resp := &artifactregistrypb.ImportAptArtifactsResponse{AptArtifacts: arts, Errors: errs}
-
-	return b.doneWith(ref.parent(), &artifactregistrypb.ImportAptArtifactsMetadata{}, resp)
+	return &artifactregistrypb.ImportAptArtifactsResponse{AptArtifacts: arts, Errors: errs}, nil
 }
 
 // ImportYumArtifacts imports .rpm files from Cloud Storage.
@@ -230,7 +266,20 @@ func (b *InMemoryBackend) ImportYumArtifacts(
 ) (*longrunningpb.Operation, error) {
 	gcs := in.GetGcsSource()
 
-	ref, arts, errs, err := runImport(b, in.GetParent(), artifactregistrypb.Repository_YUM,
+	pre, err := b.checkImportable(in.GetParent(), artifactregistrypb.Repository_YUM, gcs.GetUris())
+	if err != nil {
+		return nil, err
+	}
+
+	meta := &artifactregistrypb.ImportYumArtifactsMetadata{}
+
+	return b.startOp(pre.parent(), meta, false, func() (proto.Message, error) { return b.importYum(in) })
+}
+
+func (b *InMemoryBackend) importYum(in *artifactregistrypb.ImportYumArtifactsRequest) (proto.Message, error) {
+	gcs := in.GetGcsSource()
+
+	_, arts, errs, err := runImport(b, in.GetParent(), artifactregistrypb.Repository_YUM,
 		importSource{uris: gcs.GetUris(), wildcards: gcs.GetUseWildcards()}, b.addRPM,
 		func(f importFailure) *artifactregistrypb.ImportYumArtifactsErrorInfo {
 			return &artifactregistrypb.ImportYumArtifactsErrorInfo{
@@ -244,9 +293,7 @@ func (b *InMemoryBackend) ImportYumArtifacts(
 		return nil, err
 	}
 
-	resp := &artifactregistrypb.ImportYumArtifactsResponse{YumArtifacts: arts, Errors: errs}
-
-	return b.doneWith(ref.parent(), &artifactregistrypb.ImportYumArtifactsMetadata{}, resp)
+	return &artifactregistrypb.ImportYumArtifactsResponse{YumArtifacts: arts, Errors: errs}, nil
 }
 
 // doneWith records an operation with its own metadata type that finishes with resp.

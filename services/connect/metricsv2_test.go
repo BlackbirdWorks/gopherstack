@@ -323,22 +323,97 @@ func TestGetMetricDataV2Validation(t *testing.T) {
 	}
 }
 
+func customCalc(formula string, comps ...types.CalculationComponent) *types.MetricCalculation {
+	return &types.MetricCalculation{Calculation: aws.String(formula), CalculationComponents: comps}
+}
+
+func component(alias, metric string, filters ...types.MetricFilter) types.CalculationComponent {
+	return types.CalculationComponent{
+		Alias: aws.String(alias), MetricName: aws.String(metric), MetricFilters: filters,
+	}
+}
+
 func TestGetMetricDataV2CustomMetric(t *testing.T) {
 	t.Parallel()
 
-	e := newContactEnv(t)
-	created, err := e.f.client.CreateMetric(t.Context(), &sdk.CreateMetricInput{
-		InstanceId: aws.String(e.inst), Name: aws.String("rate"), Unit: types.MetricUnitPercent,
-		MetricCalculation: calc("SUM(M1)", "M1"),
-	})
-	require.NoError(t, err)
+	outbound := types.MetricFilter{
+		MetricFilterKey: aws.String("INITIATION_METHOD"),
+		StringCondition: &types.MetricFilterStringCondition{
+			Comparison: types.MetricFilterStringConditionComparisonMatchesAny, Values: []string{"OUTBOUND"},
+		},
+	}
+	notOutbound := outbound
+	notOutbound.StringCondition = &types.MetricFilterStringCondition{
+		Comparison: types.MetricFilterStringConditionComparisonMatchesNone, Values: []string{"OUTBOUND"},
+	}
 
-	_, err = e.f.client.GetMetricDataV2(t.Context(), &sdk.GetMetricDataV2Input{
-		ResourceArn: aws.String(e.instARN()), StartTime: aws.Time(e.f.clock.now().Add(-time.Hour)),
-		EndTime: aws.Time(e.f.clock.now()), Filters: queueFilter(e.queue),
-		Metrics: []types.MetricV2{{MetricId: created.MetricId}},
-	})
-	assert.Equal(t, "InvalidParameterException", apiCode(err), "existing custom metrics are not computed")
+	tests := []struct {
+		calc *types.MetricCalculation
+		name string
+		code string
+		want float64
+	}{
+		{
+			name: "rate", want: 50,
+			calc: customCalc("100 * SUM(M1) / SUM(M2)",
+				component("M1", "CONTACTS_HANDLED"), component("M2", "CONTACTS_QUEUED")),
+		},
+		{
+			name: "sum of statistics", want: 3,
+			calc: customCalc("SUM(A) + SUM(B)",
+				component("A", "CONTACTS_CREATED"), component("B", "CONTACTS_ABANDONED")),
+		},
+		{name: "average", want: 70, calc: customCalc("AVG(M1)", component("M1", "AVG_HANDLE_TIME"))},
+		{name: "spread", want: 50, calc: customCalc("MAX(M1) - MIN(M1)", component("M1", "AVG_CONTACT_DURATION"))},
+		{name: "per contact arithmetic", want: 4, calc: customCalc("SUM(M1 * 2)", component("M1", "CONTACTS_CREATED"))},
+		{name: "filter matches", want: 2, calc: customCalc("SUM(M1)", component("M1", "CONTACTS_CREATED", outbound))},
+		{
+			name: "filter excludes", want: 0,
+			calc: customCalc("SUM(M1)", component("M1", "CONTACTS_CREATED", notOutbound)),
+		},
+		{name: "divide by zero", want: 0, calc: customCalc("SUM(M1) / 0", component("M1", "CONTACTS_CREATED"))},
+		{
+			name: "bare alias", code: "InvalidParameterException",
+			calc: customCalc("M1", component("M1", "CONTACTS_CREATED")),
+		},
+		{
+			name: "unknown function", code: "InvalidParameterException",
+			calc: customCalc("SQRT(SUM(M1))", component("M1", "CONTACTS_CREATED")),
+		},
+		{
+			name: "rate component", code: "InvalidParameterException",
+			calc: customCalc("SUM(M1)", component("M1", "ABANDONMENT_RATE")),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e, start := historyEnv(t)
+
+			created, err := e.f.client.CreateMetric(t.Context(), &sdk.CreateMetricInput{
+				InstanceId: aws.String(e.inst), Name: aws.String("custom"), Unit: types.MetricUnitDouble,
+				MetricCalculation: tt.calc,
+			})
+			require.NoError(t, err)
+
+			out, err := e.f.client.GetMetricDataV2(t.Context(), &sdk.GetMetricDataV2Input{
+				ResourceArn: aws.String(e.instARN()), StartTime: aws.Time(start), EndTime: aws.Time(e.f.clock.now()),
+				Filters: queueFilter(e.queue), Metrics: []types.MetricV2{{MetricId: created.MetricId}},
+			})
+			if tt.code != "" {
+				assert.Equal(t, tt.code, apiCode(err))
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Len(t, out.MetricResults, 1)
+			require.Len(t, out.MetricResults[0].Collections, 1)
+			assert.InDelta(t, tt.want, aws.ToFloat64(out.MetricResults[0].Collections[0].Value), 0.001)
+		})
+	}
 }
 
 func TestGetContactMetrics(t *testing.T) {

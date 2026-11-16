@@ -64,6 +64,14 @@ func (h *Handler) exchange(w http.ResponseWriter, r *http.Request, reg string) {
 
 			return
 		}
+
+		if h.ValidateToken != nil {
+			if err := h.ValidateToken(form.Get("access_token"), form.Get("tenant")); err != nil {
+				writeOAuthError(w, http.StatusUnauthorized, "invalid_grant", "The access token is invalid.")
+
+				return
+			}
+		}
 	case grantRefresh:
 		if !h.Backend.VerifyRefresh(form.Get("refresh_token"), reg) {
 			writeOAuthError(w, http.StatusUnauthorized, "invalid_grant", "The refresh token is invalid or expired.")
@@ -127,7 +135,13 @@ func (h *Handler) tokenGet(w http.ResponseWriter, r *http.Request, reg string) {
 		return
 	}
 
-	h.issueAccess(w, r, reg, r.URL.Query().Get("service"), r.URL.Query()["scope"])
+	scopes := r.URL.Query()["scope"]
+	if user, pass, ok := r.BasicAuth(); ok && !h.Backend.VerifyAdmin(reg, user, pass) &&
+		h.Backend.VerifyToken(reg, user, pass) {
+		scopes = h.Backend.grantedScopes(reg, user, scopes)
+	}
+
+	h.issueAccess(w, r, reg, r.URL.Query().Get("service"), scopes)
 }
 
 // anonymousScopes keeps only the pull action of repository scopes; anonymous callers never get more.
@@ -159,7 +173,8 @@ func (h *Handler) basicValid(r *http.Request, reg string) bool {
 
 	user, pass, ok := strings.Cut(string(raw), ":")
 
-	return ok && (h.Backend.VerifyAdmin(reg, user, pass) || h.Backend.VerifyRefresh(pass, reg))
+	return ok && (h.Backend.VerifyAdmin(reg, user, pass) || h.Backend.VerifyRefresh(pass, reg) ||
+		h.Backend.VerifyToken(reg, user, pass))
 }
 
 func challengeToken(w http.ResponseWriter) {

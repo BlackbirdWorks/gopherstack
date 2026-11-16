@@ -16,6 +16,8 @@ const (
 	typeBinary      = "binary"
 	typeStruct      = "struct"
 	typeMap         = "map"
+	typeBigint      = "bigint"
+	typeArray       = "array"
 
 	transformYear     = "year"
 	transformMonth    = "month"
@@ -51,6 +53,14 @@ const (
 	idNullCounts       = 110
 	idNullCountsKey    = 121
 	idNullCountsValue  = 122
+	idLowerBounds      = 125
+	idLowerKey         = 126
+	idLowerValue       = 127
+	idUpperBounds      = 128
+	idUpperKey         = 129
+	idUpperValue       = 130
+	idEqualityIDs      = 135
+	idEqualityElement  = 136
 	idContent          = 134
 	idValueCountsKey   = 119
 	idValueCountsValue = 120

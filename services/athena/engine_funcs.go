@@ -47,6 +47,7 @@ func registerEngineFuncs() {
 		registerExtraFuncs()
 		registerComplexFuncs()
 		registerAggregates()
+		registerRowCompareFuncs()
 		registerUnnestModule()
 	})
 }

@@ -457,3 +457,35 @@ func TestSpecRoundTrip(t *testing.T) {
 	assert.Equal(t, "STOCK_RESPONSE_BACKEND", out.Specification.Routes[0].Backend.Type)
 	assert.NotContains(t, body, "StubResponse")
 }
+
+func TestHTTPBackendPhaseTimeouts(t *testing.T) {
+	t.Parallel()
+
+	release := make(chan struct{})
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("slow") != "" {
+			select {
+			case <-release:
+			case <-r.Context().Done():
+			}
+		}
+
+		_, _ = w.Write([]byte("fast"))
+	}))
+	t.Cleanup(func() {
+		close(release)
+		backend.Close()
+	})
+
+	e := newEnv(t, envOpts{})
+	gw := e.mkGateway(t, "timeouts")
+	e.mkDeployment(t, *gw.Id, "/t", `{"routes":[{"path":"/x","methods":["GET"],"backend":{"type":"HTTP_BACKEND",`+
+		`"url":"`+backend.URL+`","readTimeoutInSeconds":0.1}}]}`)
+
+	assert.Equal(t, http.StatusBadGateway, e.call(t, *gw.Id, http.MethodGet, "/t/x?slow=1", nil, "").status,
+		"no response within readTimeoutInSeconds")
+
+	fast := e.call(t, *gw.Id, http.MethodGet, "/t/x", nil, "")
+	assert.Equal(t, http.StatusOK, fast.status)
+	assert.Equal(t, "fast", fast.body)
+}

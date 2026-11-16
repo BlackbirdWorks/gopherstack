@@ -7,6 +7,7 @@ import (
 	"maps"
 	"net"
 	"net/http"
+	"net/netip"
 	"regexp"
 	"slices"
 	"sort"
@@ -233,9 +234,15 @@ func srchAuthOf(props map[string]any) (map[string]any, bool, error) {
 }
 
 func (r *storedSearch) planeConfig() SearchServiceConfig {
-	cfg := SearchServiceConfig{
+	cfg := SearchServiceConfig{CMKEnforcement: strOf(mapOf(r.extra[srchFieldCMK]), "enforcement"),
 		SKU: r.sku, HostingMode: r.hostingMode, PublicNetworkAccess: r.publicAccess, AuthMode: srchAuthAPIKeyOnly,
 		ReplicaCount: r.replicas, PartitionCount: r.partitions, DisableLocalAuth: r.disableLocal,
+	}
+
+	for _, rule := range anySlice(mapOf(r.extra["networkRuleSet"])["ipRules"]) {
+		if v := strOf(mapOf(rule), "value"); v != "" {
+			cfg.IPRules = append(cfg.IPRules, v)
+		}
 	}
 
 	if aad, ok := r.authOptions[srchAuthAADOrAPIKey].(map[string]any); ok {
@@ -302,7 +309,10 @@ func (p *SearchProvider) write(
 		return nil, err
 	}
 
-	created, err := p.dataPlane.PutService(rec.name, rec.planeConfig())
+	cfg := rec.planeConfig()
+	cfg.ResourceID = id.ARMID()
+
+	created, err := p.dataPlane.PutService(rec.name, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -391,6 +401,10 @@ func (r *storedSearch) applyProps(props map[string]any) error {
 		return err
 	}
 
+	if err := validateIPRules(props); err != nil {
+		return err
+	}
+
 	if v, has := props[srchFieldDisableLocal].(bool); has {
 		r.disableLocal = v
 	}
@@ -437,6 +451,7 @@ func (p *SearchProvider) endpointFor(name, host string) string {
 func (p *SearchProvider) body(id ResourceID, rec *storedSearch) map[string]any {
 	props := ehMerge(map[string]any{
 		srchFieldDisableLocal: rec.disableLocal,
+		"upgradeAvailable":    srchUpgradeNone,
 		"eTag":                "W/\"" + rec.createdAt.UTC().Format("20060102T150405.000Z") + "\"",
 		"networkRuleSet":      map[string]any{"ipRules": []any{}, "bypass": srchBypassNone},
 	}, rec.extra, map[string]any{
@@ -455,7 +470,7 @@ func (p *SearchProvider) body(id ResourceID, rec *storedSearch) map[string]any {
 			strOf(mapOf(rec.extra[srchFieldCMK]), "enforcement"),
 			"Unspecified",
 		),
-		"encryptionComplianceStatus": "Compliant",
+		"encryptionComplianceStatus": p.dataPlane.EncryptionCompliance(rec.name),
 	}
 
 	out := map[string]any{
@@ -687,3 +702,20 @@ func (r *storedSearch) applyModes(props map[string]any) error {
 
 	return nil
 }
+
+func validateIPRules(props map[string]any) error {
+	for _, rule := range anySlice(mapOf(props["networkRuleSet"])["ipRules"]) {
+		v := strOf(mapOf(rule), "value")
+		if _, err := netip.ParsePrefix(v); err == nil {
+			continue
+		}
+
+		if a, err := netip.ParseAddr(v); err != nil || !a.Is4() {
+			return badSearchRequest("networkRuleSet.ipRules value %q is not an IPv4 address or CIDR range", v)
+		}
+	}
+
+	return nil
+}
+
+const srchUpgradeNone = "notAvailable"

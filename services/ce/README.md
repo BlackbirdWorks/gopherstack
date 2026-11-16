@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 37 (37 ok) |
 | Feature families | 13 (13 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 5 |
 | Deferred items | 2 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- ListCostCategoryResourceAssociations.CostCategoryArn: the SDK documents no required-field check and no behaviour for a nonexistent ARN, so the error (if any) cannot be determined.
 
 ### Structural gaps
 
@@ -31,7 +27,7 @@ These do not block an A grade — no implementation could produce real data here
 ### Deferred
 
 - Reservation/SavingsPlans numeric-formula fidelity (the specific ratios in backend.go's syntheticServiceCatalog / spCommitmentRatio / riPurchasedCostRatio etc.) -- these produce plausible, internally-consistent numbers but were not cross-checked against any real AWS CE billing behavior; by definition there is no real data to match against, so this is a modeling-quality concern for a future pass, not a correctness bug.
-- GetCostAndUsageWithResources.ResultsByTime and ListCostCategoryResourceAssociations.CostCategoryResourceAssociations are always empty by design (see per-op notes above) -- both would need a per-resource / resource-tag inventory this emulator doesn't model anywhere else in the service. Not a disguised no-op (input-driven required-field validation now happens, and the wire shape is correct), just genuinely no backing state to report. A future pass could seed a small synthetic per-resource inventory if resource-level fidelity becomes a priority.
+- ListCostCategoryResourceAssociations.CostCategoryResourceAssociations is always empty: it needs a cost-category-to-resource association inventory this emulator does not model.
 
 ## More
 

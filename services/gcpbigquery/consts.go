@@ -22,3 +22,5 @@ const (
 	litUselegacysql        = "useLegacySql"
 	litSpecialGroup        = "specialGroup"
 )
+
+const litClusterFields = "fields"

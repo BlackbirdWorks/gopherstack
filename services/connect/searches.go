@@ -21,6 +21,8 @@ type SearchRequest struct {
 	MaxResults     int32
 }
 
+const keyApproxTotal = "ApproximateTotalCount"
+
 // SearchResult is the response body of a Search* operation.
 type SearchResult = map[string]any
 
@@ -54,7 +56,7 @@ func runSearch[V, O any](
 		return nil, err
 	}
 
-	body := SearchResult{key: orEmpty(page), "ApproximateTotalCount": int64(len(all))}
+	body := SearchResult{key: orEmpty(page), keyApproxTotal: int64(len(all))}
 	if next != "" {
 		body["NextToken"] = next
 	}

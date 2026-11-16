@@ -7,24 +7,18 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 41 (37 ok, 4 partial) |
-| Feature families | 7 (6 ok, 1 partial) |
-| Known gaps | 10 |
+| PARITY entries audited | 42 (42 ok) |
+| Feature families | 8 (8 ok) |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- NFS: Rename, ListFilesAndDirectories and snapshot diffs ignore NFS properties; file types other than Regular, SymLink and Directory are not modelled; the Create Hard Link and Create Symbolic Link references document no error code for SMB shares (400 InvalidUri is kept, unverified) and no default link count for directories (2 is kept, unverified).
-- SMB handles are never modelled, so List Handles is empty and Force Close Handles is a no-op.
-- Metrics and logging settings are stored only.
-- Get User Delegation Key and user delegation SAS are unsupported; SAS and Shared Key signatures are only verifiable for devstoreaccount1, verification is off by default, and the Bearer token is not validated. The codes for an unknown si, a service SAS used on a share-level operation (AuthorizationResourceTypeMismatch) and sr=f path mismatch on other accounts are unverified.
-- Access tier changes are instant, and provisioned IOPS/bandwidth are validated only against the union of the documented ranges (500-102,400 IOPS, 60-10,340 MiB/s): the emulator keeps no account tier (HDD 500-50,000 IOPS and 60-5,120 MiB/s, SSD 3,000-102,400 IOPS and 100-10,340 MiB/s), no provisioned v2 gating and no recommendation formula for unset values.
-- Metadata keys sent as headers come back in Go's canonical case (Foo) rather than the exact case sent: net/http canonicalises request header names before the handler runs, so the case is unrecoverable without a custom connection reader; list XML returns them as stored.
-- Copy File only reads emulator file and blob URLs; x-ms-copy-source-authorization is ignored and no CRC64 source check exists (the Azure CRC64 polynomial is unverified).
-- LastAccessTime is reported as LastWriteTime and ChangeTime is only set explicitly or on mutation; x-ms-source-allow-trailing-dot (copy and rename sources) is ignored, and structured-body/CRC64 transactional validation is ignored.
-- ARM fileServices/default accepts cors and protocolSettings but does not apply them, and its soft-delete default is disabled rather than 7 days. ARM fileServices/shares implements Create, Update, Get ($expand=stats, x-ms-snapshot), List ($maxpagesize, $skipToken, $expand=snapshots,deleted), Delete ($include) and Restore; not implemented: the shares lease action, $filter on List, nextAllowed*DowngradeTime, includedBurstIops and maxBurstCreditsForIops (provisioned v2 only), accessTierStatus, and the dashboard UI.
-- Share snapshots are full in-memory deep copies (metadata and tree), so large trees cost memory per snapshot.
+- Put Range structured bodies (x-ms-structured-body: XSM/1.0; properties=crc64, x-ms-structured-content-length) are not decoded: neither the Put Range reference nor the pinned SDK (no public option) defines the segment and trailer byte layout.
+- Metadata keys sent as headers come back in Go's canonical case (Foo) rather than the case sent: net/http canonicalises header names while parsing, and no connection-level hook exists in the repo. Fixing it means a net.Listener wrapper that frames each request head (Content-Length and chunked bodies, pipelining) on every connection and hands the original names to the handler, roughly 200 lines plus tests; list XML already returns stored case.
+- ARM fileServices/shares: not implemented are the shares lease action, $filter on List, nextAllowed*DowngradeTime, accessTierStatus and the dashboard UI.
+- Share snapshots copy the node tree (names, metadata, SMB/NFS properties, extent lists) per snapshot while file bytes are already shared copy-on-write; at roughly 0.5 KiB per node, a 100,000-node share with the 200-snapshot cap can cost about 10 GB. Removing it needs a persistent (path-copying) tree, because every handler mutates nodes in place. Persistence still writes the bytes once per snapshot.
 
 ## More
 

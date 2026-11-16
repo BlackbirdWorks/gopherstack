@@ -31,7 +31,7 @@ func newOCINotificationsDashboard(t *testing.T) (*dashboard.DashboardHandler, st
 	)
 	require.NoError(t, err)
 
-	sub, err := b.CreateSubscription(ocinotifications.CreateSubscriptionIn{
+	sub, err := b.CreateSubscription(t.Context(), ocinotifications.CreateSubscriptionIn{
 		TopicID: topic.TopicID, Compartment: ociNotifComp, Protocol: "EMAIL", Endpoint: "ops@example.com",
 	}, "http://localhost:8157")
 	require.NoError(t, err)

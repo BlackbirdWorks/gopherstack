@@ -175,7 +175,6 @@ ops:
 # so there is no natural "route family" grouping the way REST-JSON services have.
 gaps: []
 items_still_open:
-  - "Resiliency groups: the ID format (dxrg-<8 hex>) and ARN resource path (dxrg/<id>) are UNCONFIRMED -- the SDK shows neither. Also inferred, not documented: a group with associated connections cannot be deleted, and a connection belongs to at most one group (both raise DirectConnectClientException)."
   - "UpdateConnectionsBillingMode: Connection.billingMode is only reported once set (no default PayAsYouGo on create), and the Connection prefixPool* members are not modeled."
 structural_gaps:
   - "Interconnect/hosted-connection/reseller (partner) flow (CreateInterconnect, AllocateConnectionOnInterconnect, AllocateHostedConnection, ConfirmConnection, DescribeConnectionsOnInterconnect, DescribeHostedConnections): real Direct Connect Partners own physical cross-connect infrastructure at colocation facilities. There is no physical link for an emulator to have or lack -- 'is this physically cross-connected' cannot be made real by any amount of implementation effort. Full state bookkeeping (Interconnect/Connection creation, ordering->confirm->available transitions, parent/child relationships) IS implemented and IS the honest ceiling."
@@ -932,3 +931,7 @@ and the duplicate-VLAN message names the VLAN (it printed the VIF name); Describ
 an unknown id return DirectConnectClientException "Could not find Connection/Lag with ID: ..." (the text the
 Terraform provider matches) instead of an empty list; LAG child connections now progress requested -> pending
 -> available instead of sticking at requested.
+
+## Emulator choices where the vendor is silent
+
+- Resiliency groups: the ID format (dxrg-<8 hex>) and ARN resource path (dxrg/<id>) are UNCONFIRMED -- the SDK shows neither. Also inferred, not documented: a group with associated connections cannot be deleted, and a connection belongs to at most one group (both raise DirectConnectClientException).

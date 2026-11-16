@@ -7,10 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/orcio"
 	"github.com/blackbirdworks/gopherstack/pkgs/parquetio"
 )
 
@@ -21,6 +24,22 @@ type columnSet struct {
 }
 
 func (s columnSet) has(name string) bool { return s.all || s.names[strings.ToLower(name)] }
+
+// with returns a copy that also loads the named columns.
+func (s columnSet) with(names []string) columnSet {
+	if s.all || len(names) == 0 {
+		return s
+	}
+
+	out := columnSet{names: make(map[string]bool, len(s.names)+len(names))}
+	maps.Copy(out.names, s.names)
+
+	for _, n := range names {
+		out.names[strings.ToLower(n)] = true
+	}
+
+	return out
+}
 
 // referencedColumns over-approximates the columns a translated query reads
 // from its identifiers; a select-star (but not count(*)) needs every column.
@@ -55,8 +74,58 @@ func isStarContext(prev token) bool {
 	return prev.isWord("select") || prev.isWord("distinct") || prev.isPunct(",") || prev.isPunct(".")
 }
 
-func (l *tableLoader) loadParquet(
-	ctx context.Context, body io.Reader, bucket, key string, cols []Column, sink *rowSink,
+// columnarFile is an opened Parquet or ORC file.
+type columnarFile interface {
+	Columns() []string
+	ColumnIDs() map[int]string
+	ScanBytes(cols []string) int64
+	ForEach(cols []string, fn func(vals []any) error) error
+}
+
+func openColumnar(kind dataFormat, data []byte) (columnarFile, error) {
+	if kind == fmtORC {
+		return orcio.Open(data)
+	}
+
+	return parquetio.Open(data)
+}
+
+func isBadColumnarFile(err error) bool {
+	return errors.Is(err, parquetio.ErrBadFile) || errors.Is(err, orcio.ErrBadFile)
+}
+
+var legacyORCName = regexp.MustCompile(`^_col\d+$`)
+
+// fileNames maps table columns to file column names; ORC files written by older Hive carry only _colN names.
+func fileNames(pf columnarFile, kind dataFormat, cols []Column) []string {
+	names := make([]string, len(cols))
+	for i, c := range cols {
+		names[i] = c.Name
+	}
+
+	if kind != fmtORC {
+		return names
+	}
+
+	fc := pf.Columns()
+
+	for _, n := range fc {
+		if !legacyORCName.MatchString(n) {
+			return names
+		}
+	}
+
+	for i := range names {
+		if i < len(fc) {
+			names[i] = fc[i]
+		}
+	}
+
+	return names
+}
+
+func (l *tableLoader) loadColumnar(
+	ctx context.Context, body io.Reader, kind dataFormat, bucket, key string, cols []Column, sink *rowSink,
 ) error {
 	data, err := io.ReadAll(io.LimitReader(body, l.limits.MaxScanBytes+1))
 	if err != nil {
@@ -67,17 +136,18 @@ func (l *tableLoader) loadParquet(
 		return fmt.Errorf("%w: more than %d bytes", errScanLimit, l.limits.MaxScanBytes)
 	}
 
-	pf, err := parquetio.Open(data)
+	pf, err := openColumnar(kind, data)
 	if err != nil {
 		return fmt.Errorf("HIVE_CANNOT_OPEN_SPLIT: Error opening Hive split s3://%s/%s: %w", bucket, key, err)
 	}
 
 	names := make([]string, 0, len(cols))
 	pos := make([]int, 0, len(cols))
+	inFile := fileNames(pf, kind, cols)
 
 	for i, c := range cols {
 		if l.want.has(c.Name) {
-			names = append(names, c.Name)
+			names = append(names, inFile[i])
 			pos = append(pos, i)
 		}
 	}
@@ -103,7 +173,7 @@ func (l *tableLoader) loadParquet(
 
 		return l.insertJSON(ctx, sink, rec, nulls)
 	})
-	if err != nil && !errors.Is(err, parquetio.ErrBadFile) {
+	if err != nil && !isBadColumnarFile(err) {
 		return err
 	}
 
@@ -138,7 +208,7 @@ func parquetCell(v any) string {
 func encodeParquetRows(res *sqlResult, rows []int, cols []outCol, codec string) ([]byte, error) {
 	schema := make([]parquetio.Column, len(cols))
 	for i, c := range cols {
-		schema[i] = parquetio.Column{Name: c.name, Type: c.typ, FieldID: c.id}
+		schema[i] = parquetio.Column{Name: c.name, Type: c.typ, FieldID: c.id, NestedIDs: c.nestedIDs}
 	}
 
 	cells := make([][]any, len(rows))

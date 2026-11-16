@@ -185,6 +185,8 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error(), id, rt)
 	case errors.Is(err, awserr.ErrConflict):
 		return h.writeError(c, http.StatusConflict, "ConflictException", err.Error(), id, rt)
+	case errors.Is(err, ErrAccessDenied):
+		return h.writeError(c, http.StatusForbidden, "AccessDeniedException", err.Error(), "", "")
 	case errors.Is(err, ErrQuotaExceeded):
 		return h.writeError(c, http.StatusPaymentRequired, "ServiceQuotaExceededException", err.Error(), id, rt)
 	case errors.Is(err, awserr.ErrInvalidParameter):

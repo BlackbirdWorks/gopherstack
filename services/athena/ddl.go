@@ -22,6 +22,8 @@ type statementOutcome struct {
 	// failed reports whether the statement failed. A failed statement transitions
 	// the query execution to FAILED with an AthenaError.
 	failed bool
+	// conflict marks a failure from a lost Iceberg commit race that a re-plan on the new head can resolve.
+	conflict bool
 }
 
 // Athena AthenaError.ErrorType values used for the failure reasons this engine

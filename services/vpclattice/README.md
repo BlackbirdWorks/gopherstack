@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 73 (73 ok) |
 | Feature families | 2 (2 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- ServiceNetworkResourceAssociation dnsEntry is never emitted: neither the SDK, the API reference nor the VPC Lattice user guide (resource-configuration, service-network-associations) documents how its domain name or hosted zone is derived. privateDnsEntry is served from the resource configuration's custom domain (TestServiceNetworkResourceAssociation_PrivateDNSEntry).
 
 ### Structural gaps
 

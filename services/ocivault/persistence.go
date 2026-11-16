@@ -17,6 +17,7 @@ type backendSnapshot struct {
 	Vaults    map[string]*Vault         `json:"vaults"`
 	Keys      map[string]*Key           `json:"keys"`
 	Secrets   map[string]*Secret        `json:"secrets"`
+	Ekms      map[string]*EkmsEndpoint  `json:"ekmsEndpoints,omitempty"`
 	Repl      map[string]*replOp        `json:"replication,omitempty"`
 	Retry     map[string]ociretry.Entry `json:"retryTokens,omitempty"`
 	Auth      []ociauth.KeyRecord       `json:"authKeys"`
@@ -37,6 +38,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Vaults:    b.vaults,
 		Keys:      b.keys,
 		Secrets:   b.secrets,
+		Ekms:      b.ekms,
 		Auth:      keys,
 		Retry:     b.retry.Entries(),
 		Seq:       b.seq,
@@ -73,6 +75,11 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.backupKey = snap.BackupKey
 	}
 
+	b.ekms = snap.Ekms
+	if b.ekms == nil {
+		b.ekms = map[string]*EkmsEndpoint{}
+	}
+
 	b.repl = snap.Repl
 	if b.repl == nil {
 		b.repl = map[string]*replOp{}
@@ -95,6 +102,12 @@ func checkSnapshot(snap *backendSnapshot) error {
 
 	if snap.Secrets == nil {
 		snap.Secrets = map[string]*Secret{}
+	}
+
+	for id, e := range snap.Ekms {
+		if e == nil {
+			return fmt.Errorf("%w: ekms private endpoint %q", ErrSnapshotNull, id)
+		}
 	}
 
 	for id, v := range snap.Vaults {

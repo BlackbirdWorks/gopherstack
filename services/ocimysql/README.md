@@ -7,23 +7,17 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 40 (38 ok, 2 partial) |
+| PARITY entries audited | 63 (55 ok, 8 partial) |
 | Feature families | 7 (5 ok, 2 partial) |
-| Known gaps | 9 |
+| Known gaps | 3 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- HeatWave memory estimates (GenerateHeatWaveClusterMemoryEstimate, GetHeatWaveClusterMemoryEstimate) are not routed: the estimate lists per-table memory of the live schemas, which only a running MySQL engine could supply (oci-go-sdk mysql/heat_wave_cluster_memory_estimate.go); Stop/Start of the DB system does not change the HeatWave cluster state.
-- Read replicas (CreateReplica and friends), blue/green deployments, ControlledUpdateDbSystem, GenerateDbSystemStatus/GetDbSystemStatus, ListMaintenanceEvents, CopyBackup, ExportBackup, ValidateBackup, GenerateChannelStatus/GetChannelStatus and CancelWorkRequest are not routed.
-- Source types PITR and IMPORTURL for CreateDbSystem are rejected 400; the PITR policy flag is stored and pointInTimeRecoveryDetails reports creation time to now, but no point-in-time restore exists.
-- Channels are state only: no replication is configured on the target server, the source is never contacted and statuses are not generated.
-- Configuration variables are validated and stored but not applied to the MySQL server, even under the docker engine; shutdownType, crashRecovery, databaseMode, accessMode, isHighlyAvailable (a single container), secureConnections, rest, databaseConsole, readEndpoint and maintenance schedules are stored and echoed only.
-- Backups are logical dumps (mysqldump of user schemas, no accounts) held in the service state and in persistence snapshots, not in Object Storage; INCREMENTAL backups are full dumps; CancelBackupDeletion restarts the retention window because the documentation only says the state reverts to ACTIVE; a backup taken before the docker engine was enabled restores to an empty server.
-- Under the docker engine the endpoint is 127.0.0.1 with a random published port; portX (X protocol) is not published and the configured port/portX only apply to the state-only endpoint.
-- MySQL versions are a static representative set (8.0.39-8.0.42, 8.4.3-8.4.6, 9.1.0-9.4.0, default 8.4.6) while the documentation lists availability by date (8.0 closed to new systems, 8.4.9 and 9.7.0 LTS current); dataStorageSizeInGBs is accepted from 50 to 131072 inclusive where creating-db-system.html says the value should be greater than 50 and less than 131072 (loose wording kept inclusive); default ordering, DELETED visibility in lists and the exact 400 versus 404 for dangling references are not published (checked creating-db-system.html and the mysql SDK comments)
-- Service limits, IAM policy checks, resource principals and instance principals are not applied and only API-key signatures are verified.
+- ExportBackup (data must be written to Object Storage in MySQL Shell dump format, oci-go-sdk mysql/export_backup_details.go) and CreateDbSystem source type IMPORTURL (the same dump read back) are not implemented: the MySQL Shell dump pages (dev.mysql.com mysql-shell-utilities-dump-instance-schema.html) list the file names (@.json, @.sql, @.post.sql, @.done.json, schema.json, schema@table.sql, schema@table@@0.tsv.zst and .idx) but not the content of the JSON, .idx or chunk files, and pkgs/mysqlengine produces and reads mysqldump SQL only.
+- isHighlyAvailable is stored and echoed but a DB system is one container, so currentPlacement stays the primary's and there are no secondaries. Chosen design: three containers per DB system running single-primary Group Replication (the stock image ships the plugin), a front endpoint that follows group_replication_primary_member, automatic election as failover and group_replication_set_as_primary for switchover. Not built: stop, start, restart, delete, backup, PITR, version update and replicas all assume one server per DB system (services/ocimysql/engine.go launchWork, lifecycle.go StopDBSystem and DeleteDBSystem, replicas_engine.go) and need a member list first.
+- IAM policy checks, resource principals and instance principals are not applied and only API-key signatures are verified.
 
 ## More
 

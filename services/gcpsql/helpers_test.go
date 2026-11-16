@@ -36,6 +36,10 @@ type fakeEngine struct {
 	users        map[string]string
 	dbs          map[string]bool
 	replSrc      gcpsql.ReplicaSource
+	execOut      gcpsql.ExecOutcome
+	waitErr      error
+	execReqs     []gcpsql.ExecRequest
+	waited       []string
 	rows         [][]string
 	inserted     [][]string
 	flags        []gcpsql.Flag
@@ -44,7 +48,14 @@ type fakeEngine struct {
 	applied      []gcpsql.Recovery
 	prepared     []time.Time
 	replCalls    []bool
+	readOnly     []bool
 	restored     []string
+	usage        int64
+	statusLag    float64
+	quiesced     int
+	sealed       int
+	settled      int
+	unquiesced   int
 	pitrEnabled  int
 	starts       int
 	stops        int
@@ -53,7 +64,6 @@ type fakeEngine struct {
 	pitrDisabled int
 	attached     int
 	promoted     int
-	statusLag    float64
 	mu           sync.Mutex
 	closed       bool
 	purged       bool
@@ -313,6 +323,7 @@ type fakeLauncher struct {
 	specs   []gcpsql.LaunchSpec
 	mu      sync.Mutex
 	persist bool
+	base    int
 }
 
 func (l *fakeLauncher) Launch(_ context.Context, spec gcpsql.LaunchSpec) (gcpsql.Engine, error) {
@@ -323,8 +334,13 @@ func (l *fakeLauncher) Launch(_ context.Context, spec gcpsql.LaunchSpec) (gcpsql
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	port := 40000 + len(l.engines)
+	if l.base > 0 {
+		port = l.base
+	}
+
 	e := &fakeEngine{
-		dbs: map[string]bool{}, users: map[string]string{}, port: 40000 + len(l.engines), persistent: l.persist,
+		dbs: map[string]bool{}, users: map[string]string{}, port: port, persistent: l.persist,
 		rows: [][]string{{"id", "name"}, {"1", "a,b"}, {"2", "c"}},
 	}
 	l.engines = append(l.engines, e)

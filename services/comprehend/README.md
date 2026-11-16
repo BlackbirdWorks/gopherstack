@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 28 (28 ok) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- FlywheelIterationProperties.EvaluationManifestS3Prefix: the pinned SDK documents the member with an empty doc string and the data-lake object layout is not specified, so no value can be derived without inventing a path.
 
 ### Structural gaps
 

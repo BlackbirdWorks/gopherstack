@@ -19,6 +19,7 @@ func buildOps() map[string]opFunc {
 		bundleOps(),
 		backupOps(),
 		replicaOps(),
+		ekmsOps(),
 	}
 
 	for _, m := range groups {
@@ -285,7 +286,7 @@ func (h *Handler) listKeys(q *req) error {
 	n, _ := strconv.Atoi(q.query("length"))
 	f := KeyFilter{
 		ProtectionMode: q.query("protectionMode"), Algorithm: q.query("algorithm"),
-		CurveID: q.query("curveId"), Length: n,
+		CurveID: q.query("curveId"), Length: n, Replica: isReplicaHint(q.rt.hint),
 	}
 	pg, err := h.Backend.ListKeys(vid, q.query("compartmentId"), f, q.listOpts())
 

@@ -49,11 +49,11 @@ func (b *InMemoryBackend) CreateWebFunctionRevision(
 		return nil, err
 	}
 
-	if err = b.pinCode(ctx, &in.S3); err != nil {
+	if err = b.pinCode(ctx, r, name, &in.S3); err != nil {
 		return nil, err
 	}
 
-	if err = b.checkKey(ctx, r, in.KmsKeyArn); err != nil {
+	if err = b.checkKey(ctx, r, name, in.KmsKeyArn); err != nil {
 		return nil, err
 	}
 
