@@ -150,6 +150,18 @@ func (b *InMemoryBackend) listTools(ctx context.Context, t targetView) ([]toolEn
 		return entriesOf(defs), nil
 	case targetMCPSrv:
 		return b.mcpServerTools(ctx, t, cfg)
+	case targetAPIGateway:
+		ops, err := b.apiGatewayOps(t, cfg)
+		if err != nil {
+			return nil, err
+		}
+
+		defs := make([]any, 0, len(ops))
+		for _, op := range ops {
+			defs = append(defs, op.toolDef())
+		}
+
+		return entriesOf(defs), nil
 	case "":
 		return nil, nil
 	default:
@@ -172,6 +184,10 @@ func entriesOf(defs []any) []toolEntry {
 
 func (b *InMemoryBackend) schemaPayload(cfg map[string]any, inlineKey string) ([]byte, error) {
 	if s, ok := cfg[inlineKey].(string); ok {
+		if len(s) > limitInlineSchema {
+			return nil, fmt.Errorf("%w: inline schema exceeds %d bytes", errSchemaUnreadable, limitInlineSchema)
+		}
+
 		return []byte(s), nil
 	}
 
@@ -198,6 +214,10 @@ func (b *InMemoryBackend) schemaPayload(cfg map[string]any, inlineKey string) ([
 		return nil, fmt.Errorf("%w: s3://%s%s does not exist", errSchemaUnreadable, u.Host, u.Path)
 	}
 
+	if len(data) > limitS3Schema {
+		return nil, fmt.Errorf("%w: S3 schema exceeds %d bytes", errSchemaUnreadable, limitS3Schema)
+	}
+
 	return data, nil
 }
 
@@ -222,20 +242,7 @@ func (b *InMemoryBackend) lambdaToolDefs(cfg map[string]any) ([]any, error) {
 
 func (b *InMemoryBackend) mcpServerTools(ctx context.Context, t targetView, cfg map[string]any) ([]toolEntry, error) {
 	if static := objOf(cfg, "mcpToolSchema"); static != nil {
-		raw, err := b.schemaPayload(static, "inlinePayload")
-		if err != nil {
-			return nil, err
-		}
-
-		var doc struct {
-			Tools []any `json:"tools"`
-		}
-
-		if err = json.Unmarshal(raw, &doc, jsonx.V1()); err != nil {
-			return nil, fmt.Errorf("%w: not an MCP tools/list result: %w", errSchemaUnreadable, err)
-		}
-
-		return entriesOf(doc.Tools), nil
+		return b.staticMCPTools(static)
 	}
 
 	if strOf(cfg, "listingMode") != "DYNAMIC" && t.tools != nil {
@@ -316,4 +323,21 @@ func prefixed(target string, e toolEntry) map[string]any {
 	}
 
 	return out
+}
+
+func (b *InMemoryBackend) staticMCPTools(static map[string]any) ([]toolEntry, error) {
+	raw, err := b.schemaPayload(static, "inlinePayload")
+	if err != nil {
+		return nil, err
+	}
+
+	var doc struct {
+		Tools []any `json:"tools"`
+	}
+
+	if err = json.Unmarshal(raw, &doc, jsonx.V1()); err != nil {
+		return nil, fmt.Errorf("%w: not an MCP tools/list result: %w", errSchemaUnreadable, err)
+	}
+
+	return entriesOf(doc.Tools), nil
 }

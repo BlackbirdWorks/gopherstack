@@ -1,6 +1,7 @@
 package bedrockagentcorecontrol
 
 import (
+	"context"
 	"encoding/json/v2"
 	"fmt"
 	"maps"
@@ -71,23 +72,25 @@ func decoratePolicyGeneration(r *Resource) {
 	r.Doc["findings"] = ""
 }
 
-func validateRecordInput(in args) error {
-	if in.obj("descriptors") == nil {
-		return nil
-	}
+func validateRecordInput(in args) error { return validateSynchronization(in) }
 
-	return nil
-}
-
-func validateRecordUpdate(r *Resource, _ map[string]any) error {
+func validateRecordUpdate(r *Resource, patch map[string]any) error {
 	if r.Status == statusPending {
 		return conflict("registry record %q is pending approval and cannot be edited", r.ID)
 	}
 
+	if err := validateSynchronization(patch); err != nil {
+		return err
+	}
+
+	if trigger, _ := patch["triggerSynchronization"].(bool); trigger && !hasSynchronization(r.Doc, patch) {
+		return invalid("triggerSynchronization requires a synchronizationConfiguration")
+	}
+
 	return nil
 }
 
-func (b *InMemoryBackend) decorateRecord(sc scope, r *Resource) error {
+func (b *InMemoryBackend) decorateRecord(ctx context.Context, sc scope, r *Resource, in args) error {
 	reg, err := b.mustFind(sc, b.kinds[kindRegistry], "", r.Parent)
 	if err != nil {
 		return err
@@ -99,6 +102,8 @@ func (b *InMemoryBackend) decorateRecord(sc scope, r *Resource) error {
 
 	r.Status = statusDraft
 	_ = reg
+
+	b.recordSynchronization(ctx, r, in)
 
 	return nil
 }

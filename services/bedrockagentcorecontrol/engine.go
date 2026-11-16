@@ -2,6 +2,7 @@ package bedrockagentcorecontrol
 
 import (
 	"cmp"
+	"context"
 	"encoding/json/v2"
 	"maps"
 	"net/http"
@@ -210,7 +211,9 @@ func tagsOf(in args) map[string]string {
 	return in.strMap(keyTags)
 }
 
-func (b *InMemoryBackend) create(sc scope, k *kindSpec, op string, in args) (*reply, error) {
+func (b *InMemoryBackend) create(ctx context.Context, sc scope, k *kindSpec, op string, in args) (*reply, error) {
+	ctx = b.prepareAuth(ctx, sc, k, in)
+
 	b.mu.Lock("create")
 	defer b.mu.Unlock()
 
@@ -230,7 +233,7 @@ func (b *InMemoryBackend) create(sc scope, k *kindSpec, op string, in args) (*re
 		func() (*Resource, error) {
 			fresh = true
 
-			return b.createLocked(sc, k, in)
+			return b.createLocked(ctx, sc, k, in)
 		})
 	if err != nil {
 		if errIs(err, idempotency.ErrParamsMismatch) {
@@ -260,7 +263,7 @@ func creatingStatus(k *kindSpec) string {
 	return stateCreating
 }
 
-func (b *InMemoryBackend) createLocked(sc scope, k *kindSpec, in args) (*Resource, error) {
+func (b *InMemoryBackend) createLocked(ctx context.Context, sc scope, k *kindSpec, in args) (*Resource, error) {
 	if err := b.validateCreate(sc, k, in); err != nil {
 		return nil, err
 	}
@@ -309,7 +312,7 @@ func (b *InMemoryBackend) createLocked(sc scope, k *kindSpec, in args) (*Resourc
 		r.ParentARN = parent.ARN
 	}
 
-	if err = b.decorateCreate(sc, k, r, in); err != nil {
+	if err = b.decorateCreate(ctx, sc, k, r, in); err != nil {
 		return nil, err
 	}
 
@@ -347,7 +350,9 @@ func (b *InMemoryBackend) settleCreate(k *kindSpec, r *Resource) {
 	b.settle(r, creatingStatus(k))
 }
 
-func (b *InMemoryBackend) update(sc scope, k *kindSpec, op string, in args) (*reply, error) {
+func (b *InMemoryBackend) update(ctx context.Context, sc scope, k *kindSpec, op string, in args) (*reply, error) {
+	ctx = b.prepareAuth(ctx, sc, k, in)
+
 	b.mu.Lock("update")
 	defer b.mu.Unlock()
 
@@ -385,7 +390,7 @@ func (b *InMemoryBackend) update(sc scope, k *kindSpec, op string, in args) (*re
 
 	clearOmitted(k.Name, patch)
 
-	overrides := b.applyUpdate(k, r, patch)
+	overrides := b.applyUpdate(ctx, k, r, patch)
 
 	if !k.Terminal {
 		b.settle(r, stateUpdating)

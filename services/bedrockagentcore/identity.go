@@ -2,13 +2,10 @@ package bedrockagentcore
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json/v2"
 	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
-	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
 )
 
@@ -18,7 +15,7 @@ const (
 	jwtSegments    = 3
 )
 
-func (b *InMemoryBackend) workloadToken(userFrom func(doc) (string, error)) restroute.OpFunc {
+func (b *InMemoryBackend) workloadToken(userFrom func(context.Context, doc) (string, error)) restroute.OpFunc {
 	return func(ctx context.Context, req *restroute.Request) (any, int, error) {
 		in, err := decodeDoc(req)
 		if err != nil {
@@ -30,7 +27,7 @@ func (b *InMemoryBackend) workloadToken(userFrom func(doc) (string, error)) rest
 			return nil, 0, invalid("workloadName is required")
 		}
 
-		user, err := userFrom(in)
+		user, err := userFrom(ctx, in)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -69,9 +66,9 @@ func (b *InMemoryBackend) issueToken(sc Scope, workload, user string) string {
 	return t.Token
 }
 
-func noUser(doc) (string, error) { return "", nil }
+func noUser(context.Context, doc) (string, error) { return "", nil }
 
-func userFromID(in doc) (string, error) {
+func userFromID(_ context.Context, in doc) (string, error) {
 	id := strOf(in, "userId")
 	if id == "" {
 		return "", invalid("userId is required")
@@ -80,28 +77,24 @@ func userFromID(in doc) (string, error) {
 	return id, nil
 }
 
-// userFromJWT reads the subject of the caller's user token. The signature is not verified: the emulator has no
-// access to the identity provider's signing keys.
-func userFromJWT(in doc) (string, error) {
-	parts := strings.Split(strOf(in, "userToken"), ".")
-	if len(parts) != jwtSegments {
+// userFromJWT verifies the signature of the caller's user token against its issuer's JWKS and returns the subject.
+func (b *InMemoryBackend) userFromJWT(ctx context.Context, in doc) (string, error) {
+	token := strOf(in, "userToken")
+	if len(strings.Split(token, ".")) != jwtSegments {
 		return "", invalid("userToken must be a JWT")
 	}
 
-	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(parts[1], "="))
+	c := b.ctl()
+	if c == nil {
+		return "", internal("the control plane is not wired")
+	}
+
+	sub, err := c.VerifyUserJWT(ctx, token)
 	if err != nil {
-		return "", invalid("userToken payload is not valid base64url")
+		return "", invalid("userToken is not a valid signed token: %v", err)
 	}
 
-	var claims struct {
-		Sub string `json:"sub"`
-	}
-
-	if err = json.Unmarshal(raw, &claims, jsonx.V1()); err != nil || claims.Sub == "" {
-		return "", invalid("userToken must carry a sub claim")
-	}
-
-	return claims.Sub, nil
+	return sub, nil
 }
 
 // authorize validates a workload access token and returns the scope it was issued in.

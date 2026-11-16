@@ -74,6 +74,8 @@ func (b *InMemoryBackend) callTool(ctx context.Context, gw *gatewayView, ci call
 		return b.callOpenAPI(ctx, t, cfg, tool, ci.args)
 	case targetMCPSrv:
 		return b.callMCPServer(ctx, t, cfg, tool, ci.args)
+	case targetAPIGateway:
+		return b.callAPIGateway(ctx, t, cfg, tool, ci.args)
 	default:
 		return nil, errUnknownTool
 	}

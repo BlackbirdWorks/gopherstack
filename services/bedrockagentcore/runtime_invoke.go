@@ -128,7 +128,7 @@ func (b *InMemoryBackend) invokeAgentRuntime(c *echo.Context, p map[string]strin
 		return writeErr(c, err)
 	}
 
-	if tgt.info.ImageURI == "" {
+	if tgt.info.ImageURI == "" && tgt.info.Code == nil {
 		return writeErr(c, invalid("only container-based agent runtimes can be invoked"))
 	}
 

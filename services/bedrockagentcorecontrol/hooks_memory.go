@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
@@ -66,6 +68,10 @@ func validateMemoryInput(in args) error {
 		return err
 	}
 
+	if n := len(in.list("memoryStrategies")); n > limitMemoryStrategies {
+		return restroute.QuotaExceeded("a memory can hold at most %d strategies", limitMemoryStrategies)
+	}
+
 	return validateStrategyInputs(in.list("memoryStrategies"))
 }
 
@@ -118,6 +124,11 @@ func validateMemoryUpdate(r *Resource, patch map[string]any) error {
 	existing := map[string]bool{}
 	for _, s := range listOf(r.Doc, "strategies") {
 		existing[strOf(mapOf(s), "strategyId")] = true
+	}
+
+	count := len(existing) + len(listOf(ms, "addMemoryStrategies")) - len(listOf(ms, "deleteMemoryStrategies"))
+	if count > limitMemoryStrategies {
+		return restroute.QuotaExceeded("a memory can hold at most %d strategies", limitMemoryStrategies)
 	}
 
 	for _, key := range []string{"modifyMemoryStrategies", "deleteMemoryStrategies"} {

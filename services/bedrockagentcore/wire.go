@@ -154,3 +154,15 @@ func readJSONBody(r *http.Request) (doc, error) {
 
 	return d, nil
 }
+
+func stringMapOf(m doc) map[string]string {
+	out := make(map[string]string, len(m))
+
+	for k, v := range m {
+		if s, ok := v.(string); ok {
+			out[k] = s
+		}
+	}
+
+	return out
+}

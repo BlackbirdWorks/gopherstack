@@ -12,3 +12,9 @@ func (b *InMemoryBackend) CreateEventDirect(ctx context.Context, memory string, 
 
 	return err
 }
+
+// ExtractZip unpacks a code package into dir.
+func ExtractZip(data []byte, dir string) error { return extractZip(data, dir) }
+
+// CodeImage resolves the image of a managed language runtime.
+func CodeImage(runtime string) (string, error) { return codeImage(runtime) }

@@ -115,7 +115,7 @@ func (b *InMemoryBackend) outboundCredentials(ctx context.Context, t targetView)
 
 			applies = append(applies, fn)
 		case authTypeOAuth:
-			fn, err := b.oauthCredential(ctx, t.sc, objOf(prov, "oauthCredentialProvider"))
+			fn, err := b.oauthCredential(ctx, t.sc, t.id, objOf(prov, "oauthCredentialProvider"))
 			if err != nil {
 				return nil, err
 			}
@@ -190,9 +190,18 @@ func (b *InMemoryBackend) apiKeyCredential(sc scope, cfg map[string]any) (func(*
 }
 
 func (b *InMemoryBackend) oauthCredential(
-	ctx context.Context, sc scope, cfg map[string]any,
+	ctx context.Context, sc scope, targetID string, cfg map[string]any,
 ) (func(*http.Request), error) {
 	grant := strOf(cfg, "grantType")
+	if grant == grantAuthCode {
+		tok, err := b.sessionToken(ctx, sc, targetID, strOf(cfg, "providerArn"))
+		if err != nil {
+			return nil, err
+		}
+
+		return func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+tok) }, nil
+	}
+
 	if grant != "" && grant != grantTypeCC {
 		return nil, fmt.Errorf("%w: grant type %s needs an interactive consent flow", errOAuthUnsupported, grant)
 	}

@@ -3,10 +3,17 @@ package bedrockagentcorecontrol
 import (
 	"context"
 	"encoding/json/v2"
+	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	dataplane "github.com/blackbirdworks/gopherstack/services/bedrockagentcore"
+)
+
+var (
+	errNoCodeStore  = errors.New("S3 is not available")
+	errNoCodeObject = errors.New("code package not found")
 )
 
 // DataPlane returns the seam the AgentCore data plane resolves control-plane resources through.
@@ -40,6 +47,7 @@ func (d dataSeam) Runtime(sc dataplane.Scope, ref, qualifier string) (dataplane.
 	for _, v := range rt.Versions {
 		if v.ID == live {
 			info := runtimeInfo(rt.ID, v.Doc)
+			info.Code = b.codeInfo(v.Doc)
 			info.Authorize = b.runtimeAuthorizer(v.Doc)
 			info.ProtectedResource = runtimeProtectedResource(v.Doc)
 
@@ -231,4 +239,32 @@ func runtimeProtectedResource(doc map[string]any) func(*http.Request) map[string
 	}
 
 	return func(r *http.Request) map[string]any { return protectedResourceMetadata(r, cfg) }
+}
+
+// codeInfo describes a direct code deployment; nil for container runtimes.
+func (b *InMemoryBackend) codeInfo(doc map[string]any) *dataplane.CodeInfo {
+	cc := objOf(objOf(doc, "agentRuntimeArtifact"), "codeConfiguration")
+	if cc == nil {
+		return nil
+	}
+
+	s3 := objOf(objOf(cc, "code"), "s3")
+	bucket, key := strOf(s3, "bucket"), strOf(s3, "prefix")
+	refs := b.refs
+
+	return &dataplane.CodeInfo{
+		Runtime: strOf(cc, "runtime"), EntryPoint: stringsOf(cc["entryPoint"]),
+		Load: func() ([]byte, error) {
+			if refs == nil {
+				return nil, errNoCodeStore
+			}
+
+			data, ok := refs.ReadObject(bucket, key)
+			if !ok {
+				return nil, fmt.Errorf("%w: s3://%s/%s", errNoCodeObject, bucket, key)
+			}
+
+			return data, nil
+		},
+	}
 }

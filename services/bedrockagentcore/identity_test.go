@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+
 	sdk "github.com/aws/aws-sdk-go-v2/service/bedrockagentcore"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockagentcore/types"
 	"github.com/stretchr/testify/assert"
@@ -108,6 +110,14 @@ func TestIdentity_WorkloadTokens(t *testing.T) {
 
 			return e
 		}},
+		{name: "bad signature", code: "ValidationException", call: func() error {
+			_, e := f.client.GetWorkloadAccessTokenForJWT(t.Context(), &sdk.GetWorkloadAccessTokenForJWTInput{
+				WorkloadName: new(testWorkld),
+				UserToken:    new("e30." + base64.RawURLEncoding.EncodeToString(payload) + ".forged"),
+			})
+
+			return e
+		}},
 		{name: "not a jwt", code: "ValidationException", call: func() error {
 			_, e := f.client.GetWorkloadAccessTokenForJWT(t.Context(), &sdk.GetWorkloadAccessTokenForJWTInput{
 				WorkloadName: new(testWorkld), UserToken: new("opaque"),
@@ -165,10 +175,10 @@ func TestIdentity_ResourceCredentials(t *testing.T) {
 
 			return e
 		}},
-		{name: "user federation not served", code: "ValidationException", call: func() error {
+		{name: "unknown session", code: "ResourceNotFoundException", call: func() error {
 			_, e := f.client.GetResourceOauth2Token(t.Context(), &sdk.GetResourceOauth2TokenInput{
 				ResourceCredentialProviderName: new("oa"), WorkloadIdentityToken: &tok,
-				Oauth2Flow: types.Oauth2FlowTypeUserFederation, Scopes: []string{"x"},
+				Oauth2Flow: types.Oauth2FlowTypeUserFederation, Scopes: []string{"x"}, SessionUri: new("nope"),
 			})
 
 			return e
@@ -204,4 +214,88 @@ func TestIdentity_TokenExpiry(t *testing.T) {
 		ResourceCredentialProviderName: new("keyp"), WorkloadIdentityToken: &tok,
 	})
 	assert.Equal(t, "UnauthorizedException", apiCode(err), "tokens expire on the injected clock")
+}
+
+func TestIdentity_UserFederation(t *testing.T) {
+	t.Parallel()
+
+	srv := tokenServer(t)
+	f := newFixture(t, identityControl(srv.URL))
+	userTok := workloadToken(t, f)
+
+	anon, err := f.client.GetWorkloadAccessToken(
+		t.Context(), &sdk.GetWorkloadAccessTokenInput{WorkloadName: new(testWorkld)},
+	)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name       string
+		token      string
+		session    string
+		wantURL    string
+		wantToken  string
+		wantStatus types.SessionStatus
+		wantCode   string
+	}{
+		{name: "starts", token: userTok, wantURL: "u=u1", wantStatus: types.SessionStatusInProgress},
+		{name: "resumes", token: userTok, session: "done", wantToken: "user-token"},
+		{name: "failed", token: userTok, session: "failed", wantStatus: types.SessionStatusFailed},
+		{name: "needs user", token: *anon.WorkloadAccessToken, wantCode: "ValidationException"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			in := &sdk.GetResourceOauth2TokenInput{
+				ResourceCredentialProviderName: new("oa"), WorkloadIdentityToken: &tt.token,
+				Oauth2Flow: types.Oauth2FlowTypeUserFederation, Scopes: []string{"x"},
+			}
+			if tt.session != "" {
+				in.SessionUri = &tt.session
+			}
+
+			out, callErr := f.client.GetResourceOauth2Token(t.Context(), in)
+			if tt.wantCode != "" {
+				assert.Equal(t, tt.wantCode, apiCode(callErr))
+
+				return
+			}
+
+			require.NoError(t, callErr)
+			assert.Equal(t, tt.wantToken, aws.ToString(out.AccessToken))
+			assert.Contains(t, aws.ToString(out.AuthorizationUrl), tt.wantURL)
+			assert.Equal(t, tt.wantStatus, out.SessionStatus)
+		})
+	}
+}
+
+func TestIdentity_CompleteResourceTokenAuth(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture(t, defaultControl())
+
+	tests := []struct {
+		name    string
+		session string
+		user    types.UserIdentifier
+		code    string
+	}{
+		{name: "by user id", session: "sess-1", user: &types.UserIdentifierMemberUserId{Value: "u1"}},
+		{
+			name: "unknown session", session: "missing", user: &types.UserIdentifierMemberUserId{Value: "u1"},
+			code: "ResourceNotFoundException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := f.client.CompleteResourceTokenAuth(t.Context(), &sdk.CompleteResourceTokenAuthInput{
+				SessionUri: &tt.session, UserIdentifier: tt.user,
+			})
+			assert.Equal(t, tt.code, apiCode(err))
+		})
+	}
 }

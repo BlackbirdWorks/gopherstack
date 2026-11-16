@@ -82,6 +82,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return true
 		}
 
+		if _, ok := oauthCallbackRoute(r); ok {
+			return true
+		}
+
 		if !h.server.Router.Handles(restroute.EscapedPath(r)) {
 			return false
 		}
@@ -104,6 +108,10 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		return opGatewayMetadata
 	}
 
+	if _, ok := oauthCallbackRoute(c.Request()); ok {
+		return opOAuthCallback
+	}
+
 	op, _ := h.server.Operation(c.Request())
 	if op == "" {
 		return "Unknown"
@@ -119,6 +127,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	if id, _, ok := gatewayMetadataRoute(c.Request()); ok {
+		return id
+	}
+
+	if id, ok := oauthCallbackRoute(c.Request()); ok {
 		return id
 	}
 
@@ -146,6 +158,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		if id, region, ok := gatewayMetadataRoute(c.Request()); ok {
 			return h.serveGatewayMetadata(c, id, region)
+		}
+
+		if id, ok := oauthCallbackRoute(c.Request()); ok {
+			return h.serveOAuthCallback(c, id)
 		}
 
 		return api(c)

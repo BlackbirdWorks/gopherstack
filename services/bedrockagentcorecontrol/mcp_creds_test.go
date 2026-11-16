@@ -151,7 +151,6 @@ func TestGatewayMCPOutboundCredentials(t *testing.T) {
 		{name: "api key header", tool: "hdr___ping", want: seenAuth{header: "sk-1"}},
 		{name: "api key query", tool: "qry___ping", want: seenAuth{query: "sk-1"}},
 		{name: "oauth client credentials", tool: "oa___ping", want: seenAuth{bearer: "Bearer tok-123"}},
-		{name: "authorization code needs consent", tool: "code___ping", isError: true},
 	}
 
 	for _, tt := range tests {

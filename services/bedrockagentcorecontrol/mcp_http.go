@@ -16,7 +16,6 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
@@ -158,6 +157,14 @@ func (h *Handler) serveGateway(c *echo.Context, gatewayID, region string) error 
 		return c.NoContent(http.StatusMethodNotAllowed)
 	}
 
+	if blocked, gerr := h.versionGate(c, gw); blocked {
+		return gerr
+	}
+
+	if r.Header.Get(hdrProtocol) == modernMCPVersion {
+		return h.serveModern(c, gw)
+	}
+
 	body, err := io.ReadAll(http.MaxBytesReader(c.Response(), r.Body, maxMCPBody))
 	if err != nil {
 		return writeJSON(c, http.StatusOK, rpcFail(nil, rpcParseError, "request body could not be read"))
@@ -254,10 +261,7 @@ func mcpInitialize(gw *gatewayView, params jsontext.Value) (any, *rpcError) {
 
 	proto := objOf(objOf(gw.doc, "protocolConfiguration"), "mcp")
 
-	versions := stringsOf(proto["supportedVersions"])
-	if len(versions) == 0 {
-		versions = defaultMCPVersions()
-	}
+	versions := legacyVersions(gw)
 
 	chosen := latestVersion(versions)
 	if slices.Contains(versions, p.ProtocolVersion) {
@@ -302,22 +306,12 @@ func (b *InMemoryBackend) mcpToolsList(ctx context.Context, gw *gatewayView, par
 
 	all := make([]any, 0)
 
-	for _, t := range gw.targets {
-		if t.status != stateReady {
-			continue
-		}
+	if searchEnabled(gw) {
+		all = append(all, searchToolDef())
+	}
 
-		entries, err := b.listTools(ctx, t)
-		if err != nil {
-			logger.Load(ctx).WarnContext(ctx, "bedrockagentcorecontrol: target tools unavailable",
-				"gateway", gw.id, "target", t.name, "error", err)
-
-			continue
-		}
-
-		for _, e := range entries {
-			all = append(all, prefixed(t.name, e))
-		}
+	for _, d := range b.gatewayTools(ctx, gw) {
+		all = append(all, d)
 	}
 
 	proto := objOf(objOf(gw.doc, "protocolConfiguration"), "mcp")
@@ -360,6 +354,10 @@ func (b *InMemoryBackend) mcpToolsCall(ctx context.Context, gw *gatewayView, req
 
 	if p.Arguments == nil {
 		p.Arguments = map[string]any{}
+	}
+
+	if p.Name == searchToolName && searchEnabled(gw) {
+		return b.searchTools(ctx, gw, p.Arguments)
 	}
 
 	res, err := b.callTool(ctx, gw, callInfo{

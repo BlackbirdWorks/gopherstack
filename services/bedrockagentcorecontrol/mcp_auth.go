@@ -3,10 +3,8 @@ package bedrockagentcorecontrol
 import (
 	"context"
 	"crypto/rsa"
-	"encoding/base64"
 	"errors"
 	"fmt"
-	"math/big"
 	"net/http"
 	"slices"
 	"strings"
@@ -253,44 +251,7 @@ func (b *InMemoryBackend) signingKey(
 		}
 	}
 
-	var doc struct {
-		Issuer  string `json:"issuer"`
-		JWKSURI string `json:"jwks_uri"`
-	}
-
-	if err := b.getJSON(ctx, discovery, &doc); err != nil {
-		return nil, issuer, fmt.Errorf("fetch discovery document: %w", err)
-	}
-
-	var set struct {
-		Keys []struct {
-			Kid string `json:"kid"`
-			Kty string `json:"kty"`
-			N   string `json:"n"`
-			E   string `json:"e"`
-		} `json:"keys"`
-	}
-
-	if err := b.getJSON(ctx, doc.JWKSURI, &set); err != nil {
-		return nil, doc.Issuer, fmt.Errorf("fetch JWKS: %w", err)
-	}
-
-	for _, k := range set.Keys {
-		if k.Kty != "RSA" || (kid != "" && k.Kid != kid) {
-			continue
-		}
-
-		n, nerr := base64.RawURLEncoding.DecodeString(k.N)
-		e, eerr := base64.RawURLEncoding.DecodeString(k.E)
-
-		if nerr != nil || eerr != nil {
-			continue
-		}
-
-		return &rsa.PublicKey{N: new(big.Int).SetBytes(n), E: int(new(big.Int).SetBytes(e).Int64())}, doc.Issuer, nil
-	}
-
-	return nil, doc.Issuer, errNoSigningKey
+	return b.jwksKey(ctx, discovery, kid)
 }
 
 func claimStrings(v any) []string {

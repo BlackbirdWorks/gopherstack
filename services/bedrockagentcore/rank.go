@@ -73,3 +73,6 @@ func bm25(query string, docs []string) []float64 {
 
 	return scores
 }
+
+// RankBM25 scores docs against query with the lexical Okapi BM25 ranking used for retrieval.
+func RankBM25(query string, docs []string) []float64 { return bm25(query, docs) }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -38,7 +39,7 @@ func (b *InMemoryBackend) getResourceOAuth2Token(ctx context.Context, req *restr
 	switch strOf(in, "oauth2Flow") {
 	case flowM2M:
 	case flowUserFed:
-		return nil, 0, invalid("the USER_FEDERATION flow needs an interactive consent step the emulator does not serve")
+		return b.userFederation(ctx, t, in)
 	default:
 		return nil, 0, invalid("oauth2Flow must be %s or %s", flowM2M, flowUserFed)
 	}
@@ -148,4 +149,70 @@ func (b *InMemoryBackend) tokenEndpoint(ctx context.Context, p ProviderInfo) (st
 	}
 
 	return meta.TokenEndpoint, nil
+}
+
+func (b *InMemoryBackend) userFederation(ctx context.Context, t *AccessToken, in doc) (any, int, error) {
+	if t.UserID == "" {
+		return nil, 0, invalid("the workload access token carries no user identity for the USER_FEDERATION flow")
+	}
+
+	res, err := b.ctl().FederatedToken(ctx, Scope{Account: t.Account, Region: t.Region}, FederationRequest{
+		Provider: strOf(in, "resourceCredentialProviderName"), Workload: t.Workload,
+		UserID: t.UserID, Scopes: strList(in, "scopes"), Audiences: strList(in, "audiences"),
+		Resources:        strList(in, "resources"),
+		CustomParameters: stringMapOf(objOf(in, "customParameters")), ReturnURL: strOf(in, "resourceOauth2ReturnUrl"),
+		CustomState: strOf(in, "customState"), SessionURI: strOf(in, "sessionUri"),
+		Force: boolOf(in, "forceAuthentication", false),
+	})
+	if err != nil {
+		return nil, 0, federationError(err)
+	}
+
+	out := doc{}
+
+	switch {
+	case res.AccessToken != "":
+		out["accessToken"] = res.AccessToken
+	case res.Failed:
+		out["sessionUri"], out["sessionStatus"] = res.SessionURI, "FAILED"
+	default:
+		out["authorizationUrl"], out["sessionUri"], out["sessionStatus"] = res.AuthorizationURL, res.SessionURI, "IN_PROGRESS"
+	}
+
+	return out, 0, nil
+}
+
+func federationError(err error) error {
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return notFound("the authorization session or credential provider was not found")
+	case errors.Is(err, ErrInvalidFederation):
+		return invalid("%v", err)
+	default:
+		return invalid("the authorization session does not belong to this user")
+	}
+}
+
+func (b *InMemoryBackend) completeResourceTokenAuth(ctx context.Context, req *restroute.Request) (any, int, error) {
+	in, err := decodeDoc(req)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	ident := objOf(in, "userIdentifier")
+	if strOf(in, "sessionUri") == "" || (strOf(ident, "userId") == "" && strOf(ident, "userToken") == "") {
+		return nil, 0, invalid("sessionUri and a userIdentifier are required")
+	}
+
+	c := b.ctl()
+	if c == nil {
+		return nil, 0, internal("the control plane is not wired")
+	}
+
+	if err = c.CompleteFederation(ctx, b.scopeOf(ctx), strOf(in, "sessionUri"),
+		UserIdentifier{UserID: strOf(ident, "userId"), UserToken: strOf(ident, "userToken")}); err != nil {
+		return nil, 0, federationError(err)
+	}
+
+	return doc{}, 0, nil
 }

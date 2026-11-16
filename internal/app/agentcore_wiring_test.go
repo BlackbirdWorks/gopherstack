@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockagentcorecontrol"
 	agenttypes "github.com/aws/aws-sdk-go-v2/service/bedrockagentcorecontrol/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/smithy-go"
@@ -41,6 +42,18 @@ func TestAgentCoreWiringChecksOtherServices(t *testing.T) {
 		}}
 	}
 	role := aws.String("arn:aws:iam::000000000000:role/agent")
+
+	_, err = iam.NewFromConfig(fx.cfg).CreateRole(ctx, &iam.CreateRoleInput{
+		RoleName:                 aws.String("agent"),
+		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[]}`),
+	})
+	require.NoError(t, err)
+
+	_, err = ac.CreateAgentRuntime(ctx, &bedrockagentcorecontrol.CreateAgentRuntimeInput{
+		AgentRuntimeName: aws.String("norole"), AgentRuntimeArtifact: artifact("agent"),
+		RoleArn: aws.String("arn:aws:iam::000000000000:role/ghost"),
+	})
+	assert.Equal(t, "ValidationException", agentCoreErrCode(err), "a role IAM does not hold is refused")
 
 	_, err = ac.CreateAgentRuntime(ctx, &bedrockagentcorecontrol.CreateAgentRuntimeInput{
 		AgentRuntimeName: aws.String("wired"), AgentRuntimeArtifact: artifact("agent"), RoleArn: role,
