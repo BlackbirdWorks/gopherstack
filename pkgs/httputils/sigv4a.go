@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"math/big"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -19,6 +20,7 @@ const SigV4aAlgorithm = "AWS4-ECDSA-P256-SHA256"
 
 const (
 	codeIncompleteSignature = "IncompleteSignatureException"
+	sigV4aRegionSetHeader   = "x-amz-region-set"
 	sigV4aNMinus            = 2
 	bitsPerByte             = 8
 	sigV4aScopeParts        = 4
@@ -34,6 +36,15 @@ func (v *SigV4Validator) VerifyV4a(r *http.Request) *SigV4Error {
 	parsed, perr := parseSigV4aHeader(HeaderValue(r.Header, "Authorization"))
 	if perr != nil {
 		return perr
+	}
+
+	if !slices.Contains(parsed.signedHeaders, sigV4aRegionSetHeader) ||
+		strings.TrimSpace(HeaderValue(r.Header, "X-Amz-Region-Set")) == "" {
+		return &SigV4Error{
+			Code:    codeIncompleteSignature,
+			Message: "SigV4a requests must sign a non-empty X-Amz-Region-Set header.",
+			Status:  http.StatusBadRequest,
+		}
 	}
 
 	payloadHash := HeaderValue(r.Header, "X-Amz-Content-Sha256")

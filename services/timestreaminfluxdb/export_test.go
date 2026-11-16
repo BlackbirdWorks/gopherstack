@@ -17,3 +17,6 @@ func (b *InMemoryBackend) InstanceCount() int {
 
 	return b.instances.Len()
 }
+
+// WaitIdle blocks until every engine start and backup goroutine has finished.
+func (b *InMemoryBackend) WaitIdle() { b.wg.Wait() }

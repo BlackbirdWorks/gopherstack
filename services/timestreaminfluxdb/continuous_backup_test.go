@@ -43,7 +43,11 @@ func TestContinuousBackupPointInTimeRestore(t *testing.T) {
 			in.DbBackupConfigurations = []types.DbBackupConfiguration{
 				{Enabled: aws.Bool(true), RetentionDays: aws.Int32(7), Type: types.AutomatedDbBackupTypeContinuous},
 			}
-			id := e.available(t, in)
+			out, err := e.client.CreateDbInstance(t.Context(), in)
+			require.NoError(t, err)
+			e.backend.WaitIdle()
+			require.Equal(t, types.StatusAvailable, status(t, e.fixture, out.Id))
+			id := out.Id
 
 			ids := make([]*string, 0, 2)
 			times := make([]time.Time, 0, 2)
@@ -52,8 +56,8 @@ func TestContinuousBackupPointInTimeRestore(t *testing.T) {
 				e.clock.advance(2 * time.Hour)
 				e.backend.RunScheduled(t.Context())
 
-				list, err := e.client.ListDbBackups(t.Context(), &sdk.ListDbBackupsInput{DbResourceId: id})
-				require.NoError(t, err)
+				list, lerr := e.client.ListDbBackups(t.Context(), &sdk.ListDbBackupsInput{DbResourceId: id})
+				require.NoError(t, lerr)
 				require.Len(t, list.Items, len(ids)+1)
 
 				var snap types.DbBackupSummary
@@ -68,12 +72,8 @@ func TestContinuousBackupPointInTimeRestore(t *testing.T) {
 				ids = append(ids, snap.Id)
 				times = append(times, e.clock.now())
 
-				require.Eventually(
-					t,
-					func() bool { return e.backupStatus(t, snap.Id) == types.DbBackupStatusCompleted },
-					5*time.Second,
-					time.Millisecond,
-				)
+				e.backend.WaitIdle()
+				require.Equal(t, types.DbBackupStatusCompleted, e.backupStatus(t, snap.Id))
 			}
 
 			e.clock.advance(time.Hour)
@@ -90,7 +90,8 @@ func TestContinuousBackupPointInTimeRestore(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			e.waitAvailable(t, res.RestoredDbResourceId)
+			e.backend.WaitIdle()
+			require.Equal(t, types.StatusAvailable, status(t, e.fixture, res.RestoredDbResourceId))
 
 			specs, _, _, _ := e.eng.snapshot()
 			require.Len(t, specs, 2)

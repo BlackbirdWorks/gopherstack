@@ -122,6 +122,7 @@ func (r *DNSResolver) exchangeDoH(addr, sni string, req *dns.Msg) *dns.Msg {
 
 	tr := httpclient.NewTransport()
 	tr.DisableKeepAlives = true
+	tr.Proxy = nil
 	tr.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: r.dohRoots}
 	tr.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
 		return (&net.Dialer{Timeout: r.timeout}).DialContext(ctx, network, addr)
@@ -142,7 +143,13 @@ func (r *DNSResolver) exchangeDoH(addr, sni string, req *dns.Msg) *dns.Msg {
 	hreq.Header.Set("Content-Type", dohMediaType)
 	hreq.Header.Set("Accept", dohMediaType)
 
-	resp, err := (&http.Client{Transport: tr, Timeout: r.timeout}).Do(hreq)
+	client := &http.Client{
+		Transport:     tr,
+		Timeout:       r.timeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+
+	resp, err := client.Do(hreq)
 	if err != nil {
 		return nil
 	}

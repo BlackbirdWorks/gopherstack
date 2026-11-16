@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json/v2"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -130,6 +131,52 @@ func TestSeedEndpoints(t *testing.T) {
 			var got map[string]any
 			require.NoError(t, json.UnmarshalRead(resp.Body, &got, jsonx.V1()))
 			assert.NotEmpty(t, got[tt.wantKey])
+		})
+	}
+}
+
+func TestSeedEndpointsRejectBadInput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		resource string
+		body     string
+	}{
+		{name: "malformed json", resource: "products", body: "{"},
+		{name: "empty product", resource: "products", body: "{}"},
+		{
+			name: "duplicate dimension", resource: "products",
+			body: `{"code":"p","dimensions":[{"name":"a"},{"name":"a"}]}`,
+		},
+		{name: "bad account", resource: "subscriptions", body: `{"productCode":"p","accountId":"x"}`},
+		{name: "bad token account", resource: "registration-tokens", body: `{"productCode":"p","accountId":"x"}`},
+		{name: "no product", resource: "registration-tokens", body: `{"accountId":"123456789012"}`},
+		{name: "license bad account", resource: "licenses", body: `{"productCode":"p","customerAwsAccountId":"1"}`},
+		{
+			name: "license window", resource: "licenses",
+			body: `{"productCode":"p","customerAwsAccountId":"123456789012","activatedAt":10,"expiresAt":5}`,
+		},
+		{name: "license bad time", resource: "licenses", body: `{"productCode":"p","activatedAt":"nope"}`},
+		{name: "wrong type", resource: "licenses", body: `[1]`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newFixture(t)
+
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodPost,
+				f.url+"/_gopherstack/marketplace/"+tt.resource, strings.NewReader(tt.body))
+			require.NoError(t, err)
+
+			resp, err := httpclient.New(10 * time.Second).Do(req)
+			require.NoError(t, err)
+
+			defer resp.Body.Close()
+
+			assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 		})
 	}
 }

@@ -13,6 +13,7 @@ import (
 const (
 	sourcePollComponent       = "SourceChangePoller"
 	sourcePollInterval        = time.Minute
+	sourcePollTimeout         = 30 * time.Second
 	configKeyPollForChanges   = "PollForSourceChanges"
 	triggerTypePollForChanges = "PollForSourceChanges"
 )
@@ -84,7 +85,7 @@ func (b *InMemoryBackend) sourceRevision(ctx context.Context, a Action) (string,
 
 // PollSourceChanges starts an execution for every polling source whose revision moved since the previous poll.
 // The first poll of a source only records its revision: CreatePipeline does not start an execution here.
-func (b *InMemoryBackend) PollSourceChanges(_ context.Context) {
+func (b *InMemoryBackend) PollSourceChanges(ctx context.Context) {
 	b.mu.RLock("PollSourceChanges")
 	cands := b.pollCandidatesLocked()
 	b.mu.RUnlock()
@@ -93,7 +94,7 @@ func (b *InMemoryBackend) PollSourceChanges(_ context.Context) {
 	changed := make(map[string]string)
 
 	for _, c := range cands {
-		rev, ok := b.sourceRevision(b.regionContext(c.region), c.action)
+		rev, ok := b.sourceRevision(b.regionContextFrom(ctx, c.region), c.action)
 		if !ok {
 			continue
 		}

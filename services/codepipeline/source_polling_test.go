@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -98,4 +100,80 @@ func TestPollSourceChanges(t *testing.T) {
 			}
 		})
 	}
+}
+
+type blockingS3 struct{}
+
+func (*blockingS3) PutObject(context.Context, *s3.PutObjectInput) (*s3.PutObjectOutput, error) {
+	return &s3.PutObjectOutput{}, nil
+}
+
+func (*blockingS3) GetObject(ctx context.Context, _ *s3.GetObjectInput) (*s3.GetObjectOutput, error) {
+	<-ctx.Done()
+
+	return nil, ctx.Err()
+}
+
+func sourcePipeline(t *testing.T, h *codepipeline.Handler) {
+	t.Helper()
+
+	decl := builtinPipeline("polled", codepipeline.Action{
+		Name: "Source",
+		ActionTypeID: codepipeline.ActionTypeID{
+			Category: "Source", Owner: "AWS", Provider: "S3", Version: "1",
+		},
+		Configuration:   map[string]string{"S3Bucket": "src", "S3ObjectKey": "app.zip"},
+		OutputArtifacts: []codepipeline.ArtifactRef{{Name: "out"}},
+	})
+	_, err := h.Backend.CreatePipeline(t.Context(), decl, nil)
+	require.NoError(t, err)
+}
+
+func TestPollSourceChangesHonorsContext(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
+		h.Backend.SetArtifactS3(&blockingS3{})
+		sourcePipeline(t, h)
+
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan struct{})
+
+		go func() {
+			defer close(done)
+
+			h.Backend.PollSourceChanges(ctx)
+		}()
+
+		synctest.Wait()
+		cancel()
+		<-done
+	})
+}
+
+func TestSourcePollingWorkerLifecycle(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
+		s3fake := &versionedS3{body: []byte("zip"), version: 1}
+		h.Backend.SetArtifactS3(s3fake)
+		sourcePipeline(t, h)
+
+		ctx, cancel := context.WithCancel(t.Context())
+		require.NoError(t, h.StartWorker(ctx))
+
+		<-time.After(time.Minute)
+		synctest.Wait()
+		s3fake.bump()
+		<-time.After(time.Minute)
+		synctest.Wait()
+
+		execs, err := h.Backend.ListPipelineExecutions(t.Context(), "polled")
+		require.NoError(t, err)
+		assert.Len(t, execs, 1)
+
+		cancel()
+	})
 }

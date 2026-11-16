@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync/atomic"
 	"testing"
 
 	"github.com/miekg/dns"
@@ -109,4 +110,47 @@ func TestDNSForwardDoH(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDNSForwardDoHRedirectNotFollowed(t *testing.T) {
+	t.Parallel()
+
+	var followed atomic.Bool
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/dns-query", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/other", http.StatusTemporaryRedirect)
+	})
+	mux.HandleFunc("/other", func(w http.ResponseWriter, r *http.Request) {
+		followed.Store(true)
+		body, _ := io.ReadAll(r.Body)
+		q := new(dns.Msg)
+		_ = q.Unpack(body)
+		m := new(dns.Msg)
+		m.SetReply(q)
+		out, _ := m.Pack()
+		_, _ = w.Write(out)
+	})
+
+	srv := httptest.NewTLSServer(mux)
+	t.Cleanup(srv.Close)
+
+	pool := x509.NewCertPool()
+	pool.AddCert(srv.Certificate())
+
+	_, portStr, err := net.SplitHostPort(srv.Listener.Addr().String())
+	require.NoError(t, err)
+
+	port, err := strconv.Atoi(portStr)
+	require.NoError(t, err)
+
+	e := newDNSEnv(t)
+	route53resolver.SetDoHRootCAs(e.res, pool)
+	e.associate(t, e.rule(t, "example.com", "FORWARD", route53resolver.TargetIP{
+		IP: "127.0.0.1", Port: int32(port), Protocol: "DoH",
+	}))
+
+	resp := e.ask(vpc1Client, "www.example.com", dns.TypeA)
+	assert.False(t, followed.Load())
+	assert.Equal(t, dns.RcodeServerFailure, resp.Rcode)
 }
