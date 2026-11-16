@@ -505,3 +505,92 @@ func TestNetworkSDK_PrivateEndpointSnapshotRestore(t *testing.T) {
 	_, err = fresh.net.NewApplicationSecurityGroupsClient().Get(ctx, netRG, "asg", nil)
 	require.NoError(t, err)
 }
+
+func TestNetworkSDK_PrivateEndpointZoneGroupLimits(t *testing.T) {
+	t.Parallel()
+
+	cfgs := func(e *peEnv, names ...string) []*armnetwork.PrivateDNSZoneConfig {
+		out := make([]*armnetwork.PrivateDNSZoneConfig, 0, len(names))
+		for _, n := range names {
+			out = append(out, &armnetwork.PrivateDNSZoneConfig{
+				Name:       new(n),
+				Properties: &armnetwork.PrivateDNSZonePropertiesFormat{PrivateDNSZoneID: new(e.zoneID)},
+			})
+		}
+
+		return out
+	}
+
+	tests := []struct {
+		name  string
+		group string
+		first []string
+		names []string
+		want  bool
+	}{
+		{name: "one config", group: "default", names: []string{"a"}, want: true},
+		{name: "same zone twice in a group", group: "default", names: []string{"a", "b"}},
+		{name: "second group", group: "second", first: []string{"a"}, names: []string{"b"}},
+		{name: "update of the only group", group: "default", first: []string{"a"}, names: []string{"b"}, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newPEEnv(t)
+			_, err := e.endpoint(t, "pe1", false, e.storageID, "blob")
+			require.NoError(t, err)
+
+			zg := e.net.NewPrivateDNSZoneGroupsClient()
+
+			if tt.first != nil {
+				zp, perr := zg.BeginCreateOrUpdate(t.Context(), netRG, "pe1", "default", armnetwork.PrivateDNSZoneGroup{
+					Properties: &armnetwork.PrivateDNSZoneGroupPropertiesFormat{
+						PrivateDNSZoneConfigs: cfgs(e, tt.first...),
+					},
+				}, nil)
+				netPoll(t, zp, perr)
+			}
+
+			zp, err := zg.BeginCreateOrUpdate(t.Context(), netRG, "pe1", tt.group, armnetwork.PrivateDNSZoneGroup{
+				Properties: &armnetwork.PrivateDNSZoneGroupPropertiesFormat{
+					PrivateDNSZoneConfigs: cfgs(e, tt.names...),
+				},
+			}, nil)
+
+			if tt.want {
+				netPoll(t, zp, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			assert.Equal(t, "InvalidRequestFormat", sdkErrCode(err))
+		})
+	}
+}
+
+func TestNetworkSDK_PrivateEndpointZoneGroupMaxConfigs(t *testing.T) {
+	t.Parallel()
+
+	e := newPEEnv(t)
+	_, err := e.endpoint(t, "pe1", false, e.storageID, "blob")
+	require.NoError(t, err)
+
+	cfgs := make([]*armnetwork.PrivateDNSZoneConfig, 0, 6)
+
+	for _, n := range []string{"a", "b", "c", "d", "e", "f"} {
+		cfgs = append(cfgs, &armnetwork.PrivateDNSZoneConfig{
+			Name:       new(n),
+			Properties: &armnetwork.PrivateDNSZonePropertiesFormat{PrivateDNSZoneID: new(e.zoneID)},
+		})
+	}
+
+	_, err = e.net.NewPrivateDNSZoneGroupsClient().BeginCreateOrUpdate(t.Context(), netRG, "pe1", "default",
+		armnetwork.PrivateDNSZoneGroup{
+			Properties: &armnetwork.PrivateDNSZoneGroupPropertiesFormat{PrivateDNSZoneConfigs: cfgs},
+		}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "at most 5")
+}

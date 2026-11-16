@@ -1,10 +1,14 @@
 package azurearm
 
 import (
+	_ "embed"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -58,6 +62,22 @@ func isACIContainerOp(segs []string, r *http.Request, method string, ops ...stri
 
 //nolint:gochecknoglobals // static route table, read-only after init
 var containerInstanceRoutes = []armRoute{
+	{
+		match:  isACIProfileRevisions,
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleACIProfileRevisions(c, segs) },
+	},
+	{
+		match: func(segs []string, r *http.Request) bool {
+			return r.Method == http.MethodPatch && isACIProfileScope(segs, aciProfileSegs)
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleACIProfilePatch(c, segs) },
+	},
+	{
+		match: isACIOperations,
+		handle: func(h *Handler, c *echo.Context, _ []string) error {
+			return h.writeJSON(c, http.StatusOK, map[string]any{fieldValue: aciOperations()})
+		},
+	},
 	{
 		match:  isACILocationRead,
 		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleACILocationRead(c, segs) },
@@ -189,3 +209,31 @@ func (h *Handler) handleACIExec(c *echo.Context, segs []string) error {
 
 	return h.writeJSON(c, http.StatusOK, map[string]any{"webSocketUri": uri, "password": password})
 }
+
+//go:embed acicatalog/operations.json
+var aciOperationsJSON []byte
+
+// aciOperations lists the Microsoft.ContainerInstance operations from the Learn Azure permissions reference
+// (role-based-access-control/permissions/containers); display.provider is the value of the OperationsList.json
+// example of azure-rest-api-specs, and the undocumented display.resource/operation/origin members are omitted.
+func aciOperations() []any {
+	var doc struct {
+		Value []any `json:"value"`
+	}
+
+	if err := json.Unmarshal(aciOperationsJSON, &doc, jsonx.V1()); err != nil {
+		return []any{}
+	}
+
+	return doc.Value
+}
+
+func isACIOperations(segs []string, r *http.Request) bool {
+	return r.Method == http.MethodGet && len(segs) == aciOpsSegs && segAt(segs, 0, providersSegment) &&
+		segAt(segs, 1, namespaceMicrosoftContainerInstance) && segAt(segs, aciOpsNameIdx, "operations")
+}
+
+const (
+	aciOpsSegs    = 3
+	aciOpsNameIdx = 2
+)

@@ -16,6 +16,7 @@ const (
 	auxPENIC          = "nic"
 	auxPERec          = "rec:"
 	peConnTypePath    = "Microsoft.Network/privateEndpoints/privateLinkServiceConnections"
+	peMaxZoneConfigs  = 5
 	peZoneGroupPath   = "Microsoft.Network/privateEndpoints/privateDnsZoneGroups"
 	propPEAuto        = "privateLinkServiceConnections"
 	propPEManual      = "manualPrivateLinkServiceConnections"
@@ -769,8 +770,19 @@ func (p *NetworkProvider) writeZoneGroup(pe *netParent, name string, body map[st
 		return false, netBad("Private DNS zone group %s requires at least one privateDnsZoneConfig.", name)
 	}
 
+	if len(cfgs) > peMaxZoneConfigs {
+		return false, netBad("Private DNS zone group %s has %d zone configurations; a group supports at most %d.",
+			name, len(cfgs), peMaxZoneConfigs)
+	}
+
+	if prev, _ := pe.kid(peZoneGroups, name); prev == nil && len(pe.Kids[peZoneGroups]) > 0 {
+		return false, netBad("Private endpoint %s already has a private DNS zone group; adding multiple private DNS "+
+			"zone groups to one private endpoint is not supported.", pe.Obj.Name)
+	}
+
 	norm := make([]any, 0, len(cfgs))
 	seen := map[string]bool{}
+	zoneNames := map[string]bool{}
 
 	for _, c := range cfgs {
 		m, _ := c.(map[string]any)
@@ -787,9 +799,20 @@ func (p *NetworkProvider) writeZoneGroup(pe *netParent, name string, body map[st
 		seen[strings.ToLower(cn)] = true
 
 		zid := strOf(propsOf(m), "privateDnsZoneId")
-		if _, ok := p.netRef(zid, netZones); !ok {
+		zone, ok := p.netRef(zid, netZones)
+		if !ok {
 			return false, refMissing(zid)
 		}
+
+		if zoneNames[strings.ToLower(zone.Obj.Name)] {
+			return false, netBad(
+				"Private DNS zone group %s has more than one private DNS zone named %s.",
+				name,
+				zone.Obj.Name,
+			)
+		}
+
+		zoneNames[strings.ToLower(zone.Obj.Name)] = true
 
 		norm = append(norm, map[string]any{fieldName: cn, fieldProperties: map[string]any{"privateDnsZoneId": zid}})
 	}

@@ -29,6 +29,7 @@ const (
 var (
 	errACIInvalid = errors.New("azurearm: invalid container group")
 
+	aciCapRe  = regexp.MustCompile(`^[A-Z][A-Z_]*$`)
 	aciNameRe = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$`)
 	aciDNSRe  = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
 )
@@ -47,6 +48,11 @@ type aciResourceWire struct {
 type aciResourcesWire struct {
 	Requests *aciResourceWire `json:"requests,omitempty"`
 	Limits   *aciResourceWire `json:"limits,omitempty"`
+}
+
+type aciPortKey struct {
+	proto string
+	port  int
 }
 
 type aciPortWire struct {
@@ -70,6 +76,7 @@ type aciContainerPropsWire struct {
 	VolumeMounts         []aciMountWire    `json:"volumeMounts,omitempty"`
 	LivenessProbe        *aciProbeWire     `json:"livenessProbe,omitempty"`
 	ReadinessProbe       *aciProbeWire     `json:"readinessProbe,omitempty"`
+	SecurityContext      *aciSecurityWire  `json:"securityContext,omitempty"`
 	InstanceView         jsontext.Value    `json:"instanceView,omitempty"`
 }
 
@@ -109,20 +116,23 @@ type aciVolumeWire struct {
 
 // aciPropsWire is the supported subset of containerGroups properties; unknown properties are rejected.
 type aciPropsWire struct {
-	DNSConfig                *aciDNSWire         `json:"dnsConfig,omitempty"`
-	IPAddress                *aciIPWire          `json:"ipAddress,omitempty"`
-	Diagnostics              *aciDiagnosticsWire `json:"diagnostics,omitempty"`
-	RestartPolicy            string              `json:"restartPolicy,omitempty"`
-	SKU                      string              `json:"sku,omitempty"`
-	Priority                 string              `json:"priority,omitempty"`
-	ProvisioningState        string              `json:"provisioningState,omitempty"`
-	OSType                   string              `json:"osType,omitempty"`
-	InstanceView             jsontext.Value      `json:"instanceView,omitempty"`
-	Volumes                  []aciVolumeWire     `json:"volumes,omitempty"`
-	InitContainers           []aciInitWire       `json:"initContainers,omitempty"`
-	SubnetIDs                []aciSubnetWire     `json:"subnetIds,omitempty"`
-	ImageRegistryCredentials []aciCredWire       `json:"imageRegistryCredentials,omitempty"`
-	Containers               []aciContainerWire  `json:"containers"`
+	DNSConfig                *aciDNSWire          `json:"dnsConfig,omitempty"`
+	ConfidentialComputeProps *aciConfidentialWire `json:"confidentialComputeProperties,omitempty"`
+	EncryptionProperties     *aciEncryptionWire   `json:"encryptionProperties,omitempty"`
+	Extensions               []aciExtensionWire   `json:"extensions,omitempty"`
+	IPAddress                *aciIPWire           `json:"ipAddress,omitempty"`
+	Diagnostics              *aciDiagnosticsWire  `json:"diagnostics,omitempty"`
+	RestartPolicy            string               `json:"restartPolicy,omitempty"`
+	SKU                      string               `json:"sku,omitempty"`
+	Priority                 string               `json:"priority,omitempty"`
+	ProvisioningState        string               `json:"provisioningState,omitempty"`
+	OSType                   string               `json:"osType,omitempty"`
+	InstanceView             jsontext.Value       `json:"instanceView,omitempty"`
+	Volumes                  []aciVolumeWire      `json:"volumes,omitempty"`
+	InitContainers           []aciInitWire        `json:"initContainers,omitempty"`
+	SubnetIDs                []aciSubnetWire      `json:"subnetIds,omitempty"`
+	ImageRegistryCredentials []aciCredWire        `json:"imageRegistryCredentials,omitempty"`
+	Containers               []aciContainerWire   `json:"containers"`
 }
 
 func aciUnsupported(what string) error {
@@ -176,7 +186,7 @@ func (p *aciPropsWire) normalize() error {
 	}
 
 	names := map[string]bool{}
-	ports := map[int]bool{}
+	ports := map[aciPortKey]bool{}
 
 	for i := range p.Containers {
 		if err = p.Containers[i].normalize(vols, names, ports); err != nil {
@@ -208,6 +218,14 @@ func (p *aciPropsWire) normalize() error {
 		return err
 	}
 
+	if err = p.normalizeEncryption(); err != nil {
+		return err
+	}
+
+	if err = p.normalizeExtensions(); err != nil {
+		return err
+	}
+
 	return p.normalizeCreds()
 }
 
@@ -233,8 +251,8 @@ func (p *aciPropsWire) normalizeEnums() error {
 		return aciBad("restartPolicy %q must be Always, OnFailure or Never", p.RestartPolicy)
 	}
 
-	if p.SKU != "" && !strings.EqualFold(p.SKU, "Standard") {
-		return aciUnsupported("sku " + p.SKU)
+	if err := p.normalizeSKU(); err != nil {
+		return err
 	}
 
 	return p.normalizePriority()
@@ -249,8 +267,6 @@ const (
 // normalizePriority accepts Regular and Spot; the Spot limits are those of learn.microsoft.com/azure/
 // container-instances/container-instances-spot-containers-overview (no public IP, no virtual network).
 func (p *aciPropsWire) normalizePriority() error {
-	p.SKU = ""
-
 	switch {
 	case p.Priority == "" || strings.EqualFold(p.Priority, "Regular"):
 		p.Priority = ""
@@ -266,6 +282,10 @@ func (p *aciPropsWire) normalizePriority() error {
 func (p *aciPropsWire) checkSpot() error {
 	if p.Priority != aciPrioritySpot {
 		return nil
+	}
+
+	if p.SKU == aciSKUConfidential {
+		return aciBad("Spot container groups do not support the Confidential SKU")
 	}
 
 	if len(p.SubnetIDs) > 0 {
@@ -329,7 +349,7 @@ func (v *aciVolumeWire) validate() error {
 	return nil
 }
 
-func (c *aciContainerWire) normalize(vols, names map[string]bool, ports map[int]bool) error {
+func (c *aciContainerWire) normalize(vols, names map[string]bool, ports map[aciPortKey]bool) error {
 	key := strings.ToLower(c.Name)
 
 	switch {
@@ -353,10 +373,14 @@ func (c *aciContainerWire) normalize(vols, names map[string]bool, ports map[int]
 			return err
 		}
 
-		ports[pt.Port] = true
+		ports[aciPortKey{port: pt.Port, proto: pt.Protocol}] = true
 	}
 
 	c.Properties.InstanceView = nil
+
+	if err := c.Properties.SecurityContext.validate(c.Name); err != nil {
+		return err
+	}
 
 	return c.normalizeProbes()
 }
@@ -407,6 +431,8 @@ func normalizePort(pt *aciPortWire) error {
 	switch strings.ToUpper(pt.Protocol) {
 	case "", aciProtoTCP:
 		pt.Protocol = aciProtoTCP
+	case aciProtoUDP:
+		pt.Protocol = aciProtoUDP
 	default:
 		return aciUnsupported("protocol " + pt.Protocol)
 	}
@@ -414,7 +440,7 @@ func normalizePort(pt *aciPortWire) error {
 	return nil
 }
 
-func (p *aciPropsWire) normalizeIP(containerPorts map[int]bool) error {
+func (p *aciPropsWire) normalizeIP(containerPorts map[aciPortKey]bool) error {
 	ip := p.IPAddress
 	if ip == nil {
 		return nil
@@ -442,8 +468,12 @@ func (p *aciPropsWire) normalizeIP(containerPorts map[int]bool) error {
 			return err
 		}
 
-		if !containerPorts[ip.Ports[i].Port] {
-			return aciBad("ipAddress port %d is not exposed by any container", ip.Ports[i].Port)
+		if !containerPorts[aciPortKey{port: ip.Ports[i].Port, proto: ip.Ports[i].Protocol}] {
+			return aciBad(
+				"ipAddress port %d/%s is not exposed by any container",
+				ip.Ports[i].Port,
+				ip.Ports[i].Protocol,
+			)
 		}
 	}
 

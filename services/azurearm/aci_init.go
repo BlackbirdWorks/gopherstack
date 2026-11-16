@@ -8,6 +8,7 @@ func initAsContainer(ic aciInitWire) aciContainerWire {
 	return aciContainerWire{Name: ic.Name, Properties: aciContainerPropsWire{
 		Image: ic.Properties.Image, Command: ic.Properties.Command,
 		EnvironmentVariables: ic.Properties.EnvironmentVariables, VolumeMounts: ic.Properties.VolumeMounts,
+		SecurityContext: ic.Properties.SecurityContext,
 	}}
 }
 

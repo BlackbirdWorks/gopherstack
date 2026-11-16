@@ -1,7 +1,9 @@
 package azurearm_test
 
 import (
+	"context"
 	"crypto/tls"
+	"io"
 	"net/http"
 	"testing"
 
@@ -159,4 +161,51 @@ func TestACIExecRejectsBadTerminal(t *testing.T) {
 		}, nil)
 	require.Error(t, err)
 	assert.Equal(t, "InvalidRequestContent", sdkErrCode(err))
+}
+
+func TestACIAttachFollowsLiveOutput(t *testing.T) {
+	t.Parallel()
+
+	rt := newFakeACIRuntime()
+	release := make(chan struct{})
+	rt.follow = func(ctx context.Context, out io.Writer) error {
+		_, _ = io.WriteString(out, "live-1")
+
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+
+		_, err := io.WriteString(out, "live-2")
+
+		return err
+	}
+
+	s := newACIStackWith(t, rt)
+	_, err := s.create(t, "rg1", "grp1", aciOpts{policy: armcontainerinstance.ContainerGroupRestartPolicyAlways})
+	require.NoError(t, err)
+	s.waitState(t, "rg1", "grp1", "Running")
+
+	att, err := s.factory.NewContainersClient().Attach(t.Context(), "rg1", "grp1", "main", nil)
+	require.NoError(t, err)
+
+	dialer := websocket.Dialer{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+	conn, _, err := dialer.DialContext(t.Context(), *att.WebSocketURI, http.Header{"Authorization": {*att.Password}})
+	require.NoError(t, err)
+
+	defer conn.Close()
+
+	_, msg, err := conn.ReadMessage()
+	require.NoError(t, err)
+	assert.Equal(t, "live-1", string(msg))
+
+	close(release)
+
+	_, msg, err = conn.ReadMessage()
+	require.NoError(t, err)
+	assert.Equal(t, "live-2", string(msg))
+
+	_, _, err = conn.ReadMessage()
+	assert.True(t, websocket.IsCloseError(err, websocket.CloseNormalClosure))
 }

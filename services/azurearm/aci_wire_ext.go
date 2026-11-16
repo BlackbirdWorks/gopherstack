@@ -47,11 +47,12 @@ type aciProbeWire struct {
 }
 
 type aciInitPropsWire struct {
-	Image                string         `json:"image"`
-	Command              []string       `json:"command,omitempty"`
-	EnvironmentVariables []aciEnvWire   `json:"environmentVariables,omitempty"`
-	VolumeMounts         []aciMountWire `json:"volumeMounts,omitempty"`
-	InstanceView         jsontext.Value `json:"instanceView,omitempty"`
+	Image                string           `json:"image"`
+	Command              []string         `json:"command,omitempty"`
+	EnvironmentVariables []aciEnvWire     `json:"environmentVariables,omitempty"`
+	VolumeMounts         []aciMountWire   `json:"volumeMounts,omitempty"`
+	SecurityContext      *aciSecurityWire `json:"securityContext,omitempty"`
+	InstanceView         jsontext.Value   `json:"instanceView,omitempty"`
 }
 
 type aciInitWire struct {
@@ -184,6 +185,10 @@ func (p *aciPropsWire) normalizeInit(vols, names map[string]bool) error {
 
 		if err := validateEnvMounts(ic.Name, ic.Properties.EnvironmentVariables, ic.Properties.VolumeMounts,
 			vols); err != nil {
+			return err
+		}
+
+		if err := ic.Properties.SecurityContext.validate(ic.Name); err != nil {
 			return err
 		}
 

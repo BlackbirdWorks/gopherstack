@@ -1,6 +1,7 @@
 package azurearm
 
 import (
+	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
 	"io/fs"
@@ -9,8 +10,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/azureauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
@@ -148,6 +150,14 @@ func (e *ACIEngine) preparePorts(run *aciRun, cfg aciConfig, pool ACIPortPool) s
 
 	if ip := cfg.Props.IPAddress; ip != nil {
 		for _, pt := range ip.Ports {
+			if pt.Protocol == aciProtoUDP {
+				if reason := e.publishUDPPort(run, pool, pt.Port); reason != "" {
+					return reason
+				}
+
+				continue
+			}
+
 			if reason := e.publishPort(run, pool, pt.Port, gate); reason != "" {
 				return reason
 			}
@@ -158,16 +168,21 @@ func (e *ACIEngine) preparePorts(run *aciRun, cfg aciConfig, pool ACIPortPool) s
 }
 
 func (e *ACIEngine) publishPort(run *aciRun, pool ACIPortPool, port int, gate bool) string {
-	front, err := e.acquire(run, pool)
+	front, err := port, error(nil)
+	if run.addr == "" {
+		front, err = e.acquire(run, pool)
+	}
+
 	if err != nil {
 		return fmt.Sprintf("allocate host port for %d: %v", port, err)
 	}
 
-	back := front
+	back, backHost := front, run.hostFor(0)
 
 	if gate {
+		backHost = container.LoopbackHost
 		if back, err = e.acquire(run, pool); err == nil {
-			err = e.startGate(run, front, back)
+			err = e.startGate(run, run.hostFor(0), front, back)
 		}
 
 		if err != nil {
@@ -176,9 +191,28 @@ func (e *ACIEngine) publishPort(run *aciRun, pool ACIPortPool, port int, gate bo
 	}
 
 	e.mu.Lock("publishPort")
-	run.hostPorts[port], run.backPorts[port] = front, back
+	run.hostPorts[port], run.backPorts[port], run.backHost[port] = front, back, backHost
 	e.record(&run.events, aciEventNormal, "PortPublished",
-		fmt.Sprintf("port %d/TCP is published on 127.0.0.1:%d", port, front))
+		fmt.Sprintf("port %d/TCP is published on %s:%d", port, run.hostFor(0), front))
+	e.mu.Unlock()
+
+	return ""
+}
+
+func (e *ACIEngine) publishUDPPort(run *aciRun, pool ACIPortPool, port int) string {
+	hp, err := port, error(nil)
+	if run.addr == "" {
+		hp, err = e.acquire(run, pool)
+	}
+
+	if err != nil {
+		return fmt.Sprintf("allocate host port for %d/UDP: %v", port, err)
+	}
+
+	e.mu.Lock("publishUDPPort")
+	run.udpPorts[port] = hp
+	e.record(&run.events, aciEventNormal, "PortPublished",
+		fmt.Sprintf("port %d/UDP is published on %s:%d", port, run.hostFor(0), hp))
 	e.mu.Unlock()
 
 	return ""
@@ -201,7 +235,7 @@ func (e *ACIEngine) prepareProbePorts(run *aciRun, cfg aciConfig, pool ACIPortPo
 			}
 
 			e.mu.Lock("prepareProbePorts")
-			run.backPorts[port] = hp
+			run.backPorts[port], run.backHost[port] = hp, container.LoopbackHost
 			e.mu.Unlock()
 		}
 	}
@@ -233,6 +267,14 @@ func (e *ACIEngine) fillAzureFile(run *aciRun, v aciVolumeWire, dir string, shar
 		return fmt.Sprintf("azureFile volume %q needs the Azure Files service, which is not available", v.Name)
 	}
 
+	if subtle.ConstantTimeCompare([]byte(af.StorageAccountKey), []byte(azureauth.DefaultAccountKey)) != 1 {
+		return fmt.Sprintf(
+			"azureFile volume %q: the key of storage account %s is not valid",
+			v.Name,
+			af.StorageAccountName,
+		)
+	}
+
 	tree, err := shares.ExportShare(af.StorageAccountName, af.ShareName)
 	if err != nil {
 		return fmt.Sprintf("azureFile volume %q: share %s/%s: %v", v.Name, af.StorageAccountName, af.ShareName, err)
@@ -255,17 +297,21 @@ func (e *ACIEngine) fillAzureFile(run *aciRun, v aciVolumeWire, dir string, shar
 
 	e.mu.Lock("fillAzureFile")
 	run.shares = append(run.shares, shareMount{
-		dir: dir, account: af.StorageAccountName, share: af.ShareName, readOnly: af.ReadOnly,
+		dir: dir, account: af.StorageAccountName, share: af.ShareName, readOnly: af.ReadOnly, base: newShareBase(tree),
 	})
 	e.mu.Unlock()
 
 	return ""
 }
 
-// syncShares copies each writable azureFile volume's directory back into its share.
+// syncShares reconciles each azureFile volume with its share.
 func (e *ACIEngine) syncShares(run *aciRun) {
 	e.mu.RLock("syncShares")
-	shares, mounts := e.shares, append([]shareMount(nil), run.shares...)
+	shares, mounts := e.shares, make([]*shareMount, len(run.shares))
+
+	for i := range run.shares {
+		mounts[i] = &run.shares[i]
+	}
 	e.mu.RUnlock()
 
 	if shares == nil {
@@ -273,18 +319,8 @@ func (e *ACIEngine) syncShares(run *aciRun) {
 	}
 
 	for _, m := range mounts {
-		if m.readOnly {
-			continue
-		}
-
-		tree, err := readACITree(m.dir)
-		if err == nil {
-			err = shares.ApplyShare(m.account, m.share, tree)
-		}
-
-		if err != nil {
-			logger.Load(run.ctx).WarnContext(run.ctx, "azurearm: syncing azure file volume failed",
-				"account", m.account, "share", m.share, "error", err)
+		if err := syncMount(shares, m); err != nil {
+			logACISyncFailure(run, *m, err)
 		}
 	}
 }
@@ -334,6 +370,9 @@ func (e *ACIEngine) releaseResources(run *aciRun) {
 	e.mu.Lock("releaseResources")
 	dirs, ports, pool := run.allDirs, run.owned, e.ports
 	run.allDirs, run.hostPorts, run.backPorts, run.owned, run.shares = nil, map[int]int{}, map[int]int{}, nil, nil
+	run.udpPorts, run.backHost = map[int]int{}, map[int]string{}
+	delete(e.addrs, run.addr)
+	run.addr = ""
 	e.mu.Unlock()
 
 	for _, d := range dirs {

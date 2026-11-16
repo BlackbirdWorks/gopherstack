@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"strings"
 	"sync"
 
@@ -30,6 +31,7 @@ type fakeACIRuntime struct {
 	boxes   map[string]*fakeBox
 	scripts map[string][]int
 	onStart func(spec container.Spec)
+	follow  func(ctx context.Context, out io.Writer) error
 	execFn  func(spec container.Spec, cmd []string) int
 	logs    map[string]string
 	creds   map[string]*azurearm.ACICredential
@@ -268,4 +270,65 @@ func (f *fakeACIRuntime) ExecStdin(
 	}
 
 	return 0, nil
+}
+
+func (f *fakeACIRuntime) FollowLogs(ctx context.Context, id string, out io.Writer) error {
+	f.mu.Lock()
+	fn := f.follow
+	f.mu.Unlock()
+
+	if fn != nil {
+		return fn(ctx, out)
+	}
+
+	logs, err := f.Logs(ctx, id, "")
+	if err != nil {
+		return err
+	}
+
+	_, err = io.WriteString(out, logs)
+
+	return err
+}
+
+func (f *fakeShares) set(key, name string, data []byte) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	t := f.trees[key]
+	files := maps.Clone(t.Files)
+	if files == nil {
+		files = map[string][]byte{}
+	}
+
+	files[name] = data
+	f.trees[key] = azurearm.ACIShareTree{Files: files, Dirs: t.Dirs}
+}
+
+func (f *fakeShares) remove(key, name string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	t := f.trees[key]
+	files := map[string][]byte{}
+
+	for k, v := range t.Files {
+		if k != name {
+			files[k] = v
+		}
+	}
+
+	f.trees[key] = azurearm.ACIShareTree{Files: files, Dirs: t.Dirs}
+}
+
+func (f *fakeShares) contents(key string) map[string]string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	out := map[string]string{}
+	for k, v := range f.trees[key].Files {
+		out[k] = string(v)
+	}
+
+	return out
 }
