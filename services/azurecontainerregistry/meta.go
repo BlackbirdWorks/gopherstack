@@ -10,23 +10,84 @@ import (
 
 type attrs = ociregistry.Attrs
 
-// RecordManifestPut notes a stored manifest, and the tag when ref is one.
+// RecordManifestPut notes a stored manifest, and the tag when ref is one. A manifest left without tags is
+// scheduled for deletion when the registry's retention policy is enabled.
 func (b *InMemoryBackend) RecordManifestPut(reg, repo, ref, digest string) {
+	days, retain := b.retentionPolicy(reg)
+
 	b.mu.Lock("RecordManifestPut")
 	defer b.mu.Unlock()
 
-	if r, ok := b.regs[strs.Fold(reg)]; ok {
-		r.Repos.RecordPut(repo, ref, digest, b.now().UTC())
+	r, ok := b.regs[strs.Fold(reg)]
+	if !ok {
+		return
+	}
+
+	now := b.now().UTC()
+
+	var displaced string
+
+	if rm := r.Repos[repo]; rm != nil && !ociregistry.IsDigest(ref) && rm.Tags[ref] != nil {
+		displaced = rm.Tags[ref].Digest
+	}
+
+	existed := r.Repos[repo] != nil && r.Repos[repo].Manifests[digest] != nil
+
+	r.Repos.RecordPut(repo, ref, digest, now)
+	r.unschedule(repo, digest)
+
+	if !retain {
+		return
+	}
+
+	if displaced != "" && displaced != digest {
+		r.schedule(repo, displaced, retentionDue(now, days))
+	}
+
+	if ociregistry.IsDigest(ref) && !existed {
+		r.schedule(repo, digest, retentionDue(now, days))
 	}
 }
 
-// RecordManifestDelete forgets a deleted manifest with its tags, or just the tag when ref is one.
+// RecordManifestDelete forgets a deleted manifest with its tags, or just the tag when ref is one. A manifest
+// the deleted tag leaves untagged is scheduled for deletion when the retention policy is enabled.
 func (b *InMemoryBackend) RecordManifestDelete(reg, repo, ref string) {
+	b.recordManifestDelete(reg, repo, ref)
+
+	if ociregistry.IsDigest(ref) {
+		b.CollectGarbage(b.baseContext(), reg, repo, ref)
+	}
+}
+
+func (b *InMemoryBackend) recordManifestDelete(reg, repo, ref string) {
+	days, retain := b.retentionPolicy(reg)
+
 	b.mu.Lock("RecordManifestDelete")
 	defer b.mu.Unlock()
 
-	if r, ok := b.regs[strs.Fold(reg)]; ok {
-		r.Repos.RecordDelete(repo, ref)
+	r, ok := b.regs[strs.Fold(reg)]
+	if !ok {
+		return
+	}
+
+	var untagged string
+
+	if rm := r.Repos[repo]; rm != nil && !ociregistry.IsDigest(ref) && rm.Tags[ref] != nil {
+		untagged = rm.Tags[ref].Digest
+	}
+
+	r.Repos.RecordDelete(repo, ref)
+
+	if ociregistry.IsDigest(ref) {
+		r.unschedule(repo, ref)
+	}
+
+	if _, kept := r.Repos[repo]; !kept {
+		delete(r.RetentionDue, repo)
+	}
+
+	if retain && untagged != "" {
+		r.schedule(repo, untagged, retentionDue(b.now().UTC(), days))
 	}
 }
 

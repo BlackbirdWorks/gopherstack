@@ -29,6 +29,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 
 	if reg, ok := h.resolve(r); ok {
+		h.Backend.SweepRetention(r.Context(), reg)
+
 		switch {
 		case !h.Backend.clientAllowed(reg, r):
 			writeNetworkDenied(w, r)

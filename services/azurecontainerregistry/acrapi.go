@@ -274,6 +274,7 @@ func (h *Handler) deleteRepo(w http.ResponseWriter, r *http.Request, reg, repo s
 	c := ociregistry.NewClient(app)
 	for _, d := range gone.Digests {
 		_ = c.DeleteManifest(r.Context(), repo, d)
+		h.Backend.CollectGarbage(r.Context(), reg, repo, d)
 	}
 
 	writeJSON(w, http.StatusAccepted, map[string]any{"manifestsDeleted": gone.Digests, "tagsDeleted": gone.Tags})

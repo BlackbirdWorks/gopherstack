@@ -46,6 +46,7 @@ func wireAzureContainerRegistry(byName map[string]service.Registerable) {
 
 	if h, hOk := byName["AzureContainerRegistry"].(*acr.Handler); hOk {
 		armH.Registry.SetContainerRegistries(&azureContainerRegistryAdapter{backend: h.Backend})
+		h.Backend.SetRetentionSource(armH.Registry.ContainerRegistryRetention)
 
 		if kv, kvOK := byName["AzureKeyVault"].(*azurekeyvault.Handler); kvOK {
 			h.Backend.SetSecretResolver(keyVaultSecretResolver(kv.Backend))
