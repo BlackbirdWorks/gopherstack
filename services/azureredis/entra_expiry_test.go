@@ -80,3 +80,85 @@ func TestEntraTokenExpiry(t *testing.T) {
 		})
 	}
 }
+
+func TestEntraTokenSurvivesFailedReauth(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	exp := start.Add(time.Minute).Unix()
+
+	tests := []struct {
+		name string
+		args []any
+	}{
+		{name: "wrong_key", args: []any{"AUTH", "default", "not-a-key"}},
+		{name: "bad_token", args: []any{"AUTH", entraTestOID, "x.y"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b, _ := newBackend(t)
+
+			var offset atomic.Int64
+
+			b.SetClock(func() time.Time { return start.Add(time.Duration(offset.Load())) })
+			b.SetTokenValidator(func(token string) (string, bool) {
+				return entraTestOID, strings.Count(token, ".") == 2
+			})
+
+			ep := ensure(t, b, "c1", entraOn(basicSpec()))
+			conn := dialTLSUser(t, ep, entraTestOID, jwtWithExp(&exp)).Conn()
+
+			require.NoError(t, conn.Ping(t.Context()).Err())
+			require.Error(t, conn.Do(t.Context(), tt.args...).Err())
+
+			offset.Store(int64(time.Hour))
+
+			err := conn.Set(t.Context(), "k", "v", 0).Err()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "token expired")
+		})
+	}
+}
+
+func TestEntraTokenMalformedExpFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	enc := base64.RawURLEncoding.EncodeToString
+	tests := []struct {
+		name    string
+		payload string
+		wantErr bool
+	}{
+		{name: "string_exp", payload: `{"exp":"soon"}`, wantErr: true},
+		{name: "negative_exp", payload: `{"exp":-5}`, wantErr: true},
+		{name: "huge_exp", payload: `{"exp":1e30}`, wantErr: true},
+		{name: "not_json", payload: `nope`, wantErr: true},
+		{name: "no_exp", payload: `{}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b, _ := newBackend(t)
+			b.SetTokenValidator(func(token string) (string, bool) {
+				return entraTestOID, strings.Count(token, ".") == 2
+			})
+
+			ep := ensure(t, b, "c1", entraOn(basicSpec()))
+			token := enc([]byte(`{"alg":"none"}`)) + "." + enc([]byte(tt.payload)) + ".sig"
+			err := dialTLSUser(t, ep, entraTestOID, token).Ping(t.Context()).Err()
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}

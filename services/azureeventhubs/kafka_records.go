@@ -45,8 +45,8 @@ type producedBatch struct {
 	firstSeq      int32
 }
 
-// splitBatches decodes the batches in a produce partition payload.
-func splitBatches(data []byte) ([]producedBatch, error) {
+// splitBatches decodes the batches in a produce partition payload; budget bounds the total inflated bytes.
+func splitBatches(data []byte, budget *int64) ([]producedBatch, error) {
 	var out []producedBatch
 
 	for len(data) > 0 {
@@ -59,7 +59,7 @@ func splitBatches(data []byte) ([]producedBatch, error) {
 			return nil, errBadBatch
 		}
 
-		pb, err := decodeBatch(data[:size])
+		pb, err := decodeBatch(data[:size], budget)
 		if err != nil {
 			return nil, err
 		}
@@ -71,7 +71,7 @@ func splitBatches(data []byte) ([]producedBatch, error) {
 	return out, nil
 }
 
-func decodeBatch(raw []byte) (producedBatch, error) {
+func decodeBatch(raw []byte, budget *int64) (producedBatch, error) {
 	var rb kmsg.RecordBatch
 	if err := rb.ReadFrom(raw); err != nil || rb.Magic != batchMagic {
 		return producedBatch{}, errBadBatch
@@ -86,7 +86,7 @@ func decodeBatch(raw []byte) (producedBatch, error) {
 		return producedBatch{}, errBadBatch
 	}
 
-	records, err := inflate(rb.Records, rb.Attributes&compressionMask)
+	records, err := inflate(rb.Records, rb.Attributes&compressionMask, budget)
 	if err != nil {
 		return producedBatch{}, err
 	}
@@ -123,7 +123,7 @@ func decodeBatch(raw []byte) (producedBatch, error) {
 	}, nil
 }
 
-func inflate(records []byte, codec int16) ([]byte, error) {
+func inflate(records []byte, codec int16, budget *int64) ([]byte, error) {
 	switch codec {
 	case compressionNone:
 		return records, nil
@@ -135,14 +135,16 @@ func inflate(records []byte, codec int16) ([]byte, error) {
 
 		defer zr.Close()
 
-		out, err := io.ReadAll(io.LimitReader(zr, maxBatchInflated+1))
+		out, err := io.ReadAll(io.LimitReader(zr, *budget+1))
 		if err != nil {
 			return nil, errBadBatch
 		}
 
-		if len(out) > maxBatchInflated {
+		if int64(len(out)) > *budget {
 			return nil, errBatchTooLarge
 		}
+
+		*budget -= int64(len(out))
 
 		return out, nil
 	}

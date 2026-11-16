@@ -1,6 +1,7 @@
 package azuresearch_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -146,6 +147,35 @@ func TestCrackHTMLContent(t *testing.T) {
 			got := azuresearch.CrackBlob(tt.file, tt.ct, []byte(tt.data), map[string]any{})
 			require.Len(t, got, 1)
 			assert.Equal(t, tt.want, got[0]["content"])
+		})
+	}
+}
+
+func TestCrackMarkdownAdversarialInput(t *testing.T) {
+	t.Parallel()
+
+	const n = 100000
+
+	tests := []struct {
+		name     string
+		data     string
+		mode     string
+		wantDocs int
+	}{
+		{name: "many_sections_one_to_many", data: strings.Repeat("# h\nbody\n", n), wantDocs: n},
+		{name: "many_sections_one_to_one", data: strings.Repeat("# h\nbody\n", n), mode: "oneToOne", wantDocs: 1},
+		{name: "alternating_depth", data: strings.Repeat("###### d\nx\n# t\ny\n", n/2), mode: "oneToOne", wantDocs: 1},
+		{name: "single_huge_hash_line", data: strings.Repeat("#", 4<<20), wantDocs: 1},
+		{name: "unbalanced_fences", data: strings.Repeat("```\n# h\n", n), wantDocs: n / 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := map[string]any{"parsingMode": "markdown", "markdownParsingSubmode": tt.mode}
+			docs := azuresearch.CrackBlob("big.md", "text/markdown", []byte(tt.data), cfg)
+			assert.Len(t, docs, tt.wantDocs)
 		})
 	}
 }

@@ -1,10 +1,13 @@
 package azureeventhubs_test
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/tls"
 	"encoding/binary"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"net"
 	"testing"
@@ -459,4 +462,139 @@ func allPartitionsFromStart(n int) map[string]map[int32]kgo.Offset {
 	}
 
 	return map[string]map[int32]kgo.Offset{testHub: m}
+}
+
+func TestKafkaRuleScopedToNamespace(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		endpoint string
+		wantCode int16
+	}{
+		{name: "own_namespace", endpoint: "other", wantCode: 0},
+		{name: "foreign_namespace", endpoint: testNS, wantCode: 58},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, true)
+			require.NoError(t, e.b.EnsureNamespace("other"))
+
+			rule, err := e.b.PutRule("other", "", "r1", []string{azureeventhubs.RightSend})
+			require.NoError(t, err)
+
+			conn, err := tls.Dial("tcp", e.kafkaAddr(t), &tls.Config{
+				RootCAs: e.pool, ServerName: "localhost", MinVersion: tls.VersionTLS12,
+			})
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = conn.Close() })
+
+			hs := kmsg.NewPtrSASLHandshakeRequest()
+			hs.Version, hs.Mechanism = 1, "PLAIN"
+			require.Equal(t, int16(0), rawRoundTrip(t, conn, hs).(*kmsg.SASLHandshakeResponse).ErrorCode)
+
+			cs := fmt.Sprintf("Endpoint=sb://%s.servicebus.windows.net/;SharedAccessKeyName=r1;SharedAccessKey=%s",
+				tt.endpoint, rule.PrimaryKey)
+			auth := kmsg.NewPtrSASLAuthenticateRequest()
+			auth.SASLAuthBytes = []byte("\x00$ConnectionString\x00" + cs)
+
+			resp, ok := rawRoundTrip(t, conn, auth).(*kmsg.SASLAuthenticateResponse)
+			require.True(t, ok)
+			assert.Equal(t, tt.wantCode, resp.ErrorCode)
+		})
+	}
+}
+
+func gzipBatch(t *testing.T, inflated int) []byte {
+	t.Helper()
+
+	var zb bytes.Buffer
+
+	zw := gzip.NewWriter(&zb)
+	_, err := zw.Write(make([]byte, inflated))
+	require.NoError(t, err)
+	require.NoError(t, zw.Close())
+
+	rb := kmsg.RecordBatch{
+		PartitionLeaderEpoch: -1, Magic: 2, Attributes: 1, ProducerID: -1, ProducerEpoch: -1, FirstSequence: -1,
+		Records: zb.Bytes(),
+	}
+	out := rb.AppendTo(nil)
+	binary.BigEndian.PutUint32(out[8:12], uint32(len(out)-12))
+	binary.BigEndian.PutUint32(out[17:21], crc32.Checksum(out[21:], crc32.MakeTable(crc32.Castagnoli)))
+
+	return out
+}
+
+func TestKafkaInflateBudgetSharedAcrossBatches(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		batches int
+		wantErr bool
+	}{
+		{name: "one_batch", batches: 1},
+		{name: "many_batches", batches: 3, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var payload []byte
+			for range tt.batches {
+				payload = append(payload, gzipBatch(t, 10<<20)...)
+			}
+
+			err := azureeventhubs.SplitBatchesError(payload)
+			if tt.wantErr {
+				require.ErrorIs(t, err, azureeventhubs.ErrBatchTooLargeForTest)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestKafkaFrameLimits(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		size    uint32
+		authed  bool
+		wantErr bool
+	}{
+		{name: "unauth_small", size: 100, authed: false},
+		{name: "unauth_over", size: 1 << 20, authed: false, wantErr: true},
+		{name: "auth_large", size: 1 << 20, authed: true},
+		{name: "auth_over", size: 1 << 30, authed: true, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			frame := binary.BigEndian.AppendUint32(nil, tt.size)
+			if !tt.wantErr {
+				frame = append(frame, make([]byte, tt.size)...)
+			}
+
+			got, err := azureeventhubs.ReadFrameForTest(bytes.NewReader(frame), tt.authed)
+			if tt.wantErr {
+				require.ErrorIs(t, err, azureeventhubs.ErrKafkaFrameForTest)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Len(t, got, int(tt.size))
+		})
+	}
 }

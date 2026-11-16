@@ -10,6 +10,7 @@ import (
 
 func (c *kconn) produce(r *kmsg.ProduceRequest) kmsg.Response {
 	resp := &kmsg.ProduceResponse{}
+	budget := int64(maxBatchInflated)
 
 	for _, t := range r.Topics {
 		rt := kmsg.ProduceResponseTopic{Topic: t.Topic}
@@ -26,7 +27,7 @@ func (c *kconn) produce(r *kmsg.ProduceRequest) kmsg.Response {
 			case !found:
 				rp.ErrorCode = kerrUnknownTopic
 			default:
-				rp.ErrorCode, rp.BaseOffset = c.appendPartition(ref, p.Partition, p.Records)
+				rp.ErrorCode, rp.BaseOffset = c.appendPartition(ref, p.Partition, p.Records, &budget)
 			}
 
 			rt.Partitions = append(rt.Partitions, rp)
@@ -49,8 +50,8 @@ func batchErr(err error) int16 {
 	return kerrCorruptMessage
 }
 
-func (c *kconn) appendPartition(ref HubRef, pid int32, data []byte) (int16, int64) {
-	batches, err := splitBatches(data)
+func (c *kconn) appendPartition(ref HubRef, pid int32, data []byte, budget *int64) (int16, int64) {
+	batches, err := splitBatches(data, budget)
 	if err != nil {
 		return batchErr(err), -1
 	}

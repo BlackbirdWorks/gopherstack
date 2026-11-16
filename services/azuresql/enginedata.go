@@ -3,6 +3,7 @@ package azuresql
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -23,7 +24,7 @@ const (
 	fileSizeScript      = `stat -c %s "$1"`
 	fileReadScript      = `base64 -w0 "$1"`
 	fileAppendScript    = `printf %s "$2" >> "$1"`
-	fileDecodeScript    = `base64 -d "$1" > "$2"`
+	fileDecodeScript    = `base64 -d "$1" > "$2" && sha256sum "$2"`
 	fileRemoveScript    = `rm -f "$1" "$2"`
 	backupOptionsClause = " WITH INIT, COPY_ONLY, COMPRESSION, FORMAT"
 )
@@ -58,6 +59,16 @@ func restoreSQL(name, path string) (string, error) {
 		"SET @s = N'RESTORE DATABASE ' + QUOTENAME(@n) + N' FROM DISK = ' + QUOTENAME(" + nLiteral(path) +
 		", '''') + N' WITH REPLACE'; EXEC(@s); " +
 		"SET @s = N'ALTER DATABASE ' + QUOTENAME(@n) + N' SET MULTI_USER'; EXEC(@s);", nil
+}
+
+func multiUserSQL(name string) (string, error) {
+	if !validIdent(name) {
+		return "", fmt.Errorf("%w: database name", ErrInvalid)
+	}
+
+	return "DECLARE @n sysname = " + nLiteral(name) + ", @s nvarchar(max); " +
+		"SET @s = N'ALTER DATABASE ' + QUOTENAME(@n) + N' SET MULTI_USER'; " +
+		"IF DB_ID(@n) IS NOT NULL EXEC(@s);", nil
 }
 
 func scratchPath(suffix string) (string, error) {
@@ -126,6 +137,10 @@ func (e *dockerEngine) BackupDatabase(ctx context.Context, name string, maxBytes
 
 // RestoreDatabase implements DataEngine.
 func (e *dockerEngine) RestoreDatabase(ctx context.Context, name string, data []byte) error {
+	if int64(len(data)) > maxBackupBytes {
+		return fmt.Errorf("%w: backup of %d bytes exceeds %d", ErrInvalid, len(data), maxBackupBytes)
+	}
+
 	bak, err := scratchPath(backupFileSuffix)
 	if err != nil {
 		return err
@@ -144,13 +159,36 @@ func (e *dockerEngine) RestoreDatabase(ctx context.Context, name string, data []
 		return err
 	}
 
-	if _, err = e.sh(ctx, fileDecodeScript, enc, bak); err != nil {
+	sum, err := e.sh(ctx, fileDecodeScript, enc, bak)
+	if err != nil {
 		return err
 	}
 
-	_, err = e.run(ctx, text)
+	want := sha256.Sum256(data)
+	if f := strings.Fields(sum); len(f) == 0 || f[0] != hex.EncodeToString(want[:]) {
+		return fmt.Errorf("%w: uploaded backup failed its integrity check", ErrInvalid)
+	}
 
-	return err
+	if _, err = e.run(ctx, text); err != nil {
+		e.releaseSingleUser(ctx, name)
+
+		return err
+	}
+
+	return nil
+}
+
+func (e *dockerEngine) releaseSingleUser(ctx context.Context, name string) {
+	ctx = context.WithoutCancel(ctx)
+
+	text, err := multiUserSQL(name)
+	if err == nil {
+		_, err = e.run(ctx, text)
+	}
+
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "azuresql: restoring multi-user mode failed", "database", name, "error", err)
+	}
 }
 
 func (e *dockerEngine) upload(ctx context.Context, path, encoded string) error {

@@ -2,6 +2,7 @@ package azureeventhubs
 
 import (
 	"context"
+	"io"
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kmsg"
@@ -66,3 +67,27 @@ func (g *GroupHarness) Heartbeat(group, member string, generation int32) int16 {
 
 // Members lists the member IDs of a group.
 func (g *GroupHarness) Members(group string) []string { return g.gc.memberIDs(groupKey("", group)) }
+
+// SplitBatchesError decodes a produce payload with a fresh inflate budget and returns the decode error.
+func SplitBatchesError(data []byte) error {
+	budget := int64(maxBatchInflated)
+	_, err := splitBatches(data, &budget)
+
+	return err
+}
+
+// ErrBatchTooLargeForTest is the error a payload over the inflate budget produces.
+var ErrBatchTooLargeForTest = errBatchTooLarge
+
+// ReadFrameForTest reads one request frame as an unauthenticated or authenticated connection would.
+func ReadFrameForTest(r io.Reader, authed bool) ([]byte, error) {
+	limit := uint32(kafkaMaxAuthFrame)
+	if authed {
+		limit = kafkaMaxFrame
+	}
+
+	return readKafkaFrame(r, limit)
+}
+
+// ErrKafkaFrameForTest is the error an over-limit frame produces.
+var ErrKafkaFrameForTest = errKafkaFrame

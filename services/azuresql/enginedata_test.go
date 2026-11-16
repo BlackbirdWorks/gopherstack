@@ -3,7 +3,9 @@ package azuresql_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,7 +24,9 @@ type fileExec struct {
 	sql   []string
 	// restored is the backup file content at the moment RESTORE DATABASE ran.
 	restored []byte
-	mu       sync.Mutex
+	// corrupt flips the first uploaded chunk bytes; failRestore makes RESTORE DATABASE exit non-zero.
+	corrupt, failRestore bool
+	mu                   sync.Mutex
 }
 
 func (f *fileExec) Exec(_ context.Context, _ string, cmd []string) (container.ExecResult, error) {
@@ -36,6 +40,10 @@ func (f *fileExec) Exec(_ context.Context, _ string, cmd []string) (container.Ex
 		f.sql = append(f.sql, args[0])
 
 		if strings.Contains(args[0], "RESTORE DATABASE") {
+			if f.failRestore {
+				return container.ExecResult{ExitCode: 1, Stderr: "bad backup"}, nil
+			}
+
 			f.restored = f.files[between(args[0], "N'/var", "'")]
 		}
 
@@ -49,7 +57,12 @@ func (f *fileExec) Exec(_ context.Context, _ string, cmd []string) (container.Ex
 	case strings.HasPrefix(script, ": >"):
 		f.files[args[0]] = nil
 	case strings.HasPrefix(script, "printf"):
-		f.files[args[0]] = append(f.files[args[0]], args[1]...)
+		chunk := args[1]
+		if f.corrupt && len(f.files[args[0]]) == 0 {
+			chunk = "AAAA" + chunk[4:]
+		}
+
+		f.files[args[0]] = append(f.files[args[0]], chunk...)
 	case strings.HasPrefix(script, "base64 -d"):
 		dec, err := base64.StdEncoding.DecodeString(string(f.files[args[0]]))
 		if err != nil {
@@ -57,6 +70,9 @@ func (f *fileExec) Exec(_ context.Context, _ string, cmd []string) (container.Ex
 		}
 
 		f.files[args[1]] = dec
+		sum := sha256.Sum256(dec)
+
+		return container.ExecResult{Stdout: hex.EncodeToString(sum[:]) + "  " + args[1] + "\n"}, nil
 	case strings.HasPrefix(script, "rm"):
 		delete(f.files, args[0])
 		delete(f.files, args[1])
@@ -114,6 +130,50 @@ func TestDockerEngineDataRoundTrip(t *testing.T) {
 			assert.Equal(t, big, fx.restored)
 			assert.Contains(t, fx.sql[len(fx.sql)-1], "RESTORE DATABASE")
 			assert.Contains(t, fx.sql[len(fx.sql)-1], "WITH REPLACE")
+		})
+	}
+}
+
+func TestDockerEngineRestoreFailures(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		corrupt     bool
+		failRestore bool
+		oversize    bool
+		wantMulti   bool
+		wantRestore bool
+	}{
+		{name: "corrupt_upload", corrupt: true},
+		{name: "restore_fails", failRestore: true, wantMulti: true},
+		{name: "oversize", oversize: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fx := &fileExec{files: map[string][]byte{}, corrupt: tt.corrupt, failRestore: tt.failRestore}
+			eng := azuresql.NewDockerEngineForTest(fx)
+			data := bytes.Repeat([]byte("x"), 1024)
+
+			if tt.oversize {
+				data = make([]byte, 64<<20+1)
+			}
+
+			require.Error(t, eng.RestoreDatabase(t.Context(), "app", data))
+			assert.Empty(t, fx.files)
+
+			var multi, restore bool
+
+			for _, q := range fx.sql {
+				multi = multi || strings.Contains(q, "SET MULTI_USER'; IF DB_ID")
+				restore = restore || strings.Contains(q, "RESTORE DATABASE")
+			}
+
+			assert.Equal(t, tt.wantMulti, multi, "multi-user release")
+			assert.Equal(t, tt.wantMulti, restore, "restore attempted")
 		})
 	}
 }

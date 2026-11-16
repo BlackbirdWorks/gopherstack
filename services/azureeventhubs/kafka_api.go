@@ -125,7 +125,7 @@ func (c *kconn) credentials(user, password string) bool {
 		return true
 	}
 
-	rights, scope, ok := c.k.h.Backend.RuleRights(name, key)
+	rights, scope, ok := c.k.h.Backend.RuleRights(c.ns, name, key)
 	if !ok {
 		return false
 	}

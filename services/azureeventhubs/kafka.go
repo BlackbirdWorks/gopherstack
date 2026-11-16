@@ -23,6 +23,7 @@ const (
 	DefaultKafkaPort = 9093
 
 	kafkaMaxFrame     = 16 << 20
+	kafkaMaxAuthFrame = 64 << 10
 	kafkaAuthDeadline = 30 * time.Second
 	kafkaConnUser     = "$ConnectionString"
 	kafkaMechanism    = "PLAIN"
@@ -235,7 +236,12 @@ func (c *kconn) serve() {
 	_ = c.conn.SetDeadline(time.Now().Add(kafkaAuthDeadline))
 
 	for {
-		frame, err := readKafkaFrame(c.conn)
+		limit := uint32(kafkaMaxAuthFrame)
+		if c.authed {
+			limit = kafkaMaxFrame
+		}
+
+		frame, err := readKafkaFrame(c.conn, limit)
 		if err != nil {
 			return
 		}
@@ -250,14 +256,14 @@ func (c *kconn) serve() {
 	}
 }
 
-func readKafkaFrame(r io.Reader) ([]byte, error) {
+func readKafkaFrame(r io.Reader, limit uint32) ([]byte, error) {
 	var sz [4]byte
 	if _, err := io.ReadFull(r, sz[:]); err != nil {
 		return nil, fmt.Errorf("kafka frame size: %w", err)
 	}
 
 	n := binary.BigEndian.Uint32(sz[:])
-	if n == 0 || n > kafkaMaxFrame {
+	if n == 0 || n > limit {
 		return nil, errKafkaFrame
 	}
 

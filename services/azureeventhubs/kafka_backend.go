@@ -194,21 +194,34 @@ func (b *InMemoryBackend) HubNames(ns string) []string {
 }
 
 // RuleRights validates a shared-access key pair and returns the rights and hub scope of the rule it belongs
-// to. The scope is empty for a namespace-level rule.
-func (b *InMemoryBackend) RuleRights(name, key string) ([]string, string, bool) {
+// to. The scope is empty for a namespace-level rule. A non-empty ns restricts the lookup to that namespace.
+func (b *InMemoryBackend) RuleRights(ns, name, key string) ([]string, string, bool) {
 	b.mu.RLock("RuleRights")
 	defer b.mu.RUnlock()
 
-	for _, ns := range b.namespaces {
-		for _, r := range ns.Rules {
-			if r.Name == name && r.hasKey(key) {
-				return slices.Clone(r.Rights), r.Hub, true
-			}
+	scoped, only := b.namespaces[ns]
+	if only {
+		return ruleRightsIn(scoped, name, key)
+	}
+
+	for _, n := range b.namespaces {
+		if rights, scope, ok := ruleRightsIn(n, name, key); ok {
+			return rights, scope, true
 		}
 	}
 
 	if name == DefaultKeyName && constantEqual(DefaultKeyValue, key) {
 		return []string{RightListen, RightSend, RightManage}, "", true
+	}
+
+	return nil, "", false
+}
+
+func ruleRightsIn(n *namespace, name, key string) ([]string, string, bool) {
+	for _, r := range n.Rules {
+		if r.Name == name && r.hasKey(key) {
+			return slices.Clone(r.Rights), r.Hub, true
+		}
 	}
 
 	return nil, "", false
