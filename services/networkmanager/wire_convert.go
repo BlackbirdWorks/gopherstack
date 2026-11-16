@@ -662,7 +662,20 @@ func toCoreNetworkChangeValuesWire(v *CoreNetworkChangeValues) *coreNetworkChang
 
 	return &coreNetworkChangeValuesWire{
 		SegmentName: v.SegmentName, NetworkFunctionGroupName: v.NetworkFunctionGroupName,
+		Asn: v.Asn, AttachmentID: v.AttachmentID, Cidr: v.Cidr, DestinationIdentifier: v.DestinationIdentifier,
+		EdgeLocations: v.EdgeLocations, InsideCidrBlocks: v.InsideCidrBlocks, PeerEdgeLocations: v.PeerEdgeLocations,
+		RoutingPolicy: v.RoutingPolicy, RoutingPolicyDirection: v.RoutingPolicyDirection,
+		RoutingPolicyAssociationDetails: toRoutingPolicyAssociationsWire(v.RoutingPolicyAssociation),
 	}
+}
+
+func toRoutingPolicyAssociationsWire(in []RoutingPolicyAssociation) []routingPolicyAssociationWire {
+	out := make([]routingPolicyAssociationWire, len(in))
+	for i, a := range in {
+		out[i] = routingPolicyAssociationWire(a)
+	}
+
+	return out
 }
 
 func toCoreNetworkChangesWire(changes []CoreNetworkChange) []coreNetworkChangeWire {

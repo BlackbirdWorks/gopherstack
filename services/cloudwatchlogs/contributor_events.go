@@ -71,5 +71,5 @@ func (b *InMemoryBackend) TransformerProcessors(groupName string) ([]map[string]
 		}
 	}
 
-	return nil, false
+	return b.accountTransformerProcessors(groupName)
 }

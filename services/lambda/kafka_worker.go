@@ -83,6 +83,23 @@ func (p *EventSourcePoller) mskSpecFor(ctx context.Context, m *EventSourceMappin
 	spec.Consumer.RootCAPEM = conn.RootCAPEM
 	spec.Consumer.Username, spec.Consumer.Password = conn.Username, conn.Password
 
+	if conn.IAM {
+		spec.Consumer.IAMRegion = conn.IAMRegion
+		spec.Consumer.IAMCredentials = p.iamCredentials(m.FunctionARN)
+	}
+
+	if conn.MutualTLS {
+		cert, key, err := p.clientCertificate(ctx, m.SourceAccessConfigurations)
+		if err != nil {
+			logger.Load(ctx).WarnContext(ctx, "lambda: MSK mutual TLS mapping not started",
+				"uuid", m.UUID, "error", err)
+
+			return kafkaWorkerSpec{}, false
+		}
+
+		spec.Consumer.ClientCertPEM, spec.Consumer.ClientKeyPEM = cert, key
+	}
+
 	return spec, ok
 }
 

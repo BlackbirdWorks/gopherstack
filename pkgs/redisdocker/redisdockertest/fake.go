@@ -30,6 +30,7 @@ type Cmd struct {
 // Fake is a runtime and control plane that records everything and answers like a healthy cluster.
 type Fake struct {
 	tlsSeen map[string]bool
+	roles   map[string]string
 	specs   []container.Spec
 	removed []string
 	cmds    []Cmd
@@ -250,8 +251,14 @@ func (a *admin) Do(_ context.Context, args ...any) (any, error) {
 	case "PING":
 		return "PONG", nil
 	case "INFO":
-		return "role:slave\r\nmaster_link_status:up\r\n", nil
+		return "role:" + a.f.role(a.target.Addr) + "\r\nmaster_link_status:up\r\n", nil
+	case "REPLICAOF":
+		a.f.setRole(a.target.Addr, strings.ToUpper(fmt.Sprint(args[1])) != "NO")
 	case "CLUSTER":
+		if len(args) > 1 && fmt.Sprint(args[1]) == "FAILOVER" {
+			a.f.setRole(a.target.Addr, false)
+		}
+
 		return a.cluster(args), nil
 	}
 
@@ -272,3 +279,29 @@ func (a *admin) cluster(args []any) any {
 }
 
 func (a *admin) Close() error { return nil }
+
+// role reports "slave" until a node is promoted by REPLICAOF NO ONE or CLUSTER FAILOVER.
+func (f *Fake) role(addr string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if r, ok := f.roles[addr]; ok {
+		return r
+	}
+
+	return "slave"
+}
+
+func (f *Fake) setRole(addr string, replica bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.roles == nil {
+		f.roles = map[string]string{}
+	}
+
+	f.roles[addr] = "master"
+	if replica {
+		f.roles[addr] = "slave"
+	}
+}

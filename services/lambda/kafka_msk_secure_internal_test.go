@@ -12,8 +12,8 @@ const scramSecretARN = "arn:aws:secretsmanager:us-east-1:000000000000:secret:Ama
 
 type fakeMSKConnResolver struct {
 	fakeMSKResolver
-	conn      MSKConnection
 	gotAccess []SourceAccessConfiguration
+	conn      MSKConnection
 }
 
 func (f *fakeMSKConnResolver) MSKConnection(

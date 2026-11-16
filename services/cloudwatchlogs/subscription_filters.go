@@ -199,7 +199,8 @@ func (b *InMemoryBackend) matchingFilters(
 	region, groupName string,
 	events []InputLogEvent,
 ) []*SubscriptionFilter {
-	filters := b.subscriptionFiltersInGroup(region, groupName)
+	filters := append(append([]*SubscriptionFilter(nil), b.subscriptionFiltersInGroup(region, groupName)...),
+		b.accountSubscriptionFilters(region, groupName)...)
 	if len(filters) == 0 {
 		return nil
 	}

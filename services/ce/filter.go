@@ -5,20 +5,23 @@ import "strings"
 // ceDimensionValues mirrors the wire shape of costexplorer's types.DimensionValues:
 // a dimension Key plus the Values OR'd together for that dimension.
 type ceDimensionValues struct {
-	Key    string   `json:"Key"`
-	Values []string `json:"Values"`
+	Key          string   `json:"Key"`
+	Values       []string `json:"Values"`
+	MatchOptions []string `json:"MatchOptions,omitempty"`
 }
 
 // ceTagValues mirrors costexplorer's types.TagValues.
 type ceTagValues struct {
-	Key    string   `json:"Key"`
-	Values []string `json:"Values"`
+	Key          string   `json:"Key"`
+	Values       []string `json:"Values"`
+	MatchOptions []string `json:"MatchOptions,omitempty"`
 }
 
 // ceCostCategoryValues mirrors costexplorer's types.CostCategoryValues.
 type ceCostCategoryValues struct {
-	Key    string   `json:"Key"`
-	Values []string `json:"Values"`
+	Key          string   `json:"Key"`
+	Values       []string `json:"Values"`
+	MatchOptions []string `json:"MatchOptions,omitempty"`
 }
 
 // ceExpression mirrors costexplorer's types.Expression, including the And/Or/Not

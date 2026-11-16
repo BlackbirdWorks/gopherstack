@@ -19,7 +19,15 @@ type createCostCategoryDefinitionInput struct {
 }
 
 type costCategoryRule struct {
-	Value string `json:"Value"`
+	Rule           *ceExpression      `json:"Rule,omitempty"`
+	InheritedValue *wireInheritedRule `json:"InheritedValue,omitempty"`
+	Value          string             `json:"Value"`
+	Type           string             `json:"Type,omitempty"`
+}
+
+type wireInheritedRule struct {
+	DimensionName string `json:"DimensionName,omitempty"`
+	DimensionKey  string `json:"DimensionKey,omitempty"`
 }
 
 type splitChargeRule struct {
@@ -51,7 +59,7 @@ func (h *Handler) handleCreateCostCategoryDefinition(
 
 	rules := make([]CostCategoryRule, 0, len(in.Rules))
 	for _, r := range in.Rules {
-		rules = append(rules, CostCategoryRule(r))
+		rules = append(rules, modelRule(r))
 	}
 
 	splitChargeRules := make([]SplitChargeRule, 0, len(in.SplitChargeRules))
@@ -153,7 +161,7 @@ func (h *Handler) handleDescribeCostCategoryDefinition(
 
 	rules := make([]costCategoryRule, len(cat.Rules))
 	for i, r := range cat.Rules {
-		rules[i] = costCategoryRule(r)
+		rules[i] = wireRule(r)
 	}
 
 	splitChargeRules := make([]splitChargeRule, len(cat.SplitChargeRules))
@@ -244,7 +252,7 @@ func (h *Handler) handleUpdateCostCategoryDefinition(
 
 	rules := make([]CostCategoryRule, 0, len(in.Rules))
 	for _, r := range in.Rules {
-		rules = append(rules, CostCategoryRule(r))
+		rules = append(rules, modelRule(r))
 	}
 
 	splitChargeRules := make([]SplitChargeRule, 0, len(in.SplitChargeRules))

@@ -242,12 +242,12 @@ func (b *InMemoryBackend) DescribeIndexPolicies(
 	}
 
 	if len(byLogGroup) < len(want) {
-		if acct, ok := b.accountFieldIndexPolicy(); ok {
-			for id := range want {
-				if _, exists := byLogGroup[id]; exists {
-					continue
-				}
+		for id := range want {
+			if _, exists := byLogGroup[id]; exists {
+				continue
+			}
 
+			if acct, ok := b.accountFieldIndexPolicy(normalizeLogGroupIdentifier(id)); ok {
 				byLogGroup[id] = IndexPolicy{
 					LogGroupIdentifier: id,
 					PolicyDocument:     acct.PolicyDocument,
@@ -271,13 +271,11 @@ func (b *InMemoryBackend) DescribeIndexPolicies(
 	return out[start:end], outToken
 }
 
-// accountFieldIndexPolicy returns the account-wide FIELD_INDEX_POLICY with
-// scope ALL, if one exists. Caller must hold b.mu.
-func (b *InMemoryBackend) accountFieldIndexPolicy() (*AccountPolicy, bool) {
-	for _, p := range b.accountPolicies.All() {
-		if p.PolicyType == "FIELD_INDEX_POLICY" && p.Scope == accountPolicyScopeAll {
-			return p, true
-		}
+// accountFieldIndexPolicy returns the account FIELD_INDEX_POLICY whose selection criteria cover groupName.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) accountFieldIndexPolicy(groupName string) (*AccountPolicy, bool) {
+	if ps := b.accountPoliciesFor(policyTypeFieldIndex, groupName); len(ps) > 0 {
+		return ps[0], true
 	}
 
 	return nil, false

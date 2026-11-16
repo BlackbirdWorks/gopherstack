@@ -464,9 +464,25 @@ type CoreNetworkChange struct {
 // describe per-attachment route semantics this document-level diff does not
 // correlate against live attachment state.
 type CoreNetworkChangeValues struct {
+	Asn                      *int64
 	SegmentName              string
 	NetworkFunctionGroupName string
 	RawJSON                  string
+	AttachmentID             string
+	Cidr                     string
+	DestinationIdentifier    string
+	EdgeLocations            []string
+	InsideCidrBlocks         []string
+	PeerEdgeLocations        []string
+	RoutingPolicy            string
+	RoutingPolicyDirection   string
+	RoutingPolicyAssociation []RoutingPolicyAssociation
+}
+
+// RoutingPolicyAssociation mirrors types.RoutingPolicyAssociationDetail.
+type RoutingPolicyAssociation struct {
+	RoutingPolicyNames []string
+	SharedSegments     []string
 }
 
 // CoreNetworkChangeEvent mirrors types.CoreNetworkChangeEvent -- one

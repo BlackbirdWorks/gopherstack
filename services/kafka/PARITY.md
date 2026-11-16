@@ -118,7 +118,6 @@ gaps: []
 items_still_open:
   - "UpdateSecurity relaunches the docker broker as a fresh container: topics and messages written before the update are lost (BrokerRuntime in broker.go has no volume support, so there is no persistent log dir to carry across the relaunch)"
   - "IAM / resource-policy evaluation: ListGroups, DescribeCluster, DescribeLogDirs and transactional/ACL APIs are not gated by the per-API IAM check; a partially denied multi-topic request is rejected as a whole; denied AlterConfigs/CreatePartitions/DescribeConfigs/OffsetFetch/DescribeGroups/DeleteGroups requests close the connection instead of returning an authorization error; Metadata with a null topic list is not filtered"
-  - "Lambda MSK event source mappings reach plaintext, server-TLS and SASL/SCRAM clusters; AWS_MSK_IAM-only and mutual-TLS-only clusters are not polled because the poller lives in services/lambda and has no function-role credentials or client certificate plumbed in"
 structural_gaps:
   - "Docker engine (--kafka-engine=docker) runs ONE single-node KRaft broker per provisioned cluster (apache/kafka 3.9.1); serverless clusters and the MSK Topic API metadata are not backed by a real multi-broker cluster. Clusters with no explicit encryption/auth settings keep the original single plaintext listener; any explicit EncryptionInfo or ClientAuthentication switches to MSK-style listeners (see 2026-10-18 section)."
 deferred: []
@@ -744,3 +743,7 @@ Docker engine brokers now honour the cluster's EncryptionInfo and ClientAuthenti
 - Lambda: `MSKConnectionResolver` (services/lambda) lets the poller dial TLS and SASL/SCRAM clusters; the SCRAM credential is read from the secret named by the mapping's `SASL_SCRAM_512_AUTH` SourceAccessConfiguration through the cluster's SCRAM resolver. `InMemoryBackend.ClientEndpointFor` picks plaintext, then SCRAM, then server-TLS.
 - Not done: Connect IAM jar, Connect TLS test and capacity scaling (services/kafkaconnect, tracked on gopherstack-49qct.38).
 - Proof: `TestUpdateSecurity_RelaunchesBroker`, `TestBroker_MutualTLS`, `TestBroker_UpdateSecurityEnablesMutualTLSDocker` (real broker, client certificate accepted, no certificate rejected), `TestBroker_IAMPerAPIActionsDocker`, `TestGate_*`, `TestCapVersions`, `TestMSKESMUsesSecureConnection`, `TestCertificatePEMForARN`.
+
+## Emulator choices where the vendor is silent
+
+- Lambda MSK event source mappings dial plaintext, server-TLS, SASL/SCRAM, AWS_MSK_IAM (the function execution role, re-issued before expiry) and mutual-TLS clusters (client certificate and key from the CLIENT_CERTIFICATE_TLS_AUTH secret, JSON {"certificate","privateKey"}); the secret layout is not published, so it is the emulator's choice. A cluster offering IAM is dialled with IAM before server-TLS.

@@ -26,10 +26,12 @@ var __mod_ddb = (function (util) {
   function get(o) { return clean({ operation: 'GetItem', key: tm(o.key), consistentRead: o.consistentRead }); }
   function put(o) {
     return clean({ operation: 'PutItem', key: tm(o.key), attributeValues: tm(o.item),
-      condition: o.condition ? expr(o.condition) : undefined });
+      condition: o.condition ? expr(o.condition) : undefined, _version: o._version,
+      customPartitionKey: o.customPartitionKey, populateIndexFields: o.populateIndexFields });
   }
   function remove(o) {
-    return clean({ operation: 'DeleteItem', key: tm(o.key), condition: o.condition ? expr(o.condition) : undefined });
+    return clean({ operation: 'DeleteItem', key: tm(o.key), condition: o.condition ? expr(o.condition) : undefined,
+      _version: o._version, customPartitionKey: o.customPartitionKey, populateIndexFields: o.populateIndexFields });
   }
   function scan(o) {
     o = o || {};
@@ -71,6 +73,7 @@ var __mod_ddb = (function (util) {
     var r = { operation: 'UpdateItem', key: tm(o.key),
       update: { expression: parts.join(' '), expressionNames: names, expressionValues: values } };
     if (o.condition) { r.condition = expr(o.condition); }
+    r._version = o._version; r.customPartitionKey = o.customPartitionKey; r.populateIndexFields = o.populateIndexFields;
     return clean(r);
   }
   return { get: get, put: put, remove: remove, scan: scan, sync: sync, query: query, update: update,

@@ -1,9 +1,12 @@
 package memorydb
 
 import (
+	"context"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/redisengine"
 )
 
 // Engine mode constants. Only embedded starts a server; stub and docker keep
@@ -85,7 +88,7 @@ func (b *InMemoryBackend) syncAllAuthLocked() {
 }
 
 // syncAuthLocked mirrors the cluster ACL's password users into the server's AUTH
-// table. Only the first password per user is enforced, and access strings are not. Must hold b.mu.
+// table. Only the first password per user is enforced; access strings are enforced by the engine. Must hold b.mu.
 func (b *InMemoryBackend) syncAuthLocked(c *Cluster) {
 	b.syncDockerACLLocked(c)
 
@@ -98,6 +101,7 @@ func (b *InMemoryBackend) syncAuthLocked(c *Cluster) {
 	}
 
 	c.authUsers = nil
+	_ = c.engine.SetUserAccess(nil)
 
 	region := c.Region
 	if region == "" {
@@ -109,6 +113,8 @@ func (b *InMemoryBackend) syncAuthLocked(c *Cluster) {
 		return
 	}
 
+	var access []redisengine.UserAccess
+
 	for _, userName := range acl.UserNames {
 		u, found := b.usersStore(region).Get(userName)
 		if !found || len(u.Passwords) == 0 {
@@ -117,6 +123,14 @@ func (b *InMemoryBackend) syncAuthLocked(c *Cluster) {
 
 		c.engine.Mini.RequireUserAuth(u.Name, u.Passwords[0])
 		c.authUsers = append(c.authUsers, u.Name)
+		access = append(
+			access,
+			redisengine.UserAccess{Name: u.Name, Password: u.Passwords[0], AccessString: u.AccessString},
+		)
+	}
+
+	if err := c.engine.SetUserAccess(access); err != nil {
+		logger.Load(context.Background()).Warn("memorydb: access string not enforced", "cluster", c.Name, "error", err)
 	}
 }
 

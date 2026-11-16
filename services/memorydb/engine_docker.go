@@ -15,6 +15,7 @@ import (
 
 // dockState tracks a cluster whose nodes are real Redis containers.
 type dockState struct {
+	ctx    context.Context //nolint:containedctx // bounds background resizes to the cluster's containers
 	group  *redisdocker.Group
 	cancel context.CancelFunc
 }
@@ -103,7 +104,7 @@ func (b *InMemoryBackend) dockerSpec(c *Cluster, seeds [][]byte) redisdocker.Spe
 // Must hold b.mu.
 func (b *InMemoryBackend) launchDockerLocked(region string, c *Cluster, seeds [][]byte) {
 	ctx, cancel := context.WithCancel(context.Background())
-	d := &dockState{cancel: cancel}
+	d := &dockState{ctx: ctx, cancel: cancel}
 	c.dock = d
 	c.Status = statusCreating
 	spec := b.dockerSpec(c, seeds)

@@ -397,7 +397,8 @@ func (b *InMemoryBackend) GetCoreNetworkChangeSet(
 		liveDoc = live.PolicyDocument
 	}
 
-	return diffCoreNetworkPolicy(liveDoc, v.PolicyDocument), nil
+	return append(diffCoreNetworkPolicy(liveDoc, v.PolicyDocument),
+		b.attachmentChangesLocked(coreNetworkID, liveDoc, v.PolicyDocument)...), nil
 }
 
 // GetCoreNetworkChangeEvents validates coreNetworkID/policyVersionID and
@@ -422,7 +423,8 @@ func (b *InMemoryBackend) GetCoreNetworkChangeEvents(
 		liveDoc = live.PolicyDocument
 	}
 
-	changes := diffCoreNetworkPolicy(liveDoc, v.PolicyDocument)
+	changes := append(diffCoreNetworkPolicy(liveDoc, v.PolicyDocument),
+		b.attachmentChangesLocked(coreNetworkID, liveDoc, v.PolicyDocument)...)
 
 	return changesToEvents(changes, v.ChangeSetState), nil
 }

@@ -528,8 +528,23 @@ type listCoreNetworkPolicyVersionsResponse struct {
 }
 
 type coreNetworkChangeValuesWire struct {
-	SegmentName              string `json:"SegmentName,omitempty"`
-	NetworkFunctionGroupName string `json:"NetworkFunctionGroupName,omitempty"`
+	Asn                             *int64                         `json:"Asn,omitempty"`
+	SegmentName                     string                         `json:"SegmentName,omitempty"`
+	NetworkFunctionGroupName        string                         `json:"NetworkFunctionGroupName,omitempty"`
+	AttachmentID                    string                         `json:"AttachmentId,omitempty"`
+	Cidr                            string                         `json:"Cidr,omitempty"`
+	DestinationIdentifier           string                         `json:"DestinationIdentifier,omitempty"`
+	EdgeLocations                   []string                       `json:"EdgeLocations,omitempty"`
+	InsideCidrBlocks                []string                       `json:"InsideCidrBlocks,omitempty"`
+	PeerEdgeLocations               []string                       `json:"PeerEdgeLocations,omitempty"`
+	RoutingPolicy                   string                         `json:"RoutingPolicy,omitempty"`
+	RoutingPolicyDirection          string                         `json:"RoutingPolicyDirection,omitempty"`
+	RoutingPolicyAssociationDetails []routingPolicyAssociationWire `json:"RoutingPolicyAssociationDetails,omitempty"`
+}
+
+type routingPolicyAssociationWire struct {
+	RoutingPolicyNames []string `json:"RoutingPolicyNames,omitempty"`
+	SharedSegments     []string `json:"SharedSegments,omitempty"`
 }
 
 type coreNetworkChangeWire struct {

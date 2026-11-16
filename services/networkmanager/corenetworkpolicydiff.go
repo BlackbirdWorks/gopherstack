@@ -15,19 +15,8 @@ import (
 // "segment-actions", "attachment-policies", and "core-network-configuration"
 // (the AWS Cloud WAN policy-document schema's own top-level keys).
 //
-// Honesty boundary: this is a genuine parse-and-compare of the caller's own
-// JSON -- every ADD/MODIFY/REMOVE below is derived from an actual
-// difference between two real documents, never invented. What it does NOT
-// do is correlate a changed segment/attachment-policy against live
-// attachment state to produce the SDK's full per-attachment ChangeType
-// granularity (ATTACHMENT_MAPPING/ATTACHMENT_ROUTE_PROPAGATION/
-// ATTACHMENT_ROUTE_STATIC/ROUTING_POLICY_*, 6 of the real 14 ChangeType
-// values) -- that requires resolving which attachments are members of which
-// segment, real but meaningfully more work than a document-level diff. This
-// pass covers document-level ChangeTypes: CORE_NETWORK_SEGMENT,
-// NETWORK_FUNCTION_GROUP, SEGMENT_ACTIONS_CONFIGURATION,
-// ATTACHMENT_POLICIES_CONFIGURATION, CORE_NETWORK_CONFIGURATION -- a
-// documented scope reduction, not a silent gap.
+// Document-level changes live here; per-attachment changes (ATTACHMENT_MAPPING and the route and routing policy
+// types) are in corenetworkattachmentdiff.go and corenetworkroutingpolicydiff.go.
 
 type namedSection struct {
 	key string
@@ -42,6 +31,8 @@ type policyDocSections struct {
 	NetworkFunctionGroups    []jsontext.Value `json:"network-function-groups"`
 	SegmentActions           []jsontext.Value `json:"segment-actions"`
 	AttachmentPolicies       []jsontext.Value `json:"attachment-policies"`
+	RoutingPolicies          []jsontext.Value `json:"routing-policies"`
+	AttachmentRoutingRules   []jsontext.Value `json:"attachment-routing-policy-rules"`
 }
 
 func parsePolicyDocSections(doc string) policyDocSections {
@@ -87,7 +78,7 @@ func namedByKey(items []jsontext.Value, keyField string) map[string]namedSection
 func diffSectionEntries(
 	oldItems, newItems []jsontext.Value,
 	keyField, changeType, pathPrefix string,
-	values func(key string) *CoreNetworkChangeValues,
+	values func(key string, raw jsontext.Value) *CoreNetworkChangeValues,
 ) []CoreNetworkChange {
 	oldByKey := namedByKey(oldItems, keyField)
 	newByKey := namedByKey(newItems, keyField)
@@ -114,14 +105,14 @@ func diffSectionEntries(
 		switch {
 		case !oldOK:
 			change.Action = "ADD"
-			change.NewValues = withRawJSON(values(key), string(newEntry.raw))
+			change.NewValues = withRawJSON(values(key, newEntry.raw), string(newEntry.raw))
 		case !newOK:
 			change.Action = "REMOVE"
-			change.PreviousValues = withRawJSON(values(key), string(oldEntry.raw))
+			change.PreviousValues = withRawJSON(values(key, oldEntry.raw), string(oldEntry.raw))
 		case !jsonEqual(oldEntry.raw, newEntry.raw):
 			change.Action = "MODIFY"
-			change.PreviousValues = withRawJSON(values(key), string(oldEntry.raw))
-			change.NewValues = withRawJSON(values(key), string(newEntry.raw))
+			change.PreviousValues = withRawJSON(values(key, oldEntry.raw), string(oldEntry.raw))
+			change.NewValues = withRawJSON(values(key, newEntry.raw), string(newEntry.raw))
 		default:
 			continue
 		}
@@ -198,13 +189,15 @@ func diffCoreNetworkPolicy(oldDoc, newDoc string) []CoreNetworkChange {
 
 	changes = append(changes, diffSectionEntries(
 		oldSections.Segments, newSections.Segments, "name", "CORE_NETWORK_SEGMENT", "CORE_NETWORK_SEGMENT",
-		func(key string) *CoreNetworkChangeValues { return &CoreNetworkChangeValues{SegmentName: key} },
+		func(key string, _ jsontext.Value) *CoreNetworkChangeValues {
+			return &CoreNetworkChangeValues{SegmentName: key}
+		},
 	)...)
 
 	changes = append(changes, diffSectionEntries(
 		oldSections.NetworkFunctionGroups, newSections.NetworkFunctionGroups, "name", "NETWORK_FUNCTION_GROUP",
 		"NETWORK_FUNCTION_GROUP",
-		func(key string) *CoreNetworkChangeValues {
+		func(key string, _ jsontext.Value) *CoreNetworkChangeValues {
 			return &CoreNetworkChangeValues{NetworkFunctionGroupName: key}
 		},
 	)...)
@@ -212,17 +205,22 @@ func diffCoreNetworkPolicy(oldDoc, newDoc string) []CoreNetworkChange {
 	changes = append(changes, diffSectionEntries(
 		oldSections.SegmentActions, newSections.SegmentActions, "segment", "SEGMENT_ACTIONS_CONFIGURATION",
 		"SEGMENT_ACTIONS_CONFIGURATION",
-		func(key string) *CoreNetworkChangeValues { return &CoreNetworkChangeValues{SegmentName: key} },
+		func(key string, _ jsontext.Value) *CoreNetworkChangeValues {
+			return &CoreNetworkChangeValues{SegmentName: key}
+		},
 	)...)
 
 	changes = append(changes, diffSectionEntries(
 		oldSections.AttachmentPolicies, newSections.AttachmentPolicies, "rule-number",
 		"ATTACHMENT_POLICIES_CONFIGURATION", "ATTACHMENT_POLICIES_CONFIGURATION",
-		func(string) *CoreNetworkChangeValues { return nil },
+		func(string, jsontext.Value) *CoreNetworkChangeValues { return nil },
 	)...)
 
 	changes = append(changes, diffCoreNetworkConfiguration(oldSections.CoreNetworkConfiguration,
 		newSections.CoreNetworkConfiguration)...)
+	changes = append(changes, diffEdges(oldSections.CoreNetworkConfiguration, newSections.CoreNetworkConfiguration)...)
+	changes = append(changes, diffStaticRoutes(oldSections.SegmentActions, newSections.SegmentActions)...)
+	changes = append(changes, diffRoutingPolicies(&oldSections, &newSections)...)
 
 	return changes
 }

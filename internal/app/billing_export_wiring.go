@@ -40,6 +40,22 @@ func (c ceCostSource) CostLines(start, end time.Time) []billingexport.CostLine {
 	return lines
 }
 
+// ceCostCategorizer exposes Cost Explorer's cost categories to CUR reports.
+type ceCostCategorizer struct{ ce *cebackend.InMemoryBackend }
+
+func (c ceCostCategorizer) CostCategoryNames() []string { return c.ce.GetCostCategoryNames() }
+
+func (c ceCostCategorizer) CostCategoryValue(name string, l *billingexport.CostLine) string {
+	e := cebackend.CostEntry{
+		Date: l.Day.Format(ceDayLayout), Service: l.Service, Region: l.Region, UsageType: l.UsageType,
+		Account: l.Account, AvailabilityZone: l.AvailabilityZone, InstanceType: l.InstanceType,
+		Operation: l.Operation, ChargeType: l.ChargeType, PurchaseType: l.PurchaseType,
+		ProductFamily: l.ProductFamily, UsageTypeGroup: l.UsageTypeGroup, ResourceID: l.ResourceID, Tags: l.Tags,
+	}
+
+	return c.ce.CostCategoryValue(name, &e)
+}
+
 // wireBillingExports connects CUR and Data Exports to S3 (delivery sink) and Cost Explorer (row source).
 func wireBillingExports(byName map[string]service.Registerable) {
 	var store billingexport.ObjectStore
@@ -63,6 +79,10 @@ func wireBillingExports(byName map[string]service.Registerable) {
 
 		if costs != nil {
 			h.Backend.SetCostSource(costs)
+		}
+
+		if ceH, ceOk := byName["Ce"].(*cebackend.Handler); ceOk {
+			h.Backend.SetCostCategorizer(ceCostCategorizer{ce: ceH.Backend})
 		}
 	}
 

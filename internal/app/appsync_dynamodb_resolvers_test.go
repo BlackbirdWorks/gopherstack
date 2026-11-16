@@ -2,10 +2,12 @@ package app
 
 import (
 	"encoding/json/v2"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/appsync"
@@ -20,7 +22,7 @@ import (
 
 const asDDBSchema = `
 type Author { id: ID! name: String posts: [Post] }
-type Post { authorId: ID! id: ID! title: String n: Int author: Author }
+type Post { authorId: ID! id: ID! title: String n: Int author: Author _version: Int _lastChangedAt: Float _deleted: Boolean }
 type PostPage { items: [Post] nextToken: String scannedCount: Int }
 type PostList { posts: [Post] }
 type BatchOut { data: PostList unprocessedKeys: PostList unprocessedItems: PostList }
@@ -45,7 +47,11 @@ type Mutation {
   updatePost(authorId: ID!, id: ID!, title: String, expected: Int): Post
   putPostIfNew(authorId: ID!, id: ID!, title: String): Post
   deletePost(authorId: ID!, id: ID!, expected: Int): Post
+  putPostV(authorId: ID!, id: ID!, title: String, v: Int): Post
+  updatePostV(authorId: ID!, id: ID!, title: String, v: Int): Post
+  deletePostV(authorId: ID!, id: ID!, v: Int): Post
   batchPutPosts(authorId: ID!, a: ID!, b: ID!): BatchOut
+  batchPutPostsV(authorId: ID!, a: ID!, b: ID!): BatchOut
   batchDeletePosts(authorId: ID!, a: ID!, b: ID!): BatchOut
 }`
 
@@ -116,7 +122,17 @@ func asDDBResolvers() []asResolverSpec {
 		{"Mutation", "deletePost", "posts", asPre + `"operation":"DeleteItem",` + asKeyJSON + `,` +
 			`"condition":{"expression":"n = :e",` +
 			`"expressionValues":{":e":$util.dynamodb.toDynamoDBJson($ctx.args.expected)}}}`},
+		{"Mutation", "putPostV", "postsv", asPre + `"operation":"PutItem",` + asKeyJSON + `,` +
+			`"attributeValues":{"title":$util.dynamodb.toDynamoDBJson($ctx.args.title)},` +
+			`"_version":$util.toJson($ctx.args.v)}`},
+		{"Mutation", "updatePostV", "postsv", asPre + `"operation":"UpdateItem",` + asKeyJSON + `,` +
+			`"update":{"expression":"SET title = :t","expressionValues":{` +
+			`":t":$util.dynamodb.toDynamoDBJson($ctx.args.title)}},"_version":$util.toJson($ctx.args.v)}`},
+		{"Mutation", "deletePostV", "postsv", asPre + `"operation":"DeleteItem",` + asKeyJSON + `,` +
+			`"_version":$util.toJson($ctx.args.v)}`},
 		{"Mutation", "batchPutPosts", "posts", asPre + `"operation":"BatchPutItem","tables":{"posts":[` +
+			asBatchItem("a") + `,` + asBatchItem("b") + `]}}`},
+		{"Mutation", "batchPutPostsV", "postsv", asPre + `"operation":"BatchPutItem","tables":{"posts":[` +
 			asBatchItem("a") + `,` + asBatchItem("b") + `]}}`},
 		{"Mutation", "batchDeletePosts", "posts", asPre + `"operation":"BatchDeleteItem","tables":{"posts":[` +
 			asBatchKey("a") + `,` + asBatchKey("b") + `]}}`},
@@ -164,6 +180,19 @@ func newASDDBFixture(t *testing.T) *asDDBFixture {
 				},
 				Projection: &ddbsdktypes.Projection{ProjectionType: ddbsdktypes.ProjectionTypeAll},
 			},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = ddb.CreateTable(ctx, &sdkddb.CreateTableInput{
+		TableName: aws.String("posts-delta"), BillingMode: ddbsdktypes.BillingModePayPerRequest,
+		KeySchema: []ddbsdktypes.KeySchemaElement{
+			{AttributeName: aws.String("ds_pk"), KeyType: ddbsdktypes.KeyTypeHash},
+			{AttributeName: aws.String("ds_sk"), KeyType: ddbsdktypes.KeyTypeRange},
+		},
+		AttributeDefinitions: []ddbsdktypes.AttributeDefinition{
+			{AttributeName: aws.String("ds_pk"), AttributeType: s},
+			{AttributeName: aws.String("ds_sk"), AttributeType: s},
 		},
 	})
 	require.NoError(t, err)
@@ -513,9 +542,12 @@ func TestAppSyncDynamoDBTransactAndSync(t *testing.T) {
 			wantErr: "requires a versioned",
 		},
 		{
-			name:    "sync with lastSync is unsupported",
-			query:   `query { syncPosts(lastSync: 1) { items { id } } }`,
-			wantErr: "lastSync (delta table) is not supported",
+			name:  "sync with expired lastSync reads the base table",
+			query: `query { syncPosts(lastSync: 1) { items { id } } }`,
+			check: func(a *assert.Assertions, res asGQLResponse) {
+				out, _ := res.Data["syncPosts"].(map[string]any)
+				a.Len(out["items"], 3)
+			},
 		},
 	}
 
@@ -536,6 +568,95 @@ func TestAppSyncDynamoDBTransactAndSync(t *testing.T) {
 			if tt.check != nil {
 				tt.check(assert.New(t), res)
 			}
+		})
+	}
+}
+
+func TestAppSyncVersionedDeltaSync(t *testing.T) {
+	t.Parallel()
+
+	const (
+		mut = `mutation { %s }`
+		sel = `{ id title _version _deleted }`
+	)
+
+	tests := []struct {
+		check func(t *testing.T, f *asDDBFixture)
+		name  string
+	}{
+		{
+			name: "put stamps and increments version",
+			check: func(t *testing.T, f *asDDBFixture) {
+				t.Helper()
+
+				for want := 1; want <= 2; want++ {
+					res := f.do(t, fmt.Sprintf(mut, `putPostV(authorId:"a1", id:"v1", title:"t") `+sel))
+					require.Empty(t, res.Errors)
+					out, _ := res.Data["putPostV"].(map[string]any)
+					assert.InDelta(t, want, out["_version"], 0)
+				}
+			},
+		},
+		{
+			name: "stale version is a conflict",
+			check: func(t *testing.T, f *asDDBFixture) {
+				t.Helper()
+
+				require.Empty(t, f.do(t, fmt.Sprintf(mut, `putPostV(authorId:"a1", id:"v1", title:"t") `+sel)).Errors)
+				require.Empty(t, f.do(t, fmt.Sprintf(mut, `updatePostV(authorId:"a1", id:"v1", title:"u", v:1) `+sel)).Errors)
+
+				res := f.do(t, fmt.Sprintf(mut, `updatePostV(authorId:"a1", id:"v1", title:"x", v:1) `+sel))
+				require.NotEmpty(t, res.Errors)
+				assert.Equal(t, "ConflictUnhandled", res.Errors[0].ErrorType)
+				assert.InDelta(t, 2, res.Errors[0].Data["_version"], 0)
+				assert.Equal(t, "u", res.Errors[0].Data["title"])
+			},
+		},
+		{
+			name: "lastSync reads only delta changes",
+			check: func(t *testing.T, f *asDDBFixture) {
+				t.Helper()
+
+				since := time.Now().UnixMilli() - 1000
+
+				require.Empty(t, f.do(t, fmt.Sprintf(mut, `putPostV(authorId:"a1", id:"v1", title:"t") `+sel)).Errors)
+				require.Empty(t, f.do(t, fmt.Sprintf(mut, `updatePostV(authorId:"a1", id:"v1", title:"u", v:1) `+sel)).Errors)
+				require.Empty(t, f.do(t, fmt.Sprintf(mut, `deletePostV(authorId:"a1", id:"p1", v:null) `+sel)).Errors)
+
+				res := f.do(t, fmt.Sprintf(`query { syncPosts(lastSync: %d) { items { id title _version _deleted } } }`, since))
+				require.Empty(t, res.Errors)
+				out, _ := res.Data["syncPosts"].(map[string]any)
+				items, _ := out["items"].([]any)
+				require.Len(t, items, 3)
+
+				var deleted []any
+
+				for _, it := range items {
+					if m, _ := it.(map[string]any); m["_deleted"] == true {
+						deleted = append(deleted, m["id"])
+					}
+				}
+
+				assert.Equal(t, []any{"p1"}, deleted)
+			},
+		},
+		{
+			name: "batch writes are unsupported on versioned sources",
+			check: func(t *testing.T, f *asDDBFixture) {
+				t.Helper()
+
+				res := f.do(t, `mutation { batchPutPostsV(authorId:"a1", a:"x", b:"y") { data { posts { id } } } }`)
+				require.NotEmpty(t, res.Errors)
+				assert.Contains(t, res.Errors[0].Message, "versioned data source")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tt.check(t, newASDDBFixture(t))
 		})
 	}
 }

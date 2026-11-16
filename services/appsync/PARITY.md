@@ -122,8 +122,7 @@ families:
 gaps: []
 items_still_open:
   - "AMAZON_ELASTICSEARCH data sources resolve against services/opensearch domains only: services/elasticsearch has no document data plane to serve the request"
-  - "RDS JS select/insert/update/remove builders are a documented subset (no joins/groupBy/aggregates); MySQL returning is emulated with a follow-up SELECT"
-  - "DynamoDB Sync with lastSync (delta table) needs conflict-detection/delta-sync writes that PutItem/UpdateItem/DeleteItem do not maintain (base-table Sync works)"
+  - "Versioned DynamoDB data sources (ddb_versioned.go) reject a stale _version (optimistic concurrency) but do not run the resolver SyncConfig AUTOMERGE or LAMBDA conflict handlers, and do not support the customPartitionKey/populateIndexFields delta layouts or Sync basePartitionKey/deltaIndexName (rejected as unsupported)"
 structural_gaps:
   - "Cognito/OIDC issuers with no local signing key are rejected because external JWKS endpoints are never fetched (no external network)."
 deferred:
@@ -582,3 +581,5 @@ TestExecuteGraphQLServiceInvoked.
 - util.transform.toElasticsearchQueryDSL has no APPSYNC_JS equivalent in the developer guide, and its field order and single-operator wrapping are not published (resolver-util-reference.html, built-in-util-js.html, resolver-reference-elasticsearch.html); the emulator emits sorted field order. The @aws-appsync/utils/dynamodb batch/transact JS helpers are not in the documented module (write the request object by hand).
 - Resolver-cache keys without cachingKeys use arguments+source+identity; the AWS key composition is not published.
 - EvaluateCode codeErrors: LINT_ERROR is never produced (SDK CodeError docs name LINT_ERROR and PARSER_ERROR as examples, not an exhaustive list); types.CodeError / CodeErrorLocation and API_CodeError.html give no errorType for runtime exceptions and no span value for syntax errors, so the emulator uses span -1, the innermost-frame location and no errorType.
+- Delta record ds_sk joins the item key attribute values in name order (the backend has no key schema), so ds_sk uniqueness holds but the hash/range order of a composite key is not preserved.
+- RDS JS builders: the rds module reference (resolver-reference-rds-js.html) defines select, insert, update, remove with table, columns, where, orderBy, limit, offset, values and returning, and no joins, groupBy or aggregates, so none exist; builder identifiers are quoted per dialect and the where size operator renders LENGTH(col), whose exact SQL the page does not show.

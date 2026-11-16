@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -131,8 +132,11 @@ type Endpoint struct {
 // Addr formats the endpoint as host:port.
 func (e Endpoint) Addr() string { return net.JoinHostPort(e.Host, strconv.Itoa(e.Port)) }
 
-// Endpoints lists each shard's nodes, primary first.
+// Endpoints lists each shard's nodes in launch order; Primary names the current primary.
 func (g *Group) Endpoints() [][]Endpoint {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
 	out := make([][]Endpoint, len(g.spec.Shards))
 
 	for _, n := range g.nodes {
@@ -140,6 +144,20 @@ func (g *Group) Endpoints() [][]Endpoint {
 	}
 
 	return out
+}
+
+func (g *Group) allNodes() []*node {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	return slices.Clone(g.nodes)
+}
+
+func (g *Group) shardCount() []ShardSpec {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	return g.spec.Shards
 }
 
 // ClusterMode reports whether the group runs Redis Cluster.
@@ -233,6 +251,19 @@ func (g *Group) startNode(ctx context.Context, n *node) error {
 	n.containerID = id
 
 	g.mu.Lock()
+
+	if g.closed {
+		g.mu.Unlock()
+
+		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stopTimeout)
+		defer cancel()
+
+		_ = cfg.Runtime.StopAndRemove(sctx, id)
+		portalloc.ReleaseTo(cfg.Ports, n.port)
+
+		return ErrGroupClosed
+	}
+
 	g.nodes = append(g.nodes, n)
 	g.mu.Unlock()
 

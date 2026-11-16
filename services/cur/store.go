@@ -15,14 +15,15 @@ const (
 
 // InMemoryBackend is the CUR state; one coarse lock guards the report table and the wired sinks.
 type InMemoryBackend struct {
-	reports   *store.Table[Report]
-	registry  *store.Registry
-	mu        *lockmetrics.RWMutex
-	now       func() time.Time
-	objects   billingexport.ObjectStore
-	costs     billingexport.CostSource
-	accountID string
-	region    string
+	reports    *store.Table[Report]
+	registry   *store.Registry
+	mu         *lockmetrics.RWMutex
+	now        func() time.Time
+	objects    billingexport.ObjectStore
+	costs      billingexport.CostSource
+	categories CostCategorizer
+	accountID  string
+	region     string
 }
 
 // NewInMemoryBackend creates an empty backend.
@@ -61,6 +62,20 @@ func (b *InMemoryBackend) SetCostSource(c billingexport.CostSource) {
 	defer b.mu.Unlock()
 
 	b.costs = c
+}
+
+// CostCategorizer assigns cost category values to report rows; Cost Explorer owns the categories.
+type CostCategorizer interface {
+	CostCategoryNames() []string
+	CostCategoryValue(name string, line *billingexport.CostLine) string
+}
+
+// SetCostCategorizer wires the cost categories whose costCategory/<name> columns reports carry.
+func (b *InMemoryBackend) SetCostCategorizer(c CostCategorizer) {
+	b.mu.Lock("SetCostCategorizer")
+	defer b.mu.Unlock()
+
+	b.categories = c
 }
 
 // Reset clears every report.

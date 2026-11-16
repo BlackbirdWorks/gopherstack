@@ -11,6 +11,8 @@ var ErrValidation = awserr.New("InvalidParameterValueException", awserr.ErrInval
 var (
 	// ErrClusterNotFound is returned when a cluster does not exist.
 	ErrClusterNotFound = awserr.New("ClusterNotFoundFault: cluster not found", awserr.ErrNotFound)
+	// ErrShardNotFound is returned when a cluster has no shard of the given name (FailoverShard).
+	ErrShardNotFound = awserr.New("ShardNotFoundFault: shard not found", awserr.ErrNotFound)
 	// ErrClusterAlreadyExists is returned when a cluster already exists.
 	ErrClusterAlreadyExists = awserr.New("ClusterAlreadyExistsFault: cluster already exists", awserr.ErrAlreadyExists)
 	// ErrACLNotFound is returned when an ACL does not exist.
