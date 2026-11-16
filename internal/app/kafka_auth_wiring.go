@@ -156,7 +156,8 @@ const (
 	defaultMSKRegion      = "us-east-1"
 )
 
-// kafkaLambdaResolver lets Lambda MSK event source mappings reach plaintext, TLS, SASL/SCRAM, AWS_MSK_IAM and mutual-TLS clusters.
+// kafkaLambdaResolver lets Lambda MSK event source mappings reach plaintext, TLS, SASL/SCRAM, AWS_MSK_IAM and
+// mutual-TLS clusters.
 type kafkaLambdaResolver struct {
 	bk *kafka.InMemoryBackend
 }

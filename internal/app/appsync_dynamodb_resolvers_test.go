@@ -22,7 +22,10 @@ import (
 
 const asDDBSchema = `
 type Author { id: ID! name: String posts: [Post] }
-type Post { authorId: ID! id: ID! title: String n: Int author: Author _version: Int _lastChangedAt: Float _deleted: Boolean }
+type Post {
+  authorId: ID! id: ID! title: String n: Int author: Author
+  _version: Int _lastChangedAt: Float _deleted: Boolean
+}
 type PostPage { items: [Post] nextToken: String scannedCount: Int }
 type PostList { posts: [Post] }
 type BatchOut { data: PostList unprocessedKeys: PostList unprocessedItems: PostList }
@@ -603,7 +606,10 @@ func TestAppSyncVersionedDeltaSync(t *testing.T) {
 				t.Helper()
 
 				require.Empty(t, f.do(t, fmt.Sprintf(mut, `putPostV(authorId:"a1", id:"v1", title:"t") `+sel)).Errors)
-				require.Empty(t, f.do(t, fmt.Sprintf(mut, `updatePostV(authorId:"a1", id:"v1", title:"u", v:1) `+sel)).Errors)
+				require.Empty(
+					t,
+					f.do(t, fmt.Sprintf(mut, `updatePostV(authorId:"a1", id:"v1", title:"u", v:1) `+sel)).Errors,
+				)
 
 				res := f.do(t, fmt.Sprintf(mut, `updatePostV(authorId:"a1", id:"v1", title:"x", v:1) `+sel))
 				require.NotEmpty(t, res.Errors)
@@ -620,10 +626,16 @@ func TestAppSyncVersionedDeltaSync(t *testing.T) {
 				since := time.Now().UnixMilli() - 1000
 
 				require.Empty(t, f.do(t, fmt.Sprintf(mut, `putPostV(authorId:"a1", id:"v1", title:"t") `+sel)).Errors)
-				require.Empty(t, f.do(t, fmt.Sprintf(mut, `updatePostV(authorId:"a1", id:"v1", title:"u", v:1) `+sel)).Errors)
+				require.Empty(
+					t,
+					f.do(t, fmt.Sprintf(mut, `updatePostV(authorId:"a1", id:"v1", title:"u", v:1) `+sel)).Errors,
+				)
 				require.Empty(t, f.do(t, fmt.Sprintf(mut, `deletePostV(authorId:"a1", id:"p1", v:null) `+sel)).Errors)
 
-				res := f.do(t, fmt.Sprintf(`query { syncPosts(lastSync: %d) { items { id title _version _deleted } } }`, since))
+				res := f.do(
+					t,
+					fmt.Sprintf(`query { syncPosts(lastSync: %d) { items { id title _version _deleted } } }`, since),
+				)
 				require.Empty(t, res.Errors)
 				out, _ := res.Data["syncPosts"].(map[string]any)
 				items, _ := out["items"].([]any)
