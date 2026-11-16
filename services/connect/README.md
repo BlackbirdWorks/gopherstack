@@ -7,8 +7,8 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 392 (392 ok) |
-| Known gaps | 11 |
+| PARITY entries audited | 393 (393 ok) |
+| Known gaps | 10 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -19,13 +19,12 @@
 - TestCases: executions are recorded (Start/Stop/List/ListRecords/GetSummary) but never leave INITIATED on their own, because the emulator has no flow test runner: no PASSED/FAILED outcome, observations or ObservationSummary are ever produced (the test case Content grammar is not published, API_CreateTestCase only calls it a JSON string, and the VOICE_CALL and CHAT entry points need a media plane to drive a flow)
 - Notifications: push registrations are stored but no push is ever sent (nothing triggers one: there is no chat message plane); notifications from rules or the system are not generated
 - AttachedFiles: uploads and downloads use an emulator endpoint (/attached-files-content) rather than S3 pre-signed URLs, with no virus scan; Cases are not modeled so Cases ARNs are only shape-checked
-- Analytics: associations are recorded without validating DataSetId against the dataset catalog and without a RAM emulator; conversational analytics jobs are recorded but no Contact Lens analysis runs
-- Contact data and participants: GetFederationToken ListRealtimeContactAnalysisSegmentsV2 SendChatIntegrationEvent StartOutboundChatContact UpdateParticipantAuthentication are not routed (no chat message plane, no caller identity for federation); UpdateParticipantRoleConfig timers are stored on the contact but nothing enforces them (no chat message plane); QueuePriority/QueueTimeAdjustmentSeconds/RoutingCriteria are stored but no routing engine reorders queues from them
+- Contact data and participants: GetFederationToken ListRealtimeContactAnalysisSegmentsV2 SendChatIntegrationEvent UpdateParticipantAuthentication are not routed (no chat message plane, no caller identity for federation); UpdateParticipantRoleConfig timers are stored on the contact but nothing enforces them (no chat message plane); QueuePriority/QueueTimeAdjustmentSeconds/RoutingCriteria are stored but no routing engine reorders queues from them
 - Instance extras: GetCrossRegionRouting UpdateCrossRegionRouting ReplicateInstance are not routed: they need Global Resiliency instance replicas, which the emulator does not model
-- GetMetricDataV2: only the documented subset of metrics is computed (agent-state, flow, campaign, evaluation, case, AI and Contact Lens metrics are not modeled); existing custom metric formulas are not evaluated
+- GetMetricDataV2: only the documented subset of metrics is computed (agent-state, flow, campaign, evaluation, case, AI and Contact Lens metrics are not modeled), so custom metrics built on them are rejected
 - PhoneNumber import: ImportPhoneNumber needs an AWS End User Messaging phone-number inventory that the emulator does not have; a number could only be fabricated
-- Contact expiry (ExpiryDurationInMinutes / connect:ContactExpiry), SES-wired email delivery status readback and TEMPLATE outbound email (Wisdom message templates) are not modeled
-- CloudFormation: AWS::Connect::Metric GetAtt CreationMethod, EffectiveTime, Filters, Groupings, PrimaryEventSource, PrimaryEventSourceEffectiveTimestampType, RefreshRate and SupportedStats have no backing state; Pages, Media and Associations of Workspace, HoursOfOperationOverrides, ParentHoursOfOperations and ChildHoursOfOperations of HoursOfOperation, ManualAssignmentQueueConfigs of RoutingProfile, AdditionalEmailAddresses of Queue and SourcePhoneNumberArn of PhoneNumber are rejected
+- SES-wired email delivery status readback and TEMPLATE outbound email (Wisdom message templates) are not modeled
+- CloudFormation: AWS::Connect::Metric GetAtt Filters, Groupings, PrimaryEventSource, PrimaryEventSourceEffectiveTimestampType, RefreshRate and SupportedStats have no backing state; Pages, Media and Associations of Workspace, HoursOfOperationOverrides, ParentHoursOfOperations and ChildHoursOfOperations of HoursOfOperation, ManualAssignmentQueueConfigs of RoutingProfile, AdditionalEmailAddresses of Queue and SourcePhoneNumberArn of PhoneNumber are rejected
 
 ### Structural gaps
 

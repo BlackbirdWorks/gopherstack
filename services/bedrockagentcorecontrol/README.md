@@ -9,27 +9,25 @@
 | --- | --- |
 | PARITY entries audited | 171 (171 ok) |
 | Feature families | 14 (14 ok) |
-| Known gaps | 9 |
-| Structural gaps (can't be emulated) | 2 |
+| Known gaps | 6 |
+| Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Gateway MCP endpoint: Smithy model, API Gateway and connector targets expose no tools, and the SEMANTIC search tool is not served
-- Gateway targets: OAuth targets using AUTHORIZATION_CODE never reach a PENDING_AUTH status (their tool calls return an error result), and CreateGatewayTarget does not auto-synchronize MCP server targets (tools are discovered at tools/list or on SynchronizeGatewayTargets)
-- Authorizers: AWS_IAM verifies the SigV4 signature (secret from --sigv4-secret) but evaluates no IAM or resource policy, so every valid signature is authorized
-- Gateway and runtime challenges advertise a resource_metadata URL (/.well-known/oauth-protected-resource) but the emulator serves no protected-resource metadata document (GetRuntimeProtectedResourceMetadata and the gateway well-known path); MCP protocol version 2026-07-28 (Mcp-Method header and per-request _meta version fields, gateway-using-mcp-list.html) is not served, the defaults being 2025-11-25, 2025-06-18 and 2025-03-26; not published: checked gateway-using-mcp-list, gateway-add-target-lambda and API_CustomJWTAuthorizerConfiguration, which give no tools/list page size (emulator 100), no Lambda result wrapping rule (emulator wraps as text content) and no OpenAPI parameter and body flattening rule
-- Nested validation: only union exclusivity, enums, name patterns, ARN shapes and cross-resource references are checked; deeper member constraints (JWT claim rules, schema contents, VPC endpoint overrides) are accepted as sent
-- Cross-service references: ECR repositories, Lambda functions, Secrets Manager secrets and S3 objects are verified only when internal/app wiring is present; IAM roles are checked for ARN shape only
-- Failure states: CREATE_FAILED and UPDATE_FAILED are only reached by dataset S3 sources; no other asynchronous failure is modeled
-- Registry records: synchronizationConfiguration is stored but nothing synchronizes
-- Quotas: resource-count limits are enforced as listed on bedrock-agentcore-limits.html, but request-rate limits (TPS throttling), the per-memory strategy count, memory/gateway payload sizes and the "active" concurrency limits (batch evaluation, AB tests, recommendations) are not; no ThrottlingException is ever returned.
+- Gateway MCP endpoint: Smithy model and connector targets expose no tools (mcp_tools.go:168 returns errUnsupportedTarget). A Smithy tool call needs a per-protocol (restJson1, awsJson1_0/1_1, restXml, query) request builder and signer against the AWS service endpoint, and the connector catalogue (bedrock-knowledge-bases and others) is vendor-internal with no retrieval service behind it (no services/bedrockagentruntime)
+- Gateway targets: CreateGatewayTarget does not auto-synchronize MCP server targets (tools are discovered at tools/list or on SynchronizeGatewayTargets)
+- Authorizers: AWS_IAM verifies the SigV4 signature (secret from --sigv4-secret) but evaluates no IAM or resource policy, so every valid signature is authorized; IAM roles named in requests are checked for existence only, never for trust or permissions
+- Nested validation: deeper member constraints are still accepted as sent for Smithy model contents, VPC endpoint overrides (privateEndpointOverrides member shapes) and the harness, evaluator and policy-engine configuration unions
+- Failure states: CREATE_FAILED and UPDATE_FAILED are reached by dataset S3 sources and gateway targets whose OAuth authorization endpoint cannot be resolved (FAILED); no other asynchronous failure is modeled
+- Quotas: resource-count limits, memory strategies per memory, environment variable size, inline and S3 schema size, tools per target and tool name length are enforced, but request-rate limits (TPS throttling per API), gateway tool-call payload size (6 MB), configuration bundle (5 MB), policy size (10 KB, 200 KB) and resource policy (20 KB, 100 statements) limits and the active-concurrency limits (batch evaluation, AB tests, recommendations) are not; no ThrottlingException is ever returned
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
+- Gateway semantic tool search: real search embeds tool text with a model; the emulator ranks lexically with BM25, so a tool sharing no term with the query is not returned
 - StartPolicyGeneration: deriving Cedar from natural language needs a generative model, so every generation ends GENERATE_FAILED with no assets
 - Evaluators and online evaluation configs: evaluation needs a model and live agent traces, so configurations are validated and stored but never run
 
