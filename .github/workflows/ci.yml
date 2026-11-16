@@ -1197,7 +1197,7 @@ jobs:
 
       - name: Check Coverage Thresholds
         id: coverage
-        uses: vladopajic/go-test-coverage@239670d50ed072bfce8b9ab1765227a53429d664 # v2
+        uses: vladopajic/go-test-coverage@249eda999ac7e91238727277beec9b32b28a19b0 # v2
         with:
           profile: coverage.out
           config: .testcoverage.yml
