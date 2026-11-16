@@ -77,7 +77,8 @@ func (b *InMemoryBackend) idpLocked(sc *scope, providerID string) (*idpResolved,
 	}, nil
 }
 
-type idpSignInResponse struct {
+// IdpSignInResponse is the accounts:signInWithIdp response body.
+type IdpSignInResponse struct {
 	Kind                 string    `json:"kind"`
 	FederatedID          string    `json:"federatedId,omitempty"`
 	ProviderID           string    `json:"providerId,omitempty"`
@@ -120,7 +121,7 @@ func providerFromBody(r *authRequest) (url.Values, string, error) {
 }
 
 // SignInWithIdp exchanges an IdP credential for an Identity Platform session, creating or linking accounts.
-func (b *InMemoryBackend) SignInWithIdp(c call, r *authRequest) (*idpSignInResponse, error) {
+func (b *InMemoryBackend) SignInWithIdp(c call, r *authRequest) (*IdpSignInResponse, error) {
 	if r.PostBody == "" || r.RequestURI == "" {
 		return nil, idtk("INVALID_REQUEST_URI")
 	}
@@ -193,10 +194,10 @@ func (b *InMemoryBackend) SignInWithIdp(c call, r *authRequest) (*idpSignInRespo
 	return out, nil
 }
 
-func idpProfile(sc *scope, pid string, a *idpAssertion) *idpSignInResponse {
+func idpProfile(sc *scope, pid string, a *idpAssertion) *IdpSignInResponse {
 	raw, _ := json.Marshal(a.raw, jsonx.V1())
 
-	return &idpSignInResponse{
+	return &IdpSignInResponse{
 		Kind: "identitytoolkit#VerifyAssertionResponse", ProviderID: pid, FederatedID: a.subject,
 		Email: a.email, OriginalEmail: a.email, InputEmail: a.email, DisplayName: a.name, FullName: a.name,
 		FirstName: a.givenName, LastName: a.familyName, PhotoURL: a.picture, RawUserInfo: string(raw),
