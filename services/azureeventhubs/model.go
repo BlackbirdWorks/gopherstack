@@ -51,12 +51,13 @@ type partition struct {
 }
 
 type hub struct {
-	CreatedAt      time.Time            `json:"createdAt"`
-	ConsumerGroups map[string]time.Time `json:"consumerGroups"`
-	Name           string               `json:"name"`
-	Partitions     []*partition         `json:"partitions"`
-	Config         HubConfig            `json:"config"`
-	RoundRobin     int                  `json:"roundRobin"`
+	CreatedAt      time.Time                   `json:"createdAt"`
+	ConsumerGroups map[string]time.Time        `json:"consumerGroups"`
+	KafkaOffsets   map[string]map[string]int64 `json:"kafkaOffsets,omitempty"`
+	Name           string                      `json:"name"`
+	Partitions     []*partition                `json:"partitions"`
+	Config         HubConfig                   `json:"config"`
+	RoundRobin     int                         `json:"roundRobin"`
 }
 
 type rule struct {

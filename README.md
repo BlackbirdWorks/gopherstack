@@ -935,19 +935,19 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Azure AI Search](services/azuresearch/README.md) | B | 19 | 4 gaps |
-| [Azure App Configuration](services/azureappconfig/README.md) | B | 14 | 10 gaps |
-| [Azure Blob Storage](services/azureblob/README.md) | C | 29 | 5 gaps; 3 deferred |
-| [Azure Cache for Redis](services/azureredis/README.md) | B | 13 | 10 gaps |
+| [Azure App Configuration](services/azureappconfig/README.md) | B | 14 | 2 gaps |
+| [Azure Blob Storage](services/azureblob/README.md) | C | 35 | 4 gaps; 3 deferred |
+| [Azure Cache for Redis](services/azureredis/README.md) | B | 13 | 9 gaps |
 | [Azure Container Registry](services/azurecontainerregistry/README.md) | B | 24 | 8 gaps |
 | [Azure Cosmos DB](services/cosmosdb/README.md) | A | 35 | clean |
-| [Azure Event Grid](services/azureeventgrid/README.md) | B | 10 | 10 gaps |
-| [Azure Event Hubs](services/azureeventhubs/README.md) | B | 16 | 6 gaps |
-| [Azure Files](services/azurefile/README.md) | B | 42 | 4 gaps |
+| [Azure Event Grid](services/azureeventgrid/README.md) | B | 10 | 8 gaps |
+| [Azure Event Hubs](services/azureeventhubs/README.md) | B | 16 | 4 gaps |
+| [Azure Files](services/azurefile/README.md) | B | 42 | 3 gaps |
 | [Azure Functions](services/azurefunctions/README.md) | B | 17 | 8 gaps |
-| [Azure Key Vault](services/azurekeyvault/README.md) | B | 15 | 3 gaps |
-| [Azure Monitor Logs](services/azuremonitor/README.md) | B | 20 | 5 gaps |
+| [Azure Key Vault](services/azurekeyvault/README.md) | B | 15 | 1 gap |
+| [Azure Monitor Logs](services/azuremonitor/README.md) | B | 20 | 4 gaps |
 | [Azure Queue Storage](services/azurequeue/README.md) | C | 13 | 6 gaps; 1 deferred |
-| [Azure SQL Database](services/azuresql/README.md) | B | 14 | 10 gaps |
+| [Azure SQL Database](services/azuresql/README.md) | B | 14 | 8 gaps |
 | [Azure Service Bus](services/azureservicebus/README.md) | B | 25 | 3 gaps; 4 deferred |
 | [Azure Table Storage](services/azuretable/README.md) | C | 14 | 4 gaps; 3 deferred |
 | [Microsoft Graph](services/azuregraph/README.md) | B | 35 | 8 gaps |
@@ -1019,7 +1019,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Amp](services/amp/README.md) | B | 44 | 5 gaps; 2 structural gaps |
 | [AppStream 2.0](services/appstream/README.md) | A | 44 | 5 structural gaps |
 | [Appintegrations](services/appintegrations/README.md) | B | 23 | 1 structural gap |
-| [Azurearm](services/azurearm/README.md) | B | 21 | 51 gaps; 3 deferred |
+| [Azurearm](services/azurearm/README.md) | B | 21 | 43 gaps; 3 deferred |
 | [Azurestoragevhost](services/azurestoragevhost/README.md) | B | 2 | 2 gaps; 1 deferred |
 | [Bcmdataexports](services/bcmdataexports/README.md) | B | 12 | clean |
 | [Bedrockagentcore](services/bedrockagentcore/README.md) | B | 32 | 7 gaps; 2 structural gaps |

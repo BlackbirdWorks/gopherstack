@@ -28,6 +28,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	h := NewHandler(NewInMemoryBackend())
 	h.Port, h.AMQPPort, h.AMQPTLSPort = settings.Port, settings.AMQPPort, settings.AMQPTLSPort
+	h.KafkaPort = settings.KafkaPort
 	h.ValidateSAS = settings.ValidateSAS
 
 	return h, nil

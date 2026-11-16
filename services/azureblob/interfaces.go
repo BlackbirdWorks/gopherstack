@@ -26,8 +26,20 @@ type StorageBackend interface {
 	SetBlobTier(container, blob, tier string, pre ...Precond) (string, BlobInfo, error)
 	SnapshotBlob(container, blob string, md map[string]string, pre ...Precond) (BlobInfo, error)
 	CopyBlob(
-		srcContainer, srcBlob, srcSnapshot, dstContainer, dstBlob string, md, tags map[string]string, pre ...Precond,
+		srcContainer, srcBlob, srcSnapshot, dstContainer, dstBlob string, req CopyRequest, pre ...Precond,
 	) (BlobInfo, error)
+	CopyBlobData(dstContainer, dstBlob string, src ExternalBlob, req CopyRequest, pre ...Precond) (BlobInfo, error)
+	AbortCopy(container, blob, copyID string, pre ...Precond) error
+	SetBlobTierWith(container, blob string, req TierRequest, pre ...Precond) (string, BlobInfo, error)
+	AppendBlock(container, blob string, data []byte, opts AppendOptions, pre ...Precond) (AppendResult, error)
+	PutPage(container, blob string, start, end int64, data []byte, wipe bool, pre ...Precond) (BlobInfo, error)
+	GetPageRanges(
+		container, blob, snapshot string, from, to *int64, pre ...Precond,
+	) ([]PageRange, BlobInfo, error)
+	UndeleteBlob(container, blob string) error
+	ResizePageBlob(container, blob string, length int64, pre ...Precond) (BlobInfo, error)
+	GetServiceProperties() ServiceProperties
+	SetServiceProperties(sp ServiceProperties) error
 	LeaseBlob(container, blob string, req LeaseRequest) (LeaseResult, error)
 
 	SetBlobTags(container, blob, snapshot string, tags map[string]string, pre ...Precond) error

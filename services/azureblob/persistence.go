@@ -21,6 +21,7 @@ const azureBlobSnapshotVersion = 1
 // have no unexported fields, so encoding/json round-trips them as-is.
 type backendSnapshot struct {
 	Containers map[string]*storedContainer `json:"containers"`
+	Service    *ServiceProperties          `json:"serviceProperties,omitempty"`
 	Version    int                         `json:"version"`
 }
 
@@ -33,6 +34,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	snap := backendSnapshot{
 		Version:    azureBlobSnapshotVersion,
 		Containers: b.containers,
+		Service:    b.service,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "azureblob", snap)
@@ -66,6 +68,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			"gotVersion", snap.Version, "wantVersion", azureBlobSnapshotVersion)
 
 		b.containers = make(map[string]*storedContainer)
+		b.service = nil
 
 		return nil
 	}
@@ -106,6 +109,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	b.containers = snap.Containers
+	b.service = snap.Service
 
 	return nil
 }

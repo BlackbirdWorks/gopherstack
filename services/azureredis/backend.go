@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/devtls"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -45,7 +47,19 @@ type InMemoryBackend struct {
 	cert   *tls.Certificate
 	wg     *sync.WaitGroup
 	tokens TokenValidator
+	clock  atomic.Pointer[func() time.Time]
 	cfg    Settings
+}
+
+// SetClock replaces the clock that decides when a Microsoft Entra token has expired.
+func (b *InMemoryBackend) SetClock(now func() time.Time) { b.clock.Store(&now) }
+
+func (b *InMemoryBackend) now() time.Time {
+	if f := b.clock.Load(); f != nil {
+		return (*f)()
+	}
+
+	return time.Now()
 }
 
 // NewInMemoryBackend creates an empty backend on ephemeral loopback ports.
@@ -133,7 +147,7 @@ func (b *InMemoryBackend) startCache(spec Spec, keys Keys) (*cache, error) {
 		return nil, fmt.Errorf("start redis engine: %w", err)
 	}
 
-	c := &cache{engine: eng, keys: &keyring{}, minTLS: &minTLS{}, spec: spec}
+	c := &cache{engine: eng, keys: &keyring{now: b.now}, minTLS: &minTLS{}, spec: spec}
 	c.minTLS.set(spec.MinTLS)
 	c.fw = &firewall{}
 

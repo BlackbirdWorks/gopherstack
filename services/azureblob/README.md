@@ -7,19 +7,18 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 29 (27 ok, 2 partial) |
+| PARITY entries audited | 35 (35 ok) |
 | Feature families | 5 (3 ok, 2 partial) |
-| Known gaps | 5 |
+| Known gaps | 4 |
 | Deferred items | 3 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Blob versions (x-ms-version-id, include=versions, version-scoped read/delete) and soft-delete (include=deleted, undelete) are not modeled.
-- Copy Blob is same-account and synchronous only; no cross-account or URL sources, no Abort Copy, no x-ms-copy-* properties on the destination.
-- Archive rehydration is instantaneous rather than asynchronous.
-- SharedKey signatures are not verified (families.auth), so stored access policies and SAS tokens never gate a request.
-- No append or page blobs, or Set/Get Blob Service Properties beyond the empty read.
+- Blob versions (x-ms-version-id, include=versions, version-scoped read/delete) are not modeled: account versioning is an ARM blobServices setting and services/azurearm keeps no blobServices state (handler_ops.go:277), so the data plane has nothing to read it from.
+- Copy Blob always completes synchronously (x-ms-copy-status success), so a copy is never pending and Abort Copy has nothing to abort; Incremental Copy, Append Block From URL and Put Page From URL are not implemented.
+- User delegation SAS and bearer tokens are not verified (needs AAD user delegation keys; RBAC is out of scope).
+- Page blobs: sequence-number actions/conditions, Get Page Ranges Diff and a blob size above 256 MiB are not supported.
 
 ### Deferred
 

@@ -148,3 +148,57 @@ func TestBackendSnapshotRestore(t *testing.T) {
 	assert.Equal(t, "Passw0rd!x", l.engines[0].logins["adm"])
 	assert.Equal(t, "Latin1_General_CI_AS", l.engines[0].dbs["app"])
 }
+
+func TestBackendSnapshotKeepsEngineData(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		db          string
+		want        []byte
+		wantRestore bool
+	}{
+		{name: "with_data", db: "app", want: []byte("rows"), wantRestore: true},
+		{name: "backup_fails", db: "nobackup1", want: nil},
+		{name: "empty", db: "blank", want: nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			sl := &fakeLauncher{}
+			src := newBackend(t, sl)
+			mustEnsure(t, src, "s", azuresql.Spec{AdminLogin: "adm", AdminPassword: "Passw0rd!x"})
+			require.NoError(t, src.EnsureDatabase("s", tt.db, ""))
+
+			if tt.want != nil {
+				sl.engines[0].content[tt.db] = tt.want
+			}
+
+			dl := &fakeLauncher{}
+			dst := newBackend(t, dl)
+			require.NoError(t, dst.Restore(t.Context(), src.Snapshot(t.Context())))
+
+			got, ok := dl.engines[0].content[tt.db]
+			assert.Equal(t, tt.wantRestore, ok)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestBackendRestoreDataFailure(t *testing.T) {
+	t.Parallel()
+
+	sl := &fakeLauncher{}
+	src := newBackend(t, sl)
+	mustEnsure(t, src, "s", azuresql.Spec{})
+	require.NoError(t, src.EnsureDatabase("s", "norestore1", ""))
+	sl.engines[0].content["norestore1"] = []byte("rows")
+
+	dst := newBackend(t, &fakeLauncher{})
+	require.Error(t, dst.Restore(t.Context(), src.Snapshot(t.Context())))
+
+	_, ok := dst.Endpoint("s")
+	assert.False(t, ok, "failed restore must leave no server behind")
+}

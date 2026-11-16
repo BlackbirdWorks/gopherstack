@@ -4,9 +4,12 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/json/v2"
+	"errors"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/alicebob/miniredis/v2/server"
 
@@ -20,6 +23,7 @@ const (
 	keyBytes = 32
 	// helloAuthSpan is the distance from AUTH to the password in HELLO ... AUTH username password.
 	helloAuthSpan = 2
+	jwtParts      = 3
 )
 
 func newKey() (string, error) {
@@ -74,9 +78,60 @@ func newGrants(assignments []AccessAssignment) map[string]grant {
 
 // keyring holds a cache's access keys and authentication policy for the AUTH pre-hook.
 type keyring struct {
+	now    func() time.Time
 	keys   atomic.Pointer[Keys]
 	policy atomic.Pointer[authPolicy]
 	peers  sync.Map
+}
+
+// peerAuth is what a connection authenticated with a Microsoft Entra token holds.
+type peerAuth struct {
+	expires time.Time
+	oid     string
+}
+
+func (k *keyring) clock() time.Time {
+	if k.now != nil {
+		return k.now()
+	}
+
+	return time.Now()
+}
+
+var errMalformedToken = errors.New("malformed token")
+
+const maxTokenExp = 1 << 40
+
+// tokenExpiry reads the exp claim of an already validated JWT. A zero time means the token carries no exp
+// claim or is not a JWT; a JWT whose payload or exp claim is malformed is an error so the caller fails closed.
+func tokenExpiry(token string) (time.Time, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != jwtParts {
+		return time.Time{}, nil
+	}
+
+	raw, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return time.Time{}, errMalformedToken
+	}
+
+	var claims struct {
+		Exp *float64 `json:"exp"`
+	}
+
+	if err = json.Unmarshal(raw, &claims); err != nil {
+		return time.Time{}, errMalformedToken
+	}
+
+	if claims.Exp == nil {
+		return time.Time{}, nil
+	}
+
+	if !(*claims.Exp >= 0 && *claims.Exp <= maxTokenExp) {
+		return time.Time{}, errMalformedToken
+	}
+
+	return time.Unix(int64(*claims.Exp), 0), nil
 }
 
 func (k *keyring) setPolicy(spec Spec, validate TokenValidator) {
@@ -107,8 +162,6 @@ func (k *keyring) canonicalize(peer *server.Peer, cmd string, args []string) {
 		return
 	}
 
-	k.peers.Delete(peer)
-
 	pol := k.policy.Load()
 	if pol == nil {
 		pol = &authPolicy{}
@@ -118,17 +171,9 @@ func (k *keyring) canonicalize(peer *server.Peer, cmd string, args []string) {
 	ui := userIndex(cmd, args)
 
 	if ui >= 0 && !strings.EqualFold(args[ui], "default") {
-		if pol.entra && pol.validate != nil {
-			if oid, ok := pol.validate(args[pi]); ok && pol.admits(oid, args[ui]) {
-				args[ui], args[pi] = "default", keys.Primary
-				k.peers.Store(peer, strings.ToLower(oid))
-				peer.OnDisconnect(func() { k.peers.Delete(peer) })
-
-				return
-			}
+		if !k.entraLogin(peer, pol, keys, args, ui, pi) {
+			args[pi] = ""
 		}
-
-		args[pi] = ""
 
 		return
 	}
@@ -138,7 +183,34 @@ func (k *keyring) canonicalize(peer *server.Peer, cmd string, args []string) {
 		args[pi] = ""
 	case keys.Secondary != "" && same(args[pi], keys.Secondary):
 		args[pi] = keys.Primary
+
+		k.peers.Delete(peer)
+	case keys.Primary != "" && same(args[pi], keys.Primary):
+		k.peers.Delete(peer)
 	}
+}
+
+// entraLogin admits an Entra token for the named principal and rewrites the command to the cache's own key.
+func (k *keyring) entraLogin(peer *server.Peer, pol *authPolicy, keys Keys, args []string, ui, pi int) bool {
+	if !pol.entra || pol.validate == nil {
+		return false
+	}
+
+	oid, ok := pol.validate(args[pi])
+	if !ok || !pol.admits(oid, args[ui]) {
+		return false
+	}
+
+	exp, err := tokenExpiry(args[pi])
+	if err != nil {
+		return false
+	}
+
+	args[ui], args[pi] = "default", keys.Primary
+	k.peers.Store(peer, peerAuth{oid: strings.ToLower(oid), expires: exp})
+	peer.OnDisconnect(func() { k.peers.Delete(peer) })
+
+	return true
 }
 
 // admits reports whether the principal holds an assignment and names itself by object ID or alias.
@@ -159,8 +231,17 @@ func (k *keyring) authorize(peer *server.Peer, cmd string, args []string) bool {
 
 	var g grant
 
-	if oid, _ := v.(string); pol != nil {
-		g = pol.grants[oid]
+	auth, _ := v.(peerAuth)
+
+	if !auth.expires.IsZero() && !k.clock().Before(auth.expires) {
+		peer.WriteError("ERR Microsoft Entra token expired, authenticate again with a fresh token")
+		peer.Close()
+
+		return false
+	}
+
+	if pol != nil {
+		g = pol.grants[auth.oid]
 	}
 
 	if g.acl == nil {

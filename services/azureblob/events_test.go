@@ -65,6 +65,35 @@ func TestBlobEvents(t *testing.T) {
 			},
 		},
 		{
+			name: "tier change", wantTypes: []string{azureblob.EventBlobCreated, azureblob.EventBlobTierChanged},
+			wantAPIs: []string{"PutBlob", "SetBlobTier"},
+			run: func(t *testing.T, h *azureblob.Handler) {
+				t.Helper()
+				put(t, h, "/acct/c1/t.txt", "tiered")
+
+				rec := doRequest(t, h, http.MethodPut, "/acct/c1/t.txt?comp=tier", nil,
+					map[string]string{"x-ms-access-tier": "Cool"})
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+		},
+		{
+			name: "rehydration from archive",
+			wantTypes: []string{
+				azureblob.EventBlobCreated, azureblob.EventBlobTierChanged, azureblob.EventAsyncOperation,
+			},
+			wantAPIs: []string{"PutBlob", "SetBlobTier", "SetBlobTier"},
+			run: func(t *testing.T, h *azureblob.Handler) {
+				t.Helper()
+				put(t, h, "/acct/c1/a.txt", "hello")
+
+				for _, tier := range []string{"Archive", "Hot"} {
+					rec := doRequest(t, h, http.MethodPut, "/acct/c1/a.txt?comp=tier", nil,
+						map[string]string{"x-ms-access-tier": tier})
+					require.Contains(t, []int{http.StatusOK, http.StatusAccepted}, rec.Code)
+				}
+			},
+		},
+		{
 			name: "failed delete and reads emit nothing", wantTypes: nil,
 			run: func(t *testing.T, h *azureblob.Handler) {
 				t.Helper()

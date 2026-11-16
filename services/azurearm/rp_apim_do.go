@@ -202,6 +202,10 @@ func (p *APIMProvider) route(s *apimService, req apimReq) (apimResp, error) {
 			return p.productAPIs(s, req)
 		}
 
+		if len(r) >= apimLinkMinSegs && strings.EqualFold(r[2], apimGroupsType) {
+			return p.linked(s, req, apimProductGroupLink())
+		}
+
 		return p.collection(s, req, productKind(), "", 0)
 	case sbSubscriptionsType:
 		return p.collection(s, req, subKind(), "", 0)
@@ -209,6 +213,10 @@ func (p *APIMProvider) route(s *apimService, req apimReq) (apimResp, error) {
 		return p.collection(s, req, namedKind(), "", 0)
 	case apimCBackends:
 		return p.collection(s, req, backendKind(), "", 0)
+	}
+
+	if len(r) >= apimLinkMinSegs && strings.EqualFold(r[0], apimGroupsType) && strings.EqualFold(r[2], apimUsersType) {
+		return p.linked(s, req, apimGroupUserLink())
 	}
 
 	if k, ok := apimGenericKind(r[0]); ok {
@@ -417,6 +425,15 @@ func (p *APIMProvider) deleteItem(s *apimService, req apimReq, k apimKind, paren
 	}
 
 	delete(store, key)
+
+	switch strings.ToLower(k.typ) {
+	case strings.ToLower(apimGroupsType):
+		s.dropLinks(apimLinkProductGroup, id, false)
+		s.dropLinks(apimLinkGroupUser, id, true)
+	case strings.ToLower(apimUsersType):
+		s.dropLinks(apimLinkGroupUser, id, false)
+	}
+
 	s.bump()
 
 	return apimResp{Status: http.StatusOK}, nil

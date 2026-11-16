@@ -14,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/azureblob"
 	"github.com/blackbirdworks/gopherstack/services/azureeventgrid"
 	"github.com/blackbirdworks/gopherstack/services/azureeventhubs"
+	"github.com/blackbirdworks/gopherstack/services/azurefunctions"
 	"github.com/blackbirdworks/gopherstack/services/azurequeue"
 	"github.com/blackbirdworks/gopherstack/services/azureservicebus"
 )
@@ -145,6 +146,11 @@ func TestAzureEventGridTargetsWithoutBackends(t *testing.T) {
 	require.ErrorIs(t, tg.SendEventHub("ns", "h", m), azureeventgrid.ErrTargetUnavailable)
 	require.ErrorIs(t, tg.SendStorageQueue("a", "q", "x", 0), azureeventgrid.ErrTargetUnavailable)
 	require.ErrorIs(t, tg.PutBlob("a", "c", "b", nil, ""), azureeventgrid.ErrTargetUnavailable)
+	require.ErrorIs(t, tg.InvokeFunction(t.Context(), "app", "fn", nil, ""), azureeventgrid.ErrTargetUnavailable)
+
+	wired := &azureEventGridTargets{functions: azurefunctions.NewInMemoryBackend()}
+	require.ErrorIs(t, wired.InvokeFunction(t.Context(), "nosuchapp", "fn", []byte("[]"), "application/json"),
+		azureeventgrid.ErrTargetUnavailable, "an unknown function app answers an error status")
 
 	wireAzureEventGrid(map[string]service.Registerable{})
 }

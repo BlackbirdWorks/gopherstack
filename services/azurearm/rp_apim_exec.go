@@ -235,6 +235,8 @@ func (g *gwState) execRequest(n *polNode) {
 		g.rateLimit(n)
 	case apimCCheckHeader:
 		g.checkHeader(n)
+	case apimCIPFilter:
+		g.ipFilter(n)
 	case apimCCors:
 		if g.cors == nil {
 			g.cors = n

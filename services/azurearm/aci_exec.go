@@ -19,9 +19,10 @@ import (
 )
 
 const (
-	aciExecPrefix  = "/_aci/exec/"
-	aciExecTTL     = 5 * time.Minute
-	aciExecMaxRead = 4096
+	aciExecPrefix       = "/_aci/exec/"
+	aciExecTTL          = 5 * time.Minute
+	aciExecMaxRead      = 4096
+	aciExecWriteTimeout = 30 * time.Second
 )
 
 var (
@@ -68,6 +69,26 @@ func (d dockerACIRuntime) ExecStdin(
 	}
 
 	return code, nil
+}
+
+// ACIFollowRuntime is implemented by runtimes that can follow a container's output while it runs.
+type ACIFollowRuntime interface {
+	// FollowLogs writes the container's stdout and stderr to out until the container exits or ctx ends.
+	FollowLogs(ctx context.Context, id string, out io.Writer) error
+}
+
+// FollowLogs streams the container's combined output to out as it is produced.
+func (d dockerACIRuntime) FollowLogs(ctx context.Context, id string, out io.Writer) error {
+	lr, ok := d.r.(container.LogReader)
+	if !ok {
+		return errACINoLogs
+	}
+
+	if err := lr.ReadLogs(ctx, id, "", true, out, out); err != nil {
+		return fmt.Errorf("follow logs: %w", err)
+	}
+
+	return nil
 }
 
 // ACIStreamExecRuntime is implemented by runtimes that can run a command and stream its output.
@@ -255,6 +276,8 @@ func (p *ContainerInstanceProvider) ServeExec(rw http.ResponseWriter, r *http.Re
 type wsWriter struct{ conn *websocket.Conn }
 
 func (w wsWriter) Write(b []byte) (int, error) {
+	_ = w.conn.SetWriteDeadline(time.Now().Add(aciExecWriteTimeout))
+
 	if err := w.conn.WriteMessage(websocket.BinaryMessage, b); err != nil {
 		return 0, fmt.Errorf("write frame: %w", err)
 	}
@@ -271,13 +294,7 @@ func (p *ContainerInstanceProvider) streamSession(ctx context.Context, conn *web
 	}
 
 	if sess.attach {
-		logs, lerr := rt.Logs(ctx, id, "")
-		if lerr == nil {
-			_ = conn.WriteMessage(websocket.BinaryMessage, []byte(logs))
-		}
-
-		_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
-			time.Now().Add(time.Second))
+		streamAttach(ctx, conn, rt, id)
 
 		return
 	}
@@ -303,6 +320,41 @@ func (p *ContainerInstanceProvider) streamSession(ctx context.Context, conn *web
 
 	_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
 		time.Now().Add(time.Second))
+}
+
+// streamAttach relays the container's output: the live stream until the container exits or the client closes the
+// socket when the runtime can follow logs, otherwise the log written so far.
+func streamAttach(ctx context.Context, conn *websocket.Conn, rt ACIRuntime, id string) {
+	defer func() {
+		_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+			time.Now().Add(time.Second))
+	}()
+
+	fr, ok := rt.(ACIFollowRuntime)
+	if !ok {
+		if logs, err := rt.Logs(ctx, id, ""); err == nil {
+			_ = conn.WriteMessage(websocket.BinaryMessage, []byte(logs))
+		}
+
+		return
+	}
+
+	fctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	go func() {
+		defer cancel()
+
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
+
+	if err := fr.FollowLogs(fctx, id, wsWriter{conn}); err != nil && fctx.Err() == nil {
+		_ = conn.WriteMessage(websocket.TextMessage, []byte(err.Error()))
+	}
 }
 
 func (p *ContainerInstanceProvider) streamWithStdin(

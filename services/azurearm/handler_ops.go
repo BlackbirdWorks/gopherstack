@@ -355,7 +355,7 @@ func (h *Handler) putGenericResource(c *echo.Context, id ResourceID) error {
 		return h.writeAPIError(c, err)
 	}
 
-	respBody, _, err := h.Registry.Put(c.Request().Context(), id, body)
+	respBody, created, err := h.Registry.Put(c.Request().Context(), id, body)
 	if err != nil {
 		return h.writeAPIError(c, err)
 	}
@@ -376,6 +376,10 @@ func (h *Handler) putGenericResource(c *echo.Context, id ResourceID) error {
 	status := http.StatusOK
 	if strings.EqualFold(id.Namespace, namespaceMicrosoftEventGrid) {
 		status = http.StatusCreated // go-azure-sdk's Event Grid PUT clients accept only 201
+	}
+
+	if created && strings.EqualFold(id.Namespace, namespaceMicrosoftContainerInstance) && aciProfileID(id) {
+		status = http.StatusCreated // CGProfile_CreateOrUpdate answers 201 on create (2025-09-01 spec)
 	}
 
 	return h.writeJSON(c, status, respBody)

@@ -315,13 +315,26 @@ func crackBlob(be BlobEntry, data []byte, account, container string, cfg map[str
 		return jsonLineDocs(data, withMeta)
 	case "delimitedText":
 		return csvDocs(data, cfg, withMeta)
+	case "markdown":
+		return markdownDocs(data, cfg, withMeta)
 	}
 
 	if strOf(cfg, "dataToExtract") == "storageMetadata" || strOf(cfg, "dataToExtract") == "allMetadata" {
 		return []map[string]any{withMeta(map[string]any{})}
 	}
 
-	return []map[string]any{withMeta(map[string]any{"content": string(data)})}
+	content := string(data)
+	if isHTMLBlob(be) {
+		content = htmlText(data)
+	}
+
+	return []map[string]any{withMeta(map[string]any{mdContent: content})}
+}
+
+func isHTMLBlob(be BlobEntry) bool {
+	ext := strings.ToLower(path.Ext(be.Name))
+
+	return strings.HasPrefix(strings.ToLower(be.ContentType), "text/html") || ext == ".html" || ext == ".htm"
 }
 
 func jsonDocs(data []byte, withMeta func(map[string]any) map[string]any, array bool) []map[string]any {

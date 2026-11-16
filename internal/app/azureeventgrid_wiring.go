@@ -1,8 +1,12 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/amqp1"
@@ -11,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/azureblob"
 	"github.com/blackbirdworks/gopherstack/services/azureeventgrid"
 	"github.com/blackbirdworks/gopherstack/services/azureeventhubs"
+	"github.com/blackbirdworks/gopherstack/services/azurefunctions"
 	"github.com/blackbirdworks/gopherstack/services/azurequeue"
 	"github.com/blackbirdworks/gopherstack/services/azureservicebus"
 )
@@ -65,6 +70,10 @@ func wireAzureEventGrid(byName map[string]service.Registerable) {
 		t.eventHubs = h.Backend
 	}
 
+	if h, hOk := byName["AzureFunctions"].(*azurefunctions.Handler); hOk {
+		t.functions = h.Backend
+	}
+
 	egH.Backend.SetTargets(t)
 }
 
@@ -89,6 +98,7 @@ type azureEventGridTargets struct {
 	queues     azurequeue.StorageBackend
 	blobs      azureblob.StorageBackend
 	eventHubs  *azureeventhubs.InMemoryBackend
+	functions  *azurefunctions.InMemoryBackend
 }
 
 func (t *azureEventGridTargets) SendServiceBus(queue, topic string, m azureeventgrid.Message) error {
@@ -445,4 +455,42 @@ func (s *azureARMEventSource) ResourceChanged(ch azurearm.ResourceChange) {
 		TenantID: ch.TenantID, HTTPMethod: ch.HTTPMethod, HTTPURL: ch.HTTPURL,
 		ClientRequestID: ch.ClientRequestID, ClientIP: ch.ClientIP,
 	})
+}
+
+type functionHostRecorder struct {
+	header http.Header
+	status int
+}
+
+func (r *functionHostRecorder) Header() http.Header         { return r.header }
+func (r *functionHostRecorder) Write(p []byte) (int, error) { return len(p), nil }
+func (r *functionHostRecorder) WriteHeader(code int)        { r.status = code }
+
+// InvokeFunction posts the events to the app's Event Grid trigger webhook through the Functions front end.
+func (t *azureEventGridTargets) InvokeFunction(
+	ctx context.Context, app, function string, body []byte, contentType string,
+) error {
+	if t.functions == nil || app == "" || function == "" {
+		return azureeventgrid.ErrTargetUnavailable
+	}
+
+	target := "/runtime/webhooks/EventGrid?functionName=" + url.QueryEscape(function)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+
+	req.Host = t.functions.HostName(app)
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Aeg-Event-Type", "Notification")
+
+	rec := &functionHostRecorder{header: http.Header{}, status: http.StatusOK}
+	t.functions.ServeHTTP(rec, req)
+
+	if rec.status >= http.StatusMultipleChoices {
+		return fmt.Errorf("%w: function host answered %d", azureeventgrid.ErrTargetUnavailable, rec.status)
+	}
+
+	return nil
 }

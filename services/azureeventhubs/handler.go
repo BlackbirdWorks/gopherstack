@@ -1,7 +1,7 @@
 // Package azureeventhubs emulates Azure Event Hubs: namespaces, event hubs,
 // consumer groups and authorization rules shared with the ARM plane, an AMQP
 // 1.0 data plane (pkgs/amqp1) for the official SDKs, and a small REST/Atom
-// surface. The Kafka endpoint is not implemented. See PARITY.md.
+// surface, plus a Kafka protocol endpoint (SASL PLAIN over TLS). See PARITY.md.
 package azureeventhubs
 
 import (
@@ -48,9 +48,12 @@ type Handler struct {
 	AMQPCert    *tls.Certificate
 	amqp        *amqpService
 	amqpMu      *lockmetrics.RWMutex
+	kafka       *kafkaServer
+	kafkaMu     *lockmetrics.RWMutex
 	Port        int
 	AMQPPort    int
 	AMQPTLSPort int
+	KafkaPort   int
 	ValidateSAS bool
 }
 
@@ -61,7 +64,9 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 		Port:        DefaultPort,
 		AMQPPort:    DefaultAMQPPort,
 		AMQPTLSPort: DefaultAMQPTLSPort,
+		KafkaPort:   DefaultKafkaPort,
 		amqpMu:      lockmetrics.New("azureeventhubs.amqp"),
+		kafkaMu:     lockmetrics.New("azureeventhubs.kafkasrv"),
 	}
 }
 
@@ -144,7 +149,11 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 
 	go h.runJanitor(ctx)
 
-	return h.startAMQP(ctx)
+	if err = h.startAMQP(ctx); err != nil {
+		return err
+	}
+
+	return h.startKafka(ctx)
 }
 
 func (h *Handler) runJanitor(ctx context.Context) {
@@ -159,6 +168,7 @@ func (h *Handler) runJanitor(ctx context.Context) {
 
 // Shutdown implements service.Shutdowner.
 func (h *Handler) Shutdown(ctx context.Context) {
+	h.stopKafka()
 	h.stopAMQP()
 
 	srv := h.srv

@@ -84,6 +84,10 @@ func ensureAPIMMaps(s *apimService) {
 		s.ProductAPIs = map[string]bool{}
 	}
 
+	if s.Links == nil {
+		s.Links = map[string]bool{}
+	}
+
 	if s.Extra == nil {
 		s.Extra = map[string]any{}
 	}

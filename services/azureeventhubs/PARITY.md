@@ -24,16 +24,15 @@ ops:
 families:
   arm_integration: {status: ok, note: "services/azurearm Microsoft.EventHub: namespaces, eventhubs (partitionCount, messageRetentionInDays, retentionDescription), consumergroups, namespace- and hub-level authorizationRules with listKeys and regenerateKeys, namespace identity, networkRuleSets/default, disasterRecoveryConfigs (alias pairing, breakPairing, failover, checkNameAvailability, alias authorization rules) and list of every child collection. Hubs, groups, rules and keys live in this service; ARM keeps only ARM metadata. Applied, re-planned with no drift and destroyed by test/terraform/azure/eventhubs_test.go."}
   sdk_compat: {status: ok, note: "azeventhubs v2: producer batches (key, explicit partition), partition client from earliest/latest/offset/sequence/enqueued time, hub and partition properties, epoch receivers, SAS valid/invalid, restricted rights, TLS. Connect with UseDevelopmentEmulator=true to the plain port or with a TLSConfig to the TLS port."}
+  kafka: {status: ok, note: "Kafka protocol on port 9093 (--azure-eventhubs-kafka-port, 0 disables), TLS 1.2+ with SASL PLAIN (user $ConnectionString and the connection string as password, or a rule name and key). Topics are event hubs, partitions are event hub partitions, the log offset is the event sequence number. ApiVersions, SaslHandshake/Authenticate, Metadata, Produce (none and gzip), Fetch, ListOffsets, FindCoordinator, JoinGroup/SyncGroup/Heartbeat/LeaveGroup, OffsetCommit/Fetch (offsets persisted per hub), InitProducerId with sequence checks, CreateTopics and DeleteTopics. Events sent over AMQP are readable over Kafka and the reverse. Driven by franz-go in kafka_test.go. snappy, lz4 and zstd batches are refused with UNSUPPORTED_COMPRESSION_TYPE; transactions, SASL OAUTHBEARER, DescribeGroups and ListGroups are not served."}
   ports: {status: ok, note: "HTTP 10005, AMQP 5673 plain and 5674 TLS (Service Bus keeps 5672/5671). Distinct ports were chosen over a shared listener because the AMQP open frame carries no namespace and the engine binds one handler per server."}
   namespaces: {status: partial, note: "AMQP addresses carry no namespace, so a hub name is resolved to the first namespace (by name) that has it; identical hub names in two namespaces are ambiguous."}
 gaps:
-  - "Kafka endpoint is not implemented."
   - "Capture, schema registry, application groups, compaction and cluster features are not implemented."
   - "Hub names resolve across namespaces by first match."
 deferred: []
 items_still_open:
-  - "Kafka endpoint for Event Hubs (port 9093) is not implemented."
-  - "Capture, geo-replication, compaction and application-group features are not implemented."
+  - "Capture, geo-replication, compaction and application-group features are not implemented: their configuration (captureDescription, retentionDescription.cleanupPolicy, applicationGroups) is ARM state in services/azurearm (rp_eventhub_ops.go passes only partition count and retention to this service), which this service cannot read."
   - "Geo-disaster recovery data plane: the alias FQDN does not resolve to the active namespace (AMQP and HTTP carry no namespace, so a client cannot connect through <alias> and see it move on failover), the secondary data plane is not read-only while paired (only ARM entity writes are refused), replication is synchronous and covers event hubs and consumer groups only, and the alias is not blocked for namespaces in the same dedicated cluster (clusters are not modelled)."
 leaks: {status: clean, note: "Shutdown closes the AMQP servers and HTTP listener; the sweeper stops with its context; receiver registrations are removed when links close."}
 ---

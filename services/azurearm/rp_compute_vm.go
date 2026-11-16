@@ -12,6 +12,7 @@ const (
 	auxGeneralized = "generalized"
 	auxManagedBy   = "managedBy"
 	auxUpload      = "upload"
+	auxCopyStart   = "copyStart"
 	auxSpecialized = "specialized"
 
 	powerRunning     = "running"

@@ -25,14 +25,13 @@ func (t LifetimeTrigger) fireTime(nbf, exp time.Time) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// renewalDue reports whether an AutoRenew action has fired for a self-issued
-// certificate. Triggers at or before the version's notBefore are ignored so a
-// fresh version cannot re-trigger itself.
+// renewalDue reports whether an AutoRenew action has fired. Triggers at or
+// before the version's notBefore are ignored so a fresh version cannot
+// re-trigger itself.
 func renewalDue(e *Entity[*CertVersion], now time.Time) bool {
 	cur := e.latest()
 	if cur == nil || e.CertPolicy == nil || e.CertPolicy.Issuer == nil || !cur.Attrs.enabled() ||
-		cur.Attrs.NBF == nil || cur.Attrs.Exp == nil ||
-		!strings.EqualFold(e.CertPolicy.Issuer.Name, issuerSelf) {
+		cur.Attrs.NBF == nil || cur.Attrs.Exp == nil {
 		return false
 	}
 
@@ -51,16 +50,29 @@ func renewalDue(e *Entity[*CertVersion], now time.Time) bool {
 	return false
 }
 
-// renewCert issues a new self-signed version, reusing the key when the policy says so.
-func (v *vault) renewCert(name string, e *Entity[*CertVersion], now time.Time) error {
-	pol := e.CertPolicy
-
-	var keyDER []byte
-
+// reusedKey returns the current private key when the policy asks to keep it.
+func (v *vault) reusedKey(name string, pol *CertPolicy) []byte {
 	if kp := pol.KeyProps; kp != nil && kp.ReuseKey != nil && *kp.ReuseKey {
 		if k := v.Keys[name]; k != nil && k.latest() != nil {
-			keyDER = k.latest().Priv
+			return k.latest().Priv
 		}
+	}
+
+	return nil
+}
+
+// renewCert renews a certificate: a new self-signed version for the Self
+// issuer, otherwise a new pending CSR awaiting the CA's signed chain.
+func (v *vault) renewCert(name string, e *Entity[*CertVersion], now time.Time) error {
+	pol := e.CertPolicy
+	keyDER := v.reusedKey(name, pol)
+
+	if !strings.EqualFold(pol.Issuer.Name, issuerSelf) {
+		cur := e.latest()
+		req := attrsAndTags{tags: cur.Tags, attrs: &Attributes{Enabled: cur.Attrs.Enabled}}
+		_, err := v.startPendingWithKey(name, pol, keyDER, req, now.Unix())
+
+		return err
 	}
 
 	certDER, keyDER, err := selfSignWithKey(pol, keyDER, now)
@@ -82,7 +94,11 @@ func (v *vault) renewDueCerts(now time.Time) int {
 
 	for _, name := range v.Certs.names(false) {
 		e := v.Certs[name]
-		if !renewalDue(e, now) {
+		if !renewalDue(e, now) || !v.canIssue(e.CertPolicy.Issuer.Name) {
+			continue
+		}
+
+		if _, open := v.Pending[name]; open {
 			continue
 		}
 

@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -77,8 +78,14 @@ func (h *Handler) resolveStore(r *http.Request, prefix string) (string, error) {
 		return prefix, h.ensure(prefix)
 	}
 
-	if label := hostLabel(r); label != "" && b.HasStore(label) {
-		return label, nil
+	if label := hostLabel(r); label != "" {
+		if b.HasStore(label) {
+			return label, nil
+		}
+
+		if parent, ok := b.ResolveReplica(label); ok && b.HasStore(parent) {
+			return parent, nil
+		}
 	}
 
 	if id := credentialID(r); id != "" {
@@ -132,6 +139,14 @@ func (h *Handler) newRequest(c *echo.Context) (*request, error) {
 
 	if !apiVersions[q.Get("api-version")] {
 		return req, ErrInvalidArgument
+	}
+
+	if wait, admitErr := h.Backend.Admit(store); admitErr != nil {
+		if wait > 0 {
+			req.c.Response().Header().Set("Retry-After-Ms", strconv.FormatInt(wait.Milliseconds(), 10))
+		}
+
+		return req, admitErr
 	}
 
 	return req, nil

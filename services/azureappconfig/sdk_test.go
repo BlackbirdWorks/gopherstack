@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
+
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig/v2"
 	"github.com/stretchr/testify/assert"
@@ -420,7 +422,7 @@ func TestSDK_Snapshots(t *testing.T) {
 				}, &azappconfig.BeginCreateSnapshotOptions{CompositionType: &comp})
 				require.NoError(t, err)
 
-				created, err := poller.PollUntilDone(t.Context(), nil)
+				created, err := finishSnapshot(t, e, poller)
 				require.NoError(t, err)
 				assert.Equal(t, azappconfig.SnapshotStatusReady, *created.Status)
 				assert.Equal(t, tt.composition, *created.CompositionType)
@@ -442,10 +444,11 @@ func TestSDK_Snapshots(t *testing.T) {
 	})
 }
 
-func seededSnapshotClient(t *testing.T) *azappconfig.Client {
+func seededSnapshotClient(t *testing.T) (*azappconfig.Client, *env) {
 	t.Helper()
 
-	c := newEnv(t, envOpts{}).client(t)
+	e := newEnv(t, envOpts{})
+	c := e.client(t)
 
 	for _, kv := range []struct{ key, label, val string }{
 		{"app/a", "", "a0"}, {"app/a", "prod", "a1"}, {"app/b", "prod", "b1"}, {"other", "", "o"},
@@ -459,19 +462,19 @@ func seededSnapshotClient(t *testing.T) *azappconfig.Client {
 		require.NoError(t, err)
 	}
 
-	return c
+	return c, e
 }
 
 func TestSDK_SnapshotLifecycle(t *testing.T) {
 	t.Parallel()
 
-	c := seededSnapshotClient(t)
+	c, e := seededSnapshotClient(t)
 
 	poller, err := c.BeginCreateSnapshot(t.Context(), "snap-life", []azappconfig.SettingFilter{
 		{KeyFilter: new("other")},
 	}, nil)
 	require.NoError(t, err)
-	_, err = poller.PollUntilDone(t.Context(), nil)
+	_, err = finishSnapshot(t, e, poller)
 	require.NoError(t, err)
 
 	_, err = c.SetSetting(t.Context(), "other", new("changed"), nil)
@@ -518,7 +521,7 @@ func TestSDK_SnapshotLifecycle(t *testing.T) {
 func TestSDK_SnapshotDuplicateName(t *testing.T) {
 	t.Parallel()
 
-	c := seededSnapshotClient(t)
+	c, e := seededSnapshotClient(t)
 
 	poller, err := c.BeginCreateSnapshot(
 		t.Context(),
@@ -527,9 +530,24 @@ func TestSDK_SnapshotDuplicateName(t *testing.T) {
 		nil,
 	)
 	require.NoError(t, err)
-	_, err = poller.PollUntilDone(t.Context(), nil)
+	_, err = finishSnapshot(t, e, poller)
 	require.NoError(t, err)
 
 	_, err = c.BeginCreateSnapshot(t.Context(), "snap-key", []azappconfig.SettingFilter{{KeyFilter: new("*")}}, nil)
 	assert.Equal(t, http.StatusConflict, statusOf(err))
+}
+
+// finishSnapshot moves the fake clock past the provisioning time and reads the result with a single poll.
+func finishSnapshot(
+	t *testing.T, e *env, poller *runtime.Poller[azappconfig.CreateSnapshotResponse],
+) (azappconfig.CreateSnapshotResponse, error) {
+	t.Helper()
+
+	e.clock.Advance(time.Minute)
+
+	_, err := poller.Poll(t.Context())
+	require.NoError(t, err)
+	require.True(t, poller.Done())
+
+	return poller.Result(t.Context())
 }

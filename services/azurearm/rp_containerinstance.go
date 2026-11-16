@@ -1,6 +1,7 @@
 package azurearm
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -25,6 +26,9 @@ const (
 
 func aciAPIVersions() []string { return []string{"2023-05-01"} }
 
+// aciProfileAPIVersions: container group profiles are in the stable 2025-09-01 and 2026-07-01 specs only.
+func aciProfileAPIVersions() []string { return []string{"2025-09-01", "2026-07-01"} }
+
 type storedACIGroup struct {
 	Created       time.Time         `json:"created"`
 	Tags          map[string]string `json:"tags,omitempty"`
@@ -41,11 +45,12 @@ type storedACIGroup struct {
 // ContainerInstanceProvider implements ResourceProvider for Microsoft.ContainerInstance container groups. ARM
 // keeps the configuration; the ACIEngine runs the containers.
 type ContainerInstanceProvider struct {
-	engine *ACIEngine
-	net    *NetworkProvider
-	mu     *lockmetrics.RWMutex
-	groups map[string]*storedACIGroup
-	ids    *identityService
+	engine   *ACIEngine
+	net      *NetworkProvider
+	mu       *lockmetrics.RWMutex
+	groups   map[string]*storedACIGroup
+	profiles map[string]*storedACIProfile
+	ids      *identityService
 
 	sessions aciSessions
 }
@@ -54,6 +59,7 @@ type ContainerInstanceProvider struct {
 func NewContainerInstanceProvider(engine *ACIEngine) *ContainerInstanceProvider {
 	return &ContainerInstanceProvider{
 		engine: engine, mu: lockmetrics.New("azurearm.aciprovider"), groups: map[string]*storedACIGroup{},
+		profiles: map[string]*storedACIProfile{},
 	}
 }
 
@@ -64,7 +70,10 @@ func (p *ContainerInstanceProvider) Namespace() string { return namespaceMicroso
 
 // ResourceTypes implements ResourceProvider.
 func (p *ContainerInstanceProvider) ResourceTypes() []ResourceTypeDef {
-	return []ResourceTypeDef{{Type: aciGroupsType, APIVersions: aciAPIVersions(), HasChildren: true}}
+	return []ResourceTypeDef{
+		{Type: aciGroupsType, APIVersions: aciAPIVersions(), HasChildren: true},
+		{Type: aciProfilesType, APIVersions: aciProfileAPIVersions(), HasChildren: true},
+	}
 }
 
 // Engine returns the execution engine.
@@ -89,6 +98,10 @@ func (p *ContainerInstanceProvider) ListKeys(context.Context, ResourceID) (map[s
 
 // Put implements ResourceProvider. It answers once the containers have started or failed to.
 func (p *ContainerInstanceProvider) Put(_ context.Context, id ResourceID, body map[string]any) (map[string]any, error) {
+	if len(id.Types) == 1 && aciProfileID(id) {
+		return p.putProfile(id, body)
+	}
+
 	if !aciGroupID(id) {
 		return nil, ErrResourceNotFound
 	}
@@ -158,6 +171,10 @@ func (p *ContainerInstanceProvider) config(rec *storedACIGroup) aciConfig {
 
 // Get implements ResourceProvider.
 func (p *ContainerInstanceProvider) Get(_ context.Context, id ResourceID) (map[string]any, error) {
+	if aciProfileID(id) {
+		return p.getProfile(id)
+	}
+
 	if !aciGroupID(id) {
 		return nil, ErrResourceNotFound
 	}
@@ -175,6 +192,10 @@ func (p *ContainerInstanceProvider) Get(_ context.Context, id ResourceID) (map[s
 
 // Delete implements ResourceProvider.
 func (p *ContainerInstanceProvider) Delete(_ context.Context, id ResourceID) error {
+	if aciProfileID(id) {
+		return p.deleteProfile(id)
+	}
+
 	if !aciGroupID(id) {
 		return ErrResourceNotFound
 	}
@@ -197,6 +218,10 @@ func (p *ContainerInstanceProvider) Delete(_ context.Context, id ResourceID) err
 
 // List implements ResourceProvider.
 func (p *ContainerInstanceProvider) List(_ context.Context, id ResourceID) ([]map[string]any, error) {
+	if aciProfileID(id) {
+		return p.listProfiles(id)
+	}
+
 	p.mu.RLock("List")
 	recs := make([]*storedACIGroup, 0, len(p.groups))
 
@@ -231,6 +256,7 @@ func (p *ContainerInstanceProvider) List(_ context.Context, id ResourceID) ([]ma
 func (p *ContainerInstanceProvider) Reset() {
 	p.mu.Lock("Reset")
 	p.groups = map[string]*storedACIGroup{}
+	p.profiles = map[string]*storedACIProfile{}
 	p.mu.Unlock()
 
 	p.engine.RemoveUnprefixed(acaKeyPrefix)
@@ -241,6 +267,12 @@ func (p *ContainerInstanceProvider) DeleteResourcesInGroup(_ context.Context, re
 	p.mu.Lock("DeleteResourcesInGroup")
 
 	var keys []string
+
+	for k, g := range p.profiles {
+		if resourceGroupsEqual(g.ResourceGroup, resourceGroup) {
+			delete(p.profiles, k)
+		}
+	}
 
 	for k, g := range p.groups {
 		if resourceGroupsEqual(g.ResourceGroup, resourceGroup) {
@@ -394,6 +426,10 @@ func aciContainerBody(c aciContainerWire, view *ACIContainerView) map[string]any
 
 	props["resources"] = pp.Resources
 
+	if pp.SecurityContext != nil {
+		props["securityContext"] = pp.SecurityContext
+	}
+
 	if len(pp.Ports) > 0 {
 		props["ports"] = pp.Ports
 	}
@@ -461,6 +497,10 @@ func aciInitBody(ic aciInitWire, view *ACIContainerView) map[string]any {
 		props["volumeMounts"] = pp.VolumeMounts
 	}
 
+	if pp.SecurityContext != nil {
+		props["securityContext"] = pp.SecurityContext
+	}
+
 	props["instanceView"] = aciInstanceViewBody(view)
 
 	return map[string]any{fieldName: ic.Name, fieldProperties: props}
@@ -497,6 +537,24 @@ func aciVolumesBody(vols []aciVolumeWire) []map[string]any {
 	}
 
 	return out
+}
+
+// addACIFeatureBody adds the SKU, confidential compute, encryption and extension properties shared by container
+// groups and container group profiles.
+func addACIFeatureBody(props map[string]any, pp aciPropsWire) {
+	props[acrFieldSKU] = cmp.Or(pp.SKU, aciSKUStandard)
+
+	if pp.ConfidentialComputeProps != nil {
+		props["confidentialComputeProperties"] = pp.ConfidentialComputeProps
+	}
+
+	if pp.EncryptionProperties != nil {
+		props["encryptionProperties"] = pp.EncryptionProperties
+	}
+
+	if len(pp.Extensions) > 0 {
+		props["extensions"] = pp.Extensions
+	}
 }
 
 func (p *ContainerInstanceProvider) bodyOf(id ResourceID, rec *storedACIGroup) map[string]any {
@@ -539,10 +597,15 @@ func (p *ContainerInstanceProvider) bodyOf(id ResourceID, rec *storedACIGroup) m
 		props["priority"] = pp.Priority
 	}
 
+	addACIFeatureBody(props, pp)
 	p.addExtBody(props, rec, view, live)
 
 	if pp.IPAddress != nil {
-		props["ipAddress"] = p.ipBody(rec, live && view.State != aciStateStopped && view.State != aciStateFailed)
+		props["ipAddress"] = p.ipBody(
+			rec,
+			live && view.State != aciStateStopped && view.State != aciStateFailed,
+			view.Address,
+		)
 	}
 
 	if len(pp.ImageRegistryCredentials) > 0 {
@@ -632,12 +695,12 @@ func (p *ContainerInstanceProvider) checkSubnets(subnets []aciSubnetWire) error 
 	return nil
 }
 
-func (p *ContainerInstanceProvider) ipBody(rec *storedACIGroup, allocated bool) map[string]any {
+func (p *ContainerInstanceProvider) ipBody(rec *storedACIGroup, allocated bool, addr string) map[string]any {
 	ip := rec.Props.IPAddress
 	m := map[string]any{fieldType: ip.Type, "ports": ip.Ports}
 
 	if allocated {
-		m["ip"] = aciLoopbackIP
+		m["ip"] = cmp.Or(addr, aciLoopbackIP)
 	}
 
 	if ip.DNSNameLabel != "" {

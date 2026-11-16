@@ -37,6 +37,7 @@ const (
 	flexKindAdmin
 	flexKindBackup
 	flexKindBackupV2
+	flexKindThreat
 )
 
 type flexFirewall struct {
@@ -54,42 +55,46 @@ type flexDatabase struct {
 // flexServer is the ARM-side state of one flexible server. The engine, its port and its data live behind the
 // FlexEngine seam; the administrator password is never stored.
 type flexServer struct {
-	CreatedAt   time.Time               `json:"createdAt"`
-	PointInTime time.Time               `json:"pointInTime,omitzero"`
-	Tags        map[string]string       `json:"tags,omitempty"`
-	Identity    map[string]any          `json:"identity,omitempty"`
-	Maintenance map[string]any          `json:"maintenance,omitempty"`
-	Encryption  map[string]any          `json:"encryption,omitempty"`
-	AuthConfig  map[string]any          `json:"authConfig,omitempty"`
-	Firewall    map[string]flexFirewall `json:"firewall,omitempty"`
-	Databases   map[string]flexDatabase `json:"databases,omitempty"`
-	Admins      map[string]flexAdmin    `json:"admins,omitempty"`
-	Backups     map[string]flexBackup   `json:"backups,omitempty"`
-	Config      map[string]string       `json:"config,omitempty"`
-	Pending     map[string]bool         `json:"pendingRestart,omitempty"`
-	Name        string                  `json:"name"`
-	ResourceGrp string                  `json:"resourceGroup"`
-	Location    string                  `json:"location"`
-	SKUName     string                  `json:"skuName"`
-	SKUTier     string                  `json:"skuTier"`
-	Version     string                  `json:"version"`
-	Login       string                  `json:"login"`
-	State       string                  `json:"state"`
-	Transition  string                  `json:"transition,omitempty"`
-	OpID        string                  `json:"-"`
-	Zone        string                  `json:"zone,omitempty"`
-	StandbyZone string                  `json:"standbyZone,omitempty"`
-	HAMode      string                  `json:"haMode"`
-	AutoGrow    string                  `json:"autoGrow"`
-	GeoBackup   string                  `json:"geoBackup"`
-	PublicAcc   string                  `json:"publicAccess"`
-	Subnet      string                  `json:"subnet,omitempty"`
-	DNSZone     string                  `json:"dnsZone,omitempty"`
-	CreateMode  string                  `json:"createMode,omitempty"`
-	SourceID    string                  `json:"sourceId,omitempty"`
-	StorageGB   int                     `json:"storageGb"`
-	Iops        int                     `json:"iops,omitempty"`
-	Retention   int                     `json:"retentionDays"`
+	CreatedAt     time.Time               `json:"createdAt"`
+	PointInTime   time.Time               `json:"pointInTime,omitzero"`
+	ThreatChanged time.Time               `json:"threatChanged,omitzero"`
+	Tags          map[string]string       `json:"tags,omitempty"`
+	Identity      map[string]any          `json:"identity,omitempty"`
+	Maintenance   map[string]any          `json:"maintenance,omitempty"`
+	Encryption    map[string]any          `json:"encryption,omitempty"`
+	AuthConfig    map[string]any          `json:"authConfig,omitempty"`
+	Firewall      map[string]flexFirewall `json:"firewall,omitempty"`
+	Databases     map[string]flexDatabase `json:"databases,omitempty"`
+	Admins        map[string]flexAdmin    `json:"admins,omitempty"`
+	Backups       map[string]flexBackup   `json:"backups,omitempty"`
+	Config        map[string]string       `json:"config,omitempty"`
+	Pending       map[string]bool         `json:"pendingRestart,omitempty"`
+	Name          string                  `json:"name"`
+	ResourceGrp   string                  `json:"resourceGroup"`
+	Location      string                  `json:"location"`
+	SKUName       string                  `json:"skuName"`
+	SKUTier       string                  `json:"skuTier"`
+	Version       string                  `json:"version"`
+	Login         string                  `json:"login"`
+	State         string                  `json:"state"`
+	Transition    string                  `json:"transition,omitempty"`
+	OpID          string                  `json:"-"`
+	Zone          string                  `json:"zone,omitempty"`
+	StandbyZone   string                  `json:"standbyZone,omitempty"`
+	HAMode        string                  `json:"haMode"`
+	AutoGrow      string                  `json:"autoGrow"`
+	GeoBackup     string                  `json:"geoBackup"`
+	PublicAcc     string                  `json:"publicAccess"`
+	Subnet        string                  `json:"subnet,omitempty"`
+	DNSZone       string                  `json:"dnsZone,omitempty"`
+	CreateMode    string                  `json:"createMode,omitempty"`
+	ThreatState   string                  `json:"threatState,omitempty"`
+	StorageType   string                  `json:"storageType,omitempty"`
+	SourceID      string                  `json:"sourceId,omitempty"`
+	StorageGB     int                     `json:"storageGb"`
+	Iops          int                     `json:"iops,omitempty"`
+	Throughput    int                     `json:"throughput,omitempty"`
+	Retention     int                     `json:"retentionDays"`
 }
 
 type flexOp struct {
@@ -171,7 +176,12 @@ func (p *FlexDBProvider) Namespace() string { return p.flavor.ns }
 func (p *FlexDBProvider) ResourceTypes() []ResourceTypeDef {
 	v := p.flavor.apiVersions
 
-	return []ResourceTypeDef{
+	extra := []ResourceTypeDef{}
+	if p.flavor.kind == flexKindMySQL {
+		extra = append(extra, ResourceTypeDef{Type: flexServersType + "/" + flexThreatType, APIVersions: v})
+	}
+
+	return append(extra, []ResourceTypeDef{
 		{Type: flexServersType, APIVersions: v, HasChildren: true},
 		{Type: flexServersType + "/" + flexFirewallType, APIVersions: v},
 		{Type: flexServersType + "/" + flexDatabasesType, APIVersions: v},
@@ -180,7 +190,7 @@ func (p *FlexDBProvider) ResourceTypes() []ResourceTypeDef {
 		{Type: flexServersType + "/" + flexReplicasType, APIVersions: v},
 		{Type: "checkNameAvailability", APIVersions: v},
 		{Type: "locations/capabilities", APIVersions: v},
-	}
+	}...)
 }
 
 func classifyFlexPath(id ResourceID) flexKind {
@@ -199,6 +209,8 @@ func classifyFlexPath(id ResourceID) flexKind {
 		return flexKindBackup
 	case strings.ToLower(flexServersType + "/" + flexBackupsV2Type):
 		return flexKindBackupV2
+	case strings.ToLower(flexServersType + "/" + flexThreatType):
+		return flexKindThreat
 	}
 
 	return flexKindUnsupported
@@ -308,6 +320,8 @@ func (p *FlexDBProvider) Write(id ResourceID, method string, body map[string]any
 		return p.writeBackup(id)
 	case flexKindBackupV2:
 		return flexResult{}, flexInvalid("Backups V2 are read-only.")
+	case flexKindThreat:
+		return p.writeThreat(id, body)
 	case flexKindUnsupported:
 	}
 
@@ -355,6 +369,12 @@ func (p *FlexDBProvider) Get(_ context.Context, id ResourceID) (map[string]any, 
 		return p.adminBody(id, a), nil
 	case flexKindBackup, flexKindBackupV2:
 		return p.getBackup(id, rec, kind == flexKindBackupV2)
+	case flexKindThreat:
+		if p.flavor.kind != flexKindMySQL || !strings.EqualFold(id.LeafName(), flexThreatName) {
+			return nil, p.childNotFound(id)
+		}
+
+		return p.threatBody(id, rec), nil
 	case flexKindServer, flexKindUnsupported:
 	}
 
@@ -383,6 +403,8 @@ func (p *FlexDBProvider) Remove(id ResourceID) (string, error) {
 		return p.deleteAdmin(id)
 	case flexKindBackup, flexKindBackupV2:
 		return "", flexInvalid("Backups cannot be deleted; they expire with the backup retention period.")
+	case flexKindThreat:
+		return "", flexInvalid("The advanced threat protection setting cannot be deleted.")
 	case flexKindUnsupported:
 	}
 

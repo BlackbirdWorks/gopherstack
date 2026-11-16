@@ -6361,4 +6361,5 @@ createVolumePermission / launchPermission grants (already stored per grantee) no
 
 ## Emulator choices where the vendor is silent
 
+- CreateSubnet with no AvailabilityZone/AvailabilityZoneId: the API reference says only "AWS selects one for you. If you create more than one subnet in your VPC, we do not necessarily select a different zone for each subnet" (API_CreateSubnet.html). The emulator picks the zone holding the fewest of the VPC's subnets, ties by zone name, so zone-less subnets spread across the region's zones and an ALB over them satisfies the two-zone rule. Explicit zones and default-VPC default subnets are untouched.
 - Filters the pinned SDK does not define: DescribeCapacityBlocks 'tags' (doc is only "the tags assigned"; checked api_op_DescribeCapacityBlocks.go), DescribeInstanceEventWindows 'instance-tag' (value syntax undocumented in api_op_DescribeInstanceEventWindows.go), DescribeVpcPeeringConnections 'status-message' (no message texts in the SDK or the VPC peering lifecycle page, which names states only).

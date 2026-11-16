@@ -19,6 +19,8 @@ const (
 	createFromImage = "FromImage"
 	createCopy      = "Copy"
 	createUpload    = "Upload"
+	createCopyStart = "CopyStart"
+	completionDone  = 100
 	createAttach    = "Attach"
 
 	cmpFieldCreation  = "creationData"
@@ -159,16 +161,17 @@ func (p *ComputeProvider) createDiskProps(r *cmpRes, props, raw map[string]any, 
 	cd := cloneProps(mapOf(raw[cmpFieldCreation]))
 
 	opt, ok := canonicalIn(
-		[]string{createEmpty, createFromImage, createCopy, createUpload},
+		[]string{createEmpty, createFromImage, createCopy, createCopyStart, createUpload},
 		strOf(cd, cmpFieldCreateOpt),
 	)
 	if !ok {
-		return cmpInvalid("The creationData.createOption '%s' is not supported; use Empty, FromImage, Copy or Upload.",
+		return cmpInvalid("The creationData.createOption '%s' is not supported; use Empty, FromImage, Copy, "+
+			"CopyStart or Upload.",
 			strOf(cd, cmpFieldCreateOpt))
 	}
 
-	if snapshot && opt != createCopy {
-		return cmpInvalid("Snapshots are created with creationData.createOption 'Copy'.")
+	if snapshot && opt != createCopy && opt != createCopyStart {
+		return cmpInvalid("Snapshots are created with creationData.createOption 'Copy' or 'CopyStart'.")
 	}
 
 	cd[cmpFieldCreateOpt] = opt
@@ -181,7 +184,7 @@ func (p *ComputeProvider) createDiskProps(r *cmpRes, props, raw map[string]any, 
 		err = checkEmptyDisk(r, gb)
 	case createFromImage:
 		gb, err = imageDiskSize(cd, raw, gb)
-	case createCopy:
+	case createCopy, createCopyStart:
 		gb, err = p.copyDisk(cd, props, gb)
 	default:
 		gb, err = uploadDisk(r, cd)
@@ -193,6 +196,10 @@ func (p *ComputeProvider) createDiskProps(r *cmpRes, props, raw map[string]any, 
 
 	props[cmpFieldCreation] = cd
 	props[cmpFieldDiskSizeGB] = gb
+
+	if opt == createCopyStart {
+		r.Aux[auxCopyStart] = cmpTrue
+	}
 
 	return nil
 }
@@ -326,6 +333,10 @@ func (p *ComputeProvider) diskProps(r *cmpRes) map[string]any {
 	props[cmpFieldTimeMade] = r.Created.Format(timeCreatedLayout)
 	props[fieldProvisioningState] = provisioningStateSucceeded
 	props[cmpFieldDiskState] = p.diskState(r)
+
+	if r.Aux[auxCopyStart] == cmpTrue {
+		props["completionPercent"] = float64(completionDone)
+	}
 
 	setDefault(props, "encryption", map[string]any{fieldType: "EncryptionAtRestWithPlatformKey"})
 	setDefault(props, "networkAccessPolicy", "AllowAll")

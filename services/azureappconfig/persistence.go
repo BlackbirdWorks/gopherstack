@@ -89,6 +89,8 @@ func normalizeStores(stores map[string]*store) error {
 			s.Snapshots = map[string]*Snapshot{}
 		}
 
+		s.recountUsed()
+
 		for id, kv := range s.KVs {
 			if kv == nil {
 				return fmt.Errorf("%w: key-value %q", errNullEntry, id)
@@ -111,4 +113,14 @@ func (h *Handler) Snapshot(ctx context.Context) []byte { return h.Backend.Snapsh
 // Restore implements persistence.Persistable by delegating to the backend.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	return h.Backend.Restore(ctx, data)
+}
+
+func (s *store) recountUsed() {
+	if s.Used != 0 {
+		return
+	}
+
+	for _, e := range s.History {
+		s.Used += kvBytes(e.KV)
+	}
 }

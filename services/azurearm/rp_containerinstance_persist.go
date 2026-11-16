@@ -1,7 +1,8 @@
 package azurearm
 
 type containerInstanceSnapshot struct {
-	Groups map[string]*storedACIGroup `json:"groups"`
+	Groups   map[string]*storedACIGroup   `json:"groups"`
+	Profiles map[string]*storedACIProfile `json:"profiles,omitempty"`
 }
 
 func (p *ContainerInstanceProvider) snapshot() *containerInstanceSnapshot {
@@ -16,6 +17,16 @@ func (p *ContainerInstanceProvider) snapshot() *containerInstanceSnapshot {
 		snap.Groups[k] = &cp
 	}
 
+	if len(p.profiles) > 0 {
+		snap.Profiles = make(map[string]*storedACIProfile, len(p.profiles))
+
+		for k, g := range p.profiles {
+			cp := *g
+			cp.Revisions = append([]aciProfileRevision(nil), g.Revisions...)
+			snap.Profiles[k] = &cp
+		}
+	}
+
 	return snap
 }
 
@@ -27,10 +38,17 @@ func (p *ContainerInstanceProvider) restore(snap *containerInstanceSnapshot) {
 	p.mu.Lock("restore")
 
 	p.groups = map[string]*storedACIGroup{}
+	p.profiles = map[string]*storedACIProfile{}
 
 	var resume []aciConfig
 
 	if snap != nil {
+		for k, g := range snap.Profiles {
+			if g != nil {
+				p.profiles[k] = g
+			}
+		}
+
 		for k, g := range snap.Groups {
 			if g == nil {
 				continue

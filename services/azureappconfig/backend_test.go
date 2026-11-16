@@ -151,6 +151,13 @@ func TestSnapshotExpiryAndComposition(t *testing.T) {
 		Filters: []ac.Filter{{Key: "k", Label: "a"}, {Key: "k", Label: "b"}}, Retention: 3600,
 	})
 	require.NoError(t, err)
+	assert.Equal(t, "provisioning", snap.Status)
+	assert.Empty(t, snap.Items, "a provisioning snapshot lists no items")
+
+	clk.Advance(time.Minute)
+
+	snap, err = b.GetSnapshot(storeName, "s1")
+	require.NoError(t, err)
 	require.Len(t, snap.Items, 1, "composition key keeps one label per key; the later filter wins")
 	assert.Equal(t, "b", snap.Items[0].Label)
 
@@ -204,6 +211,8 @@ func TestPersistenceRoundTrip(t *testing.T) {
 
 	_, err = b.CreateSnapshot(storeName, "snap", ac.SnapshotSpec{Filters: []ac.Filter{{Key: "k"}}})
 	require.NoError(t, err)
+
+	clk.Advance(time.Minute)
 
 	data := b.Snapshot(t.Context())
 

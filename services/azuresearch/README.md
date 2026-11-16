@@ -16,9 +16,9 @@
 ### Known gaps
 
 - Semantic ranking, spell correction and answers/captions need Microsoft's ranking models (queryType semantic is rejected with 400, whatever the service's semanticSearch setting); text queries through azureOpenAI/aiServicesVision/aml vectorizers and imageUrl/imageBinary vector queries need a hosted embedding model that no emulator in services/ provides (400).
-- Indexers: no document cracking for PDF/Office/images (no parser dependency in go.mod), HTML and Markdown parsing modes, DocumentExtraction and Custom.WebApiSkill (the run holds the backend lock in finishRun, indexers.go; an HTTP call needs the run split into load, enrich and apply phases), no knowledge store projections, enrichment cache or index projections, and model-backed skills (OCR, entities, key phrases, language detection, translation, embedding) are recorded as warnings and skipped.
+- Indexers: no document cracking for PDF/Office/images (no parser dependency in go.mod), DocumentExtraction and Custom.WebApiSkill (the run holds the backend lock in finishRun, indexers.go; an HTTP call needs the run split into load, enrich and apply phases), no knowledge store projections, enrichment cache or index projections, and model-backed skills (OCR, entities, key phrases, language detection, translation, embedding) are recorded as warnings and skipped.
 - Analyzers: Microsoft language analyzers and tokenizers (proprietary), the phonetic, hindi/indic/sorani/scandinavian normalization filters, light and minimal stemmers and KStem, and Lucene's stop word sets for languages other than en, fr, de, es are not implemented; token offsets after a char filter refer to the filtered text, the COMMENTS regex flag is rejected (RE2 has no equivalent), and normalizers are rejected.
-- ARM: network security perimeter configurations (no Microsoft.Network/networkSecurityPerimeters emulation exists to associate with) and semanticSearch (round-trips only; no ranker to enable) are not implemented; usage quotas per SKU are the documented defaults (unverified for raised quotas).
+- ARM: network security perimeter configurations (no Microsoft.Network/networkSecurityPerimeters emulation exists to associate with) and semanticSearch (round-trips only; no ranker to enable) are not implemented.
 
 ## More
 

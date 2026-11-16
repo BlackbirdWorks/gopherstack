@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const contentJSON = "application/json; charset=utf-8"
@@ -106,7 +108,7 @@ func (b *InMemoryBackend) targetsSnapshot() Targets {
 	return b.targets
 }
 
-func (b *InMemoryBackend) deliverTarget(j job) outcome {
+func (b *InMemoryBackend) deliverTarget(ctx context.Context, j job) outcome {
 	d, tg := j.spec.Destination, b.targetsSnapshot()
 	rid := d.str(propResourceID)
 
@@ -131,6 +133,15 @@ func (b *InMemoryBackend) deliverTarget(j job) outcome {
 			string(j.eventObject()),
 			ttl,
 		)
+	case EndpointAzureFunc:
+		err = tg.InvokeFunction(
+			ctx, resourceSegment(rid, "sites"), resourceSegment(rid, "functions"), j.eventArray(), contentJSON,
+		)
+	case EndpointHybridConn, EndpointPartner:
+		logger.Load(ctx).InfoContext(ctx, "azureeventgrid: would deliver to an Azure Relay or partner endpoint",
+			"endpointType", d.EndpointType, "resourceId", rid, "subscription", j.sub, "events", len(j.ds))
+
+		return outcome{ok: true, label: outcomeSuccess}
 	default:
 		return outcome{label: outcomeGeneric, permanent: true}
 	}

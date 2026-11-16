@@ -102,6 +102,7 @@ type apimService struct {
 	CreatedAt   time.Time                         `json:"createdAt"`
 	ReadyAt     time.Time                         `json:"readyAt"`
 	ProductAPIs map[string]bool                   `json:"productApis,omitempty"`
+	Links       map[string]bool                   `json:"links,omitempty"`
 	Identity    map[string]any                    `json:"identity,omitempty"`
 	Extra       map[string]any                    `json:"extra,omitempty"`
 	APIs        map[string]*apimEntity            `json:"apis,omitempty"`
@@ -426,7 +427,7 @@ func (s *apimService) applyEnvelope(body map[string]any) {
 func (s *apimService) clone() *apimService {
 	c := *s
 	c.Tags, c.Extra = cloneStrMap(s.Tags), cloneAnyMap(s.Extra)
-	c.ProductAPIs = maps.Clone(s.ProductAPIs)
+	c.ProductAPIs, c.Links = maps.Clone(s.ProductAPIs), maps.Clone(s.Links)
 
 	for _, m := range []struct {
 		dst *map[string]*apimEntity
@@ -452,7 +453,7 @@ func newAPIMService(sub, rg, name string, now time.Time) *apimService {
 		NotifyEmail: apimDefaultNotifyMail, PublicAcc: sqlDefaultPublic, Extra: map[string]any{},
 		APIs: map[string]*apimEntity{}, Ops: map[string]*apimEntity{}, Products: map[string]*apimEntity{},
 		Subs: map[string]*apimEntity{}, Named: map[string]*apimEntity{}, Backends: map[string]*apimEntity{},
-		Policies: map[string]*apimEntity{}, ProductAPIs: map[string]bool{},
+		Policies: map[string]*apimEntity{}, ProductAPIs: map[string]bool{}, Links: map[string]bool{},
 	}
 
 	seedAPIMPortal(s)

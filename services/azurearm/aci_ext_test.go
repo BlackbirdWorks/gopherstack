@@ -694,7 +694,7 @@ func TestACISDK_ReadinessProbeGatesTraffic(t *testing.T) {
 
 	for _, e := range g.Properties.InstanceView.Events {
 		if *e.Name == "PortPublished" {
-			front = (*e.Message)[strings.Index(*e.Message, "127.0.0.1:"):]
+			front = (*e.Message)[strings.Index(*e.Message, "published on ")+len("published on "):]
 		}
 	}
 

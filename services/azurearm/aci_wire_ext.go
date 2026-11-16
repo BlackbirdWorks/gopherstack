@@ -47,11 +47,12 @@ type aciProbeWire struct {
 }
 
 type aciInitPropsWire struct {
-	Image                string         `json:"image"`
-	Command              []string       `json:"command,omitempty"`
-	EnvironmentVariables []aciEnvWire   `json:"environmentVariables,omitempty"`
-	VolumeMounts         []aciMountWire `json:"volumeMounts,omitempty"`
-	InstanceView         jsontext.Value `json:"instanceView,omitempty"`
+	Image                string           `json:"image"`
+	Command              []string         `json:"command,omitempty"`
+	EnvironmentVariables []aciEnvWire     `json:"environmentVariables,omitempty"`
+	VolumeMounts         []aciMountWire   `json:"volumeMounts,omitempty"`
+	SecurityContext      *aciSecurityWire `json:"securityContext,omitempty"`
+	InstanceView         jsontext.Value   `json:"instanceView,omitempty"`
 }
 
 type aciInitWire struct {
@@ -187,6 +188,10 @@ func (p *aciPropsWire) normalizeInit(vols, names map[string]bool) error {
 			return err
 		}
 
+		if err := ic.Properties.SecurityContext.validate(ic.Name); err != nil {
+			return err
+		}
+
 		ic.Properties.InstanceView = nil
 	}
 
@@ -299,6 +304,10 @@ func validateEnvMounts(owner string, env []aciEnvWire, mounts []aciMountWire, vo
 		if !vols[strings.ToLower(m.Name)] || !strings.HasPrefix(m.MountPath, "/") {
 			return fmt.Errorf("%w: container %q has a volume mount for an unknown volume or a relative mountPath",
 				errACIInvalid, owner)
+		}
+
+		if strings.ContainsAny(m.MountPath, ":,\x00") {
+			return aciBad("container %q: mountPath %q must not contain ':', ',' or NUL", owner, m.MountPath)
 		}
 	}
 

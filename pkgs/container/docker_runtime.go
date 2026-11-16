@@ -449,12 +449,17 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 	cfg.User = spec.User
 
 	hostCfg := &dockercontainer.HostConfig{
-		Binds:      spec.Mounts,
-		Privileged: spec.Privileged,
-		Runtime:    spec.OCIRuntime,
-		GroupAdd:   spec.GroupAdd,
+		Binds:       spec.Mounts,
+		Privileged:  spec.Privileged,
+		Runtime:     spec.OCIRuntime,
+		GroupAdd:    spec.GroupAdd,
+		CapAdd:      spec.CapAdd,
+		CapDrop:     spec.CapDrop,
+		SecurityOpt: spec.SecurityOpt,
 	}
 	hostCfg.Memory = spec.MemoryBytes
+	hostCfg.MemoryReservation = spec.MemoryReservationBytes
+	hostCfg.CPUShares = spec.CPUShares
 	hostCfg.NanoCPUs = spec.NanoCPUs
 	hostCfg.ExtraHosts = spec.ExtraHosts
 
@@ -508,7 +513,8 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 	return resp.ID, nil
 }
 
-// applyPorts publishes each [IP:]HOST:CONTAINER TCP pair; without an IP it binds all interfaces.
+// applyPorts publishes each [IP:]HOST:CONTAINER[/PROTO] pair (TCP unless the container port carries /udp);
+// without an IP it binds all interfaces.
 func applyPorts(cfg *dockercontainer.Config, hostCfg *dockercontainer.HostConfig, ports []string) error {
 	if len(ports) == 0 {
 		return nil
@@ -523,7 +529,11 @@ func applyPorts(cfg *dockercontainer.Config, hostCfg *dockercontainer.HostConfig
 			return err
 		}
 
-		port, err := network.ParsePort(ctr + "/tcp")
+		if !strings.Contains(ctr, "/") {
+			ctr += "/tcp"
+		}
+
+		port, err := network.ParsePort(ctr)
 		if err != nil {
 			return fmt.Errorf("%w %q: %w", ErrInvalidPort, spec, err)
 		}

@@ -24,7 +24,12 @@ func validSnapshotName(name string) bool {
 	return !strings.ContainsAny(name, "/%\x00")
 }
 
-func normalizeSpec(spec SnapshotSpec) (SnapshotSpec, error) {
+func normalizeSpec(spec SnapshotSpec, sku string) (SnapshotSpec, error) {
+	maxRet, defRet := maxRetention, defaultRetention
+	if sku == skuFree || sku == skuDeveloper {
+		maxRet, defRet = freeMaxRetention, freeMaxRetention
+	}
+
 	if len(spec.Filters) == 0 || len(spec.Filters) > maxSnapshotFilt {
 		return spec, fmt.Errorf("%w: a snapshot needs 1 to %d filters", ErrInvalidArgument, maxSnapshotFilt)
 	}
@@ -38,12 +43,12 @@ func normalizeSpec(spec SnapshotSpec) (SnapshotSpec, error) {
 	}
 
 	if spec.Retention == 0 {
-		spec.Retention = defaultRetention
+		spec.Retention = defRet
 	}
 
-	if spec.Retention < minRetention || spec.Retention > maxRetention {
+	if spec.Retention < minRetention || spec.Retention > maxRet {
 		return spec, fmt.Errorf("%w: retention_period must be %d to %d seconds",
-			ErrInvalidArgument, minRetention, maxRetention)
+			ErrInvalidArgument, minRetention, maxRet)
 	}
 
 	return spec, nil
@@ -84,13 +89,13 @@ func (b *InMemoryBackend) CreateSnapshot(storeName, name string, spec SnapshotSp
 		return Snapshot{}, fmt.Errorf("%w: invalid snapshot name", ErrInvalidArgument)
 	}
 
-	spec, err := normalizeSpec(spec)
+	b.mu.Lock("CreateSnapshot")
+	defer b.mu.Unlock()
+
+	spec, err := normalizeSpec(spec, b.settingsLocked(storeName).SKU)
 	if err != nil {
 		return Snapshot{}, err
 	}
-
-	b.mu.Lock("CreateSnapshot")
-	defer b.mu.Unlock()
 
 	s, err := b.storeLocked(storeName)
 	if err != nil {
@@ -106,20 +111,59 @@ func (b *InMemoryBackend) CreateSnapshot(storeName, name string, spec SnapshotSp
 		return Snapshot{}, err
 	}
 
+	now := b.now().UTC()
 	snap := &Snapshot{
-		Name: name, Status: snapshotReady, Composition: spec.Composition, Filters: spec.Filters,
+		Name: name, Status: snapshotProvisioning, Composition: spec.Composition, Filters: spec.Filters,
 		Retention: spec.Retention, Tags: maps.Clone(spec.Tags), Items: items, ETag: randomText(etagBytes),
-		Created: b.now().UTC(),
+		Created: now, ReadyAt: now.Add(snapshotProvisionDelay),
 	}
 
 	for _, kv := range items {
 		snap.Size += kvBytes(kv)
 	}
 
+	if s.snapshotBytes()+snap.Size > storageLimit(b.settingsLocked(storeName).SKU) {
+		snap.Error, snap.Items, snap.Size = "The allotted quota for snapshot creation has been surpassed.", nil, 0
+	}
+
 	s.Snapshots[name] = snap
 	s.bump()
 
-	return *snap, nil
+	return snap.view(now), nil
+}
+
+func (s *store) snapshotBytes() int64 {
+	var n int64
+
+	for _, sn := range s.Snapshots {
+		n += sn.Size
+	}
+
+	return n
+}
+
+// settle moves a provisioning snapshot to ready (or failed) once its provisioning time has passed.
+func (sn *Snapshot) settle(now time.Time) {
+	if sn.Status != snapshotProvisioning || now.Before(sn.ReadyAt) {
+		return
+	}
+
+	sn.Status = snapshotReady
+	if sn.Error != "" {
+		sn.Status = snapshotFailed
+	}
+}
+
+// view is the client-visible copy: a snapshot that is still provisioning (or failed) exposes no items.
+func (sn *Snapshot) view(now time.Time) Snapshot {
+	sn.settle(now)
+
+	out := *sn
+	if sn.Status == snapshotProvisioning || sn.Status == snapshotFailed {
+		out.Items, out.Size = nil, 0
+	}
+
+	return out
 }
 
 func (s *store) snapshot(name string, now time.Time) (*Snapshot, bool) {
@@ -152,7 +196,34 @@ func (b *InMemoryBackend) GetSnapshot(storeName, name string) (Snapshot, error) 
 		return Snapshot{}, ErrSnapshotNotFound
 	}
 
-	return *snap, nil
+	return snap.view(b.now()), nil
+}
+
+// SnapshotOperation reports the provisioning operation of a snapshot: status Running, Succeeded or Failed.
+func (b *InMemoryBackend) SnapshotOperation(storeName, name string) (string, string, error) {
+	b.mu.Lock("SnapshotOperation")
+	defer b.mu.Unlock()
+
+	s, err := b.storeLocked(storeName)
+	if err != nil {
+		return "", "", err
+	}
+
+	snap, ok := s.snapshot(name, b.now())
+	if !ok {
+		return "", "", ErrSnapshotNotFound
+	}
+
+	snap.settle(b.now())
+
+	switch snap.Status {
+	case snapshotProvisioning:
+		return "Running", "", nil
+	case snapshotFailed:
+		return "Failed", snap.Error, nil
+	default:
+		return "Succeeded", "", nil
+	}
 }
 
 // SetSnapshotStatus archives (ready -> archived) or recovers (archived -> ready) a snapshot.
@@ -184,7 +255,9 @@ func (b *InMemoryBackend) SetSnapshotStatus(storeName, name, status string, p Pr
 		return Snapshot{}, ErrPrecondition
 	}
 
-	if snap.Status == status {
+	snap.settle(b.now())
+
+	if snap.Status == status || snap.Status == snapshotProvisioning || snap.Status == snapshotFailed {
 		return Snapshot{}, ErrSnapshotStatus
 	}
 
@@ -199,7 +272,7 @@ func (b *InMemoryBackend) SetSnapshotStatus(storeName, name, status string, p Pr
 
 	s.bump()
 
-	return *snap, nil
+	return snap.view(b.now()), nil
 }
 
 // ListSnapshots returns snapshots whose name matches the filter and whose status is in statuses.
@@ -221,8 +294,13 @@ func (b *InMemoryBackend) ListSnapshots(storeName, nameFilter string, statuses [
 
 	for name := range s.Snapshots {
 		snap, ok := s.snapshot(name, b.now())
-		if ok && names.matches(snap.Name) && statusAllowed(snap.Status, statuses) {
-			out = append(out, *snap)
+		if !ok {
+			continue
+		}
+
+		view := snap.view(b.now())
+		if names.matches(view.Name) && statusAllowed(view.Status, statuses) {
+			out = append(out, view)
 		}
 	}
 

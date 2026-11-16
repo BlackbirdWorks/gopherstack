@@ -78,6 +78,8 @@ func (p *LogicProvider) startRunLocked(w *logicWorkflow, f logicFire) (*logicSta
 		trig.Inputs = logicContent{Value: f.inputs, Set: true}
 	}
 
+	hideTriggerContent(w.triggerDef(f.trigger), &trig.Inputs, &trig.Outputs)
+
 	run := &logicRunRec{
 		Name: name, Status: logicStRunning, Start: now, Version: w.Version, Correlation: uuid.NewString(),
 		ClientID: f.client, Actions: map[string]*logicActionRec{}, Trigger: trig,

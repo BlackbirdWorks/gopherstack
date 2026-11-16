@@ -210,4 +210,81 @@ var goldenCases = []goldenCase{
 	{name: "q60", query: `Logs | take 0`,
 		cols: `TimeGenerated:datetime,Computer:string,Level:string,Value:real,N:long,Message:string,Props:dynamic`,
 		rows: `[]`},
+	{
+		name: "join inner", cols: `N:long,Region:string`, rows: `[[1,"west"],[2,"west"],[3,"east"]]`,
+		query: `Logs | where N <= 3 | join kind=inner (datatable(Computer:string, Region:string)` +
+			`["web1","west","web2","east"]) on Computer | project N, Region | order by N asc`,
+	},
+	{
+		name: "join leftouter", cols: `N:long,Region:string`, rows: `[[2,"west"],[5,""]]`,
+		query: `Logs | where N in (2, 5) | join kind=leftouter (datatable(Computer:string, Region:string)` +
+			`["web1","west"]) on Computer | project N, Region | order by N asc`,
+	},
+	{
+		name: "join leftanti", cols: `N:long`, rows: `[[3],[4],[5]]`,
+		query: `Logs | where N <= 5 | join kind=leftanti (datatable(Computer:string)["web1"]) on Computer` +
+			` | project N | order by N asc`,
+	},
+	{
+		name: "join leftsemi", cols: `N:long`, rows: `[[1],[2]]`,
+		query: `Logs | where N <= 5 | join kind=leftsemi (datatable(Computer:string)["web1"]) on Computer` +
+			` | project N | order by N asc`,
+	},
+	{
+		name: "join innerunique default", cols: `Count:long`, rows: `[[1]]`,
+		query: `Logs | where Computer == "web1" | join (datatable(Computer:string, Region:string)` +
+			`["web1","west"]) on Computer | count`,
+	},
+	{
+		name: "join renames duplicate column", cols: `Computer1:string`, rows: `[["web1"]]`,
+		query: `Logs | where N == 1 | join kind=inner (datatable(Computer:string)["web1"]) on Computer` +
+			` | project Computer1`,
+	},
+	{
+		name: "join left right keys", cols: `N:long,Region:string,C:string`, rows: `[[1,"west","web1"]]`,
+		query: `Logs | where N == 1 | join kind=inner (datatable(C:string, Region:string)["web1","west"])` +
+			` on $left.Computer == $right.C | project N, Region, C`,
+	},
+	{
+		name: "join fullouter", cols: `N:long,Region:string`, rows: `[[2,"west"],[null,"north"]]`,
+		query: `Logs | where N == 2 | join kind=fullouter (datatable(Computer:string, Region:string)` +
+			`["web1","west","zzz","north"]) on Computer | project N, Region | order by N desc`,
+	},
+	{
+		name: "join inner keeps duplicate matches", cols: `k:long,l:string,k1:long,r:string`,
+		rows: `[[2,"b",2,"x"],[2,"c",2,"x"]]`,
+		query: `datatable(k:long, l:string)[1,"a",2,"b",2,"c"] | join kind=inner` +
+			` (datatable(k:long, r:string)[2,"x",3,"y"]) on k | order by l asc`,
+	},
+	{
+		name: "join innerunique dedups the left side", cols: `k:long,l:string,k1:long,r:string`,
+		rows: `[[2,"b",2,"x"]]`,
+		query: `datatable(k:long, l:string)[1,"a",2,"b",2,"c"] | join` +
+			` (datatable(k:long, r:string)[2,"x",3,"y"]) on k`,
+	},
+	{
+		name: "join rightouter", cols: `l:string,r:string`, rows: `[["b","x"],["c","x"],["","y"]]`,
+		query: `datatable(k:long, l:string)[1,"a",2,"b",2,"c"] | join kind=rightouter` +
+			` (datatable(k:long, r:string)[2,"x",3,"y"]) on k | project l, r | order by r asc, l asc`,
+	},
+	{
+		name: "join rightsemi", cols: `k:long,r:string`, rows: `[[2,"x"]]`,
+		query: `datatable(k:long, l:string)[1,"a",2,"b",2,"c"] | join kind=rightsemi` +
+			` (datatable(k:long, r:string)[2,"x",3,"y"]) on k`,
+	},
+	{
+		name: "join rightanti", cols: `k:long,r:string`, rows: `[[3,"y"]]`,
+		query: `datatable(k:long, l:string)[1,"a",2,"b",2,"c"] | join kind=rightanti` +
+			` (datatable(k:long, r:string)[2,"x",3,"y"]) on k`,
+	},
+	{
+		name: "join leftantisemi", cols: `k:long,l:string`, rows: `[[1,"a"]]`,
+		query: `datatable(k:long, l:string)[1,"a",2,"b",2,"c"] | join kind=leftantisemi` +
+			` (datatable(k:long, r:string)[2,"x",3,"y"]) on k`,
+	},
+	{
+		name: "join two keys with and", cols: `Count:long`, rows: `[[1]]`,
+		query: `datatable(a:long, b:long)[1,1,1,2] | join kind=inner (datatable(a:long, b:long)[1,2])` +
+			` on $left.a == $right.a and $left.b == $right.b | count`,
+	},
 }
