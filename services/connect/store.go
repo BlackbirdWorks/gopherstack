@@ -134,7 +134,6 @@ type Backend struct {
 	apps            Integrations
 	mailer          Mailer
 	shares          Shares
-	expiring        bool
 	resolvers       Resolvers
 	phoneNumbers    *store.Table[phoneNumberRec]
 	now             func() time.Time
@@ -160,6 +159,7 @@ type Backend struct {
 	accountID        string
 	urlSecret        []byte
 	delay            time.Duration
+	expiring         bool
 }
 
 // NewBackend creates an empty backend.

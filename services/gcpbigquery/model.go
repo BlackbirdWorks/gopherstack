@@ -59,7 +59,6 @@ func (t *Table) expired(now int64) bool {
 	return err == nil && ms > 0 && ms <= now
 }
 
-// Table is a table or view with its rows in the canonical stored encoding.
 // StreamBuffer tracks rows written through tabledata.insertAll that real BigQuery has not yet flushed.
 type StreamBuffer struct {
 	Rows     int64 `json:"rows"`
@@ -67,6 +66,7 @@ type StreamBuffer struct {
 	OldestMs int64 `json:"oldestMs"`
 }
 
+// Table is a table or view with its rows in the canonical stored encoding.
 type Table struct {
 	Stream      *StreamBuffer    `json:"stream,omitempty"`
 	Meta        map[string]any   `json:"meta"`

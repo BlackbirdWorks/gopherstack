@@ -14,11 +14,11 @@ import (
 )
 
 const (
-	insertIDWindow   = time.Minute
+	insertIDWindow    = time.Minute
 	streamFlushWindow = 90 * time.Minute
-	defaultDataPage  = 100000
-	insertErrReason  = litInvalid
-	insertErrStopped = "stopped"
+	defaultDataPage   = 100000
+	insertErrReason   = litInvalid
+	insertErrStopped  = "stopped"
 )
 
 // InsertRow is one row of a streaming insert.

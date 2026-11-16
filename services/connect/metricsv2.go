@@ -721,31 +721,9 @@ func (b *Backend) v2Result(
 		Collections: make([]MetricDataV2, 0, len(in.Metrics)),
 	}
 
-	if len(group) > 0 {
-		res.Dimensions = map[string]string{}
+	res.Dimensions = b.groupDimensions(inst, in.Groupings, group)
 
-		for i, d := range in.Groupings {
-			res.Dimensions[d] = group[i]
-
-			if arn := b.dimArn(inst, d, group[i]); arn != "" {
-				res.Dimensions[d+"_ARN"] = arn
-			}
-		}
-	}
-
-	var inGroup []*contactRec
-
-	for _, c := range contacts {
-		match := true
-
-		for i, d := range in.Groupings {
-			match = match && group[i] == b.contactDim(inst, c, d)
-		}
-
-		if match {
-			inGroup = append(inGroup, c)
-		}
-	}
+	inGroup := b.contactsInGroup(inst, in.Groupings, group, contacts)
 
 	specs := v2Specs()
 
@@ -766,18 +744,60 @@ func (b *Backend) v2Result(
 			th = &m.Threshold[0]
 		}
 
-		sel := make([]*contactRec, 0, len(inGroup))
-
-		for _, c := range inGroup {
-			if b.matchesMetric(inst, c, m.MetricFilters) {
-				sel = append(sel, c)
-			}
-		}
+		sel := b.contactsMatching(inst, m.MetricFilters, inGroup)
 
 		res.Collections = append(res.Collections, MetricDataV2{Metric: m, Value: spec.eval(sel, w, th)})
 	}
 
 	return res
+}
+
+func (b *Backend) groupDimensions(inst string, groupings, group []string) map[string]string {
+	if len(group) == 0 {
+		return nil
+	}
+
+	dims := map[string]string{}
+
+	for i, d := range groupings {
+		dims[d] = group[i]
+
+		if arn := b.dimArn(inst, d, group[i]); arn != "" {
+			dims[d+"_ARN"] = arn
+		}
+	}
+
+	return dims
+}
+
+func (b *Backend) contactsInGroup(inst string, groupings, group []string, contacts []*contactRec) []*contactRec {
+	var out []*contactRec
+
+	for _, c := range contacts {
+		match := true
+
+		for i, d := range groupings {
+			match = match && group[i] == b.contactDim(inst, c, d)
+		}
+
+		if match {
+			out = append(out, c)
+		}
+	}
+
+	return out
+}
+
+func (b *Backend) contactsMatching(inst string, filters []MetricFilterV2, in []*contactRec) []*contactRec {
+	out := make([]*contactRec, 0, len(in))
+
+	for _, c := range in {
+		if b.matchesMetric(inst, c, filters) {
+			out = append(out, c)
+		}
+	}
+
+	return out
 }
 
 func (b *Backend) customValue(inst string, m MetricV2, w window, cs []*contactRec) float64 {

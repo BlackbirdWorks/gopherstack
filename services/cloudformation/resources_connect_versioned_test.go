@@ -253,7 +253,7 @@ func connectContentTemplate(t *testing.T, ver string, withAll bool) string {
 			"MetricCreationMethod": cfnGetAtt("Metric", "CreationMethod"),
 			"MetricEffective":      cfnGetAtt("Metric", "EffectiveTime"),
 			"MetricCreated":        cfnGetAtt("Metric", "CreatedTime"),
-			"LevelsRef": cfnRef("Levels"), "LevelsArn": cfnGetAtt("Levels", "UserHierarchyStructureArn"),
+			"LevelsRef":            cfnRef("Levels"), "LevelsArn": cfnGetAtt("Levels", "UserHierarchyStructureArn"),
 		}
 	}
 
