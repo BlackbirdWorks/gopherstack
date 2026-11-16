@@ -420,11 +420,6 @@ func TestUnroutedOperations(t *testing.T) {
 
 			return err
 		}},
-		{name: "list_service_views", call: func() error {
-			_, err := c.ListServiceViews(t.Context(), &sdk.ListServiceViewsInput{})
-
-			return err
-		}},
 	}
 
 	for _, tc := range tests {

@@ -42,6 +42,33 @@ var budgetFilterDims = map[string]string{ //nolint:gochecknoglobals // immutable
 	"BillingEntity":    dimKeyBillingEntity,
 	"InvoicingEntity":  dimKeyInvoicingEntity,
 	"LegalEntityName":  dimKeyLegalEntity,
+	"SubscriptionId":   dimKeySubscriptionID,
+}
+
+// costCategoryFilterKey is the Budgets CostFilters key whose values are "<category name>$<category value>".
+const costCategoryFilterKey = "CostCategory"
+
+// categoryResolver returns the value a cost category assigns to an entry; empty when none applies.
+type categoryResolver func(name string, e *CostEntry) string
+
+func (b *InMemoryBackend) categoryResolverLocked() categoryResolver {
+	cats := make(map[string]*CostCategory, b.costCategories.Len())
+	for _, c := range b.costCategories.All() {
+		cats[c.Name] = c
+	}
+
+	return func(name string, e *CostEntry) string { return assignCategory(cats, name, e, 0) }
+}
+
+func costCategoryFilterMatches(e CostEntry, vals []string, cat categoryResolver) bool {
+	for _, kv := range vals {
+		name, want, ok := strings.Cut(kv, "$")
+		if ok && strings.EqualFold(cat(name, &e), want) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // LedgerEntries returns a copy of the ledger entries with start <= date < end (YYYY-MM-DD).
@@ -63,9 +90,10 @@ func (b *InMemoryBackend) LedgerSpend(start, end string, filters map[string][]st
 	defer b.mu.RUnlock()
 
 	total := 0.0
+	cat := b.categoryResolverLocked()
 
 	for _, e := range b.costLedgerInBucket(start, end) {
-		if ledgerMatches(e, filters) {
+		if ledgerMatches(e, filters, cat) {
 			total += getMetricValue(e, metric)
 		}
 	}
@@ -73,40 +101,34 @@ func (b *InMemoryBackend) LedgerSpend(start, end string, filters map[string][]st
 	return total
 }
 
-func ledgerMatches(e CostEntry, filters map[string][]string) bool {
+func ledgerMatches(e CostEntry, filters map[string][]string, cat categoryResolver) bool {
 	for key, vals := range filters {
-		if len(vals) == 0 {
-			continue
-		}
-
-		if key == ExcludeChargeTypeFilter {
-			if stringSliceContainsFold(vals, entryChargeType(e)) {
-				return false
-			}
-
-			continue
-		}
-
-		if key == "TagKeyValue" {
-			if !tagKeyValueMatches(e, vals) {
-				return false
-			}
-
-			continue
-		}
-
-		dim, ok := budgetFilterDims[key]
-		if !ok {
-			continue
-		}
-
-		v, ok := dimensionFieldValue(e, dim)
-		if ok && !stringSliceContainsFold(vals, v) {
+		if len(vals) > 0 && !ledgerKeyMatches(e, key, vals, cat) {
 			return false
 		}
 	}
 
 	return true
+}
+
+func ledgerKeyMatches(e CostEntry, key string, vals []string, cat categoryResolver) bool {
+	switch key {
+	case ExcludeChargeTypeFilter:
+		return !stringSliceContainsFold(vals, entryChargeType(e))
+	case costCategoryFilterKey:
+		return costCategoryFilterMatches(e, vals, cat)
+	case "TagKeyValue":
+		return tagKeyValueMatches(e, vals)
+	}
+
+	dim, ok := budgetFilterDims[key]
+	if !ok {
+		return true
+	}
+
+	v, ok := dimensionFieldValue(e, dim)
+
+	return !ok || stringSliceContainsFold(vals, v)
 }
 
 func tagKeyValueMatches(e CostEntry, vals []string) bool {

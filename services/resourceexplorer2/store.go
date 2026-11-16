@@ -36,20 +36,22 @@ type OrgAccess interface {
 
 // InMemoryBackend is the Resource Explorer state; one coarse lock guards every table.
 type InMemoryBackend struct {
-	indexes   *store.Table[Index]
-	views     *store.Table[View]
-	defaults  *store.Table[DefaultView]
-	accounts  *store.Table[AccountState]
-	tasks     *store.Table[SetupTask]
-	registry  *store.Registry
-	mu        *lockmetrics.RWMutex
-	idem      *idempotency.Memo
-	now       func() time.Time
-	source    ResourceSource
-	org       OrgAccess
-	accountID string
-	region    string
-	dwell     time.Duration
+	indexes      *store.Table[Index]
+	views        *store.Table[View]
+	defaults     *store.Table[DefaultView]
+	accounts     *store.Table[AccountState]
+	tasks        *store.Table[SetupTask]
+	serviceViews *store.Table[ServiceView]
+	streaming    *store.Table[StreamingAccess]
+	registry     *store.Registry
+	mu           *lockmetrics.RWMutex
+	idem         *idempotency.Memo
+	now          func() time.Time
+	source       ResourceSource
+	org          OrgAccess
+	accountID    string
+	region       string
+	dwell        time.Duration
 }
 
 // NewInMemoryBackend creates an empty backend.
@@ -72,6 +74,12 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b.defaults = store.Register(b.registry, "defaultViews", store.New(func(v *DefaultView) string { return v.Key }))
 	b.accounts = store.Register(b.registry, "accounts", store.New(func(v *AccountState) string { return v.AccountID }))
 	b.tasks = store.Register(b.registry, "tasks", store.New(func(v *SetupTask) string { return v.ID }))
+	b.serviceViews = store.Register(b.registry, "serviceViews", store.New(func(v *ServiceView) string { return v.ARN }))
+	b.streaming = store.Register(
+		b.registry,
+		"streamingAccess",
+		store.New(func(v *StreamingAccess) string { return v.Key }),
+	)
 
 	return b
 }

@@ -115,7 +115,6 @@ func routes() []restroute.Route {
 		"GetAccountLevelServiceConfiguration", "GetDefaultView", "GetIndex", "GetManagedView",
 		"GetResourceExplorerSetup", "GetView", "ListIndexes", "ListIndexesForMembers", "ListManagedViews",
 		"ListResources", "ListSupportedResourceTypes", "ListViews", "Search", "UpdateIndexType", "UpdateView",
-		// Claimed so unimplemented operations answer UnknownOperationException instead of falling through to S3.
 		"GetServiceIndex", "GetServiceView", "ListServiceIndexes", "ListServiceViews", "ListStreamingAccessForServices",
 	}
 
@@ -146,6 +145,9 @@ func (h *Handler) ops() map[string]restroute.OpFunc {
 		"GetDefaultView":                      h.getDefaultView,
 		"GetIndex":                            h.getIndex,
 		"GetServiceIndex":                     h.getServiceIndex,
+		"GetServiceView":                      h.getServiceView,
+		"ListServiceViews":                    h.listServiceViews,
+		"ListStreamingAccessForServices":      h.listStreamingAccess,
 		"GetManagedView":                      h.getManagedView,
 		"GetResourceExplorerSetup":            h.getSetup,
 		"GetView":                             h.getView,

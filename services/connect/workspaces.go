@@ -766,3 +766,15 @@ func (b *Backend) SearchWorkspaceAssociations(in *SearchRequest) (*SearchResult,
 
 	return &body, nil
 }
+
+// WorkspaceAssociations returns the ARNs of the users and routing profiles assigned to a workspace.
+func (b *Backend) WorkspaceAssociations(inst, id string) ([]string, error) {
+	return readInstance(b, "WorkspaceAssociations", inst, func(inst string) ([]string, error) {
+		r, err := b.workspaceByID(inst, id)
+		if err != nil {
+			return nil, err
+		}
+
+		return slices.Clone(r.Resources), nil
+	})
+}

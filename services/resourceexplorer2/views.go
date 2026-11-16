@@ -161,6 +161,10 @@ func (b *InMemoryBackend) CreateView(ctx context.Context, in *CreateViewInput) (
 		return nil, invalid("Scope %q is not an ARN", scope)
 	}
 
+	if err = b.validateScope(scope, account); err != nil {
+		return nil, err
+	}
+
 	v, err := idempotency.Create(b.idem, "CreateView", in.ClientToken, idempotency.Fingerprint(in),
 		func(v *View) string { return v.ARN },
 		func(id string) (*View, error) {

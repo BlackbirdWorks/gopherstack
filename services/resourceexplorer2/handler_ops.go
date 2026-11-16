@@ -129,7 +129,7 @@ func (h *Handler) listIndexes(ctx context.Context, req *restroute.Request) (any,
 	return listOut("Indexes", pg), 0, nil
 }
 
-func (h *Handler) listIndexesForMembers(_ context.Context, req *restroute.Request) (any, int, error) {
+func (h *Handler) listIndexesForMembers(ctx context.Context, req *restroute.Request) (any, int, error) {
 	var in struct {
 		listIn
 		AccountIDList []string `json:"AccountIdList"`
@@ -138,7 +138,7 @@ func (h *Handler) listIndexesForMembers(_ context.Context, req *restroute.Reques
 		return nil, 0, err
 	}
 
-	pg, err := h.Backend.ListIndexesForMembers(in.AccountIDList, in.NextToken, in.max())
+	pg, err := h.Backend.ListIndexesForMembers(ctx, in.AccountIDList, in.NextToken, in.max())
 	if err != nil {
 		return nil, 0, err
 	}
@@ -451,4 +451,46 @@ func (h *Handler) tagResource(ctx context.Context, req *restroute.Request) (any,
 
 func (h *Handler) untagResource(ctx context.Context, req *restroute.Request) (any, int, error) {
 	return nil, 0, h.Backend.UntagResource(ctx, req.Params["resourceArn"], req.Query["tagKeys"])
+}
+
+func (h *Handler) getServiceView(ctx context.Context, req *restroute.Request) (any, int, error) {
+	var in struct{ ServiceViewArn string }
+	if err := req.Decode(&in); err != nil {
+		return nil, 0, err
+	}
+
+	v, err := h.Backend.GetServiceView(ctx, in.ServiceViewArn)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return map[string]any{keyView: v}, 0, nil
+}
+
+func (h *Handler) listServiceViews(ctx context.Context, req *restroute.Request) (any, int, error) {
+	var in listIn
+	if err := req.Decode(&in); err != nil {
+		return nil, 0, err
+	}
+
+	pg, err := h.Backend.ListServiceViews(ctx, in.NextToken, in.max())
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return listOut("ServiceViews", pg), 0, nil
+}
+
+func (h *Handler) listStreamingAccess(ctx context.Context, req *restroute.Request) (any, int, error) {
+	var in listIn
+	if err := req.Decode(&in); err != nil {
+		return nil, 0, err
+	}
+
+	pg, err := h.Backend.ListStreamingAccessForServices(ctx, in.NextToken, in.max())
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return listOut("StreamingAccessForServices", pg), 0, nil
 }

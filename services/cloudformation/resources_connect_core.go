@@ -262,12 +262,18 @@ func deleteConnectInstance(c *connectCall, physicalID string) error {
 // ---- HoursOfOperation ----
 
 func createConnectHours(c *connectCall) (string, error) {
-	if err := c.reject("HoursOfOperationOverrides", "ParentHoursOfOperations", "ChildHoursOfOperations"); err != nil {
+	extras, err := c.hoursExtras()
+	if err != nil {
 		return "", err
 	}
 
 	var in connectbackend.CreateHoursOfOperationInput
-	if err := c.decode(&in); err != nil {
+	if err = c.decode(
+		&in,
+		"HoursOfOperationOverrides",
+		"ParentHoursOfOperations",
+		"ChildHoursOfOperations",
+	); err != nil {
 		return "", err
 	}
 
@@ -278,19 +284,41 @@ func createConnectHours(c *connectCall) (string, error) {
 		return "", err
 	}
 
+	inst, id := splitConnectARN(out.Arn)
+	if err = c.syncHoursExtras(inst, id, extras); err != nil {
+		_, _ = c.be.DeleteHoursOfOperation(inst, id)
+
+		return "", err
+	}
+
 	return out.Arn, nil
 }
 
 func updateConnectHours(c *connectCall, physicalID string) error {
+	extras, err := c.hoursExtras()
+	if err != nil {
+		return err
+	}
+
 	var in connectbackend.UpdateHoursOfOperationInput
-	if err := c.decode(&in, connectTagsProp); err != nil {
+	if err = c.decode(
+		&in,
+		connectTagsProp,
+		"HoursOfOperationOverrides",
+		"ParentHoursOfOperations",
+		"ChildHoursOfOperations",
+	); err != nil {
 		return err
 	}
 
 	in.InstanceID, in.HoursID = splitConnectARN(physicalID)
 	in.Description = new(c.str("Description"))
 
-	if _, err := c.be.UpdateHoursOfOperation(c.ctx, &in); err != nil {
+	if _, err = c.be.UpdateHoursOfOperation(c.ctx, &in); err != nil {
+		return err
+	}
+
+	if err = c.syncHoursExtras(in.InstanceID, in.HoursID, extras); err != nil {
 		return err
 	}
 
@@ -307,12 +335,13 @@ func deleteConnectHours(c *connectCall, physicalID string) error {
 // ---- Queue ----
 
 func createConnectQueue(c *connectCall) (string, error) {
-	if err := c.reject("AdditionalEmailAddresses"); err != nil {
+	extra, err := connectQueueEmails(c)
+	if err != nil {
 		return "", err
 	}
 
 	var in connectbackend.CreateQueueInput
-	if err := c.decode(&in); err != nil {
+	if err = c.decode(&in, "AdditionalEmailAddresses"); err != nil {
 		return "", err
 	}
 
@@ -335,6 +364,13 @@ func createConnectQueue(c *connectCall) (string, error) {
 	}
 
 	inst, id := splitConnectARN(out.QueueArn)
+
+	if err = syncConnectQueueEmails(c, inst, id, extra); err != nil {
+		_, _ = c.be.DeleteQueue(inst, id)
+
+		return "", err
+	}
+
 	if q, derr := c.be.DescribeQueue(inst, id); derr == nil {
 		c.stash(map[string]string{
 			samKeyType:           "STANDARD",
@@ -349,8 +385,13 @@ func createConnectQueue(c *connectCall) (string, error) {
 func updateConnectQueue(c *connectCall, physicalID string) error {
 	inst, id := splitConnectARN(physicalID)
 
+	extra, err := connectQueueEmails(c)
+	if err != nil {
+		return err
+	}
+
 	var in connectbackend.UpdateQueueInput
-	if err := c.decode(&in, connectTagsProp, connectStatusProp); err != nil {
+	if err = c.decode(&in, connectTagsProp, connectStatusProp, "AdditionalEmailAddresses"); err != nil {
 		return err
 	}
 
@@ -365,15 +406,91 @@ func updateConnectQueue(c *connectCall, physicalID string) error {
 
 	in.Status = &status
 
-	if _, err := c.be.UpdateQueueName(c.ctx, &in); err != nil {
+	if _, err = c.be.UpdateQueueName(c.ctx, &in); err != nil {
 		return err
 	}
 
-	if _, err := c.be.UpdateQueueStatus(c.ctx, &in); err != nil {
+	if _, err = c.be.UpdateQueueStatus(c.ctx, &in); err != nil {
+		return err
+	}
+
+	if err = syncConnectQueueEmails(c, inst, id, extra); err != nil {
 		return err
 	}
 
 	return updateConnectQueueSettings(c, &in, physicalID)
+}
+
+// connectQueueEmails returns the email address IDs of the AdditionalEmailAddresses property.
+func connectQueueEmails(c *connectCall) ([]string, error) {
+	type emailRef struct{ EmailAddressArn string }
+
+	refs, err := connectList[emailRef](c, "AdditionalEmailAddresses")
+	if err != nil {
+		return nil, err
+	}
+
+	ids := make([]string, 0, len(refs))
+	for _, r := range refs {
+		ids = append(ids, lastPathSegment(r.EmailAddressArn))
+	}
+
+	return ids, nil
+}
+
+// syncConnectQueueEmails makes the queue's additional "from" addresses equal want.
+func syncConnectQueueEmails(c *connectCall, inst, queueID string, want []string) error {
+	var have []string
+
+	for token := ""; ; {
+		page, _, next, err := c.be.ListQueueEmailAddresses(inst, queueID, token, 0)
+		if err != nil {
+			return err
+		}
+
+		for _, e := range page {
+			if !e.IsDefaultOutboundEmail {
+				have = append(have, e.ID)
+			}
+		}
+
+		if next == "" {
+			break
+		}
+
+		token = next
+	}
+
+	remove := slices.DeleteFunc(slices.Clone(have), func(id string) bool { return slices.Contains(want, id) })
+	add := slices.DeleteFunc(slices.Clone(want), func(id string) bool { return slices.Contains(have, id) })
+
+	if len(remove) > 0 {
+		var in connectbackend.QueueEmailAddressesInput
+
+		in.InstanceID, in.QueueID, in.EmailAddressesID = inst, queueID, remove
+
+		if _, err := c.be.DisassociateQueueEmailAddresses(&in); err != nil {
+			return err
+		}
+	}
+
+	if len(add) > 0 {
+		var in connectbackend.QueueEmailAddressesInput
+
+		in.InstanceID, in.QueueID = inst, queueID
+
+		for _, id := range add {
+			in.EmailAddressesConfig = append(in.EmailAddressesConfig, struct {
+				EmailAddressID string `json:"EmailAddressId"`
+			}{EmailAddressID: id})
+		}
+
+		if _, err := c.be.AssociateQueueEmailAddresses(&in); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func updateConnectQueueSettings(c *connectCall, in *connectbackend.UpdateQueueInput, physicalID string) error {
@@ -461,10 +578,6 @@ func deleteConnectQueue(c *connectCall, physicalID string) error {
 // ---- RoutingProfile ----
 
 func createConnectRoutingProfile(c *connectCall) (string, error) {
-	if err := c.reject("ManualAssignmentQueueConfigs"); err != nil {
-		return "", err
-	}
-
 	var in connectbackend.CreateRoutingProfileInput
 	if err := c.decode(&in); err != nil {
 		return "", err
@@ -516,6 +629,10 @@ func updateConnectRoutingProfile(c *connectCall, physicalID string) error {
 		return err
 	}
 
+	if err := syncConnectManualQueues(c, &in); err != nil {
+		return err
+	}
+
 	return c.syncTags(physicalID)
 }
 
@@ -562,6 +679,66 @@ func syncConnectProfileQueues(c *connectCall, in *connectbackend.UpdateRoutingPr
 	}
 
 	return applyConnectProfileQueues(c, in, add, change, drop)
+}
+
+// syncConnectManualQueues makes the profile's manual-assignment queues equal ManualAssignmentQueueConfigs.
+func syncConnectManualQueues(c *connectCall, in *connectbackend.UpdateRoutingProfileInput) error {
+	var have []connectbackend.QueueReference
+
+	for token := ""; ; {
+		out, err := c.be.ListRoutingProfileManualAssignmentQueues(in.InstanceID, in.ProfileID, token, 0)
+		if err != nil {
+			return err
+		}
+
+		for _, q := range out.Queues {
+			have = append(have, connectbackend.QueueReference{QueueID: q.QueueID, Channel: q.Channel})
+		}
+
+		if out.NextToken == "" {
+			break
+		}
+
+		token = out.NextToken
+	}
+
+	var drop []connectbackend.QueueReference
+
+	for _, h := range have {
+		if !slices.ContainsFunc(in.ManualAssignmentQueues, func(w connectbackend.RoutingProfileQueueConfig) bool {
+			return w.QueueReference == h
+		}) {
+			drop = append(drop, h)
+		}
+	}
+
+	var add []connectbackend.RoutingProfileQueueConfig
+
+	for _, w := range in.ManualAssignmentQueues {
+		if !slices.Contains(have, w.QueueReference) {
+			add = append(add, w)
+		}
+	}
+
+	var ref connectbackend.UpdateRoutingProfileInput
+
+	ref.ProfileID, ref.InstanceID = in.ProfileID, in.InstanceID
+
+	if len(drop) > 0 {
+		ref.ManualReferences = drop
+		if _, err := c.be.DisassociateRoutingProfileQueues(c.ctx, &ref); err != nil {
+			return err
+		}
+	}
+
+	if len(add) > 0 {
+		ref.ManualAssignmentQueues = add
+		if _, err := c.be.AssociateRoutingProfileQueues(c.ctx, &ref); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func applyConnectProfileQueues(

@@ -70,6 +70,20 @@ func budgetsSpendFilter(e *budgetsbackend.Expression) *cebackend.SpendFilter {
 		}
 	}
 
+	if e.CostCategories != nil {
+		out.CostCategories = &cebackend.SpendValues{
+			Key: e.CostCategories.Key, Values: e.CostCategories.Values, MatchOptions: e.CostCategories.MatchOptions,
+		}
+	}
+
+	if e.ProductAttributes != nil {
+		out.ProductAttributes = &cebackend.SpendValues{
+			Key:          e.ProductAttributes.Key,
+			Values:       e.ProductAttributes.Values,
+			MatchOptions: e.ProductAttributes.MatchOptions,
+		}
+	}
+
 	for i := range e.And {
 		out.And = append(out.And, *budgetsSpendFilter(&e.And[i]))
 	}
