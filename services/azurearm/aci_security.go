@@ -26,6 +26,25 @@ const (
 	aciMaxID           = 1 << 31
 )
 
+// aciAddableCaps are the capabilities a container may add: Docker's default set plus three that only affect the
+// container; anything that reaches the host (SYS_ADMIN, SYS_PTRACE, SYS_MODULE, NET_ADMIN, ALL, ...) is refused.
+//
+//nolint:gochecknoglobals // static allow-list, read-only
+var aciAddableCaps = map[string]bool{
+	"CHOWN": true, "DAC_OVERRIDE": true, "FSETID": true, "FOWNER": true, "MKNOD": true, "NET_RAW": true,
+	"SETGID": true, "SETUID": true, "SETFCAP": true, "SETPCAP": true, "NET_BIND_SERVICE": true, "SYS_CHROOT": true,
+	"KILL": true, "AUDIT_WRITE": true, "IPC_LOCK": true, "SYS_NICE": true, "NET_BROADCAST": true,
+}
+
+// aciDenyingSeccomp are the profile defaultAction values that block unlisted syscalls; SCMP_ACT_ALLOW (or no
+// default) would be seccomp=unconfined in disguise.
+//
+//nolint:gochecknoglobals // static allow-list, read-only
+var aciDenyingSeccomp = map[string]bool{
+	"SCMP_ACT_ERRNO": true, "SCMP_ACT_KILL": true, "SCMP_ACT_KILL_PROCESS": true, "SCMP_ACT_KILL_THREAD": true,
+	"SCMP_ACT_TRAP": true,
+}
+
 type aciCapsWire struct {
 	Add  []string `json:"add,omitempty"`
 	Drop []string `json:"drop,omitempty"`
@@ -78,19 +97,35 @@ func (s *aciSecurityWire) validate(container string) error {
 		return aciBad("container %q: securityContext.runAsGroup is out of range", container)
 	}
 
-	if c := s.Capabilities; c != nil {
-		if len(c.Add)+len(c.Drop) > aciMaxCapabilities {
-			return aciBad("container %q: too many securityContext capabilities", container)
-		}
-
-		for _, n := range append(append([]string(nil), c.Add...), c.Drop...) {
-			if !aciCapRe.MatchString(n) {
-				return aciBad("container %q: capability %q must be upper-case letters and underscores", container, n)
-			}
-		}
+	if err := s.Capabilities.validate(container); err != nil {
+		return err
 	}
 
 	return s.validateSeccomp(container)
+}
+
+func (c *aciCapsWire) validate(container string) error {
+	if c == nil {
+		return nil
+	}
+
+	if len(c.Add)+len(c.Drop) > aciMaxCapabilities {
+		return aciBad("container %q: too many securityContext capabilities", container)
+	}
+
+	for _, n := range append(append([]string(nil), c.Add...), c.Drop...) {
+		if !aciCapRe.MatchString(n) {
+			return aciBad("container %q: capability %q must be upper-case letters and underscores", container, n)
+		}
+	}
+
+	for _, n := range c.Add {
+		if !aciAddableCaps[strings.TrimPrefix(n, "CAP_")] {
+			return aciBad("container %q: adding capability %q is not supported by this emulator", container, n)
+		}
+	}
+
+	return nil
 }
 
 func (s *aciSecurityWire) validateSeccomp(container string) error {
@@ -106,6 +141,10 @@ func (s *aciSecurityWire) validateSeccomp(container string) error {
 	var obj map[string]any
 	if err = json.Unmarshal(raw, &obj, jsonx.V1()); err != nil {
 		return aciBad("container %q: securityContext.seccompProfile must be a JSON object", container)
+	}
+
+	if !aciDenyingSeccomp[stringOf(obj["defaultAction"])] {
+		return aciBad("container %q: securityContext.seccompProfile needs a denying defaultAction", container)
 	}
 
 	return nil

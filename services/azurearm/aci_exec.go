@@ -19,9 +19,10 @@ import (
 )
 
 const (
-	aciExecPrefix  = "/_aci/exec/"
-	aciExecTTL     = 5 * time.Minute
-	aciExecMaxRead = 4096
+	aciExecPrefix       = "/_aci/exec/"
+	aciExecTTL          = 5 * time.Minute
+	aciExecMaxRead      = 4096
+	aciExecWriteTimeout = 30 * time.Second
 )
 
 var (
@@ -275,6 +276,8 @@ func (p *ContainerInstanceProvider) ServeExec(rw http.ResponseWriter, r *http.Re
 type wsWriter struct{ conn *websocket.Conn }
 
 func (w wsWriter) Write(b []byte) (int, error) {
+	_ = w.conn.SetWriteDeadline(time.Now().Add(aciExecWriteTimeout))
+
 	if err := w.conn.WriteMessage(websocket.BinaryMessage, b); err != nil {
 		return 0, fmt.Errorf("write frame: %w", err)
 	}

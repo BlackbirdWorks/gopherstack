@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -500,17 +501,20 @@ func asyncDelay(v any) time.Duration {
 	return time.Duration(n) * time.Second
 }
 
+// pollHeaders sends a same-origin poll the request headers without the Content-* ones; a poll to another origin
+// gets only the workflow headers, since any other header may carry a credential for the original host.
 func pollHeaders(req *logicHTTPRequest, loc string) http.Header {
-	h := req.header.Clone()
 	from, _ := url.Parse(req.url)
 	to, _ := url.Parse(loc)
+	sameOrigin := from != nil && to != nil && from.Scheme == to.Scheme && from.Host == to.Host
+	h := http.Header{}
 
-	for k := range h {
+	for k, v := range req.header {
 		lk := strings.ToLower(k)
 
-		if strings.HasPrefix(lk, "content-") ||
-			(from == nil || to == nil || from.Host != to.Host) && (lk == "authorization" || lk == "cookie") {
-			delete(h, k)
+		switch {
+		case sameOrigin && !strings.HasPrefix(lk, "content-"), strings.HasPrefix(lk, "x-ms-workflow-"):
+			h[k] = slices.Clone(v)
 		}
 	}
 

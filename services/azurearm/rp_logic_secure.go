@@ -13,6 +13,10 @@ const (
 	logicKStaticResult  = "staticResult"
 )
 
+var logicTriggerRef = regexp.MustCompile(
+	`(?i)\btrigger(?:body|outputs|formdatavalue|formdatamultivalues|multipartbody)?\(`,
+)
+
 var logicActionRef = regexp.MustCompile(`(?i)\b(?:outputs|body|actions)\(\s*'([^']+)'\s*\)`)
 
 const (
@@ -92,12 +96,22 @@ func hideTriggerContent(def map[string]any, in, out *logicContent) {
 	hideContent(in, out, hi, ho)
 }
 
-// taintedInputs reports whether the action's inputs explicitly use the outputs of an action whose secured data
-// the documentation says propagates to its readers.
+// taintedInputs reports whether the action's inputs explicitly use the outputs of a trigger or action whose secured
+// data the documentation says propagates to its readers.
 func (rs *logicRunState) taintedInputs(env *logicEnv, def map[string]any) bool {
 	raw, err := json.Marshal(def[logicKInputs], jsonx.V1())
 	if err != nil {
 		return false
+	}
+
+	if logicTriggerRef.Match(raw) {
+		rs.p.mu.RLock("taintedInputs")
+		hidden := rs.run.Trigger.Inputs.Hidden || rs.run.Trigger.Outputs.Hidden
+		rs.p.mu.RUnlock()
+
+		if hidden {
+			return true
+		}
 	}
 
 	for _, m := range logicActionRef.FindAllStringSubmatch(string(raw), -1) {
@@ -118,26 +132,20 @@ func (rs *logicRunState) taintedInputs(env *logicEnv, def map[string]any) bool {
 	return false
 }
 
-// applySecure hides the run-history content of a finished action per its secureData setting and, when it reads
-// secured outputs, per the documented propagation to downstream actions.
-func (rs *logicRunState) applySecure(env *logicEnv, rec *logicActionRec, def map[string]any) {
+type secureHide struct{ in, out, source bool }
+
+// secureFor decides what the run history hides for a finished action: its own secureData setting and, when it
+// reads secured outputs, the documented propagation to downstream actions.
+func (rs *logicRunState) secureFor(env *logicEnv, typ string, def map[string]any) secureHide {
 	si, so := secureData(def)
-	hideIn, hideOut := secureHides(rec.Type, si, so)
-	typ := strings.ToLower(rec.Type)
-	source := !inputsOnly(typ) && (hideIn || hideOut)
+	hideIn, hideOut := secureHides(typ, si, so)
+	source := !inputsOnly(strings.ToLower(typ)) && (hideIn || hideOut)
 
 	if !hideIn && rs.taintedInputs(env, def) {
-		hideIn, hideOut = secureHides(rec.Type, true, false)
+		hideIn, hideOut = secureHides(typ, true, false)
 	}
 
-	if !hideIn && !hideOut && !source {
-		return
-	}
-
-	rs.p.mu.Lock("applySecure")
-	hideContent(&rec.Inputs, &rec.Outputs, hideIn, hideOut)
-	rec.Taints = rec.Taints || source
-	rs.p.mu.Unlock()
+	return secureHide{in: hideIn, out: hideOut, source: source}
 }
 
 func logicStaticCapable(typ string) bool {

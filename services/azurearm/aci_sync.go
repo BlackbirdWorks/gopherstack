@@ -15,7 +15,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
-const aciShareSyncEvery = 2 * time.Second
+const (
+	aciShareSyncEvery = 2 * time.Second
+	aciSyncMaxFiles   = 20000
+	aciSyncMaxBytes   = 512 << 20
+)
 
 type aciSum = [sha256.Size]byte
 
@@ -196,7 +200,7 @@ func syncMount(shares ACIFileShares, m *shareMount) error {
 		return fmt.Errorf("export share: %w", err)
 	}
 
-	dir, err := readACITree(m.dir)
+	dir, err := readACITree(m.dir, aciSyncMaxFiles, aciSyncMaxBytes)
 	if err != nil {
 		return err
 	}

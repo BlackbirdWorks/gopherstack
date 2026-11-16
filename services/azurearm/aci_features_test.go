@@ -24,7 +24,7 @@ func (s *aciStack) put(t *testing.T, g armcontainerinstance.ContainerGroup) erro
 func TestACISecurityContext(t *testing.T) {
 	t.Parallel()
 
-	seccomp := base64.StdEncoding.EncodeToString([]byte(`{"defaultAction":"SCMP_ACT_ALLOW"}`))
+	seccomp := base64.StdEncoding.EncodeToString([]byte(`{"defaultAction":"SCMP_ACT_ERRNO"}`))
 	secure := func(sc *armcontainerinstance.SecurityContextDefinition) func(*armcontainerinstance.ContainerGroup) {
 		return func(g *armcontainerinstance.ContainerGroup) {
 			g.Properties.Containers[0].Properties.SecurityContext = sc
@@ -58,13 +58,13 @@ func TestACISecurityContext(t *testing.T) {
 		{
 			name: "capabilities", mutate: secure(&armcontainerinstance.SecurityContextDefinition{
 				Capabilities: &armcontainerinstance.SecurityContextCapabilitiesDefinition{
-					Add: []*string{new("CAP_NET_ADMIN")}, Drop: []*string{new("MKNOD")},
+					Add: []*string{new("CAP_NET_BIND_SERVICE")}, Drop: []*string{new("MKNOD")},
 				},
 			}),
 			check: func(t *testing.T, _ []string, _ string, add, drop []string) {
 				t.Helper()
 
-				assert.Equal(t, []string{"NET_ADMIN"}, add)
+				assert.Equal(t, []string{"NET_BIND_SERVICE"}, add)
 				assert.Equal(t, []string{"MKNOD"}, drop)
 			},
 		},
@@ -75,7 +75,7 @@ func TestACISecurityContext(t *testing.T) {
 			check: func(t *testing.T, opts []string, _ string, _, _ []string) {
 				t.Helper()
 
-				assert.Equal(t, []string{"no-new-privileges", `seccomp={"defaultAction":"SCMP_ACT_ALLOW"}`}, opts)
+				assert.Equal(t, []string{"no-new-privileges", `seccomp={"defaultAction":"SCMP_ACT_ERRNO"}`}, opts)
 			},
 		},
 		{
@@ -90,6 +90,28 @@ func TestACISecurityContext(t *testing.T) {
 					Add: []*string{new("net admin")},
 				},
 			}),
+		},
+		{
+			name: "host-reaching capability refused", wantCode: "InvalidRequestContent",
+			mutate: secure(&armcontainerinstance.SecurityContextDefinition{
+				Capabilities: &armcontainerinstance.SecurityContextCapabilitiesDefinition{
+					Add: []*string{new("SYS_ADMIN")},
+				},
+			}),
+		},
+		{
+			name: "all capabilities refused", wantCode: "InvalidRequestContent",
+			mutate: secure(&armcontainerinstance.SecurityContextDefinition{
+				Capabilities: &armcontainerinstance.SecurityContextCapabilitiesDefinition{
+					Add: []*string{new("CAP_ALL")},
+				},
+			}),
+		},
+		{
+			name: "allow-all seccomp refused", wantCode: "InvalidRequestContent",
+			mutate: secure(&armcontainerinstance.SecurityContextDefinition{SeccompProfile: new(
+				base64.StdEncoding.EncodeToString([]byte(`{"defaultAction":"SCMP_ACT_ALLOW"}`)),
+			)}),
 		},
 		{
 			name: "bad seccomp", wantCode: "InvalidRequestContent",
@@ -520,4 +542,41 @@ func TestACIGroupsGetDistinctAddresses(t *testing.T) {
 	}
 
 	assert.Len(t, ports, 3, "the same declared port is published on three addresses")
+}
+
+func TestACIMountPathRejectsBindOptions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		path string
+		ok   bool
+	}{
+		{name: "plain path", path: "/data", ok: true},
+		{name: "mode suffix", path: "/data:rw"},
+		{name: "second colon", path: "/data:/etc"},
+		{name: "comma", path: "/data,ro"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := newACIStack(t)
+			g := aciOpts{
+				volumes: []*armcontainerinstance.Volume{{Name: new("v"), EmptyDir: map[string]any{}}},
+				mounts:  []*armcontainerinstance.VolumeMount{{Name: new("v"), MountPath: new(tt.path)}},
+			}.group()
+
+			err := s.put(t, g)
+			if tt.ok {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			assert.Equal(t, "InvalidRequestContent", sdkErrCode(err))
+		})
+	}
 }

@@ -151,7 +151,8 @@ func (rs *logicRunState) begin(env *logicEnv, name, typ string) *logicActionRec 
 	return rec
 }
 
-func (rs *logicRunState) finish(rec *logicActionRec, out logicOutcome) {
+// finishSecure records the outcome and its hidden flags under one lock so no reader sees the content unhidden.
+func (rs *logicRunState) finishSecure(rec *logicActionRec, out logicOutcome, sh secureHide) {
 	end := rs.clock().UTC()
 
 	rs.p.mu.Lock("finish")
@@ -164,6 +165,9 @@ func (rs *logicRunState) finish(rec *logicActionRec, out logicOutcome) {
 	if out.hasOut {
 		rec.Outputs = logicContent{Value: out.outputs, Set: true}
 	}
+
+	hideContent(&rec.Inputs, &rec.Outputs, sh.in, sh.out)
+	rec.Taints = rec.Taints || sh.source
 
 	rs.p.mu.Unlock()
 }
@@ -247,8 +251,7 @@ func (rs *logicRunState) runOne(
 
 	rec := rs.begin(env, name, typ)
 	out := rs.dispatch(env, name, strings.ToLower(typ), def)
-	rs.finish(rec, out)
-	rs.applySecure(env, rec, def)
+	rs.finishSecure(rec, out, rs.secureFor(env, typ, def))
 
 	return out.status
 }

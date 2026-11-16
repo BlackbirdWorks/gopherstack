@@ -3,6 +3,7 @@ package azurearm
 import (
 	"crypto/subtle"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -280,19 +281,8 @@ func (e *ACIEngine) fillAzureFile(run *aciRun, v aciVolumeWire, dir string, shar
 		return fmt.Sprintf("azureFile volume %q: share %s/%s: %v", v.Name, af.StorageAccountName, af.ShareName, err)
 	}
 
-	for _, d := range tree.Dirs {
-		if err = os.MkdirAll(filepath.Join(dir, filepath.FromSlash(d)), aciScratchPerm); err != nil {
-			return fmt.Sprintf("materialize share %q: %v", af.ShareName, err)
-		}
-
-		_ = os.Chmod(filepath.Join(dir, filepath.FromSlash(d)), aciScratchPerm)
-	}
-
-	for p, data := range tree.Files {
-		target := filepath.Join(dir, filepath.FromSlash(p))
-		if err = os.WriteFile(target, data, aciFilePerm); err != nil {
-			return fmt.Sprintf("materialize share %q: %v", af.ShareName, err)
-		}
+	if err = writeACIDir(dir, tree, ACIShareTree{}); err != nil {
+		return fmt.Sprintf("materialize share %q: %v", af.ShareName, err)
 	}
 
 	e.mu.Lock("fillAzureFile")
@@ -318,6 +308,9 @@ func (e *ACIEngine) syncShares(run *aciRun) {
 		return
 	}
 
+	run.syncMu.Lock("syncShares")
+	defer run.syncMu.Unlock()
+
 	for _, m := range mounts {
 		if err := syncMount(shares, m); err != nil {
 			logACISyncFailure(run, *m, err)
@@ -325,8 +318,14 @@ func (e *ACIEngine) syncShares(run *aciRun) {
 	}
 }
 
-func readACITree(root string) (ACIShareTree, error) {
+var errACITreeTooLarge = errors.New("the volume holds more files or bytes than the emulator syncs")
+
+// readACITree reads the regular files and directories under root without following symlinks; a tree beyond
+// maxFiles files or maxBytes bytes is refused before the oversized file is read.
+func readACITree(root string, maxFiles int, maxBytes int64) (ACIShareTree, error) {
 	tree := ACIShareTree{Files: map[string][]byte{}}
+
+	var total int64
 
 	rt, err := os.OpenRoot(root)
 	if err != nil {
@@ -350,6 +349,16 @@ func readACITree(root string) (ACIShareTree, error) {
 		case d.IsDir():
 			tree.Dirs = append(tree.Dirs, rel)
 		case d.Type().IsRegular():
+			info, infoErr := d.Info()
+			if infoErr != nil {
+				return infoErr
+			}
+
+			total += info.Size()
+			if len(tree.Files) >= maxFiles || total > maxBytes {
+				return errACITreeTooLarge
+			}
+
 			data, readErr := rt.ReadFile(rel)
 			if readErr != nil {
 				return readErr

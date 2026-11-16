@@ -136,6 +136,7 @@ type aciRun struct {
 	owned     []int
 	events    []ACIEvent
 	shares    []shareMount
+	syncMu    *lockmetrics.RWMutex
 	allDirs   []string
 	wg        sync.WaitGroup
 	retryOnce sync.Once
@@ -277,6 +278,7 @@ func (e *ACIEngine) Deploy(cfg aciConfig) {
 	run := &aciRun{
 		hostPorts: map[int]int{}, udpPorts: map[int]int{}, backHost: map[int]string{}, backPorts: map[int]int{},
 		scratch: map[string]string{}, initRetry: make(chan struct{}),
+		syncMu: lockmetrics.New("azurearm.acisync"),
 	}
 	run.ctx, run.cancel = context.WithCancel(e.ctx)
 

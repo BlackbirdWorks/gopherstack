@@ -291,7 +291,9 @@ func (f *fakeACIRuntime) FollowLogs(ctx context.Context, id string, out io.Write
 	return err
 }
 
-func (f *fakeShares) set(key, name string, data []byte) {
+func (f *fakeShares) set(name string, data []byte) {
+	const key = "acct/share1"
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 

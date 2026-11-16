@@ -305,6 +305,10 @@ func validateEnvMounts(owner string, env []aciEnvWire, mounts []aciMountWire, vo
 			return fmt.Errorf("%w: container %q has a volume mount for an unknown volume or a relative mountPath",
 				errACIInvalid, owner)
 		}
+
+		if strings.ContainsAny(m.MountPath, ":,\x00") {
+			return aciBad("container %q: mountPath %q must not contain ':', ',' or NUL", owner, m.MountPath)
+		}
 	}
 
 	return nil

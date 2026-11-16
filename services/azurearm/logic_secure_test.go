@@ -216,3 +216,41 @@ func TestLogicSecureDataPersists(t *testing.T) {
 	assert.NotNil(t, got.InputsLink)
 	assert.Nil(t, got.OutputsLink)
 }
+
+func TestLogicSecureTriggerOutputsPropagate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		props      []any
+		wantHidden bool
+	}{
+		{name: "secured trigger outputs hide the reader inputs", props: []any{"outputs"}, wantHidden: true},
+		{name: "secured trigger inputs hide the reader inputs", props: []any{"inputs"}, wantHidden: true},
+		{name: "plain trigger leaves the reader visible"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := newLogicStack(t)
+			trig := requestTrigger(nil)
+			manual, _ := trig["manual"].(map[string]any)
+
+			if tc.props != nil {
+				manual["runtimeConfiguration"] = secureCfg(tc.props...)
+			}
+
+			s.create(t, "trigprop", logicDef(trig, la{"Use": la{
+				"type": "Join", "runAfter": la{},
+				"inputs": la{"from": "@triggerBody()?['items']", "joinWith": ","},
+			}}))
+
+			out := s.invoke(t, "trigprop", `{"items":[1,2]}`)
+
+			assert.Equal(t, tc.wantHidden, out.actions["Use"].Properties.InputsLink == nil)
+			assert.NotNil(t, out.actions["Use"].Properties.OutputsLink)
+		})
+	}
+}

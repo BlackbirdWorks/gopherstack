@@ -42,7 +42,7 @@ func TestACIAzureFileLiveSync(t *testing.T) {
 		{
 			name: "share write reaches the container",
 			share: func(s *aciStack) {
-				s.shares.set("acct/share1", "new.txt", []byte("from share"))
+				s.shares.set("new.txt", []byte("from share"))
 			},
 			wantShare: map[string]string{"new.txt": "from share"},
 			wantDir:   map[string]string{"new.txt": "from share"},
@@ -66,7 +66,7 @@ func TestACIAzureFileLiveSync(t *testing.T) {
 				t.Helper()
 				writeFile(t, dir, "f.txt", "container")
 			},
-			share:     func(s *aciStack) { s.shares.set("acct/share1", "f.txt", []byte("share")) },
+			share:     func(s *aciStack) { s.shares.set("f.txt", []byte("share")) },
 			wantShare: map[string]string{"f.txt": "container"}, wantDir: map[string]string{"f.txt": "container"},
 		},
 		{
@@ -76,7 +76,7 @@ func TestACIAzureFileLiveSync(t *testing.T) {
 				t.Helper()
 				writeFile(t, dir, "f.txt", "tampered")
 			},
-			share:     func(s *aciStack) { s.shares.set("acct/share1", "g.txt", []byte("added")) },
+			share:     func(s *aciStack) { s.shares.set("g.txt", []byte("added")) },
 			wantShare: map[string]string{"f.txt": "base", "g.txt": "added"},
 			wantDir:   map[string]string{"f.txt": "base", "g.txt": "added"},
 		},
@@ -107,7 +107,7 @@ func TestACIAzureFileLiveSync(t *testing.T) {
 
 			_, err := s.create(t, "rg", "sync", aciOpts{
 				policy:  armcontainerinstance.ContainerGroupRestartPolicyAlways,
-				volumes: []*armcontainerinstance.Volume{azureFileVolume("files", tt.readOnly)},
+				volumes: []*armcontainerinstance.Volume{azureFileVolume(tt.readOnly)},
 				mounts:  []*armcontainerinstance.VolumeMount{{Name: new("files"), MountPath: new("/data")}},
 			})
 			require.NoError(t, err)
@@ -155,7 +155,7 @@ func TestACIAzureFileKeyChecked(t *testing.T) {
 			s := newACIStack(t)
 			s.shares.trees["acct/share1"] = azurearm.ACIShareTree{Files: map[string][]byte{}}
 
-			vol := azureFileVolume("files", false)
+			vol := azureFileVolume(false)
 			vol.AzureFile.StorageAccountKey = &tt.key
 
 			_, err := s.create(t, "rg", "keyed", aciOpts{
@@ -177,8 +177,8 @@ func TestACIAzureFileKeyChecked(t *testing.T) {
 	}
 }
 
-func azureFileVolume(name string, readOnly bool) *armcontainerinstance.Volume {
-	return &armcontainerinstance.Volume{Name: &name, AzureFile: &armcontainerinstance.AzureFileVolume{
+func azureFileVolume(readOnly bool) *armcontainerinstance.Volume {
+	return &armcontainerinstance.Volume{Name: new("files"), AzureFile: &armcontainerinstance.AzureFileVolume{
 		ShareName: new("share1"), StorageAccountName: new("acct"),
 		StorageAccountKey: new(azureauth.DefaultAccountKey), ReadOnly: &readOnly,
 	}}
