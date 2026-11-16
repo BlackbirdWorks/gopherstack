@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
+	apigwv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
 
 const (
@@ -103,10 +104,14 @@ func (a *apigwServiceInvoker) InvokeAWSService(
 // wireAPIGatewayAWSServiceInvoker lets API Gateway AWS integrations reach every JSON-protocol
 // service (and s3 path style) in-process.
 func wireAPIGatewayAWSServiceInvoker(e http.Handler, services []service.Registerable) {
-	apigwH, ok := serviceByName(services)["APIGateway"].(*apigwbackend.Handler)
-	if !ok {
-		return
+	byName := serviceByName(services)
+	inv := &apigwServiceInvoker{handler: e}
+
+	if apigwH, ok := byName["APIGateway"].(*apigwbackend.Handler); ok {
+		apigwH.SetAWSServiceInvoker(inv)
 	}
 
-	apigwH.SetAWSServiceInvoker(&apigwServiceInvoker{handler: e})
+	if v2H, ok := byName["APIGatewayV2"].(*apigwv2backend.Handler); ok {
+		v2H.SetAWSServiceInvoker(inv)
+	}
 }

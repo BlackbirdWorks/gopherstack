@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
 
 type wsIntegrationResponse struct {
@@ -30,6 +31,7 @@ type wsIntegrationSpec struct {
 	integrationType apigatewayv2types.IntegrationType
 	passthrough     string
 	responses       []wsIntegrationResponse
+	routeKey        string
 	routeResponse   bool
 }
 
@@ -58,10 +60,12 @@ func wsUpstream(t *testing.T) *httptest.Server {
 	return srv
 }
 
-func wsIntegrationAPI(t *testing.T, upstreamURL string, spec wsIntegrationSpec) *wsEnv {
+func wsIntegrationAPI(
+	t *testing.T, upstreamURL string, spec wsIntegrationSpec, opts ...func(*apigatewayv2.Handler),
+) *wsEnv {
 	t.Helper()
 
-	env := newWSEnv(t, &wsLambda{calls: make(chan wsLambdaCall, 8)})
+	env := newWSEnv(t, &wsLambda{calls: make(chan wsLambdaCall, 8)}, opts...)
 
 	api, err := env.api.CreateApi(t.Context(), &apigatewayv2sdk.CreateApiInput{
 		Name:                     aws.String("ws"),
@@ -98,9 +102,14 @@ func wsIntegrationAPI(t *testing.T, upstreamURL string, spec wsIntegrationSpec) 
 		require.NoError(t, irErr)
 	}
 
+	routeKey := "echo"
+	if spec.routeKey != "" {
+		routeKey = spec.routeKey
+	}
+
 	route := &apigatewayv2sdk.CreateRouteInput{
 		ApiId:    api.ApiId,
-		RouteKey: aws.String("echo"),
+		RouteKey: aws.String(routeKey),
 		Target:   aws.String("integrations/" + aws.ToString(integ.IntegrationId)),
 	}
 	if spec.routeResponse {

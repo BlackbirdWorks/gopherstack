@@ -89,6 +89,8 @@ var (
 	ErrStageNotFound = errors.New("NotFoundException")
 	// ErrIntegrationInvoke marks a failure from the backing integration call itself.
 	ErrIntegrationInvoke = errors.New("integration invocation failed")
+	// ErrConnectRejected marks a $connect upstream answer outside 2xx.
+	ErrConnectRejected = errors.New("connect rejected by integration")
 
 	// ErrRouteNotFound is returned when a requested route does not exist.
 	ErrRouteNotFound = errors.New("NotFoundException")

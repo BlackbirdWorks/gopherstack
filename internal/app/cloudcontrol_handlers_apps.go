@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -222,6 +223,7 @@ type ccRestAPISpec struct {
 	EndpointConfiguration     *apigwtypes.EndpointConfiguration
 	MinimumCompressionSize    *int32
 	DisableExecuteAPIEndpoint *bool  `json:"DisableExecuteApiEndpoint"`
+	CloneFrom                 string
 	APIKeySourceType          string `json:"ApiKeySourceType"`
 	SecurityPolicy            string
 	Version                   string
@@ -266,6 +268,7 @@ func (h *ccRestAPI) Create(ctx context.Context, desired map[string]any) (string,
 		Description:      ccOptional(spec.Description),
 		ApiKeySource:     apigwtypes.ApiKeySourceType(spec.APIKeySourceType),
 		BinaryMediaTypes: spec.BinaryMediaTypes,
+		CloneFrom:        ccOptional(spec.CloneFrom),
 		DisableExecuteApiEndpoint: aws.ToBool(
 			spec.DisableExecuteAPIEndpoint,
 		),
@@ -369,9 +372,13 @@ func (h *ccRestAPI) Read(ctx context.Context, id string) (map[string]any, error)
 func (h *ccRestAPI) Update(ctx context.Context, id string, current, desired map[string]any) error {
 	mutable := []string{
 		ccKeyName, ccKeyDescription, ccKeyAPIKeySource, ccKeyMinCompression, "DisableExecuteApiEndpoint",
-		ccKeyPolicy, "BinaryMediaTypes", ccKeyTags, ccKeySecurityPolicy, ccKeyAccessMode,
+		ccKeyPolicy, "BinaryMediaTypes", ccKeyTags, ccKeySecurityPolicy, ccKeyAccessMode, "Body",
 	}
 	if err := ccRejectUnsupportedChanges(current, desired, mutable...); err != nil {
+		return err
+	}
+
+	if err := h.putBody(ctx, id, current, desired); err != nil {
 		return err
 	}
 
@@ -401,6 +408,26 @@ func (h *ccRestAPI) Update(ctx context.Context, id string, current, desired map[
 
 			return e
 		})
+}
+
+// putBody overwrites the API definition when Body changed, as PutRestApi mode=overwrite.
+func (h *ccRestAPI) putBody(ctx context.Context, id string, current, desired map[string]any) error {
+	if desired["Body"] == nil || reflect.DeepEqual(normalizeJSON(current["Body"]), normalizeJSON(desired["Body"])) {
+		return nil
+	}
+
+	body, err := ccPolicyJSON(desired["Body"])
+	if err != nil {
+		return err
+	}
+
+	if _, err = h.client.PutRestApi(ctx, &wireAPIGWPutRestApiInput{
+		RestApiId: aws.String(id), Body: []byte(body), Mode: apigwtypes.PutModeOverwrite,
+	}); err != nil {
+		return ccMapError(err)
+	}
+
+	return nil
 }
 
 func (*ccRestAPI) patchOps(current, desired map[string]any) ([]apigwtypes.PatchOperation, error) {

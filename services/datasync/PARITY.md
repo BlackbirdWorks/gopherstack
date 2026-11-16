@@ -66,8 +66,7 @@ families:
   TaskExecution: {status: fixed, note: "single-in-flight-execution guard, Task.Status RUNNING/AVAILABLE lifecycle, CancelTaskExecution enum handling, ListTaskExecutions all-tasks listing unchanged (fixed in the prior 2026-07-12 sweep); this sweep (gopherstack-g8k9) closed the terminal-state re-cancel gap -- CancelTaskExecution now rejects an already-SUCCESS/ERROR execution instead of silently overwriting it, matching UpdateTaskExecution's existing identical guard"}
   Tags: {status: fixed, note: "TagResource/UntagResource now sync storedLocation.Tags and storedTask.Tags in addition to storedAgent.Tags and the canonical b.tags map, closing the dead-code asymmetry flagged (but not fixed) in the prior sweep"}
 gaps: []
-items_still_open:
-  - "LocationUri scheme fsxl:// for FSx Lustre matches the published pattern fsx[a-z0-9-]+ but the exact scheme is not published: checked API_DescribeLocationFsxLustre.html, API_LocationListEntry.html, API_DescribeLocationFsxOntap.html and the CloudFormation LocationFSxLustre page, none of which gives an example value"
+items_still_open: []
 structural_gaps:
   - "AgentListEntry.Platform (agent software Version) is never emitted: it describes the real agent appliance, and CreateAgent has no input to source it from."
   - "ManagedSecretConfig stays absent from DescribeLocation*: AWS auto-provisions a service-owned Secrets Manager secret for plaintext credentials, so there is no SecretArn to honestly report."
@@ -318,3 +317,4 @@ CreateTask/UpdateTask store the Options defaults documented on types.Options (At
 ## Emulator choices where the vendor is silent
 
 - LocationUri schemes "object-storage://" and "azure-blob://" violate the published LocationUri pattern (^(efs|nfs|s3|smb|hdfs|fsx[a-z0-9-]+)://...$ in API_DescribeLocationObjectStorage.html), and no AWS doc or SDK text names the scheme real AWS returns for these two types (re-checked 2026-10-07); not changed to a guessed scheme.
+- LocationUri scheme "fsxl://" for FSx Lustre matches the published pattern fsx[a-z0-9-]+ but no page gives the exact scheme (API_DescribeLocationFsxLustre.html, API_LocationListEntry.html, API_DescribeLocationFsxOntap.html and the CloudFormation LocationFSxLustre page checked); the emulator keeps the pattern-compliant choice.

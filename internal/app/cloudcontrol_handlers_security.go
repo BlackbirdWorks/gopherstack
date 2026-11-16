@@ -647,8 +647,9 @@ func ccSecretTags(m map[string]string) []smtypes.Tag {
 }
 
 func (h *ccSecret) Create(ctx context.Context, desired map[string]any) (string, error) {
-	if _, ok := desired["GenerateSecretString"]; ok {
-		return "", fmt.Errorf("%w: GenerateSecretString is not supported", cloudcontrolbackend.ErrValidation)
+	generated, err := h.generatedSecretString(ctx, desired)
+	if err != nil {
+		return "", err
 	}
 
 	name := ccString(desired, "Name")
@@ -674,12 +675,82 @@ func (h *ccSecret) Create(ctx context.Context, desired map[string]any) (string, 
 		in.SecretString = aws.String(s)
 	}
 
+	if generated != "" {
+		in.SecretString = aws.String(generated)
+	}
+
 	out, err := h.client.CreateSecret(ctx, in)
 	if err != nil {
 		return "", ccMapError(err)
 	}
 
 	return aws.ToString(out.ARN), nil
+}
+
+type ccGenerateSecretString struct {
+	ExcludeCharacters       *string `json:"ExcludeCharacters"`
+	ExcludeLowercase        *bool   `json:"ExcludeLowercase"`
+	ExcludeNumbers          *bool   `json:"ExcludeNumbers"`
+	ExcludePunctuation      *bool   `json:"ExcludePunctuation"`
+	ExcludeUppercase        *bool   `json:"ExcludeUppercase"`
+	IncludeSpace            *bool   `json:"IncludeSpace"`
+	RequireEachIncludedType *bool   `json:"RequireEachIncludedType"`
+	PasswordLength          *int64  `json:"PasswordLength"`
+	GenerateStringKey       string  `json:"GenerateStringKey"`
+	SecretStringTemplate    string  `json:"SecretStringTemplate"`
+}
+
+// generatedSecretString renders GenerateSecretString: the password alone, or the template object
+// with the password under GenerateStringKey. It returns "" when the property is absent.
+func (h *ccSecret) generatedSecretString(ctx context.Context, desired map[string]any) (string, error) {
+	raw, ok := desired["GenerateSecretString"]
+	if !ok || raw == nil {
+		return "", nil
+	}
+
+	if ccString(desired, "SecretString") != "" {
+		return "", fmt.Errorf("%w: SecretString and GenerateSecretString are mutually exclusive",
+			cloudcontrolbackend.ErrValidation)
+	}
+
+	spec, err := ccDecode[ccGenerateSecretString](raw)
+	if err != nil {
+		return "", err
+	}
+
+	if (spec.SecretStringTemplate == "") != (spec.GenerateStringKey == "") {
+		return "", fmt.Errorf("%w: SecretStringTemplate and GenerateStringKey must be given together",
+			cloudcontrolbackend.ErrValidation)
+	}
+
+	pw, err := h.client.GetRandomPassword(ctx, &secretsmanager.GetRandomPasswordInput{
+		ExcludeCharacters: spec.ExcludeCharacters, ExcludeLowercase: spec.ExcludeLowercase,
+		ExcludeNumbers: spec.ExcludeNumbers, ExcludePunctuation: spec.ExcludePunctuation,
+		ExcludeUppercase: spec.ExcludeUppercase, IncludeSpace: spec.IncludeSpace,
+		PasswordLength: spec.PasswordLength, RequireEachIncludedType: spec.RequireEachIncludedType,
+	})
+	if err != nil {
+		return "", ccMapError(err)
+	}
+
+	if spec.SecretStringTemplate == "" {
+		return aws.ToString(pw.RandomPassword), nil
+	}
+
+	var tpl map[string]any
+	if err = json.Unmarshal([]byte(spec.SecretStringTemplate), &tpl, jsonx.V1()); err != nil {
+		return "", fmt.Errorf("%w: SecretStringTemplate is not a JSON object: %w",
+			cloudcontrolbackend.ErrValidation, err)
+	}
+
+	tpl[spec.GenerateStringKey] = aws.ToString(pw.RandomPassword)
+
+	out, err := json.Marshal(tpl, jsonx.V1())
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", cloudcontrolbackend.ErrValidation, err)
+	}
+
+	return string(out), nil
 }
 
 func (h *ccSecret) Read(ctx context.Context, id string) (map[string]any, error) {

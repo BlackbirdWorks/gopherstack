@@ -136,6 +136,39 @@ func (c *wireAPIGW) ImportRestApi(ctx context.Context, in *wireAPIGWImportRestAp
 	return wireCall[wireAPIGWImportRestApiOutput](ctx, c.ccWireClient, "ImportRestApi", in)
 }
 
+type wireAPIGWPutRestApiInput struct {
+	Body           []byte
+	RestApiId      *string
+	FailOnWarnings bool
+	Mode           apigwtypes.PutMode `json:",omitempty"`
+	Parameters     map[string]string
+}
+
+type wireAPIGWPutRestApiOutput struct {
+	ApiKeySource              apigwtypes.ApiKeySourceType
+	ApiStatus                 apigwtypes.ApiStatus
+	ApiStatusMessage          *string
+	BinaryMediaTypes          []string
+	CreatedDate               *time.Time
+	Description               *string
+	DisableExecuteApiEndpoint bool
+	EndpointAccessMode        apigwtypes.EndpointAccessMode
+	EndpointConfiguration     *apigwtypes.EndpointConfiguration
+	Id                        *string
+	MinimumCompressionSize    *int32
+	Name                      *string
+	Policy                    *string
+	RootResourceId            *string
+	SecurityPolicy            apigwtypes.SecurityPolicy
+	Tags                      map[string]string
+	Version                   *string
+	Warnings                  []string
+}
+
+func (c *wireAPIGW) PutRestApi(ctx context.Context, in *wireAPIGWPutRestApiInput) (*wireAPIGWPutRestApiOutput, error) {
+	return wireCall[wireAPIGWPutRestApiOutput](ctx, c.ccWireClient, "PutRestApi", in)
+}
+
 type wireAPIGWTagResourceInput struct {
 	ResourceArn *string
 	Tags        map[string]string

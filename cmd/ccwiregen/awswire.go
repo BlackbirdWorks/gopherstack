@@ -76,7 +76,7 @@ lambda
 	pages: ListAliases ListEventSourceMappings ListFunctions ListVersionsByFunction
 
 secretsmanager
-	ops: CreateSecret DeleteSecret DescribeSecret GetResourcePolicy GetSecretValue ListSecrets
+	ops: CreateSecret DeleteSecret DescribeSecret GetRandomPassword GetResourcePolicy GetSecretValue ListSecrets
 		ListSecretVersionIds PutResourcePolicy PutSecretValue TagResource UntagResource
 		UpdateSecret UpdateSecretVersionStage
 	pages: ListSecrets ListSecretVersionIds

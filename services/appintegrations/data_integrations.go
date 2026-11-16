@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
@@ -280,6 +282,8 @@ func (b *InMemoryBackend) CreateDataIntegrationAssociation(
 		DestinationURI:                in.DestinationURI,
 	}
 	b.dataAssocs.Put(a)
+	logger.Load(ctx).InfoContext(ctx, "appintegrations: would start AppFlow flow for data integration association",
+		"dataIntegrationId", d.ID, "associationId", id, "executionMode", executionMode(a.ExecutionConfiguration))
 
 	cp := *a
 
@@ -375,4 +379,12 @@ func (b *InMemoryBackend) getDataAssociation(identifier, id string) (*DataIntegr
 	cp := *a
 
 	return &cp, nil
+}
+
+func executionMode(c *ExecutionConfiguration) string {
+	if c == nil {
+		return execOnDemand
+	}
+
+	return c.ExecutionMode
 }

@@ -55,7 +55,7 @@ func specs() []spec {
 		{
 			module: "apigateway", file: "apigateway", alias: "apigwtypes", prefix: "wireAPIGW",
 			ops: []string{
-				"CreateRestApi", "DeleteRestApi", "GetRestApi", "GetRestApis", "ImportRestApi", opTag,
+				"CreateRestApi", "DeleteRestApi", "GetRestApi", "GetRestApis", "ImportRestApi", "PutRestApi", opTag,
 				opUntag, "UpdateRestApi",
 			}},
 		{
