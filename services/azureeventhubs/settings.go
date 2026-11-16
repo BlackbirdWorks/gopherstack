@@ -13,10 +13,13 @@ type Settings struct {
 	Port        int  `json:"port"        env:"AZURE_EVENTHUBS_PORT"          default:"10005" name:"port"          help:"Fixed TCP port for the Event Hubs HTTP (REST/Atom) listener; startup fails if it's unavailable."` //nolint:lll // config struct tags are intentionally verbose
 	AMQPPort    int  `json:"amqpPort"    env:"AZURE_EVENTHUBS_AMQP_PORT"     default:"5673"  name:"amqp-port"     help:"Plain-text AMQP 1.0 listener port for Event Hubs SDKs (0 disables)."`                             //nolint:lll // config struct tags are intentionally verbose
 	AMQPTLSPort int  `json:"amqpTLSPort" env:"AZURE_EVENTHUBS_AMQP_TLS_PORT" default:"5674"  name:"amqp-tls-port" help:"AMQP 1.0 over TLS listener port, self-signed dev certificate (0 disables)."`                      //nolint:lll // config struct tags are intentionally verbose
+	KafkaPort   int  `json:"kafkaPort"   env:"AZURE_EVENTHUBS_KAFKA_PORT"    default:"9093"  name:"kafka-port"    help:"Kafka protocol listener port (SASL PLAIN over TLS, self-signed dev certificate; 0 disables)."`    //nolint:lll // config struct tags are intentionally verbose
 	ValidateSAS bool `json:"validateSAS" env:"AZURE_EVENTHUBS_VALIDATE_SAS"  default:"false" name:"validate-sas"  help:"Cryptographically validate Event Hubs SAS tokens against authorization-rule keys (opt-in)."`      //nolint:lll // config struct tags are intentionally verbose
 }
 
 // DefaultSettings returns the settings used when no ConfigProvider exists.
 func DefaultSettings() Settings {
-	return Settings{Port: DefaultPort, AMQPPort: DefaultAMQPPort, AMQPTLSPort: DefaultAMQPTLSPort}
+	return Settings{
+		Port: DefaultPort, AMQPPort: DefaultAMQPPort, AMQPTLSPort: DefaultAMQPTLSPort, KafkaPort: DefaultKafkaPort,
+	}
 }

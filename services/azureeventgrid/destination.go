@@ -45,6 +45,12 @@ func validateDestination(d Destination) error {
 		return requireSegment(d, "topics", "ServiceBusTopic destination needs a topic resourceId")
 	case EndpointEventHub:
 		return requireSegment(d, "eventhubs", "EventHub destination needs an event hub resourceId")
+	case EndpointAzureFunc:
+		return requireSegment(d, "functions", "AzureFunction destination needs a function resourceId")
+	case EndpointHybridConn:
+		return requireSegment(d, "hybridconnections", "HybridConnection destination needs a resourceId")
+	case EndpointPartner:
+		return requireSegment(d, "partnerdestinations", "PartnerDestination needs a partner destination resourceId")
 	case EndpointStorageQueue:
 		if d.str(propQueueName) == "" {
 			return invalidSpec("StorageQueue destination needs a queueName")

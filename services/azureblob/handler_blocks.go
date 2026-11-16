@@ -63,10 +63,7 @@ func blockEntriesXML(in []BlockEntry) *blockEntries {
 func (h *Handler) readBlockBody(c *echo.Context) ([]byte, *apiError) {
 	r := c.Request()
 	if r.ContentLength > MaxBlockSize {
-		return nil, &apiError{
-			status: http.StatusRequestEntityTooLarge, code: "RequestBodyTooLarge",
-			message: "The size of the request body exceeds the maximum size permitted.",
-		}
+		return nil, errBodyTooLarge()
 	}
 
 	body, err := httputils.ReadBody(r)
@@ -134,7 +131,7 @@ func (h *Handler) readCopySourceRange(c *echo.Context, pre Precond) ([]byte, err
 	r := c.Request()
 
 	src, err := url.Parse(r.Header.Get(headerCopySource))
-	if err != nil || (src.Scheme != "http" && src.Scheme != "https") {
+	if err != nil || !validSourceScheme(src.Scheme) {
 		return nil, h.writeAPIError(c, errInvalidHeader(headerCopySource))
 	}
 

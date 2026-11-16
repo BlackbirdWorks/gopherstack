@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/azureauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
@@ -520,14 +521,16 @@ func TestACISDK_IPAddressAndPorts(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, "127.0.0.1", *g.Properties.IPAddress.IP)
+	addr := *g.Properties.IPAddress.IP
+	assert.NotEqual(t, "127.0.0.1", addr, "a group has its own loopback address")
+	assert.True(t, strings.HasPrefix(addr, "127."), addr)
 	assert.Equal(t, "my-app.local.azurecontainer.io", *g.Properties.IPAddress.Fqdn)
 	assert.Equal(t, "Public", string(*g.Properties.IPAddress.Type))
 
 	specs := s.rt.started()
 	require.Len(t, specs, 1)
 	require.Len(t, specs[0].Ports, 1)
-	assert.Contains(t, specs[0].Ports[0], ":8080")
+	assert.Equal(t, addr+":8080:8080", specs[0].Ports[0], "the declared port is published on the group address")
 
 	var published bool
 
@@ -573,7 +576,9 @@ func TestACISDK_Volumes(t *testing.T) {
 			{Name: new("scratch"), EmptyDir: map[string]any{}},
 			{Name: new("sec"), Secret: map[string]*string{"token": new("c2VjcmV0")}},
 			{Name: new("files"), AzureFile: &armcontainerinstance.AzureFileVolume{
-				ShareName: new("share1"), StorageAccountName: new("acct"), StorageAccountKey: new("a2V5"),
+				ShareName: new(
+					"share1",
+				), StorageAccountName: new("acct"), StorageAccountKey: new(azureauth.DefaultAccountKey),
 			}},
 		},
 		mounts: []*armcontainerinstance.VolumeMount{

@@ -36,6 +36,8 @@ const (
 	aciDefaultStartup  = 10 * time.Minute
 	aciNanoPerCPU      = 1e9
 	aciBytesPerGB      = 1 << 30
+	aciCPUShares       = 1024
+	aciMinCPUShares    = 2
 	aciNonceLen        = 6
 )
 
@@ -78,6 +80,8 @@ type ACIContainerView struct {
 // ACIView is the live state of one container group.
 type ACIView struct {
 	HostPorts  map[int]int
+	HostUDP    map[int]int
+	Address    string
 	State      string
 	Failure    string
 	Events     []ACIEvent
@@ -106,6 +110,7 @@ type aciCont struct {
 }
 
 type shareMount struct {
+	base     *shareBase
 	dir      string
 	account  string
 	share    string
@@ -118,6 +123,9 @@ type aciRun struct {
 	initRetry chan struct{}
 	cancel    context.CancelFunc
 	hostPorts map[int]int
+	udpPorts  map[int]int
+	backHost  map[int]string
+	addr      string
 	scratch   map[string]string
 	backPorts map[int]int
 	resolv    string
@@ -128,6 +136,7 @@ type aciRun struct {
 	owned     []int
 	events    []ACIEvent
 	shares    []shareMount
+	syncMu    *lockmetrics.RWMutex
 	allDirs   []string
 	wg        sync.WaitGroup
 	retryOnce sync.Once
@@ -148,6 +157,7 @@ type ACIEngine struct {
 	onClose   func()
 	pause     func(ctx context.Context, d time.Duration) bool
 	httpProbe func(ctx context.Context, p ACIHTTPProbe) (int, error)
+	addrs     map[string]bool
 	disabled  string
 	nonce     string
 	startup   time.Duration
@@ -160,7 +170,9 @@ func NewACIEngine(runtime func() (ACIRuntime, error), disabledReason string) *AC
 
 	e := &ACIEngine{
 		ctx: ctx, cancel: cancel, runtime: runtime, disabled: disabledReason, now: time.Now,
-		mu: lockmetrics.New("azurearm.aci"), runs: map[string]*aciRun{}, startup: aciDefaultStartup,
+		mu: lockmetrics.New(
+			"azurearm.aci",
+		), runs: map[string]*aciRun{}, addrs: map[string]bool{}, startup: aciDefaultStartup,
 		backoff: defaultACIBackoff, nonce: awsid.NewN("", aciNonceLen) + "-", httpProbe: defaultACIHTTPProbe,
 	}
 	e.pause = e.sleep
@@ -264,8 +276,9 @@ func (e *ACIEngine) Deploy(cfg aciConfig) {
 	e.Remove(cfg.Key)
 
 	run := &aciRun{
-		hostPorts: map[int]int{}, backPorts: map[int]int{}, scratch: map[string]string{},
-		initRetry: make(chan struct{}),
+		hostPorts: map[int]int{}, udpPorts: map[int]int{}, backHost: map[int]string{}, backPorts: map[int]int{},
+		scratch: map[string]string{}, initRetry: make(chan struct{}),
+		syncMu: lockmetrics.New("azurearm.acisync"),
 	}
 	run.ctx, run.cancel = context.WithCancel(e.ctx)
 
@@ -284,6 +297,9 @@ func (e *ACIEngine) Deploy(cfg aciConfig) {
 	e.runs[cfg.Key] = run
 	e.mu.Unlock()
 
+	logACIExternalEffects(run.ctx, cfg)
+	e.assignAddress(run, cfg)
+
 	rt, reason := e.resolveRuntime()
 	if reason == "" {
 		run.rt = rt
@@ -294,6 +310,10 @@ func (e *ACIEngine) Deploy(cfg aciConfig) {
 		e.fail(run, reason)
 
 		return
+	}
+
+	if len(run.shares) > 0 {
+		run.wg.Go(func() { e.shareSyncLoop(run) })
 	}
 
 	if len(run.inits) > 0 {
@@ -380,10 +400,7 @@ func (e *ACIEngine) containerSpec(run *aciRun, cfg aciConfig, c aciContainerWire
 		spec.Env = append(spec.Env, ev.Name+"="+v)
 	}
 
-	if l := limitsOf(p.Resources); l != nil {
-		spec.NanoCPUs = int64(l.CPU * aciNanoPerCPU)
-		spec.MemoryBytes = int64(l.MemoryInGB * aciBytesPerGB)
-	}
+	applyACIResources(&spec, p.Resources)
 
 	for _, m := range p.VolumeMounts {
 		bind := run.scratch[strings.ToLower(m.Name)] + ":" + m.MountPath
@@ -394,14 +411,9 @@ func (e *ACIEngine) containerSpec(run *aciRun, cfg aciConfig, c aciContainerWire
 		spec.Mounts = append(spec.Mounts, bind)
 	}
 
-	for _, port := range publishedPorts(p) {
-		if hp, ok := run.backPorts[port]; ok {
-			spec.Ports = append(
-				spec.Ports,
-				container.PortSpec(container.LoopbackHost, strconv.Itoa(hp), strconv.Itoa(port)),
-			)
-		}
-	}
+	p.SecurityContext.apply(&spec)
+
+	spec.Ports = append(spec.Ports, run.portSpecs(p)...)
 
 	if run.resolv != "" {
 		spec.Mounts = append(spec.Mounts, run.resolv+":/etc/resolv.conf:ro")
@@ -415,7 +427,9 @@ func publishedPorts(p aciContainerPropsWire) []int {
 	var out []int
 
 	for _, pt := range p.Ports {
-		out = append(out, pt.Port)
+		if pt.Protocol != aciProtoUDP {
+			out = append(out, pt.Port)
+		}
 	}
 
 	for _, pr := range []*aciProbeWire{p.LivenessProbe, p.ReadinessProbe} {
@@ -425,6 +439,50 @@ func publishedPorts(p aciContainerPropsWire) []int {
 	}
 
 	return out
+}
+
+// applyACIResources maps limits to the hard caps and requests to the runtime's soft limits.
+func applyACIResources(spec *container.Spec, r *aciResourcesWire) {
+	if l := limitsOf(r); l != nil {
+		spec.NanoCPUs = int64(l.CPU * aciNanoPerCPU)
+		spec.MemoryBytes = int64(l.MemoryInGB * aciBytesPerGB)
+	}
+
+	if rq := requestsOf(r); rq != nil {
+		spec.MemoryReservationBytes = int64(rq.MemoryInGB * aciBytesPerGB)
+		spec.CPUShares = max(int64(rq.CPU*aciCPUShares), aciMinCPUShares)
+
+		if spec.MemoryBytes > 0 {
+			spec.MemoryReservationBytes = min(spec.MemoryReservationBytes, spec.MemoryBytes)
+		}
+	}
+}
+
+// portSpecs lists the published host mappings of a container's ports.
+func (r *aciRun) portSpecs(p aciContainerPropsWire) []string {
+	var out []string
+
+	for _, pt := range p.Ports {
+		if hp, ok := r.udpPorts[pt.Port]; ok && pt.Protocol == aciProtoUDP {
+			out = append(out, container.PortSpec(r.hostFor(0), strconv.Itoa(hp), strconv.Itoa(pt.Port)+"/udp"))
+		}
+	}
+
+	for _, port := range publishedPorts(p) {
+		if hp, ok := r.backPorts[port]; ok {
+			out = append(out, container.PortSpec(r.hostFor(port), strconv.Itoa(hp), strconv.Itoa(port)))
+		}
+	}
+
+	return out
+}
+
+func requestsOf(r *aciResourcesWire) *aciResourceWire {
+	if r == nil || r.Requests == nil {
+		return nil
+	}
+
+	return r.Requests
 }
 
 func limitsOf(r *aciResourcesWire) *aciResourceWire {
@@ -858,11 +916,13 @@ func (e *ACIEngine) View(key string) (ACIView, bool) {
 	}
 
 	v := ACIView{
-		Failure: run.failure, HostPorts: map[int]int{}, Events: slices.Clone(run.events),
+		Failure: run.failure, HostPorts: map[int]int{}, HostUDP: map[int]int{}, Events: slices.Clone(run.events),
 		State: groupState(run),
 	}
 
 	maps.Copy(v.HostPorts, run.hostPorts)
+	maps.Copy(v.HostUDP, run.udpPorts)
+	v.Address = run.addr
 
 	for _, c := range run.conts {
 		v.Containers = append(v.Containers, viewOf(c))

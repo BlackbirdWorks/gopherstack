@@ -11,3 +11,11 @@ func ParseRange(header string, size int64) (int64, int64, bool) {
 func SplitPath(p string) (string, string, string) {
 	return splitPath(p)
 }
+
+// DeletedCount reports how many soft-deleted blobs a container still holds.
+func (b *InMemoryBackend) DeletedCount(container string) int {
+	b.mu.RLock("DeletedCount")
+	defer b.mu.RUnlock()
+
+	return len(b.containers[container].Deleted)
+}

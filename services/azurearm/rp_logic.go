@@ -70,9 +70,12 @@ type logicTriggerState struct {
 }
 
 type logicContent struct {
-	Value any  `json:"value,omitempty"`
-	Set   bool `json:"set,omitempty"`
+	Value  any  `json:"value,omitempty"`
+	Set    bool `json:"set,omitempty"`
+	Hidden bool `json:"hidden,omitempty"`
 }
+
+func (c logicContent) shown() bool { return c.Set && !c.Hidden }
 
 type logicRunTrigger struct {
 	Start     time.Time    `json:"start"`
@@ -98,6 +101,7 @@ type logicActionRec struct {
 	Tracking string       `json:"tracking,omitempty"`
 	Inputs   logicContent `json:"inputs"`
 	Outputs  logicContent `json:"outputs"`
+	Taints   bool         `json:"taints,omitempty"`
 }
 
 type logicRepIndex struct {

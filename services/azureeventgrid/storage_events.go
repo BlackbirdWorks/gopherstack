@@ -41,6 +41,10 @@ func (e StorageEvent) fields(id string, seq uint64) map[string]any {
 		data["clientRequestId"] = e.ClientRequestID
 	}
 
+	if strings.HasSuffix(e.EventType, "TierChanged") || strings.HasSuffix(e.EventType, "AsyncOperationInitiated") {
+		data["contentLength"] = e.ContentLength
+	}
+
 	if e.EventType == "Microsoft.Storage.BlobCreated" {
 		data["eTag"], data["contentLength"] = e.ETag, e.ContentLength
 

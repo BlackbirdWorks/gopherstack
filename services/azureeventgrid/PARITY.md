@@ -28,17 +28,15 @@ families:
   auth: {status: ok, note: "Off by default (any credential is accepted and the topic is picked by host label, key or the single topic). With --azure-eventgrid-validate-sas the aeg-sas-key must equal a topic key and SAS tokens (r, e, s; HMAC-SHA256 over the base64-decoded key) must verify and be unexpired; namespace requests use SharedAccessKey or SAS against the namespace keys."}
 gaps:
   - "System topics, partner topics and partner configurations are not implemented (no Microsoft.EventGrid/systemTopics ARM resource with source and topicType). Of the emulated sources only azureblob emits events (BlobCreated, BlobDeleted); azureservicebus and azurekeyvault publish none."
-  - "Azure Function, Hybrid Connection and Partner destinations are not implemented."
   - "Delivery with managed identity and AAD bearer validation are not implemented."
   - "Namespace topic subscriptions do not support dead-letter destinations or webhook push delivery."
-  - "Resource-scope event subscriptions receive Microsoft.Storage.BlobCreated (PutBlob, PutBlockList, CopyBlob) and BlobDeleted (DeleteBlob without a snapshot) for a storage account scope, published by azureblob; BlobRenamed, DirectoryCreated/Deleted, BlobTierChanged and AsyncOperationInitiated are not emitted (no hierarchical namespace, no archive tier), and Service Bus, Key Vault and every other resource type emit nothing. Microsoft.Resources events come only from subscription and resource group topics, and only the Succeeded outcomes (write, delete, action) of ARM lifecycle events are emitted."
+  - "Resource-scope events cover BlobCreated, BlobDeleted, BlobTierChanged and AsyncOperationInitiated; Service Bus and Key Vault emit nothing."
 deferred: []
 items_still_open:
-  - "System topics, partner topics and partner configurations are not implemented (no Microsoft.EventGrid/systemTopics ARM resource with source and topicType). Of the emulated sources only azureblob emits events (BlobCreated, BlobDeleted); azureservicebus and azurekeyvault publish none."
-  - "Azure Function, Hybrid Connection and Partner destinations are not implemented."
-  - "Managed-identity delivery and AAD bearer validation are not implemented."
+  - "System topics, partner topics and partner configurations are not implemented: services/azurearm has no Microsoft.EventGrid/systemTopics resource type, and azureservicebus and azurekeyvault expose no event hook, so only azureblob emits events."
+  - "Managed-identity delivery (deliveryWithResourceIdentity) and AAD bearer validation of publish requests are not implemented (RBAC is out of scope)."
   - "Namespace topic subscriptions have no dead-letter destination, push (webhook) delivery mode or ARM-level topic spaces."
-  - "Resource-scope event subscriptions receive Microsoft.Storage.BlobCreated (PutBlob, PutBlockList, CopyBlob) and BlobDeleted (DeleteBlob without a snapshot) for a storage account scope, published by azureblob; BlobRenamed, DirectoryCreated/Deleted, BlobTierChanged and AsyncOperationInitiated are not emitted (no hierarchical namespace, no archive tier), and Service Bus, Key Vault and every other resource type emit nothing. Microsoft.Resources events come only from subscription and resource group topics, and only the Succeeded outcomes (write, delete, action) of ARM lifecycle events are emitted."
+  - "Resource-scope event subscriptions receive Microsoft.Storage.BlobCreated, BlobDeleted, BlobTierChanged and AsyncOperationInitiated for a storage account scope; BlobRenamed and DirectoryCreated/Deleted are not emitted (no hierarchical namespace), Service Bus and Key Vault emit nothing, and Microsoft.Resources events cover only the Succeeded outcomes (write, delete, action) of ARM lifecycle events."
 leaks: {status: clean, note: "Shutdown cancels the delivery worker and waits for it, then closes the HTTPS server; the outbound HTTP client owns its transport (pkgs/httpclient)."}
 ---
 
@@ -51,3 +49,11 @@ Subscription properties cross the ARM seam as ARM property maps, so the service 
 A delivery's delivery schema always equals the topic's input schema (Event Grid does not convert between them).
 
 Custom input schema (2026-11-13): unmodelled by Learn and therefore unverified here: a target field without a mapping entry falls back to the payload property of the same name, and sourceField is matched against top-level properties only. Domains accept inputSchema CustomEventSchema but still require Event Grid-shaped events (no mapping on domains).
+
+## External effects that are recorded, not performed
+
+- HybridConnection (Azure Relay) and PartnerDestination event subscriptions are validated (resource id required), stored and returned; each delivery is logged as "would deliver" and counted as delivered, because no Relay or partner service exists in the emulator.
+
+## Destinations
+
+- AzureFunction (resource id ending in sites/{app}/functions/{function}) posts the event batch to the Event Grid trigger webhook /runtime/webhooks/EventGrid?functionName=... on the app's host through the Functions front end (Learn: Azure Function as an event handler; the webhook path is from the Event Grid trigger documentation, recalled rather than re-read). It has only been exercised against a fake sink and an app-less front end, not a running Functions host container.

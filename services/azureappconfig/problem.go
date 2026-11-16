@@ -28,6 +28,10 @@ func problemFor(err error) problem {
 		}
 	case errors.Is(err, ErrUnauthorized):
 		return problem{"unauthorized", "Unauthorized", http.StatusUnauthorized}
+	case errors.Is(err, ErrPublicAccessDisabled):
+		return problem{"forbidden", "Public network access is disabled", http.StatusForbidden}
+	case errors.Is(err, ErrTooManyRequests):
+		return problem{"too-many-requests", "Too many requests", http.StatusTooManyRequests}
 	case errors.Is(err, ErrForbidden):
 		return problem{"forbidden", "Forbidden", http.StatusForbidden}
 	case errors.Is(err, ErrTooLarge):

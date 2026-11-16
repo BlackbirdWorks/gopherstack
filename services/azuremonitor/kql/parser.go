@@ -608,6 +608,8 @@ func (p *parser) parseShapeOp(kw string) (node, bool, error) {
 		op, err = p.parseCountOp()
 	case "union":
 		op, err = p.parseUnionOp()
+	case "join":
+		op, err = p.parseJoin()
 	case "render":
 		op = p.parseRender()
 	case "getschema":

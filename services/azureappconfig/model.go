@@ -43,12 +43,14 @@ type Filter struct {
 // Snapshot is an immutable point-in-time set of key-values.
 type Snapshot struct {
 	Created     time.Time         `json:"created"`
+	ReadyAt     time.Time         `json:"readyAt,omitzero"`
 	Expires     *time.Time        `json:"expires,omitempty"`
 	Tags        map[string]string `json:"tags,omitempty"`
-	Name        string            `json:"name"`
-	Status      string            `json:"status"`
-	Composition string            `json:"composition"`
 	ETag        string            `json:"etag"`
+	Composition string            `json:"composition"`
+	Status      string            `json:"status"`
+	Name        string            `json:"name"`
+	Error       string            `json:"error,omitempty"`
 	Filters     []Filter          `json:"filters"`
 	Items       []KeyValue        `json:"items"`
 	Retention   int64             `json:"retention"`
@@ -64,6 +66,7 @@ type store struct {
 	History   []histEntry          `json:"history"`
 	Seq       int64                `json:"seq"`
 	Retention int                  `json:"retentionDays,omitempty"`
+	Used      int64                `json:"used,omitempty"`
 }
 
 // StoreInfo is the ARM-visible view of a store.

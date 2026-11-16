@@ -136,14 +136,14 @@ func (r queryResolver) Table(ws, name string) (*kql.Rel, bool) {
 		return nil, false
 	}
 
-	return t.relOf(w.CustomerID, r.from, r.to), true
+	return t.relOf(w.CustomerID, r.from, r.to, retentionCutoff(r.b.now(), t.retentionDays(w))), true
 }
 
 func (r queryResolver) resourceTable(name string) (*kql.Rel, bool) {
 	for _, k := range sortedKeys(r.b.workspaces) {
 		w := r.b.workspaces[k]
 		if t, ok := w.table(name); ok {
-			rel := (&Table{Name: t.Name, Columns: t.Columns}).relOf(w.CustomerID, time.Time{}, time.Time{})
+			rel := (&Table{Name: t.Name, Columns: t.Columns}).relOf(w.CustomerID, time.Time{}, time.Time{}, time.Time{})
 
 			return rel, true
 		}

@@ -499,3 +499,81 @@ func TestComputeSDK_AttachDetachDataDisks(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, got.Properties.StorageProfile.DataDisks, 2)
 }
+
+func TestComputeSDK_CopyStart(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		source   string
+		wantCode string
+		snapshot bool
+	}{
+		{name: "disk from snapshot", source: "snap"},
+		{name: "disk from disk", source: "src"},
+		{name: "snapshot from disk", snapshot: true, source: "src"},
+		{name: "missing source", source: "nope", wantCode: "ResourceNotFound"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := newCmpStack(t)
+			src, err := s.putDisk(t, "src", emptyDisk(32))
+			require.NoError(t, err)
+
+			sp, err := s.cf.NewSnapshotsClient().BeginCreateOrUpdate(t.Context(), netRG, "snap", armcompute.Snapshot{
+				Location: new("westus"),
+				Properties: &armcompute.SnapshotProperties{CreationData: &armcompute.CreationData{
+					CreateOption: new(armcompute.DiskCreateOptionCopy), SourceResourceID: src.ID,
+				}},
+			}, nil)
+			require.NoError(t, err)
+
+			snap, err := sp.PollUntilDone(t.Context(), pollFast())
+			require.NoError(t, err)
+
+			ids := map[string]*string{"src": src.ID, "snap": snap.ID, "nope": new(*src.ID + "x")}
+			cd := &armcompute.CreationData{
+				CreateOption: new(armcompute.DiskCreateOptionCopyStart), SourceResourceID: ids[tt.source],
+			}
+
+			var pct *float32
+
+			if tt.snapshot {
+				pl, perr := s.cf.NewSnapshotsClient().
+					BeginCreateOrUpdate(t.Context(), netRG, "copy", armcompute.Snapshot{
+						Location: new("westus"), Properties: &armcompute.SnapshotProperties{CreationData: cd},
+					}, nil)
+				require.NoError(t, perr)
+
+				res, perr := pl.PollUntilDone(t.Context(), pollFast())
+				require.NoError(t, perr)
+				pct = res.Properties.CompletionPercent
+				assert.EqualValues(t, 32, *res.Properties.DiskSizeGB)
+			} else {
+				d, derr := s.putDisk(t, "copy", armcompute.Disk{
+					Location: new("westus"), Properties: &armcompute.DiskProperties{CreationData: cd},
+				})
+				if tt.wantCode != "" {
+					require.Error(t, derr)
+					assert.Equal(t, tt.wantCode, sdkErrCode(derr))
+
+					return
+				}
+
+				require.NoError(t, derr)
+				pct = d.Properties.CompletionPercent
+				assert.EqualValues(t, 32, *d.Properties.DiskSizeGB)
+			}
+
+			require.NotNil(t, pct)
+			assert.InDelta(t, 100, *pct, 0.001)
+
+			plain, err := s.putDisk(t, "plain", emptyDisk(8))
+			require.NoError(t, err)
+			assert.Nil(t, plain.Properties.CompletionPercent, "only CopyStart resources report a copy percentage")
+		})
+	}
+}

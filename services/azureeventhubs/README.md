@@ -8,18 +8,16 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 16 (9 ok, 7 partial) |
-| Feature families | 4 (3 ok, 1 partial) |
-| Known gaps | 6 |
+| Feature families | 5 (4 ok, 1 partial) |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Kafka endpoint is not implemented.
 - Capture, schema registry, application groups, compaction and cluster features are not implemented.
 - Hub names resolve across namespaces by first match.
-- Kafka endpoint for Event Hubs (port 9093) is not implemented.
-- Capture, geo-replication, compaction and application-group features are not implemented.
+- Capture, geo-replication, compaction and application-group features are not implemented: their configuration (captureDescription, retentionDescription.cleanupPolicy, applicationGroups) is ARM state in services/azurearm (rp_eventhub_ops.go passes only partition count and retention to this service), which this service cannot read.
 - Geo-disaster recovery data plane: the alias FQDN does not resolve to the active namespace (AMQP and HTTP carry no namespace, so a client cannot connect through <alias> and see it move on failover), the secondary data plane is not read-only while paired (only ARM entity writes are refused), replication is synchronous and covers event hubs and consumer groups only, and the alias is not blocked for namespaces in the same dedicated cluster (clusters are not modelled).
 
 ## More

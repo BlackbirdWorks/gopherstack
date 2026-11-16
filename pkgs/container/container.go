@@ -89,10 +89,16 @@ type Spec struct {
 	ExtraHosts  []string
 	DNS         []string
 	GroupAdd    []string
+	CapAdd      []string
+	CapDrop     []string
+	SecurityOpt []string
 	MemoryBytes int64
-	NanoCPUs    int64
-	Privileged  bool
-	Unmanaged   bool
+	// MemoryReservationBytes is the soft memory limit; CPUShares the relative CPU weight (1024 per core).
+	MemoryReservationBytes int64
+	CPUShares              int64
+	NanoCPUs               int64
+	Privileged             bool
+	Unmanaged              bool
 }
 
 // ExecResult is the outcome of a command run inside a container.

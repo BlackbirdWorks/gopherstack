@@ -19,8 +19,9 @@ import (
 const storeName = "teststore"
 
 type fakeClock struct {
-	t  time.Time
-	mu sync.Mutex
+	t    time.Time
+	tick time.Duration
+	mu   sync.Mutex
 }
 
 func newClock() *fakeClock { return &fakeClock{t: time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)} }
@@ -28,6 +29,8 @@ func newClock() *fakeClock { return &fakeClock{t: time.Date(2026, 10, 20, 12, 0,
 func (c *fakeClock) Now() time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	c.t = c.t.Add(c.tick)
 
 	return c.t
 }
@@ -49,6 +52,7 @@ type env struct {
 type envOpts struct {
 	validate bool
 	realTime bool
+	tick     time.Duration
 }
 
 func newEnv(t *testing.T, o envOpts) *env {
@@ -56,6 +60,7 @@ func newEnv(t *testing.T, o envOpts) *env {
 
 	b := ac.NewInMemoryBackend()
 	clk := newClock()
+	clk.tick = o.tick
 
 	if !o.realTime {
 		ac.SetNow(b, clk.Now)

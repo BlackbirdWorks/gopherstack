@@ -9,15 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 15 (13 ok, 2 partial) |
 | Feature families | 5 (4 ok, 1 partial) |
-| Known gaps | 3 |
+| Known gaps | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Third-party certificate issuers (DigiCert, GlobalSign) are rejected; AutoRenew of Unknown-issuer certificates (which would open a new pending CSR) is not executed.
-- Key release (ReleaseKey, release_policy), GetKeyAttestation and ES256K/P-256K (no secp256k1 in go.mod) are not implemented.
-- Backups use an opaque gopherstack blob, not Azure's format.
+- Key release (ReleaseKey, release_policy) and GetKeyAttestation need Microsoft Azure Attestation and HSM hardware; ES256K/P-256K needs secp256k1, which Go's standard library lacks (go.mod may not grow, and a math/big hand-rolled private-key operation is not constant time).
 
 ## More
 

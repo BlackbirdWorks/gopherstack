@@ -56,6 +56,9 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	handler := NewHandler(backend)
 	handler.Port = settings.Port
 	handler.EnforcePublicAccess = settings.EnforcePublicAccess
+	handler.VerifySignatures = settings.VerifySignatures
+	handler.AccountKeys = ParseAccountKeys(settings.AccountKeys)
+	handler.SetAllowExternalCopy(settings.AllowExternalCopy)
 
 	return handler, nil
 }

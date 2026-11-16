@@ -18,6 +18,12 @@ func wireAzureAppConfig(byName map[string]service.Registerable) {
 
 	if acH, acOk := byName["AzureAppConfig"].(*azureappconfig.Handler); acOk {
 		armH.Registry.SetAppConfig(&azureAppConfigAdapter{backend: acH.Backend})
+
+		if p, found := armH.Registry.ProviderNamed("Microsoft.AppConfiguration"); found {
+			if prov, isAC := p.(*azurearm.AppConfigProvider); isAC {
+				acH.Backend.SetPlatform(appConfigPlatform{p: prov})
+			}
+		}
 	}
 }
 
@@ -137,4 +143,17 @@ func (a *azureAppConfigAdapter) ListKeyValues(store string) ([]azurearm.AppConfi
 	}
 
 	return out, nil
+}
+
+// appConfigPlatform exposes the ARM-held store settings and replicas to the data plane.
+type appConfigPlatform struct{ p *azurearm.AppConfigProvider }
+
+func (a appConfigPlatform) StoreSettings(name string) (azureappconfig.PlatformSettings, bool) {
+	s, ok := a.p.StoreSettings(name)
+
+	return azureappconfig.PlatformSettings{SKU: s.SKU, PublicNetworkAccess: s.PublicNetworkAccess}, ok
+}
+
+func (a appConfigPlatform) ReplicaParent(label string) (string, bool) {
+	return a.p.ReplicaParent(label)
 }

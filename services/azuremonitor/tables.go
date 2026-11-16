@@ -223,11 +223,17 @@ func (t *Table) setColumns(cols []Column) error {
 	return nil
 }
 
-func (t *Table) body(w *Workspace) map[string]any {
-	retention := t.Retention
-	if retention == 0 {
-		retention = w.Retention
+// retentionDays is the interactive retention of the table: its own setting, else the workspace's.
+func (t *Table) retentionDays(w *Workspace) int {
+	if t.Retention != 0 {
+		return t.Retention
 	}
+
+	return w.Retention
+}
+
+func (t *Table) body(w *Workspace) map[string]any {
+	retention := t.retentionDays(w)
 
 	total := t.TotalRet
 	if total == 0 {
@@ -283,7 +289,7 @@ func (t *Table) body(w *Workspace) map[string]any {
 // relOf builds the query-engine view of a table. Callers hold the read lock.
 const relExtraCols = 3
 
-func (t *Table) relOf(tenant string, from, to time.Time) *kql.Rel {
+func (t *Table) relOf(tenant string, from, to, cutoff time.Time) *kql.Rel {
 	cols := make([]kql.Col, 0, len(t.Columns)+relExtraCols)
 	cols = append(cols, kql.Col{Name: colTenantID, Type: kql.TString})
 
@@ -301,9 +307,9 @@ func (t *Table) relOf(tenant string, from, to time.Time) *kql.Rel {
 	rel := &kql.Rel{Cols: cols, Rows: make([][]any, 0, len(t.Rows))}
 
 	for _, row := range t.Rows {
-		if tg >= 0 && (!from.IsZero() || !to.IsZero()) {
+		if tg >= 0 && (!from.IsZero() || !to.IsZero() || !cutoff.IsZero()) {
 			ts, _ := row[tg].(time.Time)
-			if (!from.IsZero() && ts.Before(from)) || (!to.IsZero() && ts.After(to)) {
+			if (!from.IsZero() && ts.Before(from)) || (!to.IsZero() && ts.After(to)) || ts.Before(cutoff) {
 				continue
 			}
 		}

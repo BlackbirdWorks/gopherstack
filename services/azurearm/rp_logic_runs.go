@@ -34,11 +34,11 @@ func (w *logicWorkflow) runBody(r *logicRunRec, base string) map[string]any {
 
 	prefix := "/workflows/" + w.FlowID + "/runs/" + r.Name + "/contents/"
 
-	if r.Trigger.Inputs.Set {
+	if r.Trigger.Inputs.shown() {
 		trig["inputsLink"] = w.contentLink(base, prefix+"TriggerInputs", r.Trigger.Inputs.Value)
 	}
 
-	if r.Trigger.Outputs.Set {
+	if r.Trigger.Outputs.shown() {
 		trig["outputsLink"] = w.contentLink(base, prefix+"TriggerOutputs", r.Trigger.Outputs.Value)
 	}
 
@@ -109,11 +109,11 @@ func (w *logicWorkflow) actionProps(r *logicRunRec, a *logicActionRec, base, pre
 		props[logicKError] = a.Error
 	}
 
-	if a.Inputs.Set {
+	if a.Inputs.shown() {
 		props["inputsLink"] = w.contentLink(base, prefix+"ActionInputs", a.Inputs.Value)
 	}
 
-	if a.Outputs.Set {
+	if a.Outputs.shown() {
 		props["outputsLink"] = w.contentLink(base, prefix+"ActionOutputs", a.Outputs.Value)
 	}
 
@@ -155,11 +155,11 @@ func (w *logicWorkflow) historyBody(h *logicHistory, base string) map[string]any
 
 	prefix := "/workflows/" + w.FlowID + "/triggers/" + h.Trigger + "/histories/" + h.Name + "/contents/"
 
-	if h.Inputs.Set {
+	if h.Inputs.shown() {
 		props["inputsLink"] = w.contentLink(base, prefix+"TriggerInputs", h.Inputs.Value)
 	}
 
-	if h.Outputs.Set {
+	if h.Outputs.shown() {
 		props["outputsLink"] = w.contentLink(base, prefix+"TriggerOutputs", h.Outputs.Value)
 	}
 

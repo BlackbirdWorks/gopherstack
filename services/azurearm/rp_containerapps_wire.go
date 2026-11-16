@@ -288,6 +288,15 @@ func acaCheckProbes(container string, probes []any) error {
 			return acaBad("Container '%s' defines the %s probe more than once.", container, typ)
 		}
 
+		if err := acaCheckProbeRanges(container, typ, mapOf(e)); err != nil {
+			return err
+		}
+
+		if sch := strings.ToLower(strOf(mapOf(mapOf(e)["httpGet"]), "scheme")); sch != "" && sch != acaScaleHTTP &&
+			sch != acaSchemeHTTPS {
+			return acaBad("Container '%s' %s probe scheme must be HTTP or HTTPS.", container, typ)
+		}
+
 		seen[typ] = true
 	}
 

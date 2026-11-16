@@ -458,6 +458,8 @@ func delProduct(s *apimService, _, id string, q url.Values) error {
 		}
 	}
 
+	s.dropLinks(apimLinkProductGroup, id, true)
+
 	return nil
 }
 

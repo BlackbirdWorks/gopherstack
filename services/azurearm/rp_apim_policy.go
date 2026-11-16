@@ -191,6 +191,11 @@ func polSpecOf(name string) (polSpec, bool) {
 			kids:     []string{fieldValue},
 			sections: []string{polInbound},
 		}, true
+	case apimCIPFilter:
+		return polSpec{
+			attrs: []string{apimCAction}, required: []string{apimCAction},
+			kids: []string{apimCAddress, apimCAddressRange}, sections: []string{polInbound},
+		}, true
 	case apimCCors:
 		return polSpec{
 			attrs:    []string{apimCCorsAllow, "terminate-unmatched-request"},
@@ -210,8 +215,10 @@ func polSpecOf(name string) (polSpec, bool) {
 
 func polNestedSpec(name string) (polSpec, bool) {
 	switch name {
-	case fieldValue, apimCSetBody, apimCOrigin, apimCMethod, apimCHeader:
+	case fieldValue, apimCSetBody, apimCOrigin, apimCMethod, apimCHeader, apimCAddress:
 		return polSpec{}, true
+	case apimCAddressRange:
+		return polSpec{attrs: []string{apimCFrom, "to"}, required: []string{apimCFrom, "to"}}, true
 	case apimCSetStatus:
 		return polSpec{
 			attrs: []string{aksFieldCode, acFieldReason}, required: []string{aksFieldCode, acFieldReason},
@@ -398,6 +405,8 @@ func validateSemantics(s *apimService, n *polNode) error {
 		return posInt(n, apimCRenewalPeriod, 1, apimMaxRenewalSecs)
 	case apimCCheckHeader:
 		return validateCheckHeader(n)
+	case apimCIPFilter:
+		return validateIPFilter(n)
 	case apimCSetStatus:
 		return posInt(n, aksFieldCode, apimMinStatus, apimMaxStatus)
 	case apimCMockResponse:

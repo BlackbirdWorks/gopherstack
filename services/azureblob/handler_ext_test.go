@@ -133,7 +133,8 @@ func TestBlobOpsErrorsAndHeaders(t *testing.T) {
 func TestBlobTierAndSnapshotFlow(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	clock := newFakeClock()
+	h := azureblob.NewHandler(azureblob.NewInMemoryBackendWithClock(clock.Now))
 	seedBlob(t, h, nil)
 
 	rec := doRequest(t, h, http.MethodHead, blobPath, nil, nil)
@@ -149,6 +150,12 @@ func TestBlobTierAndSnapshotFlow(t *testing.T) {
 
 	rec = doRequest(t, h, http.MethodPut, blobPath+"?comp=tier", nil, map[string]string{"x-ms-access-tier": "Cold"})
 	assert.Equal(t, http.StatusAccepted, rec.Code, "rehydrating from archive")
+
+	rec = doRequest(t, h, http.MethodHead, blobPath, nil, nil)
+	assert.Equal(t, "Archive", rec.Header().Get("X-Ms-Access-Tier"))
+	assert.Equal(t, "rehydrate-pending-to-cold", rec.Header().Get("X-Ms-Archive-Status"))
+
+	clock.Advance(azureblob.RehydrateStandardAfter)
 
 	rec = doRequest(t, h, http.MethodHead, blobPath, nil, nil)
 	assert.Equal(t, "Cold", rec.Header().Get("X-Ms-Access-Tier"))

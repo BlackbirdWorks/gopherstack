@@ -1,0 +1,277 @@
+{
+ "value": [
+  {
+   "name": "Microsoft.ContainerInstance/register/action",
+   "display": {
+    "description": "Registers the subscription for the container instance resource provider and enables the creation of container groups.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/containerGroupProfiles/read",
+   "display": {
+    "description": "Get all container group profiles.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/containerGroupProfiles/write",
+   "display": {
+    "description": "Create or update a specific container group profile.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/containerGroupProfiles/delete",
+   "display": {
+    "description": "Delete the specific container group profile.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/containerGroupProfiles/revisions/read",
+   "display": {
+    "description": "Get container group profile revisions",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/containerGroupProfiles/revisions/deregister/action",
+   "display": {
+    "description": "Deregister container group profile revision.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/containerGroups/read",
+   "display": {
+    "description": "Get all container groups.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/containerGroups/write",
+   "display": {
+    "description": "Create or update a specific container group.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/containerGroups/delete",
+   "display": {
+    "description": "Delete the specific container group.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/containerGroups/restart/action",
+   "display": {
+    "description": "Restarts a specific container group.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/containerGroups/stop/action",
+   "display": {
+    "description": "Stops a specific container group. Compute resources will be deallocated and billing will stop.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/containerGroups/refreshDelegatedResourceIdentity/action",
+   "display": {
+    "description": "Refresh delegated resource identity for a specific container group.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/containerGroups/start/action",
+   "display": {
+    "description": "Starts a specific container group.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/containerGroups/containers/exec/action",
+   "display": {
+    "description": "Exec into a specific container.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/containerGroups/containers/attach/action",
+   "display": {
+    "description": "Attach to the output stream of a container.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/containerGroups/containers/buildlogs/read",
+   "display": {
+    "description": "Get build logs for a specific container.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/containerGroups/containers/logs/read",
+   "display": {
+    "description": "Get logs for a specific container.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/containerGroups/detectors/read",
+   "display": {
+    "description": "List Container Group Detectors",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/containerGroups/operationResults/read",
+   "display": {
+    "description": "Get async operation result",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/containerGroups/outboundNetworkDependenciesEndpoints/read",
+   "display": {
+    "description": "List Container Group Detectors",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/containerGroups/providers/Microsoft.Insights/diagnosticSettings/read",
+   "display": {
+    "description": "Gets the diagnostic setting for the container group.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/containerGroups/providers/Microsoft.Insights/diagnosticSettings/write",
+   "display": {
+    "description": "Creates or updates the diagnostic setting for the container group.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/containerGroups/providers/Microsoft.Insights/metricDefinitions/read",
+   "display": {
+    "description": "Gets the available metrics for container group.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/locations/validateDeleteVirtualNetworkOrSubnets/action",
+   "display": {
+    "description": "Notifies Microsoft.ContainerInstance that virtual network or subnet is being deleted.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/locations/deleteVirtualNetworkOrSubnets/action",
+   "display": {
+    "description": "Notifies Microsoft.ContainerInstance that virtual network or subnet is being deleted.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/locations/cachedImages/read",
+   "display": {
+    "description": "Gets the cached images for the subscription in a region.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/locations/capabilities/read",
+   "display": {
+    "description": "Get the capabilities for a region.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/locations/operationResults/read",
+   "display": {
+    "description": "Get async operation result",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/locations/operations/read",
+   "display": {
+    "description": "List the operations for Azure Container Instance service.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/locations/usages/read",
+   "display": {
+    "description": "Get the usage for a specific region.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/nGroups/read",
+   "display": {
+    "description": "Get details of a container scale set.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/nGroups/write",
+   "display": {
+    "description": "Create or update a specific container scale set.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/nGroups/delete",
+   "display": {
+    "description": "Deletes a specific container scale set.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/nGroups/containerGroups/restart/action",
+   "display": {
+    "description": "Restart specific container groups in a container scale set.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/nGroups/containerGroups/start/action",
+   "display": {
+    "description": "Start specific container groups in a container scale set.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/nGroups/containerGroups/stop/action",
+   "display": {
+    "description": "Stop specific container groups in a container scale set.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/nGroups/containerGroups/delete/action",
+   "display": {
+    "description": "Delete specific container groups in a container scale set.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/operations/read",
+   "display": {
+    "description": "List the operations for Azure Container Instance service.",
+    "provider": "Microsoft Container Instance"
+   }
+  },
+  {
+   "name": "Microsoft.ContainerInstance/serviceassociationlinks/delete",
+   "display": {
+    "description": "Delete the service association link created by azure container instance resource provider on a subnet.",
+    "provider": "Microsoft Container Instance"
+   }
+  }
+ ]
+}

@@ -20,12 +20,11 @@ const DefaultPort = 10000
 // in the root CLI command (see cli.go's CLI.AzureBlob field), mirroring
 // services/s3's Settings pattern.
 type Settings struct {
-	// Port is the fixed TCP port for the dedicated Blob listener. See
-	// handler.go's StartWorker for what happens when it's unavailable
-	// (fails fast; no fallback pool, matching services/iot's MQTT broker).
-	Port int `json:"port" env:"AZURE_BLOB_PORT" default:"10000" name:"port" help:"Fixed TCP port for the dedicated Azure Blob listener; startup fails if it's unavailable (no fallback pool)."` //nolint:lll // config struct tags are intentionally verbose
-	// EnforcePublicAccess rejects anonymous requests the container's public-access level does not allow.
-	EnforcePublicAccess bool `json:"enforcePublicAccess" env:"AZURE_BLOB_ENFORCE_PUBLIC_ACCESS" name:"enforce-public-access" help:"Reject anonymous (unsigned) requests that a container's public access level does not allow; off by default so unauthenticated curl keeps working."` //nolint:lll // config struct tags are intentionally verbose
+	AccountKeys         string `json:"accountKeys"         env:"AZURE_BLOB_ACCOUNT_KEYS"          name:"account-keys"          help:"Comma-separated account=base64key pairs used when signature verification is on (the development account is always known)."`                                                                               //nolint:lll // config struct tags are intentionally verbose
+	Port                int    `json:"port"                env:"AZURE_BLOB_PORT"                  name:"port"                  help:"Fixed TCP port for the dedicated Azure Blob listener; startup fails if it's unavailable (no fallback pool)."                                                                             default:"10000"` //nolint:lll // config struct tags are intentionally verbose
+	EnforcePublicAccess bool   `json:"enforcePublicAccess" env:"AZURE_BLOB_ENFORCE_PUBLIC_ACCESS" name:"enforce-public-access" help:"Reject anonymous (unsigned) requests that a container's public access level does not allow; off by default so unauthenticated curl keeps working."`                                                       //nolint:lll // config struct tags are intentionally verbose
+	VerifySignatures    bool   `json:"verifySignatures"    env:"AZURE_BLOB_VERIFY_SIGNATURES"     name:"verify-signatures"     help:"Verify SharedKey and SAS credentials (signature, validity window, IP, protocol, permissions, stored access policy) and apply public-access rules to anonymous requests; off by default."`                 //nolint:lll // config struct tags are intentionally verbose
+	AllowExternalCopy   bool   `json:"allowExternalCopy"   env:"AZURE_BLOB_ALLOW_EXTERNAL_COPY"   name:"allow-external-copy"   help:"Let Copy Blob fetch source URLs that resolve to non-loopback addresses; by default only loopback sources are reachable."`                                                                                 //nolint:lll // config struct tags are intentionally verbose
 }
 
 // DefaultSettings returns the default Settings. Used when no ConfigProvider

@@ -227,6 +227,7 @@ func (e *ACIEngine) probeHTTPGet(
 
 	e.mu.RLock("probeHTTPGet")
 	back, ok := run.backPorts[g.Port]
+	host := run.hostFor(g.Port)
 	do := e.httpProbe
 	e.mu.RUnlock()
 
@@ -245,7 +246,7 @@ func (e *ACIEngine) probeHTTPGet(
 	}
 
 	status, err := do(ctx, ACIHTTPProbe{
-		URL:     g.Scheme + "://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(back)) + path,
+		URL:     g.Scheme + "://" + net.JoinHostPort(host, strconv.Itoa(back)) + path,
 		Headers: hdr, Timeout: timeout,
 	})
 
@@ -274,10 +275,10 @@ func (e *ACIEngine) groupReady(run *aciRun) bool {
 
 // startGate listens on front and forwards to back while every readiness probe passes; otherwise it drops the
 // connection.
-func (e *ACIEngine) startGate(run *aciRun, front, back int) error {
+func (e *ACIEngine) startGate(run *aciRun, host string, front, back int) error {
 	var lc net.ListenConfig
 
-	ln, err := lc.Listen(run.ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(front)))
+	ln, err := lc.Listen(run.ctx, "tcp", net.JoinHostPort(host, strconv.Itoa(front)))
 	if err != nil {
 		return fmt.Errorf("listen on port %d: %w", front, err)
 	}

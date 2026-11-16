@@ -3,6 +3,7 @@ package azureblob
 import (
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"maps"
 	"net/http"
 	"slices"
@@ -28,6 +29,7 @@ type ListBlobsOptions struct {
 	MaxResults       int
 	IncludeSnapshots bool
 	IncludeTags      bool
+	IncludeDeleted   bool
 }
 
 // ListEntry is one item of a List Blobs page: a blob or a BlobPrefix.
@@ -184,6 +186,7 @@ func (b *InMemoryBackend) SetBlobProperties(
 	}
 
 	s.applyAttrs(attrs)
+	s.clearCopy()
 	b.touchBlobLocked(s)
 
 	return s.info(b.now()), nil
@@ -207,8 +210,31 @@ func (b *InMemoryBackend) SetBlobMetadata(
 	return s.info(b.now()), nil
 }
 
-// SetBlobTier sets the access tier and returns the tier it replaced.
+// Rehydration times of an Archive blob moved to an online tier, by x-ms-rehydrate-priority (the upper bounds the
+// Blob rehydration documentation gives for Standard and High priority).
+const (
+	RehydratePriorityStandard = "Standard"
+	RehydratePriorityHigh     = "High"
+	RehydrateStandardAfter    = 15 * time.Hour
+	RehydrateHighAfter        = time.Hour
+)
+
+// TierRequest is a Set Blob Tier request.
+type TierRequest struct {
+	Tier     string
+	Priority string
+}
+
+// SetBlobTier sets the access tier at standard rehydration priority and returns the tier it replaced.
 func (b *InMemoryBackend) SetBlobTier(container, blob, tier string, pre ...Precond) (string, BlobInfo, error) {
+	return b.SetBlobTierWith(container, blob, TierRequest{Tier: tier}, pre...)
+}
+
+// SetBlobTierWith sets the access tier. Leaving Archive starts an asynchronous rehydration that completes once the
+// priority's duration has elapsed; until then the blob stays Archive with x-ms-archive-status set.
+func (b *InMemoryBackend) SetBlobTierWith(
+	container, blob string, req TierRequest, pre ...Precond,
+) (string, BlobInfo, error) {
 	b.mu.Lock("SetBlobTier")
 	defer b.mu.Unlock()
 
@@ -217,15 +243,39 @@ func (b *InMemoryBackend) SetBlobTier(container, blob, tier string, pre ...Preco
 		return "", BlobInfo{}, err
 	}
 
+	now := b.now()
+	s.settleRehydration(now)
+
 	prev := s.AccessTier
 	if prev == "" {
 		prev = TierHot
 	}
 
-	s.AccessTier = tier
-	s.AccessTierChanged = b.now()
+	switch {
+	case prev == TierArchive && req.Tier == TierArchive:
+		s.RehydrateTo, s.RehydrateDue = "", time.Time{}
+	case prev == TierArchive:
+		after := RehydrateStandardAfter
+		if req.Priority == RehydratePriorityHigh {
+			after = RehydrateHighAfter
+		}
 
-	return prev, s.info(b.now()), nil
+		s.RehydrateTo, s.RehydrateDue = req.Tier, now.Add(after)
+	default:
+		s.AccessTier = req.Tier
+		s.AccessTierChanged = now
+	}
+
+	return prev, s.info(now), nil
+}
+
+func (s *storedBlob) settleRehydration(now time.Time) {
+	if s.RehydrateTo == "" || now.Before(s.RehydrateDue) {
+		return
+	}
+
+	s.AccessTier, s.AccessTierChanged = s.RehydrateTo, s.RehydrateDue
+	s.RehydrateTo, s.RehydrateDue = "", time.Time{}
 }
 
 // uniqueSnapshotID returns a snapshot timestamp not already used by s.
@@ -255,6 +305,7 @@ func (b *InMemoryBackend) SnapshotBlob(container, blob string, md map[string]str
 	snap.Snapshots = nil
 	snap.Lease = nil
 	snap.Data = slices.Clone(s.Data)
+	snap.cloneKind()
 	snap.Blocks = slices.Clone(s.Blocks)
 	snap.Tags = maps.Clone(s.Tags)
 	snap.Snapshot = uniqueSnapshotID(s, b.now())
@@ -274,10 +325,24 @@ func (b *InMemoryBackend) SnapshotBlob(container, blob string, md map[string]str
 	return snap.info(b.now()), nil
 }
 
-// CopyBlob copies a blob (or snapshot) within the account. A nil md inherits
-// the source metadata; tags are never inherited, only the given ones apply.
+// CopyRequest carries the destination settings of a Copy Blob. A nil Metadata inherits the source's; tags are
+// never inherited. SourceURL is recorded as x-ms-copy-source with any SAS removed.
+type CopyRequest struct {
+	Metadata  map[string]string
+	Tags      map[string]string
+	SourceURL string
+}
+
+// ExternalBlob is the content and properties of a blob fetched from a source URL.
+type ExternalBlob struct {
+	Metadata map[string]string
+	Data     []byte
+	Attrs    BlobAttrs
+}
+
+// CopyBlob copies a blob (or snapshot) within the account and records the x-ms-copy-* properties on the destination.
 func (b *InMemoryBackend) CopyBlob(
-	srcContainer, srcBlob, srcSnapshot, dstContainer, dstBlob string, md, tags map[string]string, pre ...Precond,
+	srcContainer, srcBlob, srcSnapshot, dstContainer, dstBlob string, req CopyRequest, pre ...Precond,
 ) (BlobInfo, error) {
 	b.mu.Lock("CopyBlob")
 	defer b.mu.Unlock()
@@ -303,16 +368,16 @@ func (b *InMemoryBackend) CopyBlob(
 		return BlobInfo{}, err
 	}
 
-	b.etagSeq++
-
 	dst := &storedBlob{
 		Name:         dstBlob,
 		Blocks:       slices.Clone(src.Blocks),
-		Tags:         maps.Clone(tags),
 		Data:         slices.Clone(src.Data),
-		LastModified: b.now(),
-		ETag:         computeBlobETag(src.Data, b.etagSeq),
+		BlobType:     src.BlobType,
+		PageLength:   src.PageLength,
+		AppendBlocks: src.AppendBlocks,
+		Pages:        slices.Clone(src.Pages),
 	}
+	dst.cloneKind()
 	dst.applyAttrs(BlobAttrs{
 		ContentType:        src.ContentType,
 		ContentEncoding:    src.ContentEncoding,
@@ -322,20 +387,91 @@ func (b *InMemoryBackend) CopyBlob(
 		ContentMD5:         src.ContentMD5,
 	})
 
-	if md != nil {
-		dst.Metadata = maps.Clone(md)
-	} else {
-		dst.Metadata = maps.Clone(src.Metadata)
+	md := req.Metadata
+	if md == nil {
+		md = src.Metadata
 	}
 
-	if old, exists := dstC.Blobs[dstBlob]; exists {
+	return b.finishCopyLocked(dstC, dst, md, req), nil
+}
+
+// CopyBlobData stores content fetched from a source URL as a block blob and records the copy properties.
+func (b *InMemoryBackend) CopyBlobData(
+	dstContainer, dstBlob string, src ExternalBlob, req CopyRequest, pre ...Precond,
+) (BlobInfo, error) {
+	b.mu.Lock("CopyBlobData")
+	defer b.mu.Unlock()
+
+	dstC, err := b.containerLocked(dstContainer)
+	if err != nil {
+		return BlobInfo{}, err
+	}
+
+	if err = b.guardWriteLocked(dstC, dstBlob, firstPre(pre)); err != nil {
+		return BlobInfo{}, err
+	}
+
+	dst := &storedBlob{Name: dstBlob, Data: slices.Clone(src.Data)}
+	dst.applyAttrs(src.Attrs)
+
+	md := req.Metadata
+	if md == nil {
+		md = src.Metadata
+	}
+
+	return b.finishCopyLocked(dstC, dst, md, req), nil
+}
+
+func (b *InMemoryBackend) finishCopyLocked(
+	dstC *storedContainer, dst *storedBlob, md map[string]string, req CopyRequest,
+) BlobInfo {
+	b.etagSeq++
+	now := b.now()
+	dst.Tags = maps.Clone(req.Tags)
+	dst.Metadata = maps.Clone(md)
+	dst.LastModified = now
+	dst.ETag = computeBlobETag(dst.Data, b.etagSeq)
+	dst.CopyID = newRequestID()
+	dst.CopyStatus = CopyStatusSuccess
+	dst.CopySource = req.SourceURL
+	dst.CopyCompletion = now
+	dst.CopyProgress = fmt.Sprintf("%d/%d", dst.length(), dst.length())
+
+	if old, exists := dstC.Blobs[dst.Name]; exists {
 		dst.Snapshots = old.Snapshots
 		dst.Lease = old.Lease
 	}
 
-	dstC.Blobs[dstBlob] = dst
+	dstC.Blobs[dst.Name] = dst
 
-	return dst.info(b.now()), nil
+	return dst.info(now)
+}
+
+// AbortCopy aborts a pending copy. Copies complete synchronously, so a destination never has one pending.
+func (b *InMemoryBackend) AbortCopy(container, blob, copyID string, pre ...Precond) error {
+	b.mu.RLock("AbortCopy")
+	defer b.mu.RUnlock()
+
+	s, err := b.lookupBlobLocked(container, blob, "")
+	if err != nil {
+		return err
+	}
+
+	if err = s.Lease.gate(b.now(), firstPre(pre).LeaseID, false, "Blob"); err != nil {
+		return err
+	}
+
+	if s.CopyID == "" || s.CopyStatus != CopyStatusPending {
+		return storageErr(http.StatusConflict, "NoPendingCopyOperation",
+			"There is currently no pending copy operation.")
+	}
+
+	if s.CopyID != copyID {
+		return storageErr(http.StatusConflict, "CopyIdMismatch",
+			"The specified copy ID does not match the copy ID of the pending copy operation.")
+	}
+
+	return nil
 }
 
 // DeleteBlobAt deletes a snapshot (snapshot != ""), or the base blob subject
@@ -370,7 +506,9 @@ func (b *InMemoryBackend) DeleteBlobAt(container, blob, snapshot, mode string, p
 		return ErrSnapshotsPresent
 	}
 
-	delete(b.containers[container].Blobs, blob)
+	c := b.containers[container]
+	delete(c.Blobs, blob)
+	b.softDeleteLocked(c, s)
 
 	return nil
 }
@@ -394,17 +532,12 @@ func (c *storedContainer) listItems(opts ListBlobsOptions, now time.Time) []list
 	seen := make(map[string]struct{})
 
 	add := func(info BlobInfo, key string) {
-		rest := strings.TrimPrefix(info.Name, opts.Prefix)
-		if opts.Delimiter != "" {
-			if idx := strings.Index(rest, opts.Delimiter); idx >= 0 {
-				p := opts.Prefix + rest[:idx+len(opts.Delimiter)]
-				if _, dup := seen[p]; !dup {
-					seen[p] = struct{}{}
-					items = append(items, listItem{key: p, entry: ListEntry{IsPrefix: true, Prefix: p}})
-				}
-
-				return
+		if p, ok := collapsePrefix(info.Name, opts, seen); ok {
+			if p != "" {
+				items = append(items, listItem{key: p, entry: ListEntry{IsPrefix: true, Prefix: p}})
 			}
+
+			return
 		}
 
 		items = append(items, listItem{key: key, entry: ListEntry{Blob: info}})
@@ -424,9 +557,41 @@ func (c *storedContainer) listItems(opts ListBlobsOptions, now time.Time) []list
 		add(s.info(now), listKey(name, ""))
 	}
 
+	if opts.IncludeDeleted {
+		for name, s := range c.Deleted {
+			if strings.HasPrefix(name, opts.Prefix) && !s.purgeDue(now) {
+				add(s.info(now), name+"\x00~d")
+			}
+		}
+	}
+
 	sort.Slice(items, func(i, j int) bool { return items[i].key < items[j].key })
 
 	return items
+}
+
+// collapsePrefix reports whether name folds into a delimiter prefix; the returned prefix is empty when that
+// prefix was already emitted.
+func collapsePrefix(name string, opts ListBlobsOptions, seen map[string]struct{}) (string, bool) {
+	if opts.Delimiter == "" {
+		return "", false
+	}
+
+	rest := strings.TrimPrefix(name, opts.Prefix)
+
+	idx := strings.Index(rest, opts.Delimiter)
+	if idx < 0 {
+		return "", false
+	}
+
+	p := opts.Prefix + rest[:idx+len(opts.Delimiter)]
+	if _, dup := seen[p]; dup {
+		return "", true
+	}
+
+	seen[p] = struct{}{}
+
+	return p, true
 }
 
 // ListBlobsPage lists blobs with prefix/delimiter collapsing and marker

@@ -1,5 +1,7 @@
 package azureappconfig
 
+import "time"
+
 // Content types the service and its clients treat specially.
 const (
 	ContentTypeFeatureFlag = "application/vnd.microsoft.appconfig.ff+json;charset=utf-8"
@@ -36,11 +38,14 @@ const (
 const (
 	snapshotReady        = "ready"
 	snapshotArchived     = "archived"
+	snapshotFailed       = "failed"
 	snapshotProvisioning = "provisioning"
 	compositionKey       = "key"
 	compositionKeyLabel  = "key_label"
 
-	defaultRetention = int64(7 * 24 * 3600)
-	minRetention     = int64(3600)
-	maxRetention     = int64(90 * 24 * 3600)
+	defaultRetention       = int64(30 * 24 * 3600)
+	freeMaxRetention       = int64(7 * 24 * 3600)
+	snapshotProvisionDelay = 2 * time.Second
+	minRetention           = int64(3600)
+	maxRetention           = int64(90 * 24 * 3600)
 )

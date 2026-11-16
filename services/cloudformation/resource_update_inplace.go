@@ -51,6 +51,8 @@ func (rc *ResourceCreator) UpdateInPlace(
 		return true, rc.updateLambdaWebFunction(physicalID, props, params, physicalIDs)
 	case resTypeLambdaWebFunctionEndpoint:
 		return true, rc.updateLambdaWebEndpoint(physicalID, props, params, physicalIDs)
+	case resTypeELBv2LB:
+		return true, rc.updateELBv2LoadBalancer(physicalID, props, params, physicalIDs)
 	case resTypeSQSQueue:
 		return true, rc.updateSQSQueue(physicalID, props, params, physicalIDs)
 	case resTypeStepFunctionsStateMachine:

@@ -16,11 +16,12 @@ import (
 var errBoom = errors.New("boom")
 
 type fakeEngine struct {
-	logins map[string]string
-	dbs    map[string]string
-	mu     sync.Mutex
-	port   int
-	closed bool
+	logins  map[string]string
+	dbs     map[string]string
+	content map[string][]byte
+	mu      sync.Mutex
+	port    int
+	closed  bool
 }
 
 func (e *fakeEngine) Endpoint() (string, int) { return "127.0.0.1", e.port }
@@ -70,6 +71,35 @@ func (e *fakeEngine) ListDatabases(context.Context) ([]string, error) {
 	return names, nil
 }
 
+func (e *fakeEngine) BackupDatabase(_ context.Context, name string, maxBytes int64) ([]byte, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if strings.HasPrefix(name, "nobackup") {
+		return nil, errBoom
+	}
+
+	data := e.content[name]
+	if int64(len(data)) > maxBytes {
+		return nil, errBoom
+	}
+
+	return append([]byte(nil), data...), nil
+}
+
+func (e *fakeEngine) RestoreDatabase(_ context.Context, name string, data []byte) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if strings.HasPrefix(name, "norestore") {
+		return errBoom
+	}
+
+	e.content[name] = append([]byte(nil), data...)
+
+	return nil
+}
+
 func (e *fakeEngine) Close(context.Context) {
 	e.mu.Lock()
 	e.closed = true
@@ -87,7 +117,7 @@ func (l *fakeLauncher) Launch(_ context.Context, spec azuresql.LaunchSpec) (azur
 		return nil, l.err
 	}
 
-	e := &fakeEngine{logins: map[string]string{}, dbs: map[string]string{}}
+	e := &fakeEngine{logins: map[string]string{}, dbs: map[string]string{}, content: map[string][]byte{}}
 	if spec.Login != "" {
 		e.logins[spec.Login] = spec.Password
 	}

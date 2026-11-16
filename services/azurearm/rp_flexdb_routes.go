@@ -47,7 +47,8 @@ func isFlexScope(segs []string, n int) bool {
 func isFlexChildType(segs []string) bool {
 	switch strings.ToLower(segs[flexServerSegs]) {
 	case strings.ToLower(flexFirewallType), strings.ToLower(flexDatabasesType), strings.ToLower(flexConfigsType),
-		strings.ToLower(flexAdminType), strings.ToLower(flexBackupsType), strings.ToLower(flexBackupsV2Type):
+		strings.ToLower(flexAdminType), strings.ToLower(flexBackupsType), strings.ToLower(flexBackupsV2Type),
+		strings.ToLower(flexThreatType):
 		return true
 	}
 
@@ -73,7 +74,8 @@ func isFlexWrite(segs []string, r *http.Request) bool {
 	case http.MethodPut, http.MethodDelete:
 	case http.MethodPatch:
 		patchable := isFlexScope(segs, flexServerSegs) ||
-			(isFlexScope(segs, flexChildSegs) && segAt(segs, flexServerSegs, flexConfigsType))
+			(isFlexScope(segs, flexChildSegs) &&
+				(segAt(segs, flexServerSegs, flexConfigsType) || segAt(segs, flexServerSegs, flexThreatType)))
 		if !patchable {
 			return false
 		}
@@ -92,7 +94,7 @@ func isFlexAction(segs []string, r *http.Request) bool {
 	switch strings.ToLower(segs[flexServerSegs]) {
 	case aksActionStart, aksActionStop, "restart":
 		return true
-	case flexAdminFailover, flexUpdateConfigs:
+	case flexAdminFailover, flexUpdateConfigs, flexDetachVNet:
 		return strings.EqualFold(segs[flexNsIdx], namespaceDBforMySQL)
 	}
 
@@ -335,6 +337,10 @@ func (h *Handler) handleFlexAction(c *echo.Context, segs []string) error {
 		return h.writeJSON(c, http.StatusOK, map[string]any{fieldValue: values})
 	}
 
+	if strings.EqualFold(segs[len(segs)-1], flexDetachVNet) {
+		return h.detachFlexVNet(c, p, id)
+	}
+
 	opID, err := p.Action(id, strings.ToLower(segs[len(segs)-1]))
 	if err != nil {
 		return h.writeAPIError(c, err)
@@ -435,4 +441,20 @@ func (h *Handler) handleFlexCapabilitySets(c *echo.Context, segs []string) error
 	}
 
 	return h.writeJSON(c, http.StatusOK, map[string]any{fieldValue: []any{set}})
+}
+
+func (h *Handler) detachFlexVNet(c *echo.Context, p *FlexDBProvider, id ResourceID) error {
+	body, err := decodeJSONBody(c.Request())
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	opID, err := p.DetachVNet(id, body)
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	h.setFlexOperation(c, p, id.SubscriptionID, opID)
+
+	return c.NoContent(http.StatusAccepted)
 }

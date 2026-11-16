@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -63,6 +64,12 @@ const (
 	opSetBlobTags            = "SetBlobTags"
 	opGetBlobTags            = "GetBlobTags"
 	opFindBlobsByTags        = "FindBlobsByTags"
+	opAppendBlock            = "AppendBlock"
+	opPutPage                = "PutPage"
+	opGetPageRanges          = "GetPageRanges"
+	opAbortCopyBlob          = "AbortCopyBlob"
+	opUndeleteBlob           = "UndeleteBlob"
+	opSetServiceProperties   = "SetServiceProperties"
 	unknownOperation         = "Unknown"
 )
 
@@ -72,19 +79,27 @@ type Handler struct {
 	Events              BlobEventSink
 	srvMu               *lockmetrics.RWMutex
 	srv                 *http.Server
+	copyClient          *http.Client
+	clock               func() time.Time
+	AccountKeys         map[string]string
 	Endpoint            string
 	Port                int
+	allowExternalCopy   atomic.Bool
 	EnforcePublicAccess bool
+	VerifySignatures    bool
 }
 
 // NewHandler creates a new Azure Blob Handler. Port defaults to DefaultPort;
 // callers (typically provider.go) override it from Settings.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{
+	h := &Handler{
 		Backend: backend,
 		Port:    DefaultPort,
 		srvMu:   lockmetrics.New("azureblob.server"),
 	}
+	h.copyClient = newCopyClient(h.allowExternalCopy.Load)
+
+	return h
 }
 
 var (
@@ -127,6 +142,12 @@ func (h *Handler) GetSupportedOperations() []string {
 		opSetBlobTags,
 		opGetBlobTags,
 		opFindBlobsByTags,
+		opAppendBlock,
+		opPutPage,
+		opGetPageRanges,
+		opAbortCopyBlob,
+		opUndeleteBlob,
+		opSetServiceProperties,
 	}
 }
 
@@ -183,6 +204,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if account == "" {
 			return h.writeError(c, http.StatusBadRequest, "InvalidUri",
 				"The requested URI does not represent any resource on the server.")
+		}
+
+		if apiErr := h.authorize(r, account, container, blob); apiErr != nil {
+			return h.writeAPIError(c, apiErr)
 		}
 
 		if denied, err := h.denyAnonymous(c, container, blob); denied {
@@ -297,6 +322,11 @@ const (
 	compSnapshot     = "snapshot"
 	compTags         = "tags"
 	compBlobs        = "blobs"
+	compAppendBlock  = "appendblock"
+	compPage         = "page"
+	compPageList     = "pagelist"
+	compCopy         = "copy"
+	compUndelete     = "undelete"
 )
 
 // operationFor determines the Azure Blob operation name for a request, for
@@ -329,6 +359,8 @@ func accountOperationFor(r *http.Request) string {
 		return opGetServiceProperties
 	case r.Method == http.MethodGet && q.Get(queryComp) == compBlobs:
 		return opFindBlobsByTags
+	case r.Method == http.MethodPut && q.Get(queryRestype) == restypeService && q.Get(queryComp) == compProperties:
+		return opSetServiceProperties
 	default:
 		return unknownOperation
 	}
@@ -397,6 +429,8 @@ func blobOperationFor(r *http.Request) string {
 			return opGetBlockList
 		case compTags:
 			return opGetBlobTags
+		case compPageList:
+			return opGetPageRanges
 		}
 
 		return opGetBlob
@@ -419,25 +453,51 @@ func blobPutOp(comp string, copying bool) string {
 		return opPutBlockFromURL
 	case comp == compBlock:
 		return opPutBlock
-	case comp == compBlockList:
-		return opPutBlockList
-	case comp == compLease:
-		return opLeaseBlob
-	case comp == compProperties:
-		return opSetBlobProperties
-	case comp == compMetadata:
-		return opSetBlobMetadata
-	case comp == compTier:
-		return opSetBlobTier
-	case comp == compTags:
-		return opSetBlobTags
-	case comp == compSnapshot:
-		return opSnapshotBlob
-	case copying:
+	case comp == "" && copying:
 		return opCopyBlob
-	default:
-		return opPutBlob
 	}
+
+	if op := blobPutCompOp(comp); op != "" {
+		return op
+	}
+
+	return opPutBlob
+}
+
+func blobPutCompOp(comp string) string {
+	switch comp {
+	case compBlockList:
+		return opPutBlockList
+	case compAppendBlock:
+		return opAppendBlock
+	case compPage:
+		return opPutPage
+	case compCopy:
+		return opAbortCopyBlob
+	case compUndelete:
+		return opUndeleteBlob
+	case compLease:
+		return opLeaseBlob
+	}
+
+	return blobPutAttrOp(comp)
+}
+
+func blobPutAttrOp(comp string) string {
+	switch comp {
+	case compProperties:
+		return opSetBlobProperties
+	case compMetadata:
+		return opSetBlobMetadata
+	case compTier:
+		return opSetBlobTier
+	case compTags:
+		return opSetBlobTags
+	case compSnapshot:
+		return opSnapshotBlob
+	}
+
+	return ""
 }
 
 // serviceEndpoint returns the ServiceEndpoint attribute value for
@@ -458,7 +518,9 @@ func (h *Handler) handleAccountLevel(c *echo.Context) error {
 
 	switch accountOperationFor(r) {
 	case opGetServiceProperties:
-		return h.writeXML(c, http.StatusOK, storageServiceProperties{})
+		return h.writeXML(c, http.StatusOK, h.Backend.GetServiceProperties())
+	case opSetServiceProperties:
+		return h.setServiceProperties(c)
 	case opFindBlobsByTags:
 		return h.findBlobsByTags(c, "")
 	}
@@ -573,23 +635,17 @@ func (h *Handler) deleteContainer(c *echo.Context, container string) error {
 
 // handleBlobLevel dispatches the blob-scoped operations.
 func (h *Handler) handleBlobLevel(c *echo.Context, container, blob string) error {
-	switch blobOperationFor(c.Request()) {
-	case opSetBlobProperties:
-		return h.setBlobProperties(c, container, blob)
-	case opSetBlobMetadata:
-		return h.setBlobMetadata(c, container, blob)
-	case opGetBlobMetadata:
-		return h.getBlobMetadata(c, container, blob)
-	case opSetBlobTier:
-		return h.setBlobTier(c, container, blob)
-	case opSetBlobTags:
-		return h.setBlobTags(c, container, blob)
-	case opGetBlobTags:
-		return h.getBlobTags(c, container, blob)
-	case opSnapshotBlob:
-		return h.snapshotBlob(c, container, blob)
-	case opCopyBlob:
-		return h.copyBlob(c, container, blob)
+	op := blobOperationFor(c.Request())
+
+	if done, err := h.handleBlobAttrOp(c, op, container, blob); done {
+		return err
+	}
+
+	if done, err := h.handleBlobKindOp(c, op, container, blob); done {
+		return err
+	}
+
+	switch op {
 	case opPutBlock, opPutBlockFromURL, opPutBlockList, opGetBlockList, opLeaseBlob:
 		return h.handleBlockAndLease(c, container, blob)
 	case opPutBlob:
@@ -604,6 +660,46 @@ func (h *Handler) handleBlobLevel(c *echo.Context, container, blob string) error
 		return h.writeError(c, http.StatusMethodNotAllowed, "UnsupportedHttpVerb",
 			"The resource doesn't support the specified HTTP verb.")
 	}
+}
+
+func (h *Handler) handleBlobAttrOp(c *echo.Context, op, container, blob string) (bool, error) {
+	switch op {
+	case opSetBlobProperties:
+		return true, h.setBlobProperties(c, container, blob)
+	case opSetBlobMetadata:
+		return true, h.setBlobMetadata(c, container, blob)
+	case opGetBlobMetadata:
+		return true, h.getBlobMetadata(c, container, blob)
+	case opSetBlobTier:
+		return true, h.setBlobTier(c, container, blob)
+	case opSetBlobTags:
+		return true, h.setBlobTags(c, container, blob)
+	case opGetBlobTags:
+		return true, h.getBlobTags(c, container, blob)
+	case opSnapshotBlob:
+		return true, h.snapshotBlob(c, container, blob)
+	case opCopyBlob:
+		return true, h.copyBlob(c, container, blob)
+	}
+
+	return false, nil
+}
+
+func (h *Handler) handleBlobKindOp(c *echo.Context, op, container, blob string) (bool, error) {
+	switch op {
+	case opAppendBlock:
+		return true, h.appendBlock(c, container, blob)
+	case opPutPage:
+		return true, h.putPage(c, container, blob)
+	case opGetPageRanges:
+		return true, h.getPageRanges(c, container, blob)
+	case opAbortCopyBlob:
+		return true, h.abortCopy(c, container, blob)
+	case opUndeleteBlob:
+		return true, h.undeleteBlob(c, container, blob)
+	}
+
+	return false, nil
 }
 
 func (h *Handler) handleBlockAndLease(c *echo.Context, container, blob string) error {
@@ -622,14 +718,12 @@ func (h *Handler) handleBlockAndLease(c *echo.Context, container, blob string) e
 func (h *Handler) putBlob(c *echo.Context, container, blob string) error {
 	r := c.Request()
 
-	if r.Header.Get("X-Ms-Blob-Type") != blockBlobType {
-		return h.writeError(c, http.StatusBadRequest, "InvalidHeaderValue",
-			"The value for one of the HTTP headers is not in the correct format "+
-				"(x-ms-blob-type must be BlockBlob; only block blobs are supported).")
-	}
-
 	attrs, apiErr := blobAttrsFromRequest(r)
 	if apiErr != nil {
+		return h.writeAPIError(c, apiErr)
+	}
+
+	if apiErr = blobKindFromRequest(r, &attrs); apiErr != nil {
 		return h.writeAPIError(c, apiErr)
 	}
 
@@ -659,6 +753,10 @@ func (h *Handler) putBlob(c *echo.Context, container, blob string) error {
 
 	if apiErr = verifyTransactional(r, body, "Content-Md5", headerContentCRC64); apiErr != nil {
 		return h.writeAPIError(c, apiErr)
+	}
+
+	if attrs.BlobType != BlobTypeBlock && len(body) != 0 {
+		return h.writeAPIError(c, errInvalidHeader("Content-Length"))
 	}
 
 	info, err := h.Backend.PutBlobWith(container, blob, body, attrs, pre)
@@ -789,8 +887,9 @@ func (h *Handler) setBlobHeaders(c *echo.Context, info BlobInfo) {
 	hdr.Set("ETag", info.ETag)
 	hdr.Set("Last-Modified", info.LastModified.Format(http.TimeFormat))
 	hdr.Set("Content-Length", strconv.FormatInt(info.ContentLength, 10))
-	hdr.Set("X-Ms-Blob-Type", blockBlobType)
+	hdr.Set("X-Ms-Blob-Type", info.BlobType)
 	hdr.Set("Accept-Ranges", "bytes")
+	setKindHeaders(hdr, info)
 	setMetadataHeaders(hdr, info.Metadata)
 	setLeaseHeaders(hdr, info.Lease)
 

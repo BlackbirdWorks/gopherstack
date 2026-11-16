@@ -20,6 +20,9 @@ const (
 	EndpointEventHub     = "EventHub"
 	EndpointStorageQueue = "StorageQueue"
 	EndpointStorageBlob  = "StorageBlob"
+	EndpointAzureFunc    = "AzureFunction"
+	EndpointHybridConn   = "HybridConnection"
+	EndpointPartner      = "PartnerDestination"
 
 	StateSucceeded      = "Succeeded"
 	StateAwaitingManual = "AwaitingManualAction"

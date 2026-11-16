@@ -285,11 +285,11 @@ func (b *InMemoryBackend) CreateCertificate(
 		pol := req.Policy.normalized(now)
 
 		switch {
-		case strings.EqualFold(pol.Issuer.Name, issuerUnknown):
+		case strings.EqualFold(pol.Issuer.Name, issuerUnknown), v.partnerIssuer(pol.Issuer.Name):
 			return v.createPending(name, base, pol, req, now, &out)
 		case !strings.EqualFold(pol.Issuer.Name, issuerSelf):
 			return errBadParameter(
-				"Issuer %q is not supported; only the %s and %s issuers can issue certificates.",
+				"Issuer %q is not supported; use %s, %s or a configured DigiCert or GlobalSign issuer.",
 				pol.Issuer.Name, issuerSelf, issuerUnknown,
 			)
 		}

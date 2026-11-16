@@ -71,8 +71,10 @@ func (in *cmpInstance) protected() bool { return in.ProtectScaleIn || in.Protect
 
 func (in *cmpInstance) number() int { return atoiOr(in.ID, 0) }
 
-// vmssScaleInVictims picks n instances to delete: OldestVM and NewestVM by creation order, Default balanced across
-// zones first and then newest first (Learn: virtual-machine-scale-sets-scale-in-policy).
+// vmssScaleInVictims picks n instances to delete. Default balances across zones and then removes the newest;
+// OldestVM and NewestVM balance across zones first and then pick by creation order within the zones that hold the
+// most instances (Learn: virtual-machine-scale-sets-scale-in-policy). With prioritizeUnhealthyVMs, instances that
+// are not running (inactive) go first (armcompute ScaleInPolicy.PrioritizeUnhealthyVMs).
 func vmssScaleInVictims(r *cmpRes, n int) ([]*cmpInstance, error) {
 	if n <= 0 {
 		return nil, nil
@@ -93,38 +95,61 @@ func vmssScaleInVictims(r *cmpRes, n int) ([]*cmpInstance, error) {
 
 	slices.SortFunc(pool, func(a, b *cmpInstance) int { return a.number() - b.number() })
 
-	switch vmssScaleInRule(r) {
-	case scaleInOldest:
-		return pool[:n], nil
-	case scaleInNewest:
-		slices.Reverse(pool)
-
-		return pool[:n], nil
-	}
-
-	return balancedVictims(r, pool, n), nil
-}
-
-func balancedVictims(r *cmpRes, pool []*cmpInstance, n int) []*cmpInstance {
 	counts := map[string]int{}
 	for _, in := range r.Instances {
 		counts[in.Zone]++
 	}
 
+	rule := vmssScaleInRule(r)
 	out := make([]*cmpInstance, 0, n)
 
-	for range n {
-		pick := -1
+	if prioritizeUnhealthy(r) {
+		inactive := slices.DeleteFunc(
+			slices.Clone(pool),
+			func(in *cmpInstance) bool { return in.Power == powerRunning },
+		)
+		out = append(out, pickVictims(rule, inactive, min(n, len(inactive)), counts)...)
 
-		for i := range slices.Backward(pool) {
-			if pick < 0 || counts[pool[i].Zone] > counts[pool[pick].Zone] {
-				pick = i
+		pool = slices.DeleteFunc(pool, func(in *cmpInstance) bool { return slices.Contains(out, in) })
+	}
+
+	return append(out, pickVictims(rule, pool, n-len(out), counts)...), nil
+}
+
+func prioritizeUnhealthy(r *cmpRes) bool {
+	v, _ := mapOf(r.Props[cmpFieldScaleIn])["prioritizeUnhealthyVMs"].(bool)
+
+	return v
+}
+
+// pickVictims takes n instances of pool (ordered oldest first); counts holds the per-zone instance counts and is
+// reduced as instances are picked.
+func pickVictims(rule string, pool []*cmpInstance, n int, counts map[string]int) []*cmpInstance {
+	out := make([]*cmpInstance, 0, n)
+	pool = slices.Clone(pool)
+
+	for range n {
+		maxZone := -1
+
+		for _, in := range pool {
+			maxZone = max(maxZone, counts[in.Zone])
+		}
+
+		var pick *cmpInstance
+
+		for _, in := range pool {
+			if counts[in.Zone] != maxZone {
+				continue
+			}
+
+			if pick == nil || rule != scaleInOldest {
+				pick = in
 			}
 		}
 
-		counts[pool[pick].Zone]--
-		out = append(out, pool[pick])
-		pool = slices.Delete(pool, pick, pick+1)
+		counts[pick.Zone]--
+		out = append(out, pick)
+		pool = slices.DeleteFunc(pool, func(in *cmpInstance) bool { return in == pick })
 	}
 
 	return out

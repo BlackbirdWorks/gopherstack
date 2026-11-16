@@ -134,11 +134,17 @@ func (h *Handler) routeOperations(req *request) error {
 
 	name := req.q.Get("snapshot")
 
-	if _, err := h.Backend.GetSnapshot(req.store, name); err != nil {
+	status, detail, err := h.Backend.SnapshotOperation(req.store, name)
+	if err != nil {
 		return err
 	}
 
-	return h.respond(req, http.StatusOK, mediaJSON, map[string]any{"id": name, "status": "Succeeded"})
+	var opErr any
+	if detail != "" {
+		opErr = map[string]any{"code": "QuotaExceeded", "message": detail}
+	}
+
+	return h.respond(req, http.StatusOK, mediaJSON, map[string]any{"id": name, "status": status, "error": opErr})
 }
 
 func baseURL(r *http.Request) string {

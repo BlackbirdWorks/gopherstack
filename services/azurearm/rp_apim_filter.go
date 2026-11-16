@@ -9,15 +9,17 @@ import (
 // apimFilterField describes a $filter field: strOnly fields take the string operators and functions, the others
 // (booleans) take eq and ne only (learn.microsoft.com/rest/api/apimanagement/apis/list-by-service, api-operation/
 // list-by-api and product-api/list-by-product, $filter tables).
-type apimFilterField struct{ boolean bool }
+type apimFilterField struct{ boolean, eqOnly, noFunc bool }
 
 //nolint:gochecknoglobals // static read-only list
 var apimCompareOps = []string{"eq", "ne", "gt", "ge", "lt", "le"}
 
 const (
-	apimFieldDesc    = "description"
-	apimFieldDisplay = "displayname"
-	apimFilterMinSeg = 3
+	apimFieldDesc      = "description"
+	apimFieldDisplay   = "displayname"
+	apimFilterMinSeg   = 3
+	apimFilterMaxDepth = 32
+	apimFilterMaxLen   = 8192
 )
 
 //nolint:gochecknoglobals // static read-only tables
@@ -33,10 +35,45 @@ var (
 		apimCPath:        {},
 		"iscurrent":      {boolean: true},
 	}
+	apimNameFields    = fieldsOf("name", "displayname")
+	apimTopLevelLists = map[string]map[string]apimFilterField{
+		"products":               fieldsOf("name", "displayname", "description", "terms", "state:eq"),
+		"backends":               fieldsOf("name", "title", "url"),
+		"namedvalues":            fieldsOf("displayname"),
+		"tags":                   apimNameFields,
+		"authorizationservers":   apimNameFields,
+		"openidconnectproviders": apimNameFields,
+		"groups":                 fieldsOf("name", "displayname", "description", "externalid:eq"),
+		"users": fieldsOf(
+			"name",
+			"firstname",
+			"lastname",
+			"email",
+			"state:eq",
+			"registrationdate:nofunc",
+			"note",
+		),
+		sbSubscriptionsType: fieldsOf("name", "displayname", "statecomment", "ownerid", "scope", "userid", "productid",
+			"state:eq"),
+		"loggers":         fieldsOf("name", "description", "loggertype:eq", "resourceid"),
+		"policyfragments": fieldsOf("name", "description", "value"),
+	}
 	apimOperationFields = map[string]apimFilterField{
 		fieldName: {}, apimFieldDisplay: {}, "method": {}, apimFieldDesc: {}, "urltemplate": {},
 	}
 )
+
+// fieldsOf builds a field table from the SDK $filter tables: name:eq takes eq only, name:nofunc no functions.
+func fieldsOf(specs ...string) map[string]apimFilterField {
+	out := make(map[string]apimFilterField, len(specs))
+
+	for _, sp := range specs {
+		name, mod, _ := strings.Cut(sp, ":")
+		out[name] = apimFilterField{eqOnly: mod == "eq", noFunc: mod == "eq" || mod == "nofunc"}
+	}
+
+	return out
+}
 
 func apimFilterFieldsFor(path string) map[string]apimFilterField {
 	segs := strings.Split(strings.Trim(strings.ToLower(path), "/"), "/")
@@ -45,6 +82,12 @@ func apimFilterFieldsFor(path string) map[string]apimFilterField {
 	}
 
 	last, parent := segs[len(segs)-1], segs[len(segs)-apimFilterMinSeg]
+
+	if len(segs) == apimMinSegs+1 {
+		if t, ok := apimTopLevelLists[last]; ok {
+			return t
+		}
+	}
 
 	switch {
 	case last == apimCApis && parent == "products":
@@ -125,6 +168,7 @@ type apimFilter struct {
 	fields map[string]apimFilterField
 	toks   []apimTok
 	pos    int
+	depth  int
 }
 
 func (f *apimFilter) peek() string {
@@ -219,10 +263,16 @@ func (f *apimFilter) primary() (apimPred, error) {
 	if f.peek() == "(" {
 		f.pos++
 
+		if f.depth++; f.depth > apimFilterMaxDepth {
+			return nil, apimInvalid("The $filter expression is nested more than %d levels deep.", apimFilterMaxDepth)
+		}
+
 		p, err := f.or()
 		if err != nil {
 			return nil, err
 		}
+
+		f.depth--
 
 		return p, f.expect(")")
 	}
@@ -273,7 +323,7 @@ func (f *apimFilter) function(name string) (apimPred, error) {
 	}
 
 	field, err := f.fieldOf(fieldTok)
-	if err != nil || f.fields[field].boolean || !lit.str {
+	if err != nil || f.fields[field].boolean || f.fields[field].noFunc || !lit.str {
 		return nil, apimInvalid("The $filter function %s needs a string field and a string literal.", name)
 	}
 
@@ -310,8 +360,7 @@ func (f *apimFilter) comparison() (apimPred, error) {
 	}
 
 	op := strings.ToLower(opTok.text)
-	if opTok.str || !slices.Contains(apimCompareOps, op) ||
-		(f.fields[field].boolean && op != "eq" && op != "ne") {
+	if opTok.str || !apimOpAllowed(f.fields[field], op) {
 		return nil, apimInvalid("The $filter operator '%s' is not supported for field '%s'.", opTok.text, ft.text)
 	}
 
@@ -396,6 +445,10 @@ func applyAPIMFilter(path, expr string, items []any) ([]any, error) {
 		return items, nil
 	}
 
+	if len(expr) > apimFilterMaxLen {
+		return nil, apimInvalid("The $filter expression is longer than %d characters.", apimFilterMaxLen)
+	}
+
 	toks, err := apimLex(expr)
 	if err != nil {
 		return nil, err
@@ -421,4 +474,17 @@ func applyAPIMFilter(path, expr string, items []any) ([]any, error) {
 	}
 
 	return out, nil
+}
+
+func apimOpAllowed(f apimFilterField, op string) bool {
+	switch {
+	case !slices.Contains(apimCompareOps, op):
+		return false
+	case f.boolean:
+		return op == "eq" || op == "ne"
+	case f.eqOnly:
+		return op == "eq"
+	}
+
+	return true
 }

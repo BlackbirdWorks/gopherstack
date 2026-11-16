@@ -1,6 +1,7 @@
 package azurearm
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"maps"
@@ -343,6 +344,7 @@ func (p *FlexDBProvider) inheritFrom(rec, src *flexServer, props map[string]any)
 
 	rec.SKUName, rec.SKUTier, rec.Version, rec.Login = src.SKUName, src.SKUTier, src.Version, src.Login
 	rec.StorageGB, rec.Iops, rec.AutoGrow = src.StorageGB, src.Iops, src.AutoGrow
+	rec.Throughput, rec.StorageType = src.Throughput, src.StorageType
 	rec.Retention, rec.GeoBackup = src.Retention, src.GeoBackup
 	rec.Subnet, rec.DNSZone, rec.PublicAcc = src.Subnet, src.DNSZone, src.PublicAcc
 
@@ -429,7 +431,7 @@ func (p *FlexDBProvider) checkInvariants(rec *flexServer) error {
 		return flexInvalid("High availability is not supported on the Burstable compute tier.")
 	case ha && p.flavor.kind == flexKindPostgres && rec.CreateMode == flexModeReplica:
 		return flexInvalid("High availability is not supported on a read replica.")
-	case rec.StorageGB > p.flavor.storageCap(rec.SKUTier):
+	case rec.StorageType != pgStoragePremiumV2 && rec.StorageGB > p.flavor.storageCap(rec.SKUTier):
 		return flexInvalid("The %s compute tier supports at most %d GiB of storage.", rec.SKUTier,
 			p.flavor.storageCap(rec.SKUTier))
 	case ha && p.flavor.kind == flexKindMySQL && rec.AutoGrow == flexDisabled:
@@ -538,22 +540,15 @@ func (p *FlexDBProvider) applyStorage(rec *flexServer, props map[string]any, exi
 
 	f := p.flavor
 
+	if err := p.applyStorageType(rec, st, exists); err != nil {
+		return err
+	}
+
+	v2 := rec.StorageType == pgStoragePremiumV2
+
 	if gb, ok := flexInt(st, "storageSizeGB"); ok {
-		if !f.validStorage(gb) {
-			return flexInvalid("storageSizeGB %d is not valid; allowed: %s.", gb, f.storageRule())
-		}
-
-		if top := f.storageCap(rec.SKUTier); gb > top {
-			return flexInvalid(
-				"storageSizeGB %d exceeds the %d GiB maximum of the %s compute tier.",
-				gb,
-				top,
-				rec.SKUTier,
-			)
-		}
-
-		if exists && gb < rec.StorageGB {
-			return flexInvalid("The storage size cannot be reduced.")
+		if err := p.checkStorageSize(rec, gb, v2, exists); err != nil {
+			return err
 		}
 
 		rec.StorageGB = gb
@@ -567,7 +562,11 @@ func (p *FlexDBProvider) applyStorage(rec *flexServer, props map[string]any, exi
 		rec.AutoGrow = v
 	}
 
-	rec.Iops = 0
+	if v2 {
+		return applyPremiumV2Perf(rec, st)
+	}
+
+	rec.Iops, rec.Throughput = 0, 0
 
 	if iops, ok := flexInt(st, "iops"); ok && f.kind == flexKindMySQL {
 		if top := p.skuMaxIops(rec); iops < mysqlBaseIops || iops > top {
@@ -575,6 +574,74 @@ func (p *FlexDBProvider) applyStorage(rec *flexServer, props map[string]any, exi
 		}
 
 		rec.Iops = iops
+	}
+
+	return nil
+}
+
+func (p *FlexDBProvider) applyStorageType(rec *flexServer, st map[string]any, exists bool) error {
+	typ, ok := flexStr(st, "type")
+	if !ok || typ == "" {
+		return nil
+	}
+
+	if p.flavor.kind != flexKindPostgres {
+		return flexInvalid("storage.type is not supported for this server type.")
+	}
+
+	if typ != pgStoragePremium && typ != pgStoragePremiumV2 {
+		return flexInvalid("storage.type must be %s or %s.", pgStoragePremium, pgStoragePremiumV2)
+	}
+
+	if exists && typ != cmp.Or(rec.StorageType, pgStoragePremium) {
+		return flexInvalid("The storage type cannot be changed after the server is created.")
+	}
+
+	rec.StorageType = typ
+
+	return nil
+}
+
+func (p *FlexDBProvider) checkStorageSize(rec *flexServer, gb int, v2, exists bool) error {
+	f := p.flavor
+
+	switch {
+	case v2 && (gb < 1 || gb > pgPremiumV2MaxGiB):
+		return flexInvalid("storageSizeGB %d is not valid; allowed: 1 to %d.", gb, pgPremiumV2MaxGiB)
+	case !v2 && !f.validStorage(gb):
+		return flexInvalid("storageSizeGB %d is not valid; allowed: %s.", gb, f.storageRule())
+	case !v2 && gb > f.storageCap(rec.SKUTier):
+		return flexInvalid("storageSizeGB %d exceeds the %d GiB maximum of the %s compute tier.",
+			gb, f.storageCap(rec.SKUTier), rec.SKUTier)
+	case exists && gb < rec.StorageGB:
+		return flexInvalid("The storage size cannot be reduced.")
+	}
+
+	return nil
+}
+
+// applyPremiumV2Perf validates the provisioned performance, which the REST spec requires for PremiumV2_LRS
+// (azure-rest-api-specs PostgreSql models.tsp, Storage.iops/throughput) within the Learn concepts-storage limits.
+func applyPremiumV2Perf(rec *flexServer, st map[string]any) error {
+	if iops, ok := flexInt(st, "iops"); ok {
+		rec.Iops = iops
+	}
+
+	if tp, ok := flexInt(st, "throughput"); ok {
+		rec.Throughput = tp
+	}
+
+	if rec.Iops == 0 || rec.Throughput == 0 {
+		return flexInvalid("storage.iops and storage.throughput are required when the storage type is %s.",
+			pgStoragePremiumV2)
+	}
+
+	if rec.Iops < pgPremiumV2MinIops || rec.Iops > pgPremiumV2MaxIops {
+		return flexInvalid("storage.iops must be between %d and %d.", pgPremiumV2MinIops, pgPremiumV2MaxIops)
+	}
+
+	if rec.Throughput < pgPremiumV2MinMBps || rec.Throughput > pgPremiumV2MaxMBps {
+		return flexInvalid("storage.throughput must be between %d and %d.", pgPremiumV2MinMBps, pgPremiumV2MaxMBps)
 	}
 
 	return nil
@@ -712,7 +779,7 @@ func (p *FlexDBProvider) applySubnet(rec *flexServer, n map[string]any, exists b
 	}
 
 	if subnet != "" {
-		if err := p.checkSubnet(subnet, dns); err != nil {
+		if err := p.checkSubnet(rec.Name, subnet, dns); err != nil {
 			return err
 		}
 	}
@@ -722,7 +789,7 @@ func (p *FlexDBProvider) applySubnet(rec *flexServer, n map[string]any, exists b
 	return nil
 }
 
-func (p *FlexDBProvider) checkSubnet(subnet, dns string) error {
+func (p *FlexDBProvider) checkSubnet(server, subnet, dns string) error {
 	rid, err := ParseGenericResourcePath(subnet)
 	if err != nil || !strings.EqualFold(rid.Namespace, namespaceMicrosoftNetwork) || len(rid.Types) != 2 ||
 		!strings.EqualFold(rid.Types[1], netSubnets) {
@@ -735,6 +802,10 @@ func (p *FlexDBProvider) checkSubnet(subnet, dns string) error {
 
 	if !strings.HasSuffix(strings.ToLower(dns), p.flavor.dnsZoneSuffix) {
 		return flexInvalid("The private DNS zone name must end with '%s'.", p.flavor.dnsZoneSuffix)
+	}
+
+	if err = p.checkZoneNotServer(server, dns); err != nil {
+		return err
 	}
 
 	if p.network == nil {
@@ -986,6 +1057,33 @@ func (p *FlexDBProvider) checkReplicaSource(src *flexServer) error {
 
 	if v, err := strconv.Atoi(src.Version); err != nil || v < pgMinCascadeVersion {
 		return flexInvalid("Cascading read replicas require PostgreSQL version %d or later.", pgMinCascadeVersion)
+	}
+
+	return nil
+}
+
+// checkZoneNotServer refuses a [name].postgres.database.azure.com zone whose name is a flexible server's name
+// (learn.microsoft.com/azure/postgresql/network/concepts-networking-private, Use a Private DNS zone).
+func (p *FlexDBProvider) checkZoneNotServer(server, dns string) error {
+	if p.flavor.kind != flexKindPostgres {
+		return nil
+	}
+
+	zone := strings.ToLower(dns[strings.LastIndex(dns, "/")+1:])
+
+	label, ok := strings.CutSuffix(zone, "."+p.flavor.dnsZoneSuffix)
+	if !ok || strings.Contains(label, ".") {
+		return nil
+	}
+
+	taken := strings.EqualFold(label, server)
+
+	for _, r := range p.res {
+		taken = taken || strings.EqualFold(label, r.Name)
+	}
+
+	if taken {
+		return flexInvalid("The private DNS zone name '%s' cannot be the name of a flexible server.", zone)
 	}
 
 	return nil

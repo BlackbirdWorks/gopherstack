@@ -450,3 +450,70 @@ func TestComputeSDK_FlexibleScaleInPolicy(t *testing.T) {
 		})
 	}
 }
+
+func TestComputeSDK_ScaleInZonesThenRule(t *testing.T) {
+	t.Parallel()
+
+	s := newCmpStack(t)
+	ss := s.scaleSet(t, 6)
+	ss.Zones = []*string{new("1"), new("2")}
+	ss.Properties.ScaleInPolicy = &armcompute.ScaleInPolicy{
+		Rules: []*armcompute.VirtualMachineScaleSetScaleInRules{
+			new(armcompute.VirtualMachineScaleSetScaleInRulesOldestVM),
+		},
+	}
+
+	_, err := s.putScaleSet(t, "vmss1", ss)
+	require.NoError(t, err)
+
+	vms := s.cf.NewVirtualMachineScaleSetVMsClient()
+
+	for _, id := range []string{"2", "4"} {
+		pl, derr := vms.BeginDelete(t.Context(), netRG, "vmss1", id, nil)
+		require.NoError(t, waitPoller(t, pl, derr))
+	}
+
+	shrunk := ss
+	shrunk.SKU = &armcompute.SKU{Name: new("Standard_B2s"), Capacity: new(int64(3))}
+	_, err = s.putScaleSet(t, "vmss1", shrunk)
+	require.NoError(t, err)
+
+	assert.ElementsMatch(t, []string{"0", "3", "5"}, instanceIDs(s.instances(t)),
+		"zone 2 holds three instances, so its oldest goes even though instance 0 is the oldest overall")
+}
+
+func TestComputeSDK_ScaleInPrioritizeUnhealthy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		want []string
+		flag bool
+	}{
+		{name: "off removes the newest", want: []string{"0", "1", "2"}},
+		{name: "on removes the stopped instance first", flag: true, want: []string{"0", "2", "3"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := newCmpStack(t)
+			ss := s.scaleSet(t, 4)
+			ss.Properties.ScaleInPolicy = &armcompute.ScaleInPolicy{PrioritizeUnhealthyVMs: &tt.flag}
+
+			_, err := s.putScaleSet(t, "vmss1", ss)
+			require.NoError(t, err)
+
+			pl, err := s.cf.NewVirtualMachineScaleSetVMsClient().BeginPowerOff(t.Context(), netRG, "vmss1", "1", nil)
+			require.NoError(t, waitPoller(t, pl, err))
+
+			shrunk := ss
+			shrunk.SKU = &armcompute.SKU{Name: new("Standard_B2s"), Capacity: new(int64(3))}
+			_, err = s.putScaleSet(t, "vmss1", shrunk)
+			require.NoError(t, err)
+
+			assert.ElementsMatch(t, tt.want, instanceIDs(s.instances(t)))
+		})
+	}
+}

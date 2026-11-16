@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -57,6 +58,9 @@ type BlobAttrs struct {
 	CacheControl       string
 	ContentMD5         string
 	AccessTier         string
+	BlobType           string
+	PageLength         int64
+	SequenceNumber     int64
 }
 
 // BlobInfo is a read-only snapshot of a blob (or of one of its snapshots),
@@ -76,36 +80,72 @@ type BlobInfo struct {
 	ETag               string
 	AccessTier         string
 	Snapshot           string
+	CopyCompletion     time.Time
+	DeletedTime        time.Time
 	Lease              LeaseProps
+	BlobType           string
+	ArchiveStatus      string
+	CopyID             string
+	CopyStatus         string
+	CopySource         string
+	CopyProgress       string
 	ContentLength      int64
+	SequenceNumber     int64
+	CommittedBlocks    int
+	RetentionDays      int
 	AccessTierInferred bool
+	Deleted            bool
 }
 
 // storedBlob is the backend's internal representation of a block blob.
 // Snapshots holds immutable copies keyed by their snapshot timestamp.
 type storedBlob struct {
-	LastModified       time.Time
+	DeletedAt          time.Time `json:",omitzero"`
 	AccessTierChanged  time.Time
+	RehydrateDue       time.Time `json:",omitzero"`
+	CopyCompletion     time.Time `json:",omitzero"`
+	LastModified       time.Time
 	Metadata           map[string]string
 	Tags               map[string]string `json:"Tags,omitempty"`
 	Snapshots          map[string]*storedBlob
 	Lease              *leaseRecord
+	CacheControl       string
+	ContentMD5         string
+	CopyStatus         string `json:",omitempty"`
+	CopySource         string `json:",omitempty"`
+	CopyProgress       string `json:",omitempty"`
+	Name               string
+	Snapshot           string
+	AccessTier         string
+	ETag               string
+	BlobType           string `json:",omitempty"`
+	CopyID             string `json:",omitempty"`
 	ContentDisposition string
 	ContentEncoding    string
 	ContentLanguage    string
 	ContentType        string
-	CacheControl       string
-	ContentMD5         string
-	ETag               string
-	AccessTier         string
-	Snapshot           string
-	Name               string
+	RehydrateTo        string       `json:",omitempty"`
+	Pages              []pageExtent `json:",omitempty"`
 	Data               []byte
 	Blocks             []committedBlock
+	RetainDays         int   `json:",omitempty"`
+	AppendBlocks       int   `json:",omitempty"`
+	SequenceNumber     int64 `json:",omitempty"`
+	PageLength         int64 `json:",omitempty"`
 }
 
 func (b *storedBlob) info(now time.Time) BlobInfo {
 	tier, inferred := b.AccessTier, false
+	changed, archiveStatus := b.AccessTierChanged, ""
+
+	if b.RehydrateTo != "" {
+		if now.Before(b.RehydrateDue) {
+			archiveStatus = "rehydrate-pending-to-" + strings.ToLower(b.RehydrateTo)
+		} else {
+			tier, changed = b.RehydrateTo, b.RehydrateDue
+		}
+	}
+
 	if tier == "" {
 		tier, inferred = TierHot, true
 	}
@@ -120,12 +160,24 @@ func (b *storedBlob) info(now time.Time) BlobInfo {
 		ContentMD5:         b.ContentMD5,
 		ETag:               b.ETag,
 		LastModified:       b.LastModified,
-		ContentLength:      int64(len(b.Data)),
+		ContentLength:      b.length(),
+		BlobType:           b.blobType(),
+		ArchiveStatus:      archiveStatus,
+		CopyID:             b.CopyID,
+		CopyStatus:         b.CopyStatus,
+		CopySource:         b.CopySource,
+		CopyProgress:       b.CopyProgress,
+		CopyCompletion:     b.CopyCompletion,
+		SequenceNumber:     b.SequenceNumber,
+		Deleted:            !b.DeletedAt.IsZero(),
+		DeletedTime:        b.DeletedAt,
+		RetentionDays:      b.remainingDays(now),
+		CommittedBlocks:    b.AppendBlocks,
 		Metadata:           maps.Clone(b.Metadata),
 		Tags:               maps.Clone(b.Tags),
 		AccessTier:         tier,
 		AccessTierInferred: inferred,
-		AccessTierChanged:  b.AccessTierChanged,
+		AccessTierChanged:  changed,
 		Snapshot:           b.Snapshot,
 		Lease:              b.Lease.props(now),
 	}
@@ -136,6 +188,7 @@ type storedContainer struct {
 	CreatedAt    time.Time
 	LastModified time.Time
 	Blobs        map[string]*storedBlob
+	Deleted      map[string]*storedBlob `json:",omitempty"`
 	Metadata     map[string]string
 	Staged       map[string]map[string]*stagedBlock
 	Lease        *leaseRecord
@@ -201,18 +254,6 @@ type enumerationResults struct {
 	Containers      *containersList `xml:"Containers"`
 	Blobs           *blobsList      `xml:"Blobs"`
 	NextMarker      string          `xml:"NextMarker"`
-}
-
-// storageServiceProperties is the minimal (all-empty) response body for Get
-// Blob Service Properties (GET /<account>?restype=service&comp=properties).
-// Every field in the real schema (Cors/DefaultServiceVersion/
-// DeleteRetentionPolicy/Logging/HourMetrics/MinuteMetrics/StaticWebsite) is
-// optional, so an empty element round-trips through every SDK's XML decoder
-// (they match by tag name, not presence). This endpoint exists solely to
-// satisfy terraform-provider-azurerm v4.81+'s post-create data-plane
-// readiness poll (AZURE.md section 10.8) -- it has no configurable state.
-type storageServiceProperties struct {
-	XMLName xml.Name `xml:"StorageServiceProperties"`
 }
 
 type containersList struct {

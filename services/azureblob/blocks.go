@@ -113,6 +113,10 @@ func (b *InMemoryBackend) PutBlock(container, blob, blockID string, data []byte,
 	p := firstPre(pre)
 
 	if old, exists := c.Blobs[blob]; exists {
+		if old.BlobType != "" {
+			return errInvalidBlobType()
+		}
+
 		if err = old.Lease.gate(now, p.LeaseID, true, "Blob"); err != nil {
 			return err
 		}
@@ -211,6 +215,10 @@ func (b *InMemoryBackend) CommitBlockList(
 	}
 
 	old := c.Blobs[blob]
+	if old != nil && old.BlobType != "" {
+		return BlobInfo{}, errInvalidBlobType()
+	}
+
 	offsets := committedOffsets(old)
 
 	var (

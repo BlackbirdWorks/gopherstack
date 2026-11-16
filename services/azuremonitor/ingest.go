@@ -246,7 +246,7 @@ func (b *Backend) deliver(spec *dcrSpec, f flow, stream string, src *kql.Rel) *a
 				"The table for output stream '%s' does not exist in workspace '%s'.", outStream, w.Name)
 		}
 
-		if aerr := b.insert(t, out); aerr != nil {
+		if aerr := b.insert(w, t, out); aerr != nil {
 			return aerr
 		}
 	}
@@ -254,7 +254,7 @@ func (b *Backend) deliver(spec *dcrSpec, f flow, stream string, src *kql.Rel) *a
 	return nil
 }
 
-func (b *Backend) insert(t *Table, out *kql.Rel) *apiError {
+func (b *Backend) insert(w *Workspace, t *Table, out *kql.Rel) *apiError {
 	idx := make([]int, len(t.Columns))
 
 	for i, c := range t.Columns {
@@ -278,8 +278,32 @@ func (b *Backend) insert(t *Table, out *kql.Rel) *apiError {
 	}
 
 	t.Rows = append(t.Rows, rows...)
+	t.purgeExpired(retentionCutoff(now, t.retentionDays(w)))
 
 	return nil
+}
+
+// retentionCutoff is the oldest TimeGenerated still inside a retention of days; zero days keeps everything.
+func retentionCutoff(now time.Time, days int) time.Time {
+	if days <= 0 {
+		return time.Time{}
+	}
+
+	return now.AddDate(0, 0, -days)
+}
+
+// purgeExpired drops rows whose TimeGenerated is older than cutoff.
+func (t *Table) purgeExpired(cutoff time.Time) {
+	tg := slices.IndexFunc(t.Columns, func(c Column) bool { return c.Name == timeGenerated })
+	if tg < 0 || cutoff.IsZero() {
+		return
+	}
+
+	t.Rows = slices.DeleteFunc(t.Rows, func(row []any) bool {
+		ts, _ := row[tg].(time.Time)
+
+		return ts.Before(cutoff)
+	})
 }
 
 // tableRow maps one transform output row onto the table schema; idx maps table columns to output columns.
@@ -297,8 +321,8 @@ func tableRow(t *Table, idx []int, orow []any, now time.Time) ([]any, error) {
 			return nil, fmt.Errorf("column '%s': %w", c.Name, err)
 		}
 
-		if c.Name == timeGenerated && cv == nil {
-			cv = now
+		if c.Name == timeGenerated {
+			cv = clampTimeGenerated(cv, now)
 		}
 
 		row[i] = cv
@@ -344,4 +368,20 @@ func coerceCell(typ kql.Type, v any) (any, error) {
 	}
 
 	return convertValue(typ, v)
+}
+
+// Learn (log-standard-columns): a TimeGenerated more than two days before the received time or more than a day
+// after it is replaced with the received time.
+const (
+	timeGeneratedMaxAge    = 48 * time.Hour
+	timeGeneratedMaxFuture = 24 * time.Hour
+)
+
+func clampTimeGenerated(v any, now time.Time) any {
+	ts, ok := v.(time.Time)
+	if !ok || ts.Before(now.Add(-timeGeneratedMaxAge)) || ts.After(now.Add(timeGeneratedMaxFuture)) {
+		return now
+	}
+
+	return ts
 }

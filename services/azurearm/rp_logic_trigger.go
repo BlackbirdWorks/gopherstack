@@ -534,9 +534,9 @@ func (w *logicWorkflow) lookupContent(segs []string) (logicContent, bool) {
 func pickContent(inKind, outKind, kind string, in, out logicContent) (logicContent, bool) {
 	switch kind {
 	case inKind:
-		return in, in.Set
+		return in, in.shown()
 	case outKind:
-		return out, out.Set
+		return out, out.shown()
 	}
 
 	return logicContent{}, false

@@ -71,6 +71,13 @@ func buildCSR(pol *CertPolicy, keyDER []byte) ([]byte, error) {
 // startPending generates a key and CSR for an Unknown-issuer certificate and
 // records the pending operation.
 func (v *vault) startPending(name string, pol *CertPolicy, req attrsAndTags, now int64) (*PendingCert, error) {
+	return v.startPendingWithKey(name, pol, nil, req, now)
+}
+
+// startPendingWithKey is startPending with an optional existing PKCS#8 key to reuse.
+func (v *vault) startPendingWithKey(
+	name string, pol *CertPolicy, keyDER []byte, req attrsAndTags, now int64,
+) (*PendingCert, error) {
 	if _, ok := v.Pending[name]; ok {
 		return nil, newErr(http.StatusConflict, "Conflict",
 			"A pending operation already exists for certificate %s; delete it first.", name)
@@ -88,9 +95,13 @@ func (v *vault) startPending(name string, pol *CertPolicy, req attrsAndTags, now
 		return nil, errBadParameter("Certificate key type %q is not supported.", pol.KeyProps.Kty)
 	}
 
-	keyDER, _, _, err := generateKeyMaterial(pol.KeyProps.Kty, pol.KeyProps.KeySize, pol.KeyProps.Crv)
-	if err != nil {
-		return nil, err
+	if keyDER == nil {
+		var err error
+
+		keyDER, _, _, err = generateKeyMaterial(pol.KeyProps.Kty, pol.KeyProps.KeySize, pol.KeyProps.Crv)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	csr, err := buildCSR(pol, keyDER)

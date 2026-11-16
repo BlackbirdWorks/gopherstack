@@ -435,6 +435,22 @@ func TestTargetDelivery(t *testing.T) {
 				assert.JSONEq(t, `"e1"`, string(mustField(t, []byte(got.text), "id")))
 			},
 		},
+		{
+			name: "azure function",
+			dest: map[string]any{"endpointType": "AzureFunction", "properties": map[string]any{
+				"resourceId": "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Web/sites/fnapp/functions/onEvent",
+			}},
+			check: func(t *testing.T, got sent) {
+				t.Helper()
+				assert.Equal(t, "fnapp", got.ns)
+				assert.Equal(t, "onEvent", got.hub)
+
+				var arr []map[string]any
+
+				require.NoError(t, json.Unmarshal(got.body, &arr, jsonx.V1()))
+				assert.Equal(t, "e1", arr[0]["id"])
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -451,6 +467,56 @@ func TestTargetDelivery(t *testing.T) {
 			got := rec.all()
 			require.Len(t, got, 1)
 			tt.check(t, got[0])
+		})
+	}
+}
+
+func TestRelayAndPartnerDestinationsAreRecorded(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		dest map[string]any
+		name string
+		ok   bool
+	}{
+		{
+			name: "hybrid connection", ok: true,
+			dest: map[string]any{"endpointType": "HybridConnection", "properties": map[string]any{
+				"resourceId": "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Relay/namespaces/n/hybridConnections/hc",
+			}},
+		},
+		{
+			name: "partner destination", ok: true,
+			dest: map[string]any{"endpointType": "PartnerDestination", "properties": map[string]any{
+				"resourceId": "/subscriptions/s/resourceGroups/rg/providers/Microsoft.EventGrid/partnerDestinations/pd",
+			}},
+		},
+		{
+			name: "hybrid connection without resource id",
+			dest: map[string]any{"endpointType": "HybridConnection", "properties": map[string]any{}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b, clk, rec := newBackend(t)
+
+			_, err := b.PutSubscription(t.Context(), "t1", "s1", map[string]any{"destination": tt.dest})
+			if !tt.ok {
+				require.ErrorIs(t, err, azureeventgrid.ErrInvalidSpec)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.NoError(t, b.Publish("t1", []azureeventgrid.Event{egEvent("e1", "a")}))
+			assert.Equal(t, 1, b.RunDue(t.Context()))
+			assert.Empty(t, rec.all(), "nothing is sent to a sink; the delivery is logged")
+
+			clk.Advance(2 * time.Minute)
+			assert.Equal(t, 0, b.RunDue(t.Context()), "the logged delivery counts as done, nothing is retried")
 		})
 	}
 }

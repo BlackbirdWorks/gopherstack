@@ -28,14 +28,12 @@ gaps:
   - "Entra authentication, firewall rules, minimalTlsVersion, publicNetworkAccess, elastic-pool limits and database sku/edition limits are stored but not enforced by the engine."
   - "Database sku and maxSizeBytes do not size the engine; every database is a plain SQL Server database."
   - "Server create waits for the container, so a first run that pulls the image can take minutes; ARM operations are reported complete as soon as the request returns."
-  - "Engine data does not survive a restore: containers start empty and tracked databases are created again."
   - "Server-level administrator login is a sysadmin of its container, not Azure's dbmanager and loginmanager roles."
   - "The restorableDroppedDatabases collection is always empty."
 deferred: []
 items_still_open:
-  - "Managed instances, failover groups, geo-replication, restore, copy and long-term retention data flow are not implemented."
-  - "Entra authentication, firewall rules, TLS and public-network settings, and pool or sku limits are stored but not enforced."
-  - "Engine data does not survive a snapshot restore."
+  - "Managed instances, failover groups, geo-replication, restore, copy and long-term retention data flow are not implemented: the Microsoft.Sql resource model and createMode handling live in services/azurearm (rp_sql*.go), outside this service, and the engine seam has no cross-server data transfer."
+  - "Entra authentication, firewall rules, TLS and public-network settings, and pool or sku limits are stored but not enforced: the rules and settings are ARM child state in services/azurearm, and enforcing them needs a connection relay in front of the TDS port that the azurearm.SQL seam does not feed."
 leaks: {status: clean, note: "Reset and Shutdown stop every container and release its port and the runtime client; the package runs under testleak."}
 ---
 
@@ -46,3 +44,5 @@ The service has no HTTP surface of its own: ARM (services/azurearm) owns the Mic
 Passwords: ARM never stores the admin password; the backend keeps it to re-create the login after a restore, so snapshots carry it (as the GCP SQL and Redis emulators do).
 
 Verified against: armsql v1.2.0 and azurerm 4.81.0 (mssql server, database, elastic pool, firewall rule).
+
+Snapshots carry a compressed BACKUP of every database (engineData, base64 in JSON) taken with sqlcmd inside the container, capped at 64 MiB per database and 256 MiB per snapshot; a database over the cap or whose backup fails is saved without data and logged. Restore re-creates each database and then RESTOREs it WITH REPLACE. Rows written over TDS do not mark the service dirty, so they reach disk with the next control-plane change or at shutdown.
