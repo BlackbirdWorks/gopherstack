@@ -24,10 +24,12 @@ type versionSnap struct {
 }
 
 type secretSnap struct {
-	Secret   jsontext.Value `json:"secret"`
-	Policy   jsontext.Value `json:"policy,omitempty"`
-	Versions []versionSnap  `json:"versions,omitempty"`
-	NextVer  int64          `json:"nextVer"`
+	SQLInstance string         `json:"sqlInstance,omitempty"`
+	SQLUser     string         `json:"sqlUser,omitempty"`
+	Secret      jsontext.Value `json:"secret"`
+	Policy      jsontext.Value `json:"policy,omitempty"`
+	Versions    []versionSnap  `json:"versions,omitempty"`
+	NextVer     int64          `json:"nextVer"`
 }
 
 type backendSnapshot struct {
@@ -61,7 +63,10 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	for name, rec := range b.secrets {
-		ss := secretSnap{Secret: marshalPB(rec.pb), NextVer: rec.nextVer}
+		ss := secretSnap{
+			Secret: marshalPB(rec.pb), NextVer: rec.nextVer,
+			SQLInstance: rec.sqlInstance, SQLUser: rec.sqlUser,
+		}
 		if rec.policy != nil {
 			ss.Policy = marshalPB(rec.policy)
 		}
@@ -119,7 +124,7 @@ func decodeSecret(name string, ss secretSnap) (*secretRec, error) {
 		return nil, fmt.Errorf("gcpsecretmanager: restore secret %q: %w", name, err)
 	}
 
-	rec := &secretRec{pb: pb, nextVer: ss.NextVer}
+	rec := &secretRec{pb: pb, nextVer: ss.NextVer, sqlInstance: ss.SQLInstance, sqlUser: ss.SQLUser}
 
 	if len(ss.Policy) > 0 {
 		rec.policy = &iampb.Policy{}

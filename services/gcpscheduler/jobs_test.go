@@ -424,3 +424,36 @@ func TestLocations(t *testing.T) {
 	_, err = e.client.ListLocations(t.Context(), &locationpb.ListLocationsRequest{Name: "x"}).Next()
 	assert.Equal(t, codes.InvalidArgument, status.Code(err))
 }
+
+func TestCreateJobRegionCatalog(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		loc  string
+		want codes.Code
+	}{
+		{"supported", "projects/test-project/locations/europe-west1", codes.OK},
+		{"unknown", "projects/test-project/locations/mars-north1", codes.NotFound},
+		{"global", "projects/test-project/locations/global", codes.NotFound},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t)
+			_, err := e.client.CreateJob(t.Context(), &schedulerpb.CreateJobRequest{
+				Parent: tt.loc,
+				Job: &schedulerpb.Job{
+					Name:     tt.loc + "/jobs/j",
+					Schedule: "* * * * *",
+					Target: &schedulerpb.Job_HttpTarget{
+						HttpTarget: &schedulerpb.HttpTarget{Uri: "https://example.test"},
+					},
+				},
+			})
+			assert.Equal(t, tt.want, status.Code(err), "%v", err)
+		})
+	}
+}

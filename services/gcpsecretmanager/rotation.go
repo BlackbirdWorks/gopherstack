@@ -158,6 +158,26 @@ func managedActive(rec *secretRec) bool {
 		secretmanagerpb.Rotation_ManagedRotationStatus_ACTIVE
 }
 
+// enableTargetLocked returns the secret a managed rotation may be enabled on.
+func (b *InMemoryBackend) enableTargetLocked(parent string) (*secretRec, error) {
+	b.sweepLocked()
+
+	rec, err := b.getLocked(parent)
+	if err != nil {
+		return nil, err
+	}
+
+	if rec.pb.GetSecretType() != secretmanagerpb.Secret_CLOUD_SQL_DB_CREDENTIALS {
+		return nil, errManaged("Managed rotation requires secret_type CLOUD_SQL_DB_CREDENTIALS.")
+	}
+
+	if managedActive(rec) {
+		return nil, errManaged("Managed rotation is already enabled for %s.", parent)
+	}
+
+	return rec, nil
+}
+
 // EnableManagedRotation turns on managed rotation for a Cloud SQL credentials secret and adds the first version.
 func (b *InMemoryBackend) EnableManagedRotation(
 	req *secretmanagerpb.EnableManagedRotationRequest,
@@ -176,29 +196,47 @@ func (b *InMemoryBackend) EnableManagedRotation(
 	}
 
 	b.mu.Lock("EnableManagedRotation")
-	defer b.mu.Unlock()
+	_, err := b.enableTargetLocked(req.GetParent())
+	b.mu.Unlock()
 
-	b.sweepLocked()
-
-	rec, err := b.getLocked(req.GetParent())
 	if err != nil {
 		return nil, err
 	}
 
-	if rec.pb.GetSecretType() != secretmanagerpb.Secret_CLOUD_SQL_DB_CREDENTIALS {
-		return nil, errManaged("Managed rotation requires secret_type CLOUD_SQL_DB_CREDENTIALS.")
+	if err = b.applySQLPassword(req.GetParent(), creds.GetInstanceId(), creds.GetUsername(), password); err != nil {
+		return nil, err
 	}
 
-	if managedActive(rec) {
-		return nil, errManaged("Managed rotation is already enabled for %s.", req.GetParent())
+	b.mu.Lock("EnableManagedRotation")
+	defer b.mu.Unlock()
+
+	rec, err := b.enableTargetLocked(req.GetParent())
+	if err != nil {
+		return nil, err
 	}
 
 	ensureRotation(rec.pb).ManagedRotationStatus = &secretmanagerpb.Rotation_ManagedRotationStatus{
 		State: secretmanagerpb.Rotation_ManagedRotationStatus_ACTIVE,
 	}
+	rec.sqlInstance, rec.sqlUser = creds.GetInstanceId(), creds.GetUsername()
 	rec.pb.Etag = b.nextEtag()
 
 	return cloneVersion(b.addVersionLocked(rec, req.GetParent(), password, false)), nil
+}
+
+func (b *InMemoryBackend) rotateTarget(parent string) (*secretRec, error) {
+	b.sweepLocked()
+
+	rec, err := b.getLocked(parent)
+	if err != nil {
+		return nil, err
+	}
+
+	if !managedActive(rec) {
+		return nil, errManaged("Managed rotation is not enabled for %s.", parent)
+	}
+
+	return rec, nil
 }
 
 // RotateSecret adds a freshly generated password version to a secret with managed rotation enabled.
@@ -211,17 +249,29 @@ func (b *InMemoryBackend) RotateSecret(
 	}
 
 	b.mu.Lock("RotateSecret")
-	defer b.mu.Unlock()
+	rec, err := b.rotateTarget(req.GetParent())
 
-	b.sweepLocked()
+	var instance, user string
+	if err == nil {
+		instance, user = rec.sqlInstance, rec.sqlUser
+	}
 
-	rec, err := b.getLocked(req.GetParent())
+	b.mu.Unlock()
+
 	if err != nil {
 		return nil, err
 	}
 
-	if !managedActive(rec) {
-		return nil, errManaged("Managed rotation is not enabled for %s.", req.GetParent())
+	if err = b.applySQLPassword(req.GetParent(), instance, user, password); err != nil {
+		return nil, err
+	}
+
+	b.mu.Lock("RotateSecret")
+	defer b.mu.Unlock()
+
+	rec, err = b.rotateTarget(req.GetParent())
+	if err != nil {
+		return nil, err
 	}
 
 	return cloneVersion(b.addVersionLocked(rec, req.GetParent(), password, false)), nil

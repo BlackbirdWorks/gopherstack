@@ -1,12 +1,16 @@
 package gcpapigateway_test
 
 import (
+	"encoding/base64"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func op(method, extra string) string {
@@ -254,4 +258,58 @@ func TestGatewayNotServing(t *testing.T) {
 	require.NoError(t, delOp.Wait(t.Context()))
 
 	assert.Equal(t, http.StatusNotFound, e.call(t, gw, http.MethodGet, "/hello", nil).status)
+}
+
+func TestBackendIDToken(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		opts     string
+		wantAud  string
+		wantNone bool
+	}{
+		{name: "jwt audience", opts: "  jwt_audience: https://svc.example.test\n", wantAud: "https://svc.example.test"},
+		{name: "no audience on plain address", opts: "", wantNone: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			be := echoBackend(t)
+			e := newEnv(t)
+			gw := e.deploy(t, opSpec(be.URL+"\n"+strings.TrimRight(tt.opts, "\n"), "", "  /echo:\n"+op("get", "")))
+
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+e.handler.Addr()+"/echo", nil)
+			require.NoError(t, err)
+
+			req.Host = gw.GetDefaultHostname()
+			req.Header.Set("Authorization", "Bearer user-token")
+
+			got := e.do(t, req)
+			require.Equal(t, http.StatusOK, got.status, got.raw)
+
+			hdr, ok := got.body["headers"].(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, "Bearer user-token", hdr["X-Forwarded-Authorization"])
+
+			auth, _ := hdr["Authorization"].(string)
+			if tt.wantNone {
+				assert.Empty(t, auth)
+
+				return
+			}
+
+			parts := strings.Split(strings.TrimPrefix(auth, "Bearer "), ".")
+			require.Len(t, parts, 3, auth)
+
+			raw, err := base64.RawURLEncoding.DecodeString(parts[1])
+			require.NoError(t, err)
+
+			var claims map[string]any
+			require.NoError(t, json.Unmarshal(raw, &claims, jsonx.V1()))
+			assert.Equal(t, tt.wantAud, claims["aud"])
+		})
+	}
 }

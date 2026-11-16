@@ -83,3 +83,14 @@ func GetLocation(req *location.GetLocationRequest) (*location.Location, error) {
 
 	return nil, errNotFound("Location %q is not supported.", req.GetName())
 }
+
+func checkRegion(location string) error {
+	id := location[strings.LastIndex(location, "/")+1:]
+	for _, r := range regions {
+		if r[0] == id {
+			return nil
+		}
+	}
+
+	return errNotFound("Location %q is not supported.", location)
+}

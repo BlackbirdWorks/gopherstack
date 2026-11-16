@@ -59,10 +59,12 @@ items_still_open:
   - "The container output of worker pools and instances is not written to Cloud Logging (no monitored resource type is verified for them), and a worker pool or instance container that exits is not restarted."
   - "Only the first container of a job task is run; sidecars, volumes and probes apply to services only. VPC access is stored but not applied (no VPC network exists to attach)."
   - "Cloud Storage FUSE, NFS and Cloud SQL volumes are not supported (the revision fails to deploy with a message)."
-  - "The URI is an http .localhost address, not https://*.run.app."
 leaks: {status: clean, note: "Background resources are the two servers, deployment and execution goroutines and the containers they own; Shutdown cancels the run context, joins them and removes every container (goleak in TestMain)."}
 ---
 
 Initial implementation (2026-10-19): google.cloud.run.v2 Services, Revisions, Jobs, Executions and Tasks verified against cloud.google.com/go/run v1.23.0 through the official client in the package tests, using an in-process fake container runtime (published-port HTTP servers for services, gated exit codes for jobs). A Docker-backed run has not been exercised in CI.
 
 Depth pass (2026-10-26): job task logging, Services/Jobs IAM, multi-container revisions with probes and volumes, autoscaling and soft delete. Docker-backed tests (GOPHERSTACK_TEST_DOCKER=1) cover a sidecar sharing localhost and an emptyDir behind a startup probe, and concurrency scale-out, against real containers built in the test.
+
+## Emulator choices where the vendor is silent
+- Service and job URIs are http://<name>-<hash>-<region>.localhost:<port> addresses served by the emulator; https://*.run.app needs public DNS and certificates the emulator cannot hold.

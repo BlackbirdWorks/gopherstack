@@ -18,6 +18,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpdispatch"
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
@@ -43,6 +44,7 @@ type served struct {
 	project string
 	managed string
 	path    string
+	account string
 }
 
 // MatchesDataPlane reports whether a request addresses a gateway, by default hostname or by path prefix.
@@ -119,8 +121,12 @@ func (b *InMemoryBackend) resolve(r *http.Request) (*served, *authError) {
 		managed = api.pb.GetManagedService()
 	}
 
+	account := c.pb.GetGatewayServiceAccount()
+	account = account[strings.LastIndex(account, "/")+1:]
+
 	sv := &served{
 		spec: c.spec, project: project, managed: managed, path: p, metrics: c.spec.Metrics, limits: c.spec.Limits,
+		account: account,
 	}
 	if latest := b.latestSpecLocked(apiOfConfig(c.pb.GetName())); latest != nil {
 		sv.metrics, sv.limits = latest.Metrics, latest.Limits
@@ -288,6 +294,11 @@ func (b *InMemoryBackend) forward(
 		}
 
 		out.Header.Del("Authorization")
+
+		if aud := backendAudience(be); aud != "" {
+			tok := gcpdispatch.OIDCToken(sv.account, aud, be.Address, b.now())
+			out.Header.Set("Authorization", "Bearer "+tok)
+		}
 	}
 
 	if claims != nil {
@@ -338,4 +349,24 @@ func writeBackendErr(ctx context.Context, w http.ResponseWriter, err error) {
 	default:
 		writeErr(w, http.StatusServiceUnavailable, "upstream connect error or disconnect/reset before headers")
 	}
+}
+
+// backendAudience is the audience of the ID token sent to the backend: jwt_audience, or the address of a
+// Cloud Run or Cloud Functions backend; empty means no token.
+func backendAudience(be *backendCfg) string {
+	if be.JWTAudience != "" {
+		return be.JWTAudience
+	}
+
+	u, err := url.Parse(be.Address)
+	if err != nil {
+		return ""
+	}
+
+	host := u.Hostname()
+	if strings.HasSuffix(host, ".run.app") || strings.HasSuffix(host, ".cloudfunctions.net") {
+		return be.Address
+	}
+
+	return ""
 }

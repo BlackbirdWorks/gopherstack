@@ -57,10 +57,12 @@ type versionRec struct {
 }
 
 type secretRec struct {
-	pb       *secretmanagerpb.Secret
-	policy   *iampb.Policy
-	versions []*versionRec
-	nextVer  int64
+	pb          *secretmanagerpb.Secret
+	policy      *iampb.Policy
+	sqlInstance string
+	sqlUser     string
+	versions    []*versionRec
+	nextVer     int64
 }
 
 // InMemoryBackend holds all secrets, versions and IAM policies under one lock.
@@ -70,6 +72,7 @@ type InMemoryBackend struct {
 	mu        *lockmetrics.RWMutex
 	secrets   map[string]*secretRec
 	publisher TopicPublisher
+	sqlPw     SQLPasswordSetter
 	keys      cmek.Checker
 	etagSeq   uint64
 }
