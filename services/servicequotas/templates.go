@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -297,4 +298,64 @@ func (b *InMemoryBackend) TemplateAssociation(ctx context.Context) (string, erro
 	}
 
 	return assocDisassociated, nil
+}
+
+// ApplyTemplateToNewAccount files the template's quota increase requests in an account created in the
+// organization (docs.aws.amazon.com/servicequotas/latest/userguide/organization-templates.html: the template
+// requests increases whenever new accounts are created; existing accounts are not updated).
+func (b *InMemoryBackend) ApplyTemplateToNewAccount(accountID string) int {
+	b.mu.Lock("ApplyTemplateToNewAccount")
+	defer b.mu.Unlock()
+
+	if b.orgs == nil {
+		return 0
+	}
+
+	info, ok := b.orgs.OrganizationOf(accountID)
+	if !ok || info.ManagementAccountID == accountID {
+		return 0
+	}
+
+	if a, found := b.associations.Get(info.ManagementAccountID); !found || a.Status != assocAssociated {
+		return 0
+	}
+
+	b.settleLocked()
+
+	requester := arn.Build("iam", "", info.ManagementAccountID, "root")
+
+	items := make([]*TemplateItem, 0)
+
+	for _, t := range b.templates.All() {
+		if t.Account == info.ManagementAccountID {
+			items = append(items, t)
+		}
+	}
+
+	slices.SortFunc(items, func(a, c *TemplateItem) int { return cmp.Compare(a.Key, c.Key) })
+
+	filed := 0
+
+	for _, t := range items {
+		s := scope{account: accountID, region: t.AwsRegion}
+
+		_, def, err := b.lookupQuotaLocked(t.ServiceCode, t.QuotaCode)
+		if err != nil || !def.Adjustable {
+			continue
+		}
+
+		if cur, _ := b.appliedValueLocked(s, t.ServiceCode, def); t.DesiredValue <= cur {
+			continue
+		}
+
+		if b.openRequestLocked(s, t.ServiceCode, t.QuotaCode) != nil {
+			continue
+		}
+
+		b.newRequestLocked(s, t.ServiceCode, t.QuotaCode, t.DesiredValue, requester, true)
+
+		filed++
+	}
+
+	return filed
 }

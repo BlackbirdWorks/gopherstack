@@ -24,6 +24,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
+	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	servicequotasbackend "github.com/blackbirdworks/gopherstack/services/servicequotas"
@@ -277,4 +278,56 @@ func TestQuotaEnforceFlagDefaultsOff(t *testing.T) {
 	t.Parallel()
 
 	assert.False(t, (&CLI{}).EnforceServiceQuotas)
+}
+
+func TestQuotaUsageCountsIAMAndEKS(t *testing.T) {
+	t.Parallel()
+
+	iamBk := iambackend.NewInMemoryBackendWithConfig(quotaTestAccount)
+	_, err := iamBk.CreateInstanceProfile("ip", "/")
+	require.NoError(t, err)
+
+	_, err = iamBk.CreateInstanceProfile("ip2", "/")
+	require.NoError(t, err)
+
+	_, err = iamBk.CreatePolicy("p", "/",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"*"}]}`)
+	require.NoError(t, err)
+
+	eksBk := eksbackend.NewInMemoryBackend(t.Context(), quotaTestAccount, "us-east-1")
+	_, err = eksBk.CreateCluster("c1", "", "arn:aws:iam::000000000000:role/eks", nil, nil, nil)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name    string
+		adapter *quotaUsageAdapter
+		svc     string
+		code    string
+		want    float64
+		tracked bool
+	}{
+		{
+			name: "profiles", adapter: &quotaUsageAdapter{iam: iamBk},
+			svc: "iam", code: "L-E95E4862", want: 2, tracked: true,
+		},
+		{
+			name: "policies", adapter: &quotaUsageAdapter{iam: iamBk},
+			svc: "iam", code: "L-0DA4ABF3", want: 1, tracked: true,
+		},
+		{
+			name: "eks", adapter: &quotaUsageAdapter{eks: eksBk},
+			svc: "eks", code: "L-1194D53C", want: 1, tracked: true,
+		},
+		{name: "eks unwired", adapter: &quotaUsageAdapter{}, svc: "eks", code: "L-1194D53C"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, ok := tc.adapter.QuotaUsage(quotaTestAccount, "us-east-1", tc.svc, tc.code)
+			assert.Equal(t, tc.tracked, ok)
+			assert.InDelta(t, tc.want, got, 0.001)
+		})
+	}
 }

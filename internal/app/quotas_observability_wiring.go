@@ -96,6 +96,7 @@ func wireQuotaAndObservabilityOrganizations(byName map[string]service.Registerab
 
 			if h, hok := byName["ServiceQuotas"].(*servicequotasbackend.Handler); hok {
 				h.Backend.SetOrgDirectory(*adapter)
+				orgBk.OnAccountCreate(func(id string) { h.Backend.ApplyTemplateToNewAccount(id) })
 			}
 		}
 	}

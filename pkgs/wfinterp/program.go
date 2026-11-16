@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 )
@@ -23,6 +24,12 @@ const (
 	keyTry         = "try"
 	pairWidth      = 2
 	nextContinue   = "continue"
+
+	// Limits from docs.cloud.google.com/workflows/quotas.
+	maxSourceBytes   = 128 << 10
+	maxAssigns       = 50
+	maxExprChars     = 400
+	maxParallelDepth = 2
 )
 
 // Program is a validated workflow.
@@ -143,6 +150,10 @@ func (c *compiler) fail(n *yaml.Node, format string, a ...any) error {
 func (e *Engine) Compile(src string) (*Program, error) {
 	if strings.TrimSpace(src) == "" {
 		return nil, &SyntaxError{Msg: "the workflow source is empty"}
+	}
+
+	if len(src) > maxSourceBytes {
+		return nil, &SyntaxError{Msg: fmt.Sprintf("the workflow source is larger than %d bytes", maxSourceBytes)}
 	}
 
 	var doc yaml.Node
@@ -448,6 +459,10 @@ func (c *compiler) assignField(s *step, n *yaml.Node) error {
 	n = resolve(n)
 	if n.Kind != yaml.SequenceNode {
 		return c.fail(n, "assign must be a list of name: value pairs")
+	}
+
+	if len(n.Content) > maxAssigns {
+		return c.fail(n, "a step can have at most %d assignments", maxAssigns)
 	}
 
 	for _, item := range n.Content {
@@ -870,6 +885,10 @@ func (c *compiler) scalar(n *yaml.Node) (any, error) {
 }
 
 func (c *compiler) expr(n *yaml.Node, src string) (*Expr, error) {
+	if utf8.RuneCountInString(src) > maxExprChars {
+		return nil, c.fail(n, "an expression can have at most %d characters", maxExprChars)
+	}
+
 	e, err := ParseExpr(src)
 	if err != nil {
 		return nil, c.fail(n, "invalid expression ${%s}: %v", strings.TrimSpace(src), err)

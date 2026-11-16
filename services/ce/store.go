@@ -50,6 +50,7 @@ const (
 	dimKeyRecordType         = "RECORD_TYPE"
 	dimKeyChargeType         = "CHARGE_TYPE"
 	dimKeyResourceID         = "RESOURCE_ID"
+	dimKeySubscriptionID     = "SUBSCRIPTION_ID"
 	statusProcessing         = "PROCESSING"
 	accountScopePayer        = "PAYER"
 	offeringClassStandard    = "STANDARD"

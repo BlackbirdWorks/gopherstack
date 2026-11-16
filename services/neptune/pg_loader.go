@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
@@ -37,6 +38,7 @@ const (
 type pgLoader struct {
 	st     *opencypher.Store
 	job    *loadJob
+	ids    *pgIDSpaces
 	res    *feedResult
 	hdr    *pgHeader
 	uri    string
@@ -143,7 +145,7 @@ func (rs *rdfService) readPGFeed(
 	cypher := job.pg == pgOpenCypher
 
 	_ = rs.graph.Update(ctx, func(st *opencypher.Store) error {
-		l := &pgLoader{st: st, job: job, res: &res, uri: uri, cypher: cypher}
+		l := &pgLoader{st: st, job: job, ids: &rs.pgIDs, res: &res, uri: uri, cypher: cypher}
 		l.run(data)
 
 		return nil
@@ -207,12 +209,15 @@ type pgProp struct {
 }
 
 type pgRow struct {
-	id     string
-	from   string
-	to     string
-	typ    string
-	labels []string
-	props  []pgProp
+	id        string
+	idSpace   string
+	from      string
+	fromSpace string
+	to        string
+	toSpace   string
+	typ       string
+	labels    []string
+	props     []pgProp
 }
 
 // convertRow turns a record into typed values; any failure skips the whole record.
@@ -253,14 +258,14 @@ func (l *pgLoader) keepEmpty(c pgColumn, f csvField) bool {
 func (l *pgLoader) setColumn(row *pgRow, c pgColumn, f csvField, recNum int) bool {
 	switch c.kind {
 	case colID:
-		row.id = f.val
+		row.id, row.idSpace = f.val, c.space
 		if c.idProp {
 			row.props = append(row.props, pgProp{key: c.name, vals: []any{f.val}, card: cardSingle})
 		}
 	case colFrom:
-		row.from = f.val
+		row.from, row.fromSpace = f.val, c.space
 	case colTo:
-		row.to = f.val
+		row.to, row.toSpace = f.val, c.space
 	case colType:
 		row.typ = f.val
 	case colLabel:
@@ -335,7 +340,59 @@ func (l *pgLoader) row(rec []csvField, recNum int) {
 	}
 }
 
+// nodeID maps a node ID within an ID space to the stored node ID: the namespace plus the ID
+// (feature-opencypher-compliance.html, "Differences in Neptune openCypher language semantics"), so the same ID
+// in a second space is a second node. The docs name no separator.
+func (l *pgLoader) nodeID(space, id string) string {
+	if space == "" {
+		return id
+	}
+
+	ids := l.ids
+	key := idSpaceKey(space, id)
+
+	if stored, ok := ids.stored[key]; ok {
+		return stored
+	}
+
+	stored := space + id
+	for _, taken := ids.owners[stored]; taken; _, taken = ids.owners[stored] {
+		stored = space + ":" + stored
+	}
+
+	if ids.stored == nil {
+		ids.stored, ids.owners = map[string]string{}, map[string]string{}
+	}
+
+	ids.stored[key], ids.owners[stored] = stored, space
+
+	return stored
+}
+
+// lookupNodeID resolves a relationship endpoint; an ID space not seen since startup falls back to the plain
+// namespace plus ID form.
+func (l *pgLoader) lookupNodeID(space, id string) string {
+	if space == "" {
+		return id
+	}
+
+	if stored, ok := l.ids.stored[idSpaceKey(space, id)]; ok {
+		return stored
+	}
+
+	return space + id
+}
+
+// pgIDSpaces maps (ID space, ID) to the stored node ID for every bulk load of a cluster; guarded by the graph lock.
+type pgIDSpaces struct {
+	stored map[string]string
+	owners map[string]string
+}
+
+func idSpaceKey(space, id string) string { return strconv.Itoa(len(space)) + ":" + space + id }
+
 func (l *pgLoader) nodeRow(row *pgRow, recNum int) {
+	row.id = l.nodeID(row.idSpace, row.id)
 	n := l.st.Node(row.id)
 	labels := row.labels
 
@@ -377,7 +434,8 @@ func (l *pgLoader) mergeLabels(n *opencypher.Node, labels []string) {
 }
 
 func (l *pgLoader) edgeRow(row *pgRow, recNum int) {
-	from, to := l.st.Node(row.from), l.st.Node(row.to)
+	from := l.st.Node(l.lookupNodeID(row.fromSpace, row.from))
+	to := l.st.Node(l.lookupNodeID(row.toSpace, row.to))
 	if from == nil || to == nil {
 		l.res.records++
 		l.fail(pgErrInsert, errCodeMissingEnd,

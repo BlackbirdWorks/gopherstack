@@ -52,6 +52,15 @@ func respondConflict(c *echo.Context, msg string) error {
 	return c.JSON(http.StatusConflict, awsErrBody{"ResourceAlreadyExistsException", msg})
 }
 
+func writeGoneError(c *echo.Context, err error) error {
+	code := "TerminalStateException"
+	if errors.Is(err, ErrLimitExceeded) {
+		code = "LimitExceededException"
+	}
+
+	return c.JSON(http.StatusGone, awsErrBody{code, publicMessage(err)})
+}
+
 // writeIoTError maps a backend sentinel error to the AWS IoT restjson1 error
 // shape ({"__type", "message"}) and HTTP status. Single source of truth
 // shared by respondErr and Handler.handleError, so every handler gets the
@@ -114,9 +123,9 @@ func writeIoTError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrVersionsLimitExceeded):
 
 		return c.JSON(http.StatusConflict, awsErrBody{"VersionsLimitExceededException", publicMessage(err)})
-	case errors.Is(err, ErrTerminalState):
+	case errors.Is(err, ErrLimitExceeded), errors.Is(err, ErrTerminalState):
 
-		return c.JSON(http.StatusGone, awsErrBody{"TerminalStateException", publicMessage(err)})
+		return writeGoneError(c, err)
 	case errors.Is(err, ErrInvalidStateTransition):
 
 		return c.JSON(http.StatusConflict, awsErrBody{"InvalidStateTransitionException", publicMessage(err)})

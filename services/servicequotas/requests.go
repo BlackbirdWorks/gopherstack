@@ -165,6 +165,16 @@ func (b *InMemoryBackend) RequestIncrease(
 			"A request to increase quota %q is already in progress", quotaCode)
 	}
 
+	r := b.newRequestLocked(
+		s, serviceCode, quotaCode, *desired, requesterOf(ctx, s.account), caseAllowed == nil || *caseAllowed,
+	)
+
+	return b.requestViewLocked(r), nil
+}
+
+func (b *InMemoryBackend) newRequestLocked(
+	s scope, serviceCode, quotaCode string, desired float64, requester string, caseAllowed bool,
+) *Request {
 	now := b.now()
 	r := &Request{
 		ID:           awsid.NewN("", requestIDHexLen),
@@ -172,17 +182,17 @@ func (b *InMemoryBackend) RequestIncrease(
 		Region:       s.region,
 		ServiceCode:  serviceCode,
 		QuotaCode:    quotaCode,
-		DesiredValue: *desired,
+		DesiredValue: desired,
 		Status:       statusPending,
-		Requester:    requesterOf(ctx, s.account),
+		Requester:    requester,
 		Created:      now,
 		LastUpdated:  now,
-		CaseAllowed:  caseAllowed == nil || *caseAllowed,
+		CaseAllowed:  caseAllowed,
 		Seq:          b.nextSeqLocked(),
 	}
 	b.requests.Put(r)
 
-	return b.requestViewLocked(r), nil
+	return r
 }
 
 func (b *InMemoryBackend) openRequestLocked(s scope, serviceCode, quotaCode string) *Request {

@@ -109,13 +109,17 @@ type Subscriber struct {
 
 // CostEntry is a synthetic cost ledger entry for a single day+service combination.
 type CostEntry struct {
-	Tags       map[string]string `json:"tags"`
-	Date       string            `json:"date"`
-	Service    string            `json:"service"`
-	Region     string            `json:"region"`
-	UsageType  string            `json:"usageType"`
-	Account    string            `json:"account"`
-	ChargeType string            `json:"chargeType,omitempty"`
+	Tags map[string]string `json:"tags"`
+	// ProductAttributes carries the Budgets ProductAttributes dimensions (feature, inferenceType, model, provider).
+	ProductAttributes map[string]string `json:"productAttributes,omitempty"`
+	Date              string            `json:"date"`
+	Service           string            `json:"service"`
+	Region            string            `json:"region"`
+	UsageType         string            `json:"usageType"`
+	Account           string            `json:"account"`
+	ChargeType        string            `json:"chargeType,omitempty"`
+	// SubscriptionID is the Savings Plans or reservation subscription the entry belongs to.
+	SubscriptionID string `json:"subscriptionId,omitempty"`
 	// The fields from AvailabilityZone to ResourceID are additive ledger dimensions.
 	AvailabilityZone string  `json:"availabilityZone,omitempty"`
 	InstanceType     string  `json:"instanceType,omitempty"`

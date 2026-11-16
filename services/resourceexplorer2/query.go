@@ -16,6 +16,7 @@ const (
 	filterTag          = "tag"
 	filterTagKey       = "tag.key"
 	filterTagValue     = "tag.value"
+	filterSupports     = "resourcetype.supports"
 	filterAccountID    = "accountid"
 	filterID           = "id"
 	filterApplication  = "application"
@@ -23,8 +24,16 @@ const (
 )
 
 var filterNames = map[string]bool{ //nolint:gochecknoglobals // immutable lookup table
-	filterRegion: true, filterService: true, filterResourceType: true, filterTag: true,
-	filterTagKey: true, filterTagValue: true, filterAccountID: true, filterID: true, filterApplication: true,
+	filterRegion:       true,
+	filterService:      true,
+	filterResourceType: true,
+	filterTag:          true,
+	filterTagKey:       true,
+	filterTagValue:     true,
+	filterSupports:     true,
+	filterAccountID:    true,
+	filterID:           true,
+	filterApplication:  true,
 }
 
 // clause is one parsed query term: a keyword (name "") or a filter whose values are OR-ed.
@@ -252,6 +261,8 @@ func (c *candidate) matches(cl clause) bool {
 		return anyGlob(cl.values, c.service)
 	case filterResourceType:
 		return anyGlob(cl.values, c.resourceType)
+	case filterSupports:
+		return slices.ContainsFunc(cl.values, func(v string) bool { return strings.EqualFold(v, "tags") })
 	case filterAccountID:
 		return slices.Contains(cl.values, c.account)
 	case filterID:

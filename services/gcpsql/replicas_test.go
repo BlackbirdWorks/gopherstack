@@ -297,3 +297,23 @@ func TestReplicaOfStateOnlyPrimary(t *testing.T) {
 	op, err := e.svc.Instances.PromoteReplica(project, "rep").Context(t.Context()).Do()
 	e.mustWait(t, op, err)
 }
+
+func TestCrossRegionReplica(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	e.createInstance(t, "xprim", "POSTGRES_16", nil)
+
+	op, err := e.svc.Instances.Insert(project, &sqladmin.DatabaseInstance{
+		Name: "xrep", DatabaseVersion: "POSTGRES_16", MasterInstanceName: "xprim", Region: "europe-west1",
+		Settings: &sqladmin.Settings{Tier: "db-custom-1-3840"},
+	}).Context(t.Context()).Do()
+	e.mustWait(t, op, err)
+
+	rep, err := e.svc.Instances.Get(project, "xrep").Context(t.Context()).Do()
+	require.NoError(t, err)
+	assert.Equal(t, "europe-west1", rep.Region)
+	assert.Equal(t, project+":europe-west1:xrep", rep.ConnectionName)
+	assert.Equal(t, "europe-west1-a", rep.GceZone)
+	assert.Equal(t, project+":xprim", rep.MasterInstanceName)
+}

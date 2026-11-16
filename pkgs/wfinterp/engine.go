@@ -40,6 +40,33 @@ type LogEntry struct {
 	Text     string
 }
 
+// Call event states, as in google.cloud.workflows.type.EngineCallLog.State.
+const (
+	CallBegun            = "BEGUN"
+	CallSucceeded        = "SUCCEEDED"
+	CallExceptionRaised  = "EXCEPTION_RAISED"
+	CallExceptionHandled = "EXCEPTION_HANDLED"
+)
+
+// CallEvent describes one stage of a call step.
+type CallEvent struct {
+	Time      time.Time
+	CallStart time.Time
+	Args      map[string]any
+	State     string
+	Step      string
+	Callee    string
+	Response  string
+	Exception string
+	Origin    string
+}
+
+type callOrigin struct {
+	start  time.Time
+	step   string
+	callee string
+}
+
 // Host connects a running workflow to its surroundings. Every field is optional.
 type Host struct {
 	Clock Clock
@@ -56,6 +83,10 @@ type Host struct {
 	CreateCallback func(ctx context.Context, method string) (url string, err error)
 	// AwaitCallback blocks until the callback at url is called or ctx ends.
 	AwaitCallback func(ctx context.Context, url string) (map[string]any, error)
+	// RunExecutions starts one execution per request, waits for all of them and returns their results in order.
+	RunExecutions func(ctx context.Context, reqs []ExecutionRequest) ([]any, error)
+	// CallLog receives one event per explicit call step when set.
+	CallLog func(CallEvent)
 	// Progress is told which steps are executing each time they change.
 	Progress func([]Frame)
 }
@@ -105,6 +136,7 @@ func NewEngine() *Engine {
 	e.addMisc()
 	e.addSys()
 	e.addHTTP()
+	e.addExecutions()
 
 	return e
 }

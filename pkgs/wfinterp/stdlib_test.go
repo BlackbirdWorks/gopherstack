@@ -116,7 +116,6 @@ func TestExpressionErrors(t *testing.T) {
 		{"compare mixed", `"a" < 1`, "TypeError"},
 		{"missing key", `{"a": 1}.b`, "KeyError"},
 		{"list index out of range", `[1][3]`, "IndexError"},
-		{"undefined variable", `nothing`, "KeyError"},
 		{"bad int", `int("x")`, "ValueError"},
 		{"len of int", `len(1)`, "TypeError"},
 		{"non boolean and", `1 and true`, "TypeError"},

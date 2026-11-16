@@ -361,7 +361,7 @@ type MemberIndex struct {
 
 // ListIndexesForMembers lists the indexes of the given accounts.
 func (b *InMemoryBackend) ListIndexesForMembers(
-	accounts []string, token string, maxResults int,
+	ctx context.Context, accounts []string, token string, maxResults int,
 ) (page.Page[MemberIndex], error) {
 	if len(accounts) == 0 || len(accounts) > maxMemberAccounts {
 		return page.Page[MemberIndex]{}, invalid(
@@ -370,12 +370,25 @@ func (b *InMemoryBackend) ListIndexesForMembers(
 		)
 	}
 
+	if err := b.authorizeMemberListing(ctx); err != nil {
+		return page.Page[MemberIndex]{}, err
+	}
+
+	dir := b.orgDirectory()
+	members := make([]string, 0, len(accounts))
+
+	for _, a := range accounts {
+		if dir == nil || dir.IsMember(a) {
+			members = append(members, a)
+		}
+	}
+
 	b.mu.RLock("ListIndexesForMembers")
 	defer b.mu.RUnlock()
 
 	var all []MemberIndex
 
-	for _, a := range accounts {
+	for _, a := range members {
 		for _, i := range b.liveIndexes(a) {
 			all = append(all, MemberIndex{AccountID: a, Arn: i.ARN, Region: i.Region, Type: i.Type})
 		}

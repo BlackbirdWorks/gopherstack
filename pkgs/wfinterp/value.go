@@ -269,3 +269,67 @@ func formatValue(v any) string {
 		return string(raw)
 	}
 }
+
+const (
+	sizeDepthLimit = 200
+	sizeWord       = 8
+)
+
+// approxSize estimates the memory of a value and stops counting once it passes limit; it returns -1 for a string
+// longer than maxString.
+func approxSize(v any, limit int64, depth int) int64 {
+	if depth > sizeDepthLimit {
+		return limit
+	}
+
+	switch x := v.(type) {
+	case string:
+		if len(x) > maxString {
+			return -1
+		}
+
+		return int64(len(x))
+	case []byte:
+		return int64(len(x))
+	case []any:
+		return approxList(x, limit, depth)
+	case map[string]any:
+		return approxMap(x, limit, depth)
+	default:
+		return sizeWord
+	}
+}
+
+func approxList(x []any, limit int64, depth int) int64 {
+	var n int64
+
+	for _, e := range x {
+		c := approxSize(e, limit-n, depth+1)
+		if c < 0 {
+			return -1
+		}
+
+		if n += sizeWord + c; n > limit {
+			return n
+		}
+	}
+
+	return n
+}
+
+func approxMap(x map[string]any, limit int64, depth int) int64 {
+	var n int64
+
+	for k, e := range x {
+		c := approxSize(e, limit-n, depth+1)
+		if c < 0 {
+			return -1
+		}
+
+		if n += sizeWord + int64(len(k)) + c; n > limit {
+			return n
+		}
+	}
+
+	return n
+}

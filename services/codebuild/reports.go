@@ -21,6 +21,10 @@ func (b *InMemoryBackend) buildReportGroupARN(name string) string {
 func (b *InMemoryBackend) CreateReportGroup(
 	name, rtype string, exportConfig ReportExportConfig, tags map[string]string,
 ) (*ReportGroup, error) {
+	if err := exportConfig.validate(); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateReportGroup")
 	defer b.mu.Unlock()
 
@@ -37,7 +41,7 @@ func (b *InMemoryBackend) CreateReportGroup(
 		Name:         name,
 		Type:         rtype,
 		Status:       reportGroupActive,
-		ExportConfig: exportConfig,
+		ExportConfig: exportConfig.clone(),
 		Tags:         tagsCopy,
 		Created:      now,
 		LastModified: now,
@@ -45,6 +49,7 @@ func (b *InMemoryBackend) CreateReportGroup(
 	b.reportGroups.Put(rg)
 
 	out := *rg
+	out.ExportConfig = rg.ExportConfig.clone()
 
 	return &out, nil
 }
@@ -72,6 +77,7 @@ func (b *InMemoryBackend) BatchGetReportGroups(arns []string) ([]*ReportGroup, [
 
 		if ok {
 			out := *rg
+			out.ExportConfig = rg.ExportConfig.clone()
 			found = append(found, &out)
 		} else {
 			notFound = append(notFound, a)
@@ -215,6 +221,12 @@ func (b *InMemoryBackend) UpdateReportGroup(
 	exportConfig *ReportExportConfig,
 	tags map[string]string,
 ) (*ReportGroup, error) {
+	if exportConfig != nil {
+		if err := exportConfig.validate(); err != nil {
+			return nil, err
+		}
+	}
+
 	b.mu.Lock("UpdateReportGroup")
 	defer b.mu.Unlock()
 
@@ -225,7 +237,7 @@ func (b *InMemoryBackend) UpdateReportGroup(
 
 	rg := matches[0]
 	if exportConfig != nil {
-		rg.ExportConfig = *exportConfig
+		rg.ExportConfig = exportConfig.clone()
 	}
 
 	if tags != nil {
@@ -236,6 +248,7 @@ func (b *InMemoryBackend) UpdateReportGroup(
 
 	rg.LastModified = float64(time.Now().Unix())
 	out := *rg
+	out.ExportConfig = rg.ExportConfig.clone()
 
 	return &out, nil
 }

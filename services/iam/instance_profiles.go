@@ -12,6 +12,8 @@ import (
 
 // CreateInstanceProfile creates a new IAM instance profile.
 func (b *InMemoryBackend) CreateInstanceProfile(name, path string) (*InstanceProfile, error) {
+	limit := b.quotaLimit(quotaProfiles)
+
 	b.mu.Lock("CreateInstanceProfile")
 	defer b.mu.Unlock()
 
@@ -21,6 +23,10 @@ func (b *InMemoryBackend) CreateInstanceProfile(name, path string) (*InstancePro
 			ErrInstanceProfileAlreadyExists,
 			name,
 		)
+	}
+
+	if limit.Reached(len(b.sortedIPNames)) {
+		return nil, quotaExceeded("InstanceProfiles", limit)
 	}
 
 	p := normPath(path)

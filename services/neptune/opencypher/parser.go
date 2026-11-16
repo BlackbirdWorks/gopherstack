@@ -691,10 +691,50 @@ func (p *parser) parseRelDetail(r *relPat) error {
 			return err
 		}
 
+		if r.varLen && !allConstExprs(props.vals) {
+			return unsupported("%s", errVarLenPredicate)
+		}
+
 		r.props = props
 	}
 
 	return p.expect("]")
+}
+
+const errVarLenPredicate = "Property predicate over variable-length relationships with non-constant " +
+	"expression is not supported in this release."
+
+// allConstExprs reports whether every expression is a literal or parameter, possibly inside a list or map
+// (feature-opencypher-compliance.html: variable-length relationship property filters must be constants).
+func allConstExprs(es []expr) bool {
+	for _, e := range es {
+		if !constExpr(e) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func constExpr(e expr) bool {
+	switch t := e.(type) {
+	case litExpr, paramExpr:
+		return true
+	case unaryExpr:
+		return constExpr(t.e)
+	case *unaryExpr:
+		return constExpr(t.e)
+	case listExpr:
+		return allConstExprs(t.items)
+	case *listExpr:
+		return allConstExprs(t.items)
+	case mapExpr:
+		return allConstExprs(t.vals)
+	case *mapExpr:
+		return allConstExprs(t.vals)
+	default:
+		return false
+	}
 }
 
 func (p *parser) parseHops(r *relPat) {

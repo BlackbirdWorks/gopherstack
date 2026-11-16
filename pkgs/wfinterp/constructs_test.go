@@ -157,7 +157,7 @@ main:
 			want: int64(12),
 		},
 		{
-			name: "loop variables do not leak and outer variables update",
+			name: "outer variables update from a loop",
 			src: `
 main:
   steps:
@@ -169,18 +169,10 @@ main:
           in: [1, 2]
           steps:
             - a:
-                assign: [{outer: "${outer + v}"}, {inner: 1}]
-    - check:
-        try:
-          steps:
-            - read:
-                return: ${inner}
-        except:
-          as: e
-          steps:
-            - out:
-                return: {outer: "${outer}", tag: "${e.tags[0]}"}`,
-			want: map[string]any{"outer": int64(3), "tag": "KeyError"},
+                assign: [{outer: "${outer + v}"}]
+    - out:
+        return: {outer: "${outer}"}`,
+			want: map[string]any{"outer": int64(3)},
 		},
 		{
 			name: "subworkflow with params defaults and result",

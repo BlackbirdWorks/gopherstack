@@ -9,21 +9,17 @@
 | --- | --- |
 | PARITY entries audited | 29 (29 ok) |
 | Feature families | 5 (5 ok) |
-| Known gaps | 8 |
+| Known gaps | 4 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- GetServiceView: not implemented; service views are created by AWS services and no emulator path or public API creates one, so there is no state to read
-- ListServiceViews: not implemented; same reason as GetServiceView (SDK docs give MaxResults 1-50)
-- ListStreamingAccessForServices: not implemented; no public API or emulated service grants streaming access, so there is no state to read (SDK docs give MaxResults 1-50)
-- ListSupportedResourceTypes: types are listed whether or not an emulated service can produce them; only CFNResourceTypes of the 48 curated rows are populated
-- Search: the resourcetype.supports:tags filter is not implemented (no per-type taggability catalogue is published in the Resource Explorer docs or SDK) and is treated as a keyword
-- Search: a service is searchable once its tagging provider is wired; untagged resources appear only for services that register a tagging inventory provider (AMP, AppIntegrations, CloudHSM v2, CodeGuru Reviewer, RUM, Timestream for InfluxDB, EC2 kinds); every other service lists tagged resources only
-- ListIndexesForMembers: no organization membership or delegated-administrator check
-- CreateView: organization and OU scopes are accepted without validating them against Organizations
+- GetServiceView: not routed (UnknownOperationException); the API reference (API_ListServiceViews, API_ServiceView, API_ListStreamingAccessForServices) never says who creates service views or grants streaming access, and no public create or grant operation exists, so there is no state to read and an empty answer would be a real-looking stub
+- ListServiceViews: not routed, same reason as GetServiceView (SDK docs give MaxResults 1-50)
+- ListStreamingAccessForServices: not routed, same reason as GetServiceView (SDK docs give MaxResults 1-50)
+- Search: untagged resources appear only for services with a tagging inventory provider (AMP, AppIntegrations, CloudHSM v2, CodeGuru Reviewer, RUM, Timestream for InfluxDB, EC2 kinds); each other service wired into the tagging aggregation (about 100, each with its own TaggedResources that keeps only tagged entries, e.g. services/rum/tags.go TaggedResources/InventoryResources pair) needs its own InventoryResources in a service directory this pass does not own
 
 ### Structural gaps
 

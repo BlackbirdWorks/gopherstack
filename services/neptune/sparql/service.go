@@ -47,7 +47,9 @@ func (p *parser) parseService(g *group) error {
 	}
 
 	closer := p.toks[p.i-1]
-	g.Elems = append(g.Elems, &serviceEl{Name: name, Silent: silent, Text: p.src[open.pos : closer.pos+1]})
+	el := &serviceEl{Name: name, Silent: silent, Text: p.src[open.pos : closer.pos+1]}
+	p.services = append(p.services, el)
+	g.Elems = append(g.Elems, el)
 
 	return nil
 }

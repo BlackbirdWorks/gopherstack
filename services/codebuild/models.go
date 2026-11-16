@@ -1,5 +1,7 @@
 package codebuild
 
+import "fmt"
+
 // SourceAuth represents authentication for a CodeBuild source.
 type SourceAuth struct {
 	Type     string `json:"type,omitempty"`
@@ -286,7 +288,49 @@ type Build struct {
 
 // ReportExportConfig represents the export configuration for a CodeBuild report group.
 type ReportExportConfig struct {
-	ExportConfigType string `json:"exportConfigType,omitempty"`
+	S3Destination    *S3ReportExportConfig `json:"s3Destination,omitempty"`
+	ExportConfigType string                `json:"exportConfigType,omitempty"`
+}
+
+// S3ReportExportConfig is the S3 destination of a report group's raw test data (types.S3ReportExportConfig).
+type S3ReportExportConfig struct {
+	EncryptionDisabled *bool  `json:"encryptionDisabled,omitempty"`
+	Bucket             string `json:"bucket,omitempty"`
+	BucketOwner        string `json:"bucketOwner,omitempty"`
+	EncryptionKey      string `json:"encryptionKey,omitempty"`
+	Packaging          string `json:"packaging,omitempty"`
+	Path               string `json:"path,omitempty"`
+}
+
+func (c ReportExportConfig) clone() ReportExportConfig {
+	if c.S3Destination != nil {
+		d := *c.S3Destination
+		if d.EncryptionDisabled != nil {
+			v := *d.EncryptionDisabled
+			d.EncryptionDisabled = &v
+		}
+
+		c.S3Destination = &d
+	}
+
+	return c
+}
+
+func (c ReportExportConfig) validate() error {
+	switch c.ExportConfigType {
+	case "", "NO_EXPORT":
+		return nil
+	case "S3":
+	default:
+		return fmt.Errorf("%w: exportConfigType %q is not valid", ErrValidation, c.ExportConfigType)
+	}
+
+	d := c.S3Destination
+	if d != nil && d.Packaging != "" && d.Packaging != "NONE" && d.Packaging != "ZIP" {
+		return fmt.Errorf("%w: packaging %q must be NONE or ZIP", ErrValidation, d.Packaging)
+	}
+
+	return nil
 }
 
 // ReportGroup represents an in-memory AWS CodeBuild report group.

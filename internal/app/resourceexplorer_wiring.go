@@ -3,6 +3,9 @@ package app
 import (
 	"context"
 	"slices"
+	"strings"
+
+	awsarn "github.com/aws/aws-sdk-go-v2/aws/arn"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
@@ -111,6 +114,76 @@ func (o *organizationsAccess) ServiceAccessEnabled(principal string) bool {
 	return false
 }
 
+type orgDirectoryBackend interface {
+	serviceAccessLister
+	DescribeOrganization() (*organizationsbackend.Organization, error)
+	ListAccounts() ([]*organizationsbackend.Account, error)
+	ListDelegatedAdministrators(servicePrincipal string) ([]*organizationsbackend.DelegatedAdmin, error)
+	DescribeOrganizationalUnit(ouID string) (*organizationsbackend.OrganizationalUnit, error)
+}
+
+// organizationsDirectory answers Resource Explorer's membership and scope questions from Organizations.
+type organizationsDirectory struct{ dir orgDirectoryBackend }
+
+func (d *organizationsDirectory) ServiceAccessEnabled(principal string) bool {
+	return (&organizationsAccess{lister: d.dir}).ServiceAccessEnabled(principal)
+}
+
+func (d *organizationsDirectory) ManagementAccount() (string, bool) {
+	org, err := d.dir.DescribeOrganization()
+	if err != nil {
+		return "", false
+	}
+
+	return org.MasterAccountID, true
+}
+
+func (d *organizationsDirectory) IsMember(account string) bool {
+	accounts, err := d.dir.ListAccounts()
+	if err != nil {
+		return false
+	}
+
+	return slices.ContainsFunc(accounts, func(a *organizationsbackend.Account) bool { return a.ID == account })
+}
+
+func (d *organizationsDirectory) IsDelegatedAdmin(principal, account string) bool {
+	admins, err := d.dir.ListDelegatedAdministrators(principal)
+	if err != nil {
+		return false
+	}
+
+	return slices.ContainsFunc(
+		admins,
+		func(a *organizationsbackend.DelegatedAdmin) bool { return a.AccountID == account },
+	)
+}
+
+func (d *organizationsDirectory) ScopeExists(scopeARN string) bool {
+	org, err := d.dir.DescribeOrganization()
+	if err != nil {
+		return false
+	}
+
+	if scopeARN == org.ARN {
+		return true
+	}
+
+	parsed, err := awsarn.Parse(scopeARN)
+	if err != nil || parsed.Service != "organizations" {
+		return false
+	}
+
+	_, ouID, found := strings.Cut(strings.TrimPrefix(parsed.Resource, "ou/"), "/")
+	if !found || !strings.HasPrefix(parsed.Resource, "ou/") {
+		return false
+	}
+
+	ou, err := d.dir.DescribeOrganizationalUnit(ouID)
+
+	return err == nil && ou.ARN == scopeARN
+}
+
 // wireResourceExplorer connects Resource Explorer to the tagging aggregation and Organizations.
 func wireResourceExplorer(byName map[string]service.Registerable) {
 	reH, ok := byName["ResourceExplorer2"].(*resourceexplorer2backend.Handler)
@@ -135,7 +208,11 @@ func wireResourceExplorer(byName map[string]service.Registerable) {
 	reH.Backend.SetResourceSource(sources)
 
 	if orgH, isOrg := byName["Organizations"].(*organizationsbackend.Handler); isOrg {
-		if l, canList := orgH.Backend.(serviceAccessLister); canList {
+		if d, canDir := orgH.Backend.(orgDirectoryBackend); canDir {
+			reH.Backend.SetOrgAccess(
+				&organizationsDirectory{dir: d},
+			)
+		} else if l, canList := orgH.Backend.(serviceAccessLister); canList {
 			reH.Backend.SetOrgAccess(&organizationsAccess{lister: l})
 		}
 	}

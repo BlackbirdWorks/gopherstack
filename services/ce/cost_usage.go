@@ -566,6 +566,8 @@ func dimensionFieldValue(e CostEntry, dimension string) (string, bool) {
 		return e.UsageTypeGroup, true
 	case dimKeyResourceID:
 		return e.ResourceID, true
+	case dimKeySubscriptionID:
+		return e.SubscriptionID, true
 	default:
 		return derivedDimensionValue(e, strings.ToUpper(dimension))
 	}

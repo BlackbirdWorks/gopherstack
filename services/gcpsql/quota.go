@@ -113,13 +113,19 @@ func (b *InMemoryBackend) checkQuota(ctx context.Context, rec *instRec, last Eng
 		full = false
 	}
 
-	if capacity == 0 && !full {
+	if capacity == 0 && !full && !autoResizes(rec.Inst.Settings) {
 		return eng, false
 	}
 
 	used, err := du.DiskUsage(ctx)
 	if err != nil {
 		return eng, full
+	}
+
+	if grown := b.growDisk(rec, eng, used); grown {
+		b.mu.RLock("checkQuota")
+		capacity = diskCapacity(rec.Inst.Settings)
+		b.mu.RUnlock()
 	}
 
 	if want := capacity > 0 && used > capacity; want != full {
@@ -134,6 +140,41 @@ func (b *InMemoryBackend) checkQuota(ctx context.Context, rec *instRec, last Eng
 	}
 
 	return eng, full
+}
+
+func autoResizes(settings map[string]any) bool {
+	on, _ := settings["storageAutoResize"].(bool)
+
+	return on
+}
+
+// growDisk raises dataDiskSizeGb to the next whole GiB above usage while storageAutoResize allows it; the increment
+// Cloud SQL uses is not documented.
+func (b *InMemoryBackend) growDisk(rec *instRec, eng Engine, used int64) bool {
+	b.mu.Lock("growDisk")
+	defer b.mu.Unlock()
+
+	if rec.gone || rec.eng != eng || !autoResizes(rec.Inst.Settings) {
+		return false
+	}
+
+	size, _ := strconv.ParseInt(settingString(rec.Inst.Settings, "dataDiskSizeGb"), 10, 64)
+	if size <= 0 || used <= size*gib {
+		return false
+	}
+
+	want := (used + gib - 1) / gib
+	if limit, _ := strconv.ParseInt(settingString(rec.Inst.Settings, "storageAutoResizeLimit"), 10, 64); limit > 0 {
+		want = min(want, limit)
+	}
+
+	if want <= size {
+		return false
+	}
+
+	rec.Inst.Settings["dataDiskSizeGb"] = strconv.FormatInt(want, 10)
+
+	return true
 }
 
 func stopQuota(cancel context.CancelFunc) {

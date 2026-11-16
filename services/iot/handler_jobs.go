@@ -53,6 +53,7 @@ type jobExecutionSummaryWire struct {
 	QueuedAt        float64            `json:"queuedAt,omitempty"`
 	StartedAt       float64            `json:"startedAt,omitempty"`
 	LastUpdatedAt   float64            `json:"lastUpdatedAt,omitempty"`
+	RetryAttempt    int32              `json:"retryAttempt,omitempty"`
 }
 
 func toJobExecutionSummaryWire(e *JobExecution) jobExecutionSummaryWire {
@@ -62,6 +63,7 @@ func toJobExecutionSummaryWire(e *JobExecution) jobExecutionSummaryWire {
 		StartedAt:       e.StartedAt,
 		LastUpdatedAt:   e.LastUpdatedAt,
 		Status:          e.Status,
+		RetryAttempt:    e.RetryAttempt,
 	}
 }
 

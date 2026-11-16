@@ -24,7 +24,7 @@
 - GetMetricDataV2: only the documented subset of metrics is computed (agent-state, flow, campaign, evaluation, case, AI and Contact Lens metrics are not modeled), so custom metrics built on them are rejected
 - PhoneNumber import: ImportPhoneNumber needs an AWS End User Messaging phone-number inventory that the emulator does not have; a number could only be fabricated
 - SES-wired email delivery status readback and TEMPLATE outbound email (Wisdom message templates) are not modeled
-- CloudFormation: AWS::Connect::Metric GetAtt Filters, Groupings, PrimaryEventSource, PrimaryEventSourceEffectiveTimestampType, RefreshRate and SupportedStats have no backing state; Pages, Media and Associations of Workspace, HoursOfOperationOverrides, ParentHoursOfOperations and ChildHoursOfOperations of HoursOfOperation, ManualAssignmentQueueConfigs of RoutingProfile, AdditionalEmailAddresses of Queue and SourcePhoneNumberArn of PhoneNumber are rejected
+- CloudFormation: AWS::Connect::Metric GetAtt Filters, Groupings, PrimaryEventSource, PrimaryEventSourceEffectiveTimestampType, RefreshRate and SupportedStats are not returned: the CloudFormation reference (aws-resource-connect-metric.html) names them without a value format or derivation, and the stored MetricDefinition (services/connect/metricdefs.go MetricDefinition) has no PrimaryEventSource, RefreshRate or SupportedStats; SourcePhoneNumberArn of PhoneNumber is rejected because it needs an imported number (ImportPhoneNumber item) and ClaimPhoneNumber has no source member (SDK ClaimPhoneNumberInput)
 
 ### Structural gaps
 

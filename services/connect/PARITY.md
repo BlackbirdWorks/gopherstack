@@ -410,7 +410,7 @@ items_still_open:
   - "GetMetricDataV2: only the documented subset of metrics is computed (agent-state, flow, campaign, evaluation, case, AI and Contact Lens metrics are not modeled), so custom metrics built on them are rejected"
   - "PhoneNumber import: ImportPhoneNumber needs an AWS End User Messaging phone-number inventory that the emulator does not have; a number could only be fabricated"
   - "SES-wired email delivery status readback and TEMPLATE outbound email (Wisdom message templates) are not modeled"
-  - "CloudFormation: AWS::Connect::Metric GetAtt Filters, Groupings, PrimaryEventSource, PrimaryEventSourceEffectiveTimestampType, RefreshRate and SupportedStats have no backing state; Pages, Media and Associations of Workspace, HoursOfOperationOverrides, ParentHoursOfOperations and ChildHoursOfOperations of HoursOfOperation, ManualAssignmentQueueConfigs of RoutingProfile, AdditionalEmailAddresses of Queue and SourcePhoneNumberArn of PhoneNumber are rejected"
+  - "CloudFormation: AWS::Connect::Metric GetAtt Filters, Groupings, PrimaryEventSource, PrimaryEventSourceEffectiveTimestampType, RefreshRate and SupportedStats are not returned: the CloudFormation reference (aws-resource-connect-metric.html) names them without a value format or derivation, and the stored MetricDefinition (services/connect/metricdefs.go MetricDefinition) has no PrimaryEventSource, RefreshRate or SupportedStats; SourcePhoneNumberArn of PhoneNumber is rejected because it needs an imported number (ImportPhoneNumber item) and ClaimPhoneNumber has no source member (SDK ClaimPhoneNumberInput)"
 structural_gaps:
   - "No telephony or media plane: outbound calls are never placed, no audio flows, and contacts only change state through StopContact and UpdateContact because no agent softphone or customer endpoint exists."
   - "Phone numbers come from a fixed pool of fictional numbers: the carrier inventory behind SearchAvailablePhoneNumbers cannot exist in an emulator."
@@ -419,6 +419,7 @@ leaks: {status: clean, note: "leak_main_test.go runs goleak over the package; in
 ---
 
 ## Notes
+CloudFormation applies AWS::Connect::Workspace Pages, Media and Associations, HoursOfOperation HoursOfOperationOverrides, ParentHoursOfOperations and ChildHoursOfOperations, Queue AdditionalEmailAddresses and RoutingProfile ManualAssignmentQueueConfigs through the same backend operations as the API (services/cloudformation/resources_connect_*.go); property shapes follow the TemplateReference pages for each type.
 
 Protocol is REST-JSON (SigV4 signing name `connect`); every operation shape was read from the pinned SDK schemas and types. Timestamps are epoch-seconds numbers (`awstime.EpochTime`). The route matcher claims every request signed for `connect` under a Connect URI prefix (mirrored in `internal/routegates/path_gates.txt`) so an unrouted operation answers `UnknownOperationException` instead of falling through to S3.
 

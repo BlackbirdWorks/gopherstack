@@ -9,20 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 26 (26 ok) |
 | Feature families | 5 (5 ok) |
-| Known gaps | 7 |
+| Known gaps | 3 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- ContextId/QuotaContext: resource-level quotas are not modeled; ContextId is rejected with IllegalArgumentException
-- QuotaUtilization: only S3 buckets, EC2 Elastic IPs, VPCs, IAM roles/users/groups and DynamoDB tables report usage; the other catalogued quotas have no live counter
-- AutoManagement: NotifyAndAdjust sends the 95% notification only (as documented) but files no automatic increase request: the Automatic Management page (docs.aws.amazon.com/servicequotas/latest/userguide/automatic-management.html) does not state the requested value or which quotas qualify for automated approval
-- AppliedQuotaEnforcement: opt-in (--enforce-service-quotas) for S3 buckets, EC2 Elastic IPs and VPCs, IAM roles/users/groups and DynamoDB tables only; other quotas are never enforced and Lambda, SQS, SNS and the other newly catalogued quotas are never enforced
-- Template: associating the template does not file increase requests for accounts created in or joined to the organization later (Organizations exposes no account-created hook)
-- RequestStatus: DENIED is entered only for desired values above the catalogued hard max (IAM roles, customer managed policies and instance profiles 10,000, groups 500); NOT_APPROVED and INVALID_REQUEST are never entered (CASE_CLOSED is entered when the request's Support case is resolved)
-- Errors: AccessDenied for non-template operations, DependencyAccessDenied, TagPolicyViolation, TooManyRequests and ServiceException are not raised (no emulated cause)
+- ContextId/QuotaContext: resource-level quotas are not modeled; ContextId is rejected with IllegalArgumentException. Blocker: the only documented resource-level quota is OpenSearch (es) 'Instances per domain' (request-quota-increase.html); the docs publish no list of resource-level quotas, no ContextScopeType values and no ARN pattern per quota, so INVALID_REQUEST (invalid ContextId ARN) cannot be decided from a source (quotas.go:70 checkContext)
+- QuotaUtilization: S3 buckets, EC2 Elastic IPs, VPCs, IAM roles/users/groups/customer managed policies/instance profiles, EKS clusters and DynamoDB tables report usage; the other catalogued quotas (ECS clusters, RDS, CloudFormation, ELB, Lambda, the other VPC quotas) have no live counter wired in internal/app/service_quotas_wiring.go quotaCounters
+- AppliedQuotaEnforcement: opt-in (--enforce-service-quotas) for S3 buckets, EC2 Elastic IPs and VPCs, IAM roles/users/groups/customer managed policies/instance profiles, EKS clusters and DynamoDB tables only; the other catalogued quotas are never enforced
 
 ### Structural gaps
 

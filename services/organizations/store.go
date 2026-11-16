@@ -58,6 +58,7 @@ type InMemoryBackend struct {
 	region                             string
 	accountID                          string
 	accountLeaveHooks                  []func(accountID string)
+	accountCreateHooks                 []func(accountID string)
 	pendingCreates                     []*pendingCreate
 	provisionQueue                     []provisionReq
 	createDelay                        time.Duration

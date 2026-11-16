@@ -62,6 +62,7 @@ type rdfService struct {
 	rebuilds *rebuildState
 	pgStats  *statsState
 	cpus     func() int
+	pgIDs    pgIDSpaces
 	webOnce  sync.Once
 }
 

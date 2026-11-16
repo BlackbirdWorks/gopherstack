@@ -9,6 +9,7 @@ import (
 )
 
 type parser struct {
+	services []*serviceEl
 	prefixes map[string]string
 	base     string
 	src      string

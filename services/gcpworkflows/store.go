@@ -32,8 +32,13 @@ type workflowRec struct {
 }
 
 type execRec struct {
-	cancel context.CancelFunc
-	pb     *executionspb.Execution
+	done      chan struct{}
+	cancel    context.CancelFunc
+	pending   *pendingRun
+	stopTimer func() bool
+	pb        *executionspb.Execution
+	key       string
+	depth     int
 }
 
 type callback struct {
@@ -60,10 +65,14 @@ type InMemoryBackend struct {
 	workflows map[string]*workflowRec
 	execs     map[string]*execRec
 	callbacks map[string]*callback
+	load      map[string]*regionLoad
 	keys      cmek.Checker
 	mu        *lockmetrics.RWMutex
 	wg        *sync.WaitGroup
 	pushBase  string
+	lastSweep int64
+	maxActive int
+	maxQueued int
 }
 
 // NewInMemoryBackend creates an empty backend.
@@ -82,8 +91,12 @@ func NewInMemoryBackend() *InMemoryBackend {
 		workflows: make(map[string]*workflowRec),
 		execs:     make(map[string]*execRec),
 		callbacks: make(map[string]*callback),
+		load:      make(map[string]*regionLoad),
+		maxActive: maxActivePerRegion,
+		maxQueued: maxQueuedPerRegion,
 	}
 	b.engine.KnownConnector = isConnector
+	b.client.Transport = emulatedHosts{b: b, next: b.client.Transport}
 
 	return b
 }
@@ -142,6 +155,11 @@ func clone[T proto.Message](m T) T {
 func (b *InMemoryBackend) stopExecutions() {
 	b.stop()
 	b.wg.Wait()
+
+	b.mu.Lock("stopExecutions")
+	defer b.mu.Unlock()
+
+	b.stopTimersLocked()
 }
 
 // Close stops all running executions; the backend is unusable afterwards.
@@ -155,6 +173,7 @@ func (b *InMemoryBackend) Reset() {
 	b.workflows = make(map[string]*workflowRec)
 	b.execs = make(map[string]*execRec)
 	b.callbacks = make(map[string]*callback)
+	b.load = make(map[string]*regionLoad)
 	b.runCtx, b.stop = context.WithCancel(context.Background())
 	b.mu.Unlock()
 

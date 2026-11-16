@@ -13,7 +13,15 @@ import (
 const (
 	maxSteps    = 100000
 	maxCallDeep = 20
-	maxSleep    = 31536000
+	// maxVarMemory is the cumulative data limit for variables and arguments of an execution.
+	maxVarMemory = 512 << 10
+	// maxString is the longest UTF-8 string a variable can hold.
+	maxString = 256 << 10
+	// maxParallelRun is how many branches or iterations of a parallel step run at once; the rest wait.
+	maxParallelRun = 20
+	// maxBranchFailures is how many uncaught branch exceptions an UnhandledBranchError reports.
+	maxBranchFailures = 100
+	maxSleep          = 31536000
 )
 
 type outKind int
@@ -37,6 +45,7 @@ type scope struct {
 	vars   map[string]any
 	parent *scope
 	shared map[string]bool
+	sizes  map[string]int64
 	branch bool
 }
 
@@ -100,12 +109,14 @@ type exec struct {
 	tids   atomic.Int64
 	mu     sync.Mutex
 	fmu    sync.Mutex
+	mem    int64
 }
 
 type rctx struct {
 	x       *exec
 	ctx     context.Context
 	routine *routine
+	step    string
 	tid     int
 	depth   int
 }
@@ -145,6 +156,12 @@ func (r *rctx) runRoutine(sub *routine, args map[string]any) (any, error) {
 			return nil, r.stamp(typeErr("missing required argument %q of %s", pr.name, sub.name), "")
 		}
 	}
+
+	if err := r.accountScope(sc); err != nil {
+		return nil, r.stamp(err, "")
+	}
+
+	defer r.releaseLocked(sc)
 
 	out, err := r.runBlock(sc, sub.body)
 	if err != nil {
@@ -243,6 +260,7 @@ func (r *rctx) runStep(sc *scope, s *step) (outcome, error) {
 		return outcome{}, r.stamp(e, s.name)
 	}
 
+	r.step = s.name
 	r.x.setFrame(r.tid, &Frame{Routine: r.routine.name, Step: s.name, Line: s.line})
 
 	out, err := r.dispatch(sc, s)
@@ -375,6 +393,75 @@ func (r *rctx) doAssign(sc *scope, s *step) error {
 }
 
 func (r *rctx) setLvalue(sc *scope, lv *lvalue, val any) error {
+	if err := r.assignLvalue(sc, lv, val); err != nil {
+		return err
+	}
+
+	return r.account(sc, lv.root)
+}
+
+// account re-measures a variable after a write and fails the execution when the cumulative size is over the limit.
+func (r *rctx) account(sc *scope, name string) error {
+	o, err := sc.owner(name)
+	if err != nil || o == nil {
+		return err
+	}
+
+	if o.sizes == nil {
+		o.sizes = map[string]int64{}
+	}
+
+	n := approxSize(o.vars[name], maxVarMemory+1, 0)
+	if n < 0 {
+		e := rtErr(TagResourceLimitError, "a string is longer than %d bytes", maxString)
+		e.fatal = true
+
+		return e
+	}
+
+	r.x.mem += n - o.sizes[name]
+	o.sizes[name] = n
+
+	if r.x.mem > maxVarMemory {
+		e := rtErr(TagResourceLimitError, "the variables of the execution exceed the limit of %d bytes", maxVarMemory)
+		e.fatal = true
+
+		return e
+	}
+
+	return nil
+}
+
+func (r *rctx) accountScope(sc *scope) error {
+	r.x.mu.Lock()
+	defer r.x.mu.Unlock()
+
+	for name := range sc.vars {
+		if err := r.account(sc, name); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (r *rctx) releaseLocked(sc *scope) {
+	r.x.mu.Lock()
+	defer r.x.mu.Unlock()
+
+	r.release(sc)
+}
+
+// release gives back the memory of a scope that has ended; the caller holds x.mu.
+func (r *rctx) release(sc *scope) {
+	for _, n := range sc.sizes {
+		r.x.mem -= n
+	}
+
+	sc.sizes = nil
+}
+
+func (r *rctx) assignLvalue(sc *scope, lv *lvalue, val any) error {
 	if len(lv.path) == 0 {
 		return sc.set(lv.root, val)
 	}
@@ -458,7 +545,7 @@ func (r *rctx) doCall(sc *scope, cs *callSpec) error {
 		args, _ = deepCopy(v).(map[string]any)
 	}
 
-	res, err := r.invoke(cs.fn, args)
+	res, err := r.loggedInvoke(cs.fn, args)
 	if err != nil {
 		return err
 	}
@@ -471,6 +558,61 @@ func (r *rctx) doCall(sc *scope, cs *callSpec) error {
 	defer r.x.mu.Unlock()
 
 	return r.setLvalue(sc, cs.result, deepCopy(res))
+}
+
+func (r *rctx) loggedInvoke(fn string, args map[string]any) (any, error) {
+	h := r.x.host
+	if h.CallLog == nil {
+		return r.invoke(fn, args)
+	}
+
+	clk := h.clock()
+	start := clk.Now()
+	step := r.step
+
+	h.CallLog(CallEvent{State: CallBegun, Time: start, CallStart: start, Step: step, Callee: fn, Args: args})
+
+	res, err := r.invoke(fn, args)
+	now := clk.Now()
+
+	if err != nil {
+		var werr *Error
+		if errors.As(err, &werr) && !werr.cancel {
+			werr.call = &callOrigin{start: start, step: step, callee: fn}
+			h.CallLog(CallEvent{
+				State: CallExceptionRaised, Time: now, CallStart: start, Step: step, Callee: fn,
+				Exception: werr.Error(), Origin: step,
+			})
+		}
+
+		return nil, err
+	}
+
+	h.CallLog(CallEvent{
+		State: CallSucceeded, Time: now, CallStart: start, Step: step, Callee: fn, Response: jsonText(res),
+	})
+
+	return res, nil
+}
+
+func jsonText(v any) string {
+	raw, err := ToJSON(v)
+	if err != nil {
+		return typeNull
+	}
+
+	return string(raw)
+}
+
+func (r *rctx) logHandled(e *Error) {
+	if r.x.host.CallLog == nil || e.call == nil {
+		return
+	}
+
+	r.x.host.CallLog(CallEvent{
+		State: CallExceptionHandled, Time: r.x.host.clock().Now(), CallStart: e.call.start,
+		Step: e.call.step, Callee: e.call.callee, Exception: e.Error(), Origin: e.call.step,
+	})
 }
 
 func (r *rctx) invoke(fn string, args map[string]any) (any, error) {
@@ -650,6 +792,8 @@ func (r *rctx) doFor(sc *scope, f *forSpec) (outcome, error) {
 		r.bindLoop(ls, f, i, it)
 
 		out, berr := r.runBlock(ls, f.body)
+		r.releaseLocked(ls)
+
 		if berr != nil {
 			return out, berr
 		}
@@ -707,6 +851,7 @@ func (r *rctx) doParallel(sc *scope, ps *parSpec) error {
 				br.bindLoop(bs, ps.loop, i, it)
 
 				_, berr := br.runBlock(bs, ps.loop.body)
+				br.releaseLocked(bs)
 
 				return berr
 			}})
@@ -716,6 +861,7 @@ func (r *rctx) doParallel(sc *scope, ps *parSpec) error {
 			jobs = append(jobs, job{id: b.name, run: func(br *rctx) error {
 				bs := &scope{vars: map[string]any{}, parent: sc, shared: shared, branch: true}
 				_, berr := br.runBlock(bs, b.body)
+				br.releaseLocked(bs)
 
 				return berr
 			}})
@@ -737,6 +883,8 @@ func (r *rctx) doParallel(sc *scope, ps *parSpec) error {
 
 		limit = int(min(n, int64(len(jobs))))
 	}
+
+	limit = min(limit, maxParallelRun)
 
 	var (
 		wg    sync.WaitGroup
@@ -781,6 +929,11 @@ func (r *rctx) branchFailure(fails []branchErr) error {
 		}
 	}
 
+	truncated := len(fails) > maxBranchFailures
+	if truncated {
+		fails = fails[:maxBranchFailures]
+	}
+
 	list := make([]any, len(fails))
 	for i, f := range fails {
 		list[i] = map[string]any{
@@ -792,7 +945,7 @@ func (r *rctx) branchFailure(fails []branchErr) error {
 	m := errMap("UnhandledBranchError: One or more branches or iterations encountered an unhandled runtime error",
 		TagUnhandledBranch, TagRuntimeError)
 	m["branches"] = list
-	m["truncated"] = false
+	m["truncated"] = truncated
 
 	return &Error{Value: m}
 }
@@ -826,6 +979,8 @@ func (r *rctx) doTry(sc *scope, t *trySpec) (outcome, error) {
 			return outcome{}, e
 		}
 
+		r.logHandled(e)
+
 		es := newScope(sc)
 		if t.exceptAs != "" {
 			r.x.mu.Lock()
@@ -833,7 +988,10 @@ func (r *rctx) doTry(sc *scope, t *trySpec) (outcome, error) {
 			r.x.mu.Unlock()
 		}
 
-		return r.runBlock(es, t.except)
+		out, berr := r.runBlock(es, t.except)
+		r.releaseLocked(es)
+
+		return out, berr
 	}
 }
 

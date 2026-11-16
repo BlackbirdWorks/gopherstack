@@ -129,7 +129,7 @@ func (h *Handler) listIndexes(ctx context.Context, req *restroute.Request) (any,
 	return listOut("Indexes", pg), 0, nil
 }
 
-func (h *Handler) listIndexesForMembers(_ context.Context, req *restroute.Request) (any, int, error) {
+func (h *Handler) listIndexesForMembers(ctx context.Context, req *restroute.Request) (any, int, error) {
 	var in struct {
 		listIn
 		AccountIDList []string `json:"AccountIdList"`
@@ -138,7 +138,7 @@ func (h *Handler) listIndexesForMembers(_ context.Context, req *restroute.Reques
 		return nil, 0, err
 	}
 
-	pg, err := h.Backend.ListIndexesForMembers(in.AccountIDList, in.NextToken, in.max())
+	pg, err := h.Backend.ListIndexesForMembers(ctx, in.AccountIDList, in.NextToken, in.max())
 	if err != nil {
 		return nil, 0, err
 	}

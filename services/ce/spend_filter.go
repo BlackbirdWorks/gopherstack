@@ -14,8 +14,12 @@ type SpendFilter struct {
 	Not        *SpendFilter
 	Dimensions *SpendValues
 	Tags       *SpendValues
-	And        []SpendFilter
-	Or         []SpendFilter
+	// CostCategories.Key is the cost category name.
+	CostCategories *SpendValues
+	// ProductAttributes.Key is a case-sensitive product attribute name.
+	ProductAttributes *SpendValues
+	And               []SpendFilter
+	Or                []SpendFilter
 }
 
 // LedgerSpendFiltered is LedgerSpend narrowed further by an expression tree.
@@ -28,9 +32,10 @@ func (b *InMemoryBackend) LedgerSpendFiltered(
 	defer b.mu.RUnlock()
 
 	total := 0.0
+	cat := b.categoryResolverLocked()
 
 	for _, e := range b.costLedgerInBucket(start, end) {
-		if ledgerMatches(e, filters) && f.matches(e) {
+		if ledgerMatches(e, filters, cat) && f.matches(e, cat) {
 			total += getMetricValue(e, metric)
 		}
 	}
@@ -38,13 +43,13 @@ func (b *InMemoryBackend) LedgerSpendFiltered(
 	return total
 }
 
-func (f *SpendFilter) matches(e CostEntry) bool {
+func (f *SpendFilter) matches(e CostEntry, cat categoryResolver) bool {
 	switch {
 	case f == nil:
 		return true
 	case len(f.And) > 0:
 		for i := range f.And {
-			if !f.And[i].matches(e) {
+			if !f.And[i].matches(e, cat) {
 				return false
 			}
 		}
@@ -52,18 +57,26 @@ func (f *SpendFilter) matches(e CostEntry) bool {
 		return true
 	case len(f.Or) > 0:
 		for i := range f.Or {
-			if f.Or[i].matches(e) {
+			if f.Or[i].matches(e, cat) {
 				return true
 			}
 		}
 
 		return false
 	case f.Not != nil:
-		return !f.Not.matches(e)
+		return !f.Not.matches(e, cat)
 	case f.Dimensions != nil:
 		v, ok := dimensionFieldValue(e, f.Dimensions.Key)
 
 		return !ok || f.Dimensions.matchValue(v, true)
+	case f.CostCategories != nil:
+		v := cat(f.CostCategories.Key, &e)
+
+		return f.CostCategories.matchValue(v, v != "")
+	case f.ProductAttributes != nil:
+		v, present := e.ProductAttributes[f.ProductAttributes.Key]
+
+		return f.ProductAttributes.matchValue(v, present)
 	case f.Tags != nil:
 		v, present := e.Tags[strings.TrimPrefix(f.Tags.Key, "user:")]
 

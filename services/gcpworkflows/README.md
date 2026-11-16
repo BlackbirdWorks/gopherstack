@@ -9,19 +9,14 @@
 | --- | --- |
 | PARITY entries audited | 13 (8 ok, 5 partial) |
 | Feature families | 12 (2 ok, 10 partial) |
-| Known gaps | 7 |
+| Known gaps | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- execution_history_level, execution step history (Executions step entries) and automatic call logging are stored but not produced; already running executions are not failed when their CMEK key is disabled.
-- Quotas are only partly modelled: 100000 steps per execution and a call depth of 20 are enforced; the 512 KB result/argument rules, concurrent execution limits, QUEUED state and the 1 year execution timeout are not.
-- Variable use is not statically checked: undefined variables, writes to non-shared parent variables inside parallel steps and loop-variable scope leaks fail at run time instead of at deployment.
-- experimental.executions.run/map, the in() function form and non-UTF-8 charsets are not implemented; get_type value names, the exact text of runtime error messages and deployment error messages, and the code of the failed CreateWorkflow operation were chosen without a production reference.
-- Only the listed googleapis.* connectors exist; other connectors, connector retry/long-running-operation polling helpers and calls to *.googleapis.com hosts (which would leave the emulator) are not rewritten.
-- Operations are recorded already finished: no CREATING state, and CancelOperation has no effect.
-- Callback endpoints and in-flight executions do not survive a restore, and a callback URL is bound to the listener port of the run that created it.
+- Executions step entries (and so execution_history_level) cannot be served: google/cloud/workflows/executions/v1/executions.proto defines only ListExecutions, CreateExecution, GetExecution and CancelExecution, and the pinned cloud.google.com/go/workflows v1.21.0 (executions/apiv1/executionspb/executions_grpc.pb.go) has no step-entry RPC, so the REST-only stepEntries resource has no listener here. The executions_system log (start and finish entries per execution) is not produced.
+- Connectors exist only for Pub/Sub, Secret Manager, Firestore and Cloud Storage (connectors.go connectors()); other connectors, connector retry and long-running-operation polling helpers are not implemented, and http.* calls to googleapis.com hosts of services without an emulator are not rewritten (googlehosts.go googleHost).
 
 ## More
 

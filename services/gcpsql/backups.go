@@ -22,12 +22,12 @@ func (b *InMemoryBackend) nextBackupID() string {
 	return strconv.FormatInt(b.now().UnixMilli()*1000+b.seq%1000, 10)
 }
 
-func newBackupRun(rec *instRec, id, description string, now string) *backupRec {
+func newBackupRun(rec *instRec, id, description, typ, now, window string) *backupRec {
 	in := &rec.Inst
 
 	return &backupRec{Run: BackupRun{
-		Kind: kindBackupRun, ID: id, Status: "RUNNING", Type: "ON_DEMAND", BackupKind: "SNAPSHOT",
-		Description: description, EnqueuedTime: now, StartTime: now, WindowStartTime: now, Instance: in.Name,
+		Kind: kindBackupRun, ID: id, Status: "RUNNING", Type: typ, BackupKind: "SNAPSHOT",
+		Description: description, EnqueuedTime: now, StartTime: now, WindowStartTime: window, Instance: in.Name,
 		SelfLink: instanceLink(in.Project, in.Name) + "/backupRuns/" + id, Location: "us",
 		DatabaseVersion: in.DatabaseVersion, TimeZone: "UTC",
 	}}
@@ -47,8 +47,13 @@ func (b *InMemoryBackend) InsertBackupRun(project, instance, description string)
 		return nil, errNotRunnable()
 	}
 
+	return b.startBackupLocked(rec, project, description, backupOnDemand, stamp(b.now())), nil
+}
+
+// startBackupLocked records a backup run and queues the dump; the caller holds b.mu.
+func (b *InMemoryBackend) startBackupLocked(rec *instRec, project, description, typ, window string) *Operation {
 	id := b.nextBackupID()
-	run := newBackupRun(rec, id, description, stamp(b.now()))
+	run := newBackupRun(rec, id, description, typ, stamp(b.now()), window)
 	rec.Backups[id] = run
 
 	meta := opMeta{backup: map[string]any{"backupId": id, keyKind: "sql#backupContext"}}
@@ -73,8 +78,12 @@ func (b *InMemoryBackend) InsertBackupRun(project, instance, description string)
 
 		run.Run.Status, run.Dump = "SUCCESSFUL", dump
 
+		if typ == backupAutomated {
+			pruneAutomated(rec)
+		}
+
 		return nil
-	}), nil
+	})
 }
 
 // dumpAll dumps every user database of rec; it is empty without an engine.

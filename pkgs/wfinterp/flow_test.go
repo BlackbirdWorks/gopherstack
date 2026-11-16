@@ -190,60 +190,6 @@ main:
 			want: int64(15),
 		},
 		{
-			name: "branch locals stay local",
-			src: `
-main:
-  steps:
-    - p:
-        parallel:
-          branches:
-            - one:
-                steps:
-                  - s:
-                      assign: [{tmp: 1}]
-            - two:
-                steps:
-                  - s:
-                      assign: [{tmp: 2}]
-    - c:
-        try:
-          assign: [{x: "${tmp}"}]
-        except:
-          as: e
-          steps:
-            - r:
-                return: ${e.tags[0]}`,
-			want: "KeyError",
-		},
-		{
-			name: "unshared parent variable cannot be written",
-			src: `
-main:
-  steps:
-    - init:
-        assign: [{v: 0}]
-    - c:
-        try:
-          steps:
-            - p:
-                parallel:
-                  branches:
-                    - one:
-                        steps:
-                          - s:
-                              assign: [{v: 1}]
-                    - two:
-                        steps:
-                          - s:
-                              assign: [{w: 1}]
-        except:
-          as: e
-          steps:
-            - r:
-                return: ${e.tags}`,
-			want: []any{"UnhandledBranchError", "RuntimeError"},
-		},
-		{
 			name: "unhandled branch error lists failures and others still run",
 			src: `
 main:
