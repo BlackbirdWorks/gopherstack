@@ -10,8 +10,10 @@ import (
 	"encoding/json/v2"
 	"encoding/pem"
 	"math/big"
+	"net/http"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	idtkv2 "google.golang.org/api/identitytoolkit/v2"
@@ -88,6 +90,7 @@ type oobRec struct {
 	Secret      string `json:"secret,omitempty"`
 	Created     int64  `json:"created"`
 	Expires     int64  `json:"expires"`
+	attempts    int
 }
 
 type mfaRec struct {
@@ -97,6 +100,7 @@ type mfaRec struct {
 	Phone       string `json:"phone,omitempty"`
 	Secret      string `json:"secret,omitempty"`
 	EnrolledAt  int64  `json:"enrolledAt"`
+	lastStep    int64
 }
 
 type projectRec struct {
@@ -124,19 +128,22 @@ type CustomTokenKeys func(email string) []*rsa.PublicKey
 
 // InMemoryBackend holds all Identity Platform state under one lock.
 type InMemoryBackend struct {
-	now            func() time.Time
-	mu             *lockmetrics.RWMutex
-	projects       map[string]*projectRec
-	keys           *keyRec
-	priv           *rsa.PrivateKey
-	customKeys     CustomTokenKeys
-	defaultProject string
+	now             func() time.Time
+	mu              *lockmetrics.RWMutex
+	projects        map[string]*projectRec
+	keys            *keyRec
+	priv            *rsa.PrivateKey
+	customKeys      CustomTokenKeys
+	blockingClient  *http.Client
+	defaultProject  string
+	allowExternalFn atomic.Bool
 }
 
 // NewInMemoryBackend creates an empty backend.
 func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{mu: lockmetrics.New("gcpidentitytoolkit"), now: time.Now, defaultProject: DefaultProject}
 	b.projects = map[string]*projectRec{}
+	b.blockingClient = newBlockingClient(b.allowExternalFn.Load)
 
 	return b
 }
@@ -147,6 +154,14 @@ func (b *InMemoryBackend) SetClock(now func() time.Time) {
 	defer b.mu.Unlock()
 
 	b.now = now
+}
+
+// SetDefaultProject sets the project that requests naming none resolve to.
+func (b *InMemoryBackend) SetDefaultProject(id string) {
+	b.mu.Lock("SetDefaultProject")
+	defer b.mu.Unlock()
+
+	b.defaultProject = id
 }
 
 // SetCustomTokenKeys installs the resolver used to verify RS256 custom tokens.

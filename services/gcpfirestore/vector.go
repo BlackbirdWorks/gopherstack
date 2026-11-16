@@ -101,6 +101,10 @@ func validateFindNearest(fn *firestorepb.StructuredQuery_FindNearest) ([]float64
 		return nil, errInvalid("find_nearest.query_vector must be a non-empty vector.")
 	}
 
+	if slices.ContainsFunc(q, func(f float64) bool { return math.IsNaN(f) || math.IsInf(f, 0) }) {
+		return nil, errInvalid("find_nearest.query_vector must hold finite numbers.")
+	}
+
 	if len(q) > maxVectorDims {
 		return nil, errInvalid("Vectors may have at most %d dimensions.", maxVectorDims)
 	}
@@ -136,6 +140,32 @@ func withDistance(d *firestorepb.Document, field string, dist float64) (*firesto
 	return cp, nil
 }
 
+func nearestCandidates(
+	docs []*firestorepb.Document, fn *firestorepb.StructuredQuery_FindNearest, query []float64, path []string,
+) []nearest {
+	measure := fn.GetDistanceMeasure()
+	higherIsCloser := measure == firestorepb.StructuredQuery_FindNearest_DOT_PRODUCT
+	cands := make([]nearest, 0, len(docs))
+
+	for _, d := range docs {
+		raw, found := getPath(d.GetFields(), path)
+		vec, isVec := vectorOf(raw)
+
+		if !found || !isVec || len(vec) != len(query) {
+			continue
+		}
+
+		dist, ok := vectorDistance(measure, query, vec)
+		if !ok || math.IsNaN(dist) || math.IsInf(dist, 0) || thresholdRejects(fn, dist, higherIsCloser) {
+			continue
+		}
+
+		cands = append(cands, nearest{doc: d, dist: dist})
+	}
+
+	return cands
+}
+
 // findNearest keeps the limit documents whose vector field is closest to the query vector.
 func findNearest(
 	docs []*firestorepb.Document,
@@ -151,25 +181,8 @@ func findNearest(
 		return nil, err
 	}
 
-	measure := fn.GetDistanceMeasure()
-	higherIsCloser := measure == firestorepb.StructuredQuery_FindNearest_DOT_PRODUCT
-	cands := make([]nearest, 0, len(docs))
-
-	for _, d := range docs {
-		raw, found := getPath(d.GetFields(), path)
-		vec, isVec := vectorOf(raw)
-
-		if !found || !isVec || len(vec) != len(query) {
-			continue
-		}
-
-		dist, ok := vectorDistance(measure, query, vec)
-		if !ok || thresholdRejects(fn, dist, higherIsCloser) {
-			continue
-		}
-
-		cands = append(cands, nearest{doc: d, dist: dist})
-	}
+	higherIsCloser := fn.GetDistanceMeasure() == firestorepb.StructuredQuery_FindNearest_DOT_PRODUCT
+	cands := nearestCandidates(docs, fn, query, path)
 
 	slices.SortFunc(cands, func(a, b nearest) int {
 		c := cmp.Compare(a.dist, b.dist)

@@ -213,3 +213,51 @@ func TestBlockingFunctionOnIdpSignIn(t *testing.T) {
 	assert.Equal(t, "google.com", events[0]["sign_in_method"])
 	assert.Equal(t, tok, events[0]["oauth_id_token"])
 }
+
+func TestBlockingFunctionDestinationGate(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	e.blockingConfig(t, "http://192.0.2.1:9/fn", "")
+
+	r := e.client(t, "signUp", map[string]any{"email": "gate@example.com", "password": testPassword})
+	assert.Equal(t, http.StatusBadRequest, r.status, r.body)
+	assert.Contains(t, r.errMsg(), "BLOCKING_FUNCTION_ERROR_RESPONSE")
+	assert.Contains(t, r.errMsg(), "outside loopback")
+}
+
+func TestBlockingFunctionRedirectNotFollowed(t *testing.T) {
+	t.Parallel()
+
+	target := newBlockingFn(t, func(string, map[string]any) (int, any) { return http.StatusOK, map[string]any{} })
+
+	redir := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.url, http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(redir.Close)
+
+	e := newEnv(t)
+	e.blockingConfig(t, redir.URL, "")
+
+	r := e.client(t, "signUp", map[string]any{"email": "redir@example.com", "password": testPassword})
+	assert.Equal(t, http.StatusBadRequest, r.status, r.body)
+	assert.Empty(t, target.seen(), "the redirect target must never be called")
+}
+
+func TestBlockingFunctionSessionClaimsRejectReserved(t *testing.T) {
+	t.Parallel()
+
+	fn := newBlockingFn(t, func(string, map[string]any) (int, any) {
+		return http.StatusOK, map[string]any{"userRecord": map[string]any{
+			"sessionClaims": map[string]any{"nbf": 4102444800}, "updateMask": "sessionClaims",
+		}}
+	})
+
+	e := newEnv(t)
+	e.signUp(t, "sess@example.com")
+	e.blockingConfig(t, "", fn.url)
+
+	r := e.signIn(t, "sess@example.com")
+	assert.Equal(t, http.StatusBadRequest, r.status, r.body)
+	assert.Contains(t, r.errMsg(), "FORBIDDEN_CLAIM")
+}

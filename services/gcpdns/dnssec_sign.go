@@ -2,19 +2,52 @@ package gcpdns
 
 import (
 	"crypto"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"math"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/miekg/dns"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/safemap"
 )
 
 const (
 	sigValidity = 7 * 24 * time.Hour
 	sigSkew     = time.Hour
 	nsecDefault = 300
+	sigBucket   = time.Hour
+	sigCacheMax = 4096
 )
+
+// sigCache memoises RRSIGs per rrset, key and validity bucket so a flood of DO queries does not re-sign.
+type sigCache = safemap.Map[string, *dns.RRSIG]
+
+func newSigCache() *sigCache { return safemap.New[string, *dns.RRSIG]("gcpdns.sigcache") }
+
+func sigCacheKey(apex string, s zoneSigner, bucket int64, set []dns.RR) string {
+	var sb strings.Builder
+
+	sb.WriteString(apex)
+	sb.WriteByte('|')
+	sb.WriteString(strconv.FormatInt(bucket, 10))
+	sb.WriteByte('|')
+	sb.WriteString(strconv.Itoa(int(s.alg)))
+	sb.WriteByte('|')
+	sb.WriteString(s.fp)
+
+	for _, rr := range set {
+		sb.WriteByte('|')
+		sb.WriteString(rr.String())
+	}
+
+	sum := sha256.Sum256([]byte(sb.String()))
+
+	return string(sum[:])
+}
 
 type proofKind int
 
@@ -26,6 +59,7 @@ const (
 
 type zoneSigner struct {
 	key crypto.Signer
+	fp  string
 	tag uint16
 	alg uint8
 	ksk bool
@@ -68,13 +102,21 @@ func (z *zoneAnswer) signers() []zoneSigner {
 			continue
 		}
 
+		fp := sha256.Sum256([]byte(k.PublicKey))
+
 		out = append(out, zoneSigner{
-			key: sk, tag: uint16(min(max(k.KeyTag, 0), math.MaxUint16)), alg: algorithms[k.Algorithm].num,
-			ksk: k.Type == keySigning,
+			fp: string(fp[:]), key: sk, alg: algorithms[k.Algorithm].num, ksk: k.Type == keySigning,
+			tag: uint16(min(max(k.KeyTag, 0), math.MaxUint16)),
 		})
 	}
 
 	return out
+}
+
+func copySig(s *dns.RRSIG) *dns.RRSIG {
+	c, _ := dns.Copy(s).(*dns.RRSIG)
+
+	return c
 }
 
 func (z *zoneAnswer) nsec3Enabled() bool {
@@ -166,19 +208,38 @@ func (z *zoneAnswer) signGroup(group []dns.RR, sg []zoneSigner) []dns.RR {
 
 	var sigs []dns.RR
 
+	start := z.now.Truncate(sigBucket)
+
 	for _, s := range use {
+		ck := sigCacheKey(z.apex(), s, start.Unix(), set)
+
+		if hit, ok := z.cache.Get(ck); ok {
+			if sig := copySig(hit); sig != nil {
+				sig.Hdr.Name = h.Name
+				sigs = append(sigs, sig)
+
+				continue
+			}
+		}
+
 		sig := &dns.RRSIG{
 			Hdr:        dns.RR_Header{Rrtype: dns.TypeRRSIG, Class: dns.ClassINET, Ttl: h.Ttl},
 			Algorithm:  s.alg,
 			KeyTag:     s.tag,
 			SignerName: z.apex(),
-			Inception:  unix32(z.now.Add(-sigSkew)),
-			Expiration: unix32(z.now.Add(sigValidity)),
+			Inception:  unix32(start.Add(-sigSkew)),
+			Expiration: unix32(start.Add(sigValidity)),
 		}
 
 		if err := sig.Sign(s.key, set); err != nil {
 			continue
 		}
+
+		if z.cache.Len() >= sigCacheMax {
+			z.cache.Clear()
+		}
+
+		z.cache.Set(ck, copySig(sig))
 
 		sig.Hdr.Name = h.Name
 		sigs = append(sigs, sig)

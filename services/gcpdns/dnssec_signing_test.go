@@ -256,3 +256,66 @@ func TestDNSSECNSEC3Param(t *testing.T) {
 	e2, _ := signedEnv(t, "nsec")
 	assert.Empty(t, ask(e2, "sec.com.", dns.TypeNSEC3PARAM, true).Answer)
 }
+
+func TestDNSSECWildcardNoData(t *testing.T) {
+	t.Parallel()
+
+	hashOf := func(name string) string { return strings.ToLower(dns.HashName(name, dns.SHA1, 0, "")) }
+
+	tests := []struct {
+		name string
+		ne   string
+		want []string
+	}{
+		{"nsec", "nsec", []string{"*.wild.sec.com."}},
+		{"nsec3", "nsec3", []string{hashOf("wild.sec.com."), hashOf("*.wild.sec.com.")}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e, zsk := signedEnv(t, tt.ne)
+
+			r := ask(e, "x.wild.sec.com.", dns.TypeAAAA, true)
+			assert.Equal(t, dns.RcodeSuccess, r.Rcode)
+			assert.Empty(t, r.Answer)
+
+			var owners []string
+
+			for _, rr := range filterNS(r.Ns) {
+				owners = append(owners, rr.Header().Name)
+			}
+
+			for _, w := range tt.want {
+				found := false
+
+				for _, o := range owners {
+					found = found || strings.HasPrefix(o, w)
+				}
+
+				assert.True(t, found, "no proof record owned by %s in %v", w, owners)
+			}
+
+			typ := dns.TypeNSEC
+			if tt.ne == "nsec3" {
+				typ = dns.TypeNSEC3
+			}
+
+			requireVerified(t, r.Ns, typ, zsk["zoneSigning"])
+		})
+	}
+}
+
+func TestDNSSECSignaturesAreCached(t *testing.T) {
+	t.Parallel()
+
+	e, _ := signedEnv(t, "nsec3")
+
+	_, first := sigsFor(ask(e, "www.sec.com.", dns.TypeA, true).Answer, dns.TypeA)
+	_, again := sigsFor(ask(e, "www.sec.com.", dns.TypeA, true).Answer, dns.TypeA)
+
+	require.Len(t, first, 1)
+	require.Len(t, again, 1)
+	assert.Equal(t, first[0].Signature, again[0].Signature, "ECDSA is randomised, so equal bytes prove a cache hit")
+}

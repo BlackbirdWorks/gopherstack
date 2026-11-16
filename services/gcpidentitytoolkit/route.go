@@ -261,10 +261,6 @@ func v2ExtraRoute(r *http.Request, rt route, tail []string) (route, bool) {
 		return idpRoute(r, rt, tail[2:]), true
 	case len(tail) >= 1 && idpCollection(tail[0]):
 		return idpRoute(r, rt, tail), true
-	case len(tail) == 2 && tail[0] == segAccounts:
-		rt.op = mfaVerb(r, tail[1])
-
-		return rt, true
 	}
 
 	return rt, false

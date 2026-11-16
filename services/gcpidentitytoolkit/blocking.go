@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json/v2"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -25,8 +26,26 @@ const (
 	eventTypePrefix  = "providers/cloud.auth/eventTypes/user."
 )
 
-//nolint:gochecknoglobals // shared client with its own cloned transport
-var blockingClient = httpclient.New(blockTimeout)
+var errBlockingDestination = errors.New(
+	"blocking function host is outside loopback and external blocking functions are disabled",
+)
+
+func newBlockingClient(allow func() bool) *http.Client {
+	tr := httpclient.NewTransport()
+	tr.Proxy = nil
+	tr.DialContext = httpclient.LoopbackDialer(allow, errBlockingDestination).DialContext
+
+	return &http.Client{
+		Timeout:       blockTimeout,
+		Transport:     tr,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+}
+
+// SetAllowExternalBlockingFunctions lets blocking functions live on hosts outside loopback.
+func (b *InMemoryBackend) SetAllowExternalBlockingFunctions(allow bool) {
+	b.allowExternalFn.Store(allow)
+}
 
 type blockingResult struct {
 	UserRecord *struct {
@@ -104,7 +123,7 @@ func blockingFailure(detail string) *APIError {
 	return idtk("BLOCKING_FUNCTION_ERROR_RESPONSE", "((HTTP Cloud Function returned an error:\n"+detail+"\n))")
 }
 
-func postBlocking(uri, token string) (*blockingResult, error) {
+func (b *InMemoryBackend) postBlocking(uri, token string) (*blockingResult, error) {
 	body, err := json.Marshal(map[string]any{"data": map[string]any{"jwt": token}}, jsonx.V1())
 	if err != nil {
 		return nil, blockingFailure(err.Error())
@@ -120,7 +139,7 @@ func postBlocking(uri, token string) (*blockingResult, error) {
 
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := blockingClient.Do(req)
+	resp, err := b.blockingClient.Do(req)
 	if err != nil {
 		return nil, blockingFailure(err.Error())
 	}
@@ -162,7 +181,7 @@ func (b *InMemoryBackend) blockLocked(
 	}
 
 	b.mu.Unlock()
-	res, err := postBlocking(uri, token)
+	res, err := b.postBlocking(uri, token)
 	b.mu.Lock("blockLocked")
 
 	if err != nil {
@@ -204,6 +223,12 @@ func applyBlockingResult(u *userRec, res *blockingResult) (map[string]any, error
 
 			u.CustomAttrs = claims
 		case "sessionClaims":
+			raw, _ := json.Marshal(r.SessionClaims, jsonx.V1())
+
+			if _, err := parseClaims(string(raw)); err != nil {
+				return nil, err
+			}
+
 			session = r.SessionClaims
 		}
 	}

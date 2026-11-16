@@ -139,7 +139,7 @@ func (b *InMemoryBackend) phoneLocked(sc *scope, r *authRequest) (string, error)
 		}
 
 		if subtle.ConstantTimeCompare([]byte(rec.VerifyCode), []byte(r.Code)) != 1 {
-			return "", idtk("INVALID_CODE")
+			return "", wrongGuessLocked(sc, r.SessionInfo, rec)
 		}
 
 		delete(sc.proj.Codes, r.SessionInfo)

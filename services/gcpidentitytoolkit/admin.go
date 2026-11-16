@@ -455,7 +455,7 @@ func (b *InMemoryBackend) OOBCodes(project, tenant string) ([]OOBCode, error) {
 	var list []entry
 
 	for code, rec := range sc.proj.Codes {
-		if rec.TenantID == tenant && rec.RequestType != reqPhoneSession && rec.RequestType != reqPhoneProof {
+		if rec.TenantID == tenant && !nonOobType(rec.RequestType) {
 			list = append(list, entry{rec, code})
 		}
 	}
@@ -718,4 +718,13 @@ func (b *InMemoryBackend) DeleteTenant(project, id string) error {
 	}
 
 	return nil
+}
+
+func nonOobType(t string) bool {
+	switch t {
+	case reqPhoneSession, reqPhoneProof, reqMfaPending, reqMfaTotp, reqMfaPhone:
+		return true
+	}
+
+	return false
 }

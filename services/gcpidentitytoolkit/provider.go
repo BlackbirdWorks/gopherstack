@@ -39,6 +39,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		backend.defaultProject = settings.DefaultProject
 	}
 
+	backend.SetAllowExternalBlockingFunctions(settings.AllowExternalBlockingFunctions)
+
 	handler := NewHandler(backend)
 	handler.Port = settings.Port
 

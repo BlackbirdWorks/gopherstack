@@ -333,6 +333,14 @@ func TestSignInWithIdpOIDC(t *testing.T) {
 			name: "wrong audience", want: http.StatusBadRequest,
 			claims: map[string]any{"iss": "https://issuer.example", "aud": "other", "sub": "o1"},
 		},
+		{
+			name: "missing audience", want: http.StatusBadRequest,
+			claims: map[string]any{"iss": "https://issuer.example", "sub": "o1"},
+		},
+		{
+			name: "expired", want: http.StatusBadRequest,
+			claims: map[string]any{"iss": "https://issuer.example", "aud": "cid", "sub": "o1", "exp": 1000},
+		},
 	}
 
 	for _, tt := range tests {
@@ -351,6 +359,10 @@ func TestSignInWithIdpOIDC(t *testing.T) {
 }
 
 func samlBody(issuer, audience string, notAfter time.Time) string {
+	return samlBodyRaw(issuer, audience, notAfter.UTC().Format(time.RFC3339))
+}
+
+func samlBodyRaw(issuer, audience, notAfter string) string {
 	const (
 		respNS = `<Response xmlns="urn:oasis:names:tc:SAML:2.0:protocol">`
 		asrtNS = `<Assertion xmlns="urn:oasis:names:tc:SAML:2.0:assertion">`
@@ -359,8 +371,7 @@ func samlBody(issuer, audience string, notAfter time.Time) string {
 
 	xmlDoc := respNS + asrtNS +
 		`<Issuer>` + issuer + `</Issuer><Subject><NameID>sam@example.com</NameID></Subject>` +
-		`<Conditions NotOnOrAfter="` + notAfter.UTC().
-		Format(time.RFC3339) +
+		`<Conditions NotOnOrAfter="` + notAfter +
 		`"><AudienceRestriction><Audience>` + audience +
 		`</Audience></AudienceRestriction></Conditions><AttributeStatement>` +
 		attr + `</AttributeStatement></Assertion></Response>`
@@ -381,6 +392,7 @@ func TestSignInWithIdpSAML(t *testing.T) {
 		{"wrong issuer", samlBody("other", "sp", future), http.StatusBadRequest},
 		{"wrong audience", samlBody("idp", "other", future), http.StatusBadRequest},
 		{"expired", samlBody("idp", "sp", time.Now().Add(-time.Hour)), http.StatusBadRequest},
+		{"unparseable expiry", samlBodyRaw("idp", "sp", "soon"), http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {

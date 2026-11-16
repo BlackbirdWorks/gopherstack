@@ -1,6 +1,7 @@
 package gcpidentitytoolkit
 
 import (
+	"cmp"
 	"context"
 	"crypto/subtle"
 	"slices"
@@ -41,7 +42,52 @@ func (b *InMemoryBackend) sessionLocked(sc *scope, key, kind string) (*oobRec, e
 	return rec, nil
 }
 
+// wrongGuessLocked counts a failed code against rec and drops it once maxCodeAttempts is reached.
+func wrongGuessLocked(sc *scope, key string, rec *oobRec) error {
+	rec.attempts++
+	if rec.attempts >= maxCodeAttempts {
+		delete(sc.proj.Codes, key)
+
+		return idtk("TOO_MANY_ATTEMPTS_TRY_LATER")
+	}
+
+	return idtk("INVALID_CODE")
+}
+
+// pruneSessionsLocked drops expired records and the oldest live ones of the same kind and user beyond the cap.
+func (b *InMemoryBackend) pruneSessionsLocked(sc *scope, rec *oobRec) {
+	nowMs := b.now().UnixMilli()
+
+	var same []string
+
+	for k, r := range sc.proj.Codes {
+		if nowMs > r.Expires {
+			delete(sc.proj.Codes, k)
+
+			continue
+		}
+
+		if rec.UID != "" && r.UID == rec.UID && r.RequestType == rec.RequestType && r.TenantID == sc.tenant {
+			same = append(same, k)
+		}
+	}
+
+	if len(same) < maxLiveSessions {
+		return
+	}
+
+	slices.SortFunc(same, func(a, c string) int {
+		return cmp.Compare(sc.proj.Codes[a].Created, sc.proj.Codes[c].Created)
+	})
+
+	for _, k := range same[:len(same)-maxLiveSessions+1] {
+		delete(sc.proj.Codes, k)
+	}
+}
+
 func (b *InMemoryBackend) newSessionLocked(sc *scope, rec *oobRec, ttl time.Duration) string {
+	b.pruneSessionsLocked(sc, rec)
+
 	key := randomToken(oobBytes)
 	now := b.now()
 	rec.TenantID, rec.Created, rec.Expires = sc.tenant, now.UnixMilli(), now.Add(ttl).UnixMilli()
@@ -264,13 +310,14 @@ func (b *InMemoryBackend) finalizeTotpLocked(
 		return idtk("MISSING_CODE")
 	}
 
-	if !totpValid(secret, info.VerificationCode, b.now(), sc.adjacentIntervals()) {
-		return idtk("INVALID_CODE")
+	step, ok := totpMatch(secret, info.VerificationCode, b.now(), sc.adjacentIntervals())
+	if !ok {
+		return wrongGuessLocked(sc, info.SessionInfo, sess)
 	}
 
 	delete(sc.proj.Codes, info.SessionInfo)
 
-	rec.Kind, rec.Secret = kindTotp, sess.Secret
+	rec.Kind, rec.Secret, rec.lastStep = kindTotp, sess.Secret, step
 
 	return nil
 }
@@ -309,7 +356,7 @@ func (b *InMemoryBackend) phoneSessionCheckLocked(sc *scope, kind, key, code str
 	}
 
 	if subtle.ConstantTimeCompare([]byte(sess.VerifyCode), []byte(code)) != 1 {
-		return nil, idtk("INVALID_CODE")
+		return nil, wrongGuessLocked(sc, key, sess)
 	}
 
 	return sess, nil

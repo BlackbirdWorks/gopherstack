@@ -105,7 +105,7 @@ func (b *InMemoryBackend) answerQuestion(resp *dns.Msg, q dns.Question, do bool)
 		return nil
 	}
 
-	za := &zoneAnswer{rec: rec, resp: resp, now: b.now()}
+	za := &zoneAnswer{rec: rec, resp: resp, now: b.now(), cache: b.sigs}
 	za.answer(q)
 
 	if do {
@@ -116,6 +116,7 @@ func (b *InMemoryBackend) answerQuestion(resp *dns.Msg, q dns.Question, do bool)
 }
 
 type zoneAnswer struct {
+	cache    *sigCache
 	now      time.Time
 	rec      *zoneRec
 	resp     *dns.Msg

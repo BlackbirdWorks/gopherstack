@@ -1,6 +1,7 @@
 package gcpfirestore_test
 
 import (
+	"math"
 	"testing"
 
 	"cloud.google.com/go/firestore"
@@ -136,6 +137,10 @@ func TestFindNearestValidation(t *testing.T) {
 			f.DistanceMeasure = firestorepb.StructuredQuery_FindNearest_DISTANCE_MEASURE_UNSPECIFIED
 		}, "no measure"},
 		{func(f *firestorepb.StructuredQuery_FindNearest) { f.VectorField = nil }, "no field"},
+		{func(f *firestorepb.StructuredQuery_FindNearest) { f.QueryVector = vec(1, math.NaN()) }, "nan component"},
+		{func(f *firestorepb.StructuredQuery_FindNearest) {
+			f.QueryVector = vec(math.Inf(1), 0)
+		}, "infinite component"},
 	}
 
 	for _, tt := range tests {

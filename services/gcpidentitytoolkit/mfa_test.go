@@ -54,11 +54,13 @@ func jwtClaims(t *testing.T, tok string) map[string]any {
 func (e *env) mfaPost(t *testing.T, verb string, body any) result {
 	t.Helper()
 
-	return e.do(t, http.MethodPost, "/v2/projects/"+e.project+"/accounts/"+verb+"?key=k", "", body)
+	return e.do(t, http.MethodPost, "/v2/accounts/"+verb+"?key=k", "", body)
 }
 
 func (e *env) mfaConfig(t *testing.T) {
 	t.Helper()
+
+	e.backend.SetDefaultProject(e.project)
 
 	e.setConfig(t, map[string]any{"mfa": map[string]any{
 		"state":            "ENABLED",

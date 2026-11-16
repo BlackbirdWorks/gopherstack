@@ -214,6 +214,10 @@ func (z *zoneAnswer) addDenial() {
 		} else {
 			z.addProof(z.qname)
 		}
+	case z.wildcard != "" && z.nsec3Enabled():
+		z.addProof(ce, next, z.wildcard)
+	case z.wildcard != "":
+		z.addProof(z.qname, z.wildcard)
 	case z.proof == proofNameError && z.nsec3Enabled():
 		z.addProof(ce, next, "*."+ce)
 	case z.proof == proofNameError:

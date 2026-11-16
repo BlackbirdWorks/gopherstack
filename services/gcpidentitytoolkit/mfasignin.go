@@ -2,7 +2,9 @@ package gcpidentitytoolkit
 
 import (
 	"context"
+	"errors"
 	"slices"
+	"strings"
 
 	idtkv2 "google.golang.org/api/identitytoolkit/v2"
 )
@@ -124,7 +126,7 @@ func (b *InMemoryBackend) MfaSignInFinalize(c call, r *finalizeSignInReq) (*fina
 	}
 
 	out := &finalizeSignInRes{}
-	if err = b.verifySecondFactorLocked(sc, u, m, r, out); err != nil {
+	if err = b.verifySecondFactorLocked(sc, u, m, pending, r, out); err != nil {
 		return nil, err
 	}
 
@@ -144,19 +146,32 @@ func (b *InMemoryBackend) MfaSignInFinalize(c call, r *finalizeSignInReq) (*fina
 }
 
 func (b *InMemoryBackend) verifySecondFactorLocked(
-	sc *scope, u *userRec, m *mfaRec, r *finalizeSignInReq, out *finalizeSignInRes,
+	sc *scope, u *userRec, m *mfaRec, pending *oobRec, r *finalizeSignInReq, out *finalizeSignInRes,
 ) error {
+	key := r.MfaPendingCredential
+
 	switch {
 	case m.Kind == kindTotp && r.TotpVerificationInfo != nil:
 		secret, err := decodeB32(m.Secret)
-		if err != nil || !totpValid(secret, r.TotpVerificationInfo.VerificationCode, b.now(), sc.adjacentIntervals()) {
+		if err != nil {
 			return idtk("INVALID_CODE")
 		}
+
+		step, ok := totpMatch(secret, r.TotpVerificationInfo.VerificationCode, b.now(), sc.adjacentIntervals())
+		if !ok || step <= m.lastStep {
+			return wrongGuessLocked(sc, key, pending)
+		}
+
+		m.lastStep = step
 	case m.Kind == kindPhone && r.PhoneVerificationInfo != nil:
 		info := r.PhoneVerificationInfo
 
 		sess, err := b.phoneSessionCheckLocked(sc, reqMfaPhone, info.SessionInfo, info.Code)
 		if err != nil {
+			if isCodeFailure(err) {
+				_ = wrongGuessLocked(sc, key, pending)
+			}
+
 			return err
 		}
 
@@ -171,4 +186,11 @@ func (b *InMemoryBackend) verifySecondFactorLocked(
 	}
 
 	return nil
+}
+
+func isCodeFailure(err error) bool {
+	var ae *APIError
+
+	return errors.As(err, &ae) &&
+		(strings.HasPrefix(ae.Message, "INVALID_CODE") || strings.HasPrefix(ae.Message, "TOO_MANY_ATTEMPTS"))
 }

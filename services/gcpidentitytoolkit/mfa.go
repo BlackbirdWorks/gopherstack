@@ -32,6 +32,8 @@ const (
 	maxEnrollments   = 5
 	mfaSessionTTL    = 10 * time.Minute
 	mfaPendingTTL    = 10 * time.Minute
+	maxCodeAttempts  = 5
+	maxLiveSessions  = 10
 	enrollIDBytes    = 14
 	totpMod          = 1_000_000
 	truncMask        = 0x7fffffff
@@ -77,9 +79,11 @@ func hotp(secret []byte, counter uint64) string {
 	return fmt.Sprintf("%0*d", totpDigits, v%totpMod)
 }
 
-// totpValid accepts the code of the current period and of adjacent periods either side.
-func totpValid(secret []byte, code string, now time.Time, adjacent int64) bool {
+// totpMatch returns the newest period whose code matches, looking at the current period and adjacent ones either
+// side. Every candidate is compared so the cost does not depend on which period matched.
+func totpMatch(secret []byte, code string, now time.Time, adjacent int64) (int64, bool) {
 	step := now.Unix() / totpPeriod
+	best, found := int64(0), false
 
 	for d := -adjacent; d <= adjacent; d++ {
 		c := step + d
@@ -87,12 +91,12 @@ func totpValid(secret []byte, code string, now time.Time, adjacent int64) bool {
 			continue
 		}
 
-		if subtle.ConstantTimeCompare([]byte(hotp(secret, uint64(c))), []byte(code)) == 1 {
-			return true
+		if subtle.ConstantTimeCompare([]byte(hotp(secret, uint64(c))), []byte(code)) == 1 && (!found || c > best) {
+			best, found = c, true
 		}
 	}
 
-	return false
+	return best, found
 }
 
 func (sc *scope) adjacentIntervals() int64 {
@@ -167,6 +171,10 @@ func (b *InMemoryBackend) enrollmentsFromWire(ws []mfaWire) []mfaRec {
 	var out []mfaRec
 
 	for _, w := range ws {
+		if len(out) >= maxEnrollments {
+			break
+		}
+
 		if !e164.MatchString(w.PhoneInfo) {
 			continue
 		}

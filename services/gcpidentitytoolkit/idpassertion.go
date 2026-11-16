@@ -50,6 +50,10 @@ func claimBool(m map[string]any, key string) bool {
 func decodeClaims(tok string) (map[string]any, bool) {
 	var out map[string]any
 
+	if len(tok) > maxAssertionBytes {
+		return nil, false
+	}
+
 	if strings.HasPrefix(strings.TrimSpace(tok), "{") {
 		return out, json.Unmarshal([]byte(tok), &out, jsonx.V1()) == nil
 	}
@@ -81,13 +85,13 @@ func audienceMatches(claims map[string]any, want string) bool {
 		return false
 	}
 
-	return true
+	return false
 }
 
 func expired(claims map[string]any, now time.Time) bool {
 	exp, ok := claims["exp"].(float64)
 
-	return ok && time.Unix(int64(exp), 0).Before(now)
+	return ok && float64(now.Unix()) > exp
 }
 
 func assertionFromClaims(c map[string]any, idToken, accessToken string) (*idpAssertion, error) {
@@ -155,6 +159,21 @@ type samlResponse struct {
 	} `xml:"Assertion"`
 }
 
+func samlConditions(audience, notOnOrAfter, spEntity string, now time.Time) error {
+	if audience != "" && audience != spEntity {
+		return idpInvalid("The SAML audience does not match the configured spEntityId.")
+	}
+
+	if notOnOrAfter != "" {
+		t, err := time.Parse(time.RFC3339, notOnOrAfter)
+		if err != nil || !now.Before(t) {
+			return idpInvalid("The SAML assertion has expired.")
+		}
+	}
+
+	return nil
+}
+
 // samlAssertion decodes a base64 SAMLResponse; the XML signature is not verified.
 func samlAssertion(body url.Values, idpEntity, spEntity string, now time.Time) (*idpAssertion, error) {
 	enc := body.Get("SAMLResponse")
@@ -182,12 +201,8 @@ func samlAssertion(body url.Values, idpEntity, spEntity string, now time.Time) (
 	}
 
 	cond := resp.Assertion.Conditions
-	if cond.Audience != "" && cond.Audience != spEntity {
-		return nil, idpInvalid("The SAML audience does not match the configured spEntityId.")
-	}
-
-	if t, perr := time.Parse(time.RFC3339, cond.NotOnOrAfter); perr == nil && t.Before(now) {
-		return nil, idpInvalid("The SAML assertion has expired.")
+	if err = samlConditions(cond.Audience, cond.NotOnOrAfter, spEntity, now); err != nil {
+		return nil, err
 	}
 
 	claims := map[string]any{claimSub: resp.Assertion.Subject.NameID}

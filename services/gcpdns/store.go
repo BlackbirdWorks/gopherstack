@@ -71,12 +71,13 @@ type InMemoryBackend struct {
 	policies map[string]*dnsapi.Policy
 	respPols map[string]*responseRec
 	iam      *gcpiampolicy.Store
+	sigs     *sigCache
 	sink     atomic.Pointer[LogSink]
 }
 
 // NewInMemoryBackend creates an empty backend.
 func NewInMemoryBackend() *InMemoryBackend {
-	b := &InMemoryBackend{mu: lockmetrics.New("gcpdns"), now: time.Now}
+	b := &InMemoryBackend{mu: lockmetrics.New("gcpdns"), now: time.Now, sigs: newSigCache()}
 	b.resetMaps()
 
 	return b
