@@ -222,7 +222,7 @@ type ccRestAPISpec struct {
 	Body                      any
 	EndpointConfiguration     *apigwtypes.EndpointConfiguration
 	MinimumCompressionSize    *int32
-	DisableExecuteAPIEndpoint *bool  `json:"DisableExecuteApiEndpoint"`
+	DisableExecuteAPIEndpoint *bool `json:"DisableExecuteApiEndpoint"`
 	CloneFrom                 string
 	APIKeySourceType          string `json:"ApiKeySourceType"`
 	SecurityPolicy            string
