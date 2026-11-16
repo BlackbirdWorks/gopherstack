@@ -23,6 +23,7 @@ const (
 	pathGatewayPrefix = "/agentcore/gateways/"
 	pathMCP           = "/mcp"
 	opGatewayMCP      = "InvokeGatewayMCP"
+	opGatewayMetadata = "GetGatewayProtectedResourceMetadata"
 	maxMCPBody        = 4 << 20
 	toolsPageSize     = 100
 	jsonRPCVersion    = "2.0"
@@ -60,6 +61,44 @@ func gatewayRoute(r *http.Request) (string, string, bool) {
 	return strings.ToLower(id), "", true
 }
 
+// gatewayMetadataRoute reports the gateway whose protected-resource metadata a request fetches.
+func gatewayMetadataRoute(r *http.Request) (string, string, bool) {
+	if r.Method != http.MethodGet {
+		return "", "", false
+	}
+
+	if m := gatewayHost.FindStringSubmatch(strings.ToLower(r.Host)); m != nil && r.URL.Path == protectedResourceSuffix {
+		return m[1], m[2], true
+	}
+
+	rest, found := strings.CutPrefix(r.URL.Path, pathGatewayPrefix)
+	if !found {
+		return "", "", false
+	}
+
+	id, tail, found := strings.Cut(rest, "/")
+	if !found || id == "" || "/"+tail != protectedResourceSuffix {
+		return "", "", false
+	}
+
+	return strings.ToLower(id), "", true
+}
+
+// serveGatewayMetadata answers the unauthenticated protected-resource metadata request of a JWT gateway.
+func (h *Handler) serveGatewayMetadata(c *echo.Context, gatewayID, region string) error {
+	gw, ok := h.Backend.gatewayByID(gatewayID, region)
+	if !ok {
+		return writeJSON(c, http.StatusNotFound, gatewayMsg("Gateway not found"))
+	}
+
+	cfg := objOf(objOf(gw.doc, "authorizerConfiguration"), "customJWTAuthorizer")
+	if cfg == nil {
+		return writeJSON(c, http.StatusNotFound, gatewayMsg("Gateway has no JWT authorizer"))
+	}
+
+	return writeJSON(c, http.StatusOK, protectedResourceMetadata(c.Request(), cfg))
+}
+
 type rpcRequest struct {
 	Method  string         `json:"method"`
 	JSONRPC string         `json:"jsonrpc"`
@@ -87,6 +126,8 @@ func rpcFail(id jsontext.Value, code int, msg string) rpcResponse {
 	return rpcResponse{JSONRPC: jsonRPCVersion, ID: id, Error: &rpcError{Code: code, Message: msg}}
 }
 
+func gatewayMsg(m string) map[string]string { return map[string]string{"message": m} }
+
 func writeJSON(c *echo.Context, status int, v any) error {
 	c.Response().Header().Set("Content-Type", "application/json")
 	c.Response().WriteHeader(status)
@@ -100,7 +141,7 @@ func (h *Handler) serveGateway(c *echo.Context, gatewayID, region string) error 
 
 	gw, ok := h.Backend.gatewayByID(gatewayID, region)
 	if !ok {
-		return writeJSON(c, http.StatusNotFound, map[string]string{"message": "Gateway not found"})
+		return writeJSON(c, http.StatusNotFound, gatewayMsg("Gateway not found"))
 	}
 
 	if fail := h.Backend.authorize(r.Context(), r, gw); fail != nil {
@@ -108,7 +149,7 @@ func (h *Handler) serveGateway(c *echo.Context, gatewayID, region string) error 
 			c.Response().Header().Set("WWW-Authenticate", fail.challenge)
 		}
 
-		return writeJSON(c, fail.status, map[string]string{"message": fail.message})
+		return writeJSON(c, fail.status, gatewayMsg(fail.message))
 	}
 
 	if r.Method != http.MethodPost {

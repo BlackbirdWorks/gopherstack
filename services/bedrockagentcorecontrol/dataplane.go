@@ -41,6 +41,7 @@ func (d dataSeam) Runtime(sc dataplane.Scope, ref, qualifier string) (dataplane.
 		if v.ID == live {
 			info := runtimeInfo(rt.ID, v.Doc)
 			info.Authorize = b.runtimeAuthorizer(v.Doc)
+			info.ProtectedResource = runtimeProtectedResource(v.Doc)
 
 			return info, nil
 		}
@@ -221,4 +222,13 @@ func (b *InMemoryBackend) runtimeAuthorizer(
 
 		return &dataplane.AuthFailure{Status: f.status, Challenge: f.challenge, Message: f.message}
 	}
+}
+
+func runtimeProtectedResource(doc map[string]any) func(*http.Request) map[string]any {
+	cfg := deepCopy(objOf(objOf(doc, "authorizerConfiguration"), "customJWTAuthorizer"))
+	if cfg == nil {
+		return nil
+	}
+
+	return func(r *http.Request) map[string]any { return protectedResourceMetadata(r, cfg) }
 }

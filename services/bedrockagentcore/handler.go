@@ -20,6 +20,9 @@ const (
 	reapInterval  = 30 * time.Second
 )
 
+// opProtectedResource serves the RFC 9728 document; it is not an SDK operation, so it is not listed as supported.
+const opProtectedResource = "GetRuntimeProtectedResourceMetadata"
+
 type rawFunc func(c *echo.Context, params map[string]string) error
 
 // Handler serves the AgentCore data-plane REST API.
@@ -35,10 +38,11 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 	h := &Handler{Backend: backend, DefaultRegion: backend.region}
 	h.server = &restroute.Server{Router: restroute.New(routes()), Ops: backend.ops(), Context: h.requestContext}
 	h.raw = map[string]rawFunc{
-		"InvokeAgentRuntime":    backend.invokeAgentRuntime,
-		"GetAgentCard":          backend.getAgentCard,
-		"StopRuntimeSession":    backend.stopRuntimeSession,
-		"InvokeCodeInterpreter": backend.invokeCodeInterpreter,
+		"InvokeAgentRuntime":        backend.invokeAgentRuntime,
+		"GetAgentCard":              backend.getAgentCard,
+		"StopRuntimeSession":        backend.stopRuntimeSession,
+		"InvokeAgentRuntimeCommand": backend.invokeAgentRuntimeCommand,
+		"InvokeCodeInterpreter":     backend.invokeCodeInterpreter,
 	}
 
 	return h
@@ -87,12 +91,17 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 // ChaosRegions lists the regions this handler serves.
 func (h *Handler) ChaosRegions() []string { return []string{h.DefaultRegion} }
 
-// RouteMatcher matches by SigV4 signing name (or the data-plane SDK user agent) plus a known path shape.
+// RouteMatcher matches by SigV4 signing name (or the data-plane SDK user agent) plus a known path shape;
+// the unsigned protected-resource metadata fetch matches by path alone.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		r := c.Request()
 		if !h.server.Router.Handles(restroute.EscapedPath(r)) {
 			return false
+		}
+
+		if op, _ := h.server.Operation(r); op == opProtectedResource {
+			return true
 		}
 
 		return httputils.ExtractServiceFromRequest(r) == signingName ||
@@ -132,6 +141,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 	return func(c *echo.Context) error {
 		op, params := h.server.Operation(c.Request())
+		if op == opProtectedResource {
+			return h.Backend.getRuntimeProtectedResource(c, params)
+		}
+
 		if fn, ok := h.raw[op]; ok {
 			c.SetRequest(c.Request().WithContext(h.requestContext(c.Request())))
 

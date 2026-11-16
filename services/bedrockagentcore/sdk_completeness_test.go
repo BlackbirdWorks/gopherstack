@@ -22,7 +22,7 @@ func notImplemented() []string {
 		"DeleteABTest", "DeleteBatchEvaluation", "DeleteCapacityProviderSession", "DeletePaymentInstrument",
 		"DeletePaymentSession", "DeleteRecommendation", "Evaluate", "GetABTest", "GetBatchEvaluation",
 		"GetPaymentInstrument", "GetPaymentInstrumentBalance", "GetPaymentSession", "GetRecommendation",
-		"GetResourcePaymentToken", "IngestData", "InvokeAgentRuntimeCommand", "InvokeBrowser", "InvokeHarness",
+		"GetResourcePaymentToken", "IngestData", "InvokeBrowser", "InvokeHarness",
 		"ListABTests", "ListBatchEvaluations", "ListMemoryExtractionJobs", "ListPaymentInstruments",
 		"ListPaymentSessions", "ListRecommendations", "ProcessPayment", "SaveBrowserSessionProfile",
 		"SearchRegistryRecords", "StartBatchEvaluation", "StartMemoryExtractionJob", "StartRecommendation",

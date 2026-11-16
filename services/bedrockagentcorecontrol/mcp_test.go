@@ -475,6 +475,32 @@ func TestGatewayMCPJWTAuthorizer(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("protected resource metadata", func(t *testing.T) {
+		t.Parallel()
+
+		metaURL := strings.TrimSuffix(endpoint, "/mcp") + "/.well-known/oauth-protected-resource"
+		req, rerr := http.NewRequestWithContext(t.Context(), http.MethodGet, metaURL, nil)
+		require.NoError(t, rerr)
+
+		resp, rerr := testclient.New(t).Do(req)
+		require.NoError(t, rerr)
+
+		defer resp.Body.Close()
+
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var got struct {
+			Resource string   `json:"resource"`
+			Servers  []string `json:"authorization_servers"`
+			Scopes   []string `json:"scopes_supported"`
+		}
+
+		require.NoError(t, json.UnmarshalRead(resp.Body, &got, jsonx.V1()))
+		assert.Equal(t, endpoint, got.Resource)
+		assert.Equal(t, []string{testIssuer}, got.Servers)
+		assert.Equal(t, []string{"mcp.read"}, got.Scopes)
+	})
 }
 
 func postRPC(t *testing.T, endpoint, authz, body string) (int, http.Header) {

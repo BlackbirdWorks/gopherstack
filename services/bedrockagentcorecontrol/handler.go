@@ -78,6 +78,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return true
 		}
 
+		if _, _, ok := gatewayMetadataRoute(r); ok {
+			return true
+		}
+
 		if !h.server.Router.Handles(restroute.EscapedPath(r)) {
 			return false
 		}
@@ -96,6 +100,10 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		return opGatewayMCP
 	}
 
+	if _, _, ok := gatewayMetadataRoute(c.Request()); ok {
+		return opGatewayMetadata
+	}
+
 	op, _ := h.server.Operation(c.Request())
 	if op == "" {
 		return "Unknown"
@@ -107,6 +115,10 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 // ExtractResource returns the resource ARN or identifier the request addresses.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	if id, _, ok := gatewayRoute(c.Request()); ok {
+		return id
+	}
+
+	if id, _, ok := gatewayMetadataRoute(c.Request()); ok {
 		return id
 	}
 
@@ -130,6 +142,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		if id, region, ok := gatewayRoute(c.Request()); ok {
 			return h.serveGateway(c, id, region)
+		}
+
+		if id, region, ok := gatewayMetadataRoute(c.Request()); ok {
+			return h.serveGatewayMetadata(c, id, region)
 		}
 
 		return api(c)

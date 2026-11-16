@@ -40,6 +40,12 @@ func TestRuntimeJWTAuthorizerIsEnforced(t *testing.T) {
 	info, err := m.backend.DataPlane().Runtime(dpScope(), aws.ToString(out.AgentRuntimeId), "DEFAULT")
 	require.NoError(t, err)
 	require.NotNil(t, info.Authorize)
+	require.NotNil(t, info.ProtectedResource)
+
+	metaURL := "http://rt.example/runtimes/arn-x/invocations/.well-known/oauth-protected-resource"
+	meta := info.ProtectedResource(httptest.NewRequestWithContext(t.Context(), http.MethodGet, metaURL, nil))
+	assert.Equal(t, "http://rt.example/runtimes/arn-x/invocations", meta["resource"])
+	assert.Equal(t, []string{testIssuer}, meta["authorization_servers"])
 
 	tests := []struct {
 		name   string

@@ -3,7 +3,7 @@ service: bedrockagentcore
 sdk_module: aws-sdk-go-v2/service/bedrockagentcore@v1.50.3
 last_audit_commit: 71065ec09
 last_audit_date: 2026-10-22
-overall: B            # 30 of 67 data-plane operations are served with real behavior; the rest (A/B tests, payments, evaluation runs, recommendations, harness invoke, memory extraction, browser automation) are not served.
+overall: B            # 31 of 67 data-plane operations are served with real behavior; the rest (A/B tests, payments, evaluation runs, recommendations, harness invoke, memory extraction, browser automation) are not served.
 ops:
   BatchCreateMemoryRecords: {wire: ok, errors: ok, state: ok, persist: ok, note: "per-record success or failure with errorCode"}
   BatchDeleteMemoryRecords: {wire: ok, errors: ok, state: ok, persist: ok, note: "per-record success or failure with errorCode"}
@@ -23,6 +23,7 @@ ops:
   GetWorkloadAccessTokenForUserId: {wire: ok, errors: ok, state: ok, persist: ok}
   InvokeAgentRuntime: {wire: ok, errors: ok, state: ok, persist: ok, note: "runs the runtime's containerConfiguration image; POST /invocations on 8080 (HTTP), /mcp on 8000 (MCP), / on 9000 (A2A); streams the response body unchanged (text/event-stream passthrough); the session id header routes to a warm container"}
   InvokeCodeInterpreter: {wire: ok, errors: ok, state: ok, persist: ok, note: "executeCode (python), executeCommand, readFiles, writeFiles, listFiles, removeFiles; result is one event-stream result event; startCommandExecution, getTask and stopTask are rejected"}
+  InvokeAgentRuntimeCommand: {wire: ok, errors: ok, state: ok, persist: ok, note: "runs sh -c in the session's runtime container; contentStart, stdout and stderr contentDelta, contentStop with exitCode and COMPLETED or TIMED_OUT; timeout 1-3600 seconds, default 300; container runtimes only"}
   ListActors: {wire: ok, errors: ok, state: ok, persist: ok, note: "derived from stored events"}
   ListBrowserSessions: {wire: ok, errors: ok, state: ok, persist: ok, note: "status filter, pagination"}
   ListCodeInterpreterSessions: {wire: ok, errors: ok, state: ok, persist: ok, note: "status filter, pagination"}
@@ -43,7 +44,7 @@ families:
   Identity: {status: ok, note: "Workload access tokens, API keys read from Secrets Manager, and OAuth2 client-credentials tokens fetched from the provider's token endpoint."}
   Wire: {status: ok, note: "Routes, members, headers, epoch and date-time formats and error codes follow the pinned SDK serializers and deserializers."}
 items_still_open:
-  - Unserved operations: AB tests, batch evaluation, payments, recommendations, InvokeHarness, IngestData, InvokeAgentRuntimeCommand, memory extraction jobs, SaveBrowserSessionProfile, InvokeBrowser, UpdateBrowserStream and CompleteResourceTokenAuth have no routes
+  - Unserved operations: AB tests, batch evaluation, payments, recommendations, InvokeHarness, IngestData, memory extraction jobs, SaveBrowserSessionProfile, InvokeBrowser, UpdateBrowserStream and CompleteResourceTokenAuth have no routes
   - Retrieval: RetrieveMemoryRecords ranks with lexical BM25 only, so records sharing no term with the query are not returned
   - Runtimes: codeConfiguration (S3 code) runtimes cannot be invoked; only container images run, and the emulated ECR registry is reached through the registry-host setting
   - "Runtimes: runtimes without a customJWTAuthorizer accept any caller and no IAM policy is evaluated"
@@ -51,7 +52,6 @@ items_still_open:
   - Code interpreter: network mode, certificates and filesystem configurations are stored but not applied to the sandbox
   - Browser: no automation or live-view streams, no profiles, and no browser process behind a session
   - Identity: USER_FEDERATION OAuth2 flows are rejected, vendor providers without a discovery document have no reachable token endpoint, and user JWT signatures are not verified
-  - Persistence: sessions come back TERMINATED after a restart; warm runtime containers and sandbox files are not persisted
 structural_gaps:
   - Semantic memory search: real retrieval embeds text with a model; the emulator has none, so ranking is lexical
   - Browser automation: a headless browser container with a CDP bridge is out of scope
@@ -74,8 +74,15 @@ Containers need a reachable Docker-compatible daemon (`--agentcore-engine=auto`)
 Success statuses follow the Response Syntax of each operation in the AgentCore API Reference (docs.aws.amazon.com/bedrock-agentcore/latest/APIReference/API_<Operation>.html): CreateEvent and BatchCreateMemoryRecords answer 201, every other served operation 200. Error statuses on the InvokeAgentRuntime page: RuntimeClientError 424, RetryableConflictException 409, ThrottlingException 429, ServiceQuotaExceededException 402, UnauthorizedException 401 (StopRuntimeSession). InvokeAgentRuntime accepts payloads up to 100000000 bytes, the documented maximum.
 
 ## Primary-source checks (2026-11-13)
+- InvokeAgentRuntimeCommand: serializers.go:3485 (POST /runtimes/{agentRuntimeArn}/commands, body command and timeout), types.go ResponseChunk (contentStart, contentDelta stdout/stderr, contentStop exitCode and status) and CommandExecutionStatus (COMPLETED, TIMED_OUT) in the pinned SDK.
+- Runtime challenges point at GET /runtimes/<arn>/invocations/.well-known/oauth-protected-resource, now served unauthenticated as an RFC 9728 document (resource, authorization_servers, scopes_supported, bearer_methods_supported); 404 for runtimes without a customJWTAuthorizer.
 - bedrockagentcore: runtime-oauth.html and runtime-mcp.html document 401 with WWW-Authenticate: Bearer resource_metadata=<runtime invocations URL>/.well-known/oauth-protected-resource?qualifier=...; the challenge now follows it (shared authorizer in bedrockagentcorecontrol).
 
 ## External effects that are recorded, not performed
 
 - Memory extraction needs a model: events are stored and CreateEvent logs that extraction "would" run for memories with strategies; no memory records are produced, ExtractionMode and ExtractionConfig are ignored.
+
+## Emulator choices where the vendor is silent
+
+- Persistence: sessions come back TERMINATED after a restart, and warm runtime containers and sandbox files are not persisted (container filesystems cannot be snapshotted by the emulator).
+- InvokeAgentRuntimeCommand: output arrives as one contentDelta per stream after the command exits (the container runtime returns buffered output); a platform failure or timeout reports exitCode -1.

@@ -18,6 +18,11 @@ func routes() []restroute.Route {
 	return []restroute.Route{
 		{Method: http.MethodPost, Path: rt + "/invocations", Op: "InvokeAgentRuntime"},
 		{Method: http.MethodGet, Path: rt + "/invocations/.well-known/agent-card.json", Op: "GetAgentCard"},
+		{
+			Method: http.MethodGet, Path: rt + "/invocations/.well-known/oauth-protected-resource",
+			Op: "GetRuntimeProtectedResourceMetadata",
+		},
+		{Method: http.MethodPost, Path: rt + "/commands", Op: "InvokeAgentRuntimeCommand"},
 		{Method: http.MethodPost, Path: rt + "/stopruntimesession", Op: "StopRuntimeSession"},
 
 		{Method: http.MethodPost, Path: mem + "/events", Op: "CreateEvent"},

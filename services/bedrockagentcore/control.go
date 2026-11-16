@@ -26,13 +26,15 @@ type AuthFailure struct {
 
 // RuntimeInfo is the deployable view of an agent runtime endpoint.
 type RuntimeInfo struct {
-	Env          map[string]string
-	Authorize    func(ctx context.Context, r *http.Request) *AuthFailure
-	ID           string
-	ImageURI     string
-	Protocol     string
-	IdleSeconds  int
-	MaxLifetimeS int
+	Env       map[string]string
+	Authorize func(ctx context.Context, r *http.Request) *AuthFailure
+	// ProtectedResource builds the RFC 9728 metadata document; nil when the runtime has no JWT authorizer.
+	ProtectedResource func(r *http.Request) map[string]any
+	ID                string
+	ImageURI          string
+	Protocol          string
+	IdleSeconds       int
+	MaxLifetimeS      int
 }
 
 // StrategyInfo is one memory strategy of a memory.

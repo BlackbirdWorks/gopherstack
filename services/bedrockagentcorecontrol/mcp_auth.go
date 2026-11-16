@@ -55,9 +55,9 @@ const (
 	schemeHTTPS             = "https"
 )
 
-// protectedResourceURL is the metadata URL a challenge advertises: the gateway root, or the runtime's
-// invocation URL with its qualifier.
-func protectedResourceURL(r *http.Request) string {
+// protectedResourceURLs returns the resource a request addresses and the metadata URL a challenge advertises
+// for it: the gateway root or its path-addressed form, or the runtime's invocation URL with its qualifier.
+func protectedResourceURLs(r *http.Request) (string, string) {
 	scheme := schemeHTTP
 	if r.TLS != nil {
 		scheme = schemeHTTPS
@@ -68,15 +68,49 @@ func protectedResourceURL(r *http.Request) string {
 	path := r.URL.EscapedPath()
 	if rest, ok := strings.CutPrefix(path, "/runtimes/"); ok {
 		arn, _, _ := strings.Cut(rest, "/")
-		url := base + "/runtimes/" + arn + "/invocations" + protectedResourceSuffix
+		resource := base + "/runtimes/" + arn + "/invocations"
+		meta := resource + protectedResourceSuffix
+
 		if q := r.URL.Query().Get("qualifier"); q != "" {
-			url += "?qualifier=" + q
+			meta += "?qualifier=" + q
 		}
 
-		return url
+		return resource, meta
 	}
 
-	return base + protectedResourceSuffix
+	if rest, ok := strings.CutPrefix(path, pathGatewayPrefix); ok {
+		id, _, _ := strings.Cut(rest, "/")
+		root := base + pathGatewayPrefix + id
+
+		return root + pathMCP, root + protectedResourceSuffix
+	}
+
+	return base + pathMCP, base + protectedResourceSuffix
+}
+
+func protectedResourceURL(r *http.Request) string {
+	_, meta := protectedResourceURLs(r)
+
+	return meta
+}
+
+// protectedResourceMetadata is the RFC 9728 document (section 2) for a resource guarded by a JWT authorizer.
+func protectedResourceMetadata(r *http.Request, cfg map[string]any) map[string]any {
+	resource, _ := protectedResourceURLs(r)
+	discovery := strOf(cfg, "discoveryUrl")
+	issuer := strings.TrimSuffix(strings.TrimSuffix(discovery, discoverySuffixOIDC), discoverySuffixOAuth)
+
+	doc := map[string]any{
+		"resource":                 resource,
+		"authorization_servers":    []string{issuer},
+		"bearer_methods_supported": []string{"header"},
+	}
+
+	if sc := strings.Fields(advertisedScopes(cfg)); len(sc) > 0 {
+		doc["scopes_supported"] = sc
+	}
+
+	return doc
 }
 
 func advertisedScopes(cfg map[string]any) string {
