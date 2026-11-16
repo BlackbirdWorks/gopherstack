@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"cloud.google.com/go/functions/apiv2/functionspb"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpevents"
 )
 
 const (
@@ -112,6 +114,8 @@ func (b *InMemoryBackend) validateTrigger(et *functionspb.EventTrigger) error {
 		return b.validateStorageTrigger(et)
 	case isFirestoreType(typ):
 		return validateFirestoreTrigger(et)
+	case typ == gcpevents.AuditLogType:
+		return validateAuditTrigger(et)
 	default:
 		return errInvalid("Event type %q is not supported by the emulator; supported: %s.", typ, supportedEventTypes())
 	}

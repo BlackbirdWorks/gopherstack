@@ -6,6 +6,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
 	gcpfunctionsbackend "github.com/blackbirdworks/gopherstack/services/gcpfunctions"
+	gcploggingbackend "github.com/blackbirdworks/gopherstack/services/gcplogging"
 	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
 	gcpsecretmanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
 	gcpstoragebackend "github.com/blackbirdworks/gopherstack/services/gcpstorage"
@@ -60,6 +61,10 @@ func wireGCPFunctions(byName map[string]service.Registerable) {
 				Kind: string(ev.Kind), Old: ev.Old, New: ev.New, UpdateMask: ev.UpdateMask, Time: ev.Time,
 			})
 		})
+	}
+
+	if lg, isLG := byName["GCPLogging"].(*gcploggingbackend.Handler); isLG {
+		lg.Backend.ObserveEntries(fns.Backend.HandleLogEntry)
 	}
 
 	if sm, isSM := byName["GCPSecretManager"].(*gcpsecretmanagerbackend.Handler); isSM {

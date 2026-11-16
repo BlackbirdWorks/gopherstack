@@ -23,9 +23,26 @@ func keyLocation(location string) string {
 	return location
 }
 
+// checkKeyUnlocked checks a key at delivery time, without the backend lock held.
+func (b *InMemoryBackend) checkKeyUnlocked(key, location string) error {
+	if key == "" {
+		return nil
+	}
+
+	b.mu.RLock("checkKeyUnlocked")
+	keys := b.keys
+	b.mu.RUnlock()
+
+	return keyError(keys, key, location)
+}
+
 // checkKey must be called with the backend lock held.
 func (b *InMemoryBackend) checkKey(key, location string) error {
-	err := cmek.Check(b.keys, key, keyLocation(location))
+	return keyError(b.keys, key, location)
+}
+
+func keyError(keys cmek.Checker, key, location string) error {
+	err := cmek.Check(keys, key, keyLocation(location))
 
 	switch {
 	case err == nil:

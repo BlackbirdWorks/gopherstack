@@ -21,3 +21,13 @@ func ProjectNumber(project string) string { return projectNumber(project) }
 
 // Dependencies returns the step indexes step i waits for.
 func Dependencies(steps []*cloudbuildpb.BuildStep, i int) []int { return dependencies(steps, i) }
+
+// EvalTriggerFilter parses src and evaluates it over vars.
+func EvalTriggerFilter(src string, vars map[string]string) (bool, error) {
+	e, err := compileFilter(src)
+	if err != nil {
+		return false, err
+	}
+
+	return evalFilter(e, vars)
+}

@@ -171,3 +171,38 @@ func TestGCRHostCreatesRepositoryOnPush(t *testing.T) {
 		})
 	}
 }
+
+func TestGCRRepositoryPathCreatesRepositoryOnPush(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		repoID   string
+		location string
+	}{
+		{"gcr.io", "us"},
+		{"eu.gcr.io", "europe"},
+		{"asia.gcr.io", "asia"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.repoID, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, "")
+			c := e.docker(t)
+			name := "projects/" + project + "/locations/" + tt.location + "/repositories/" + tt.repoID
+
+			assert.Equal(t, 404, c.Do("GET", "/v2/"+project+"/"+tt.repoID+"/app/manifests/v1", nil, nil).Status)
+
+			img := c.PushImage(project+"/"+tt.repoID+"/app", "v1")
+
+			repo, err := e.client.GetRepository(t.Context(), &artifactregistrypb.GetRepositoryRequest{Name: name})
+			require.NoError(t, err)
+			assert.Equal(t, artifactregistrypb.Repository_DOCKER, repo.GetFormat())
+
+			got := c.Do("GET", "/v2/"+project+"/"+tt.repoID+"/app/manifests/v1", nil, nil)
+			require.Equal(t, 200, got.Status)
+			assert.Equal(t, img.Body, got.Body)
+		})
+	}
+}

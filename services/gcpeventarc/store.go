@@ -104,9 +104,10 @@ func (b *InMemoryBackend) SetRetryBackoff(minimum, maximum time.Duration) {
 // SetPushBase records the base URL (scheme and host:port) the Pub/Sub emulator pushes events to.
 func (b *InMemoryBackend) SetPushBase(base string) {
 	b.mu.Lock("SetPushBase")
-	defer b.mu.Unlock()
-
 	b.pushBase = base
+	b.mu.Unlock()
+
+	b.rebindTransports()
 }
 
 // CloseIdleConnections releases pooled delivery connections.

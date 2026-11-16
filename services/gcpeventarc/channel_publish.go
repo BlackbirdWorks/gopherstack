@@ -214,6 +214,12 @@ func (b *InMemoryBackend) sendChannelEvent(ctx context.Context, j channelJob) er
 		return workflows.StartExecution(ctx, wf, arg)
 	}
 
+	if j.trigger.GetDestination().GetGke() != nil {
+		deliverToGKE(ctx, j.trigger, j.event)
+
+		return nil
+	}
+
 	target, err := destinationURL(j.trigger, targets)
 	if err != nil {
 		return err

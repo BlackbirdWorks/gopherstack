@@ -187,7 +187,7 @@ func TestPubsubTriggerFilterValidation(t *testing.T) {
 	_, err := e.client.CreateBuildTrigger(t.Context(), &cloudbuildpb.CreateBuildTriggerRequest{
 		Parent: parent,
 		Trigger: &cloudbuildpb.BuildTrigger{
-			Name: "bad", Filter: "_A.size() > 3",
+			Name: "bad", Filter: "_A == ",
 			PubsubConfig:  &cloudbuildpb.PubsubConfig{Topic: triggerTopic},
 			BuildTemplate: &cloudbuildpb.BuildTrigger_Build{Build: buildOf(step("img"))},
 		},

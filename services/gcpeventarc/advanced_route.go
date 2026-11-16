@@ -17,6 +17,7 @@ import (
 	"cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/cmek"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpdispatch"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
@@ -57,11 +58,14 @@ func (b *InMemoryBackend) publishToBus(bus string, event map[string]any, hops in
 
 	b.mu.RLock("publishToBus")
 
-	if _, ok := b.advTable(busKind())[bus]; !ok {
+	busPB, found := b.advTable(busKind())[bus].(*eventarcpb.MessageBus)
+	if !found {
 		b.mu.RUnlock()
 
 		return errNotFound("Message bus %q not found.", bus)
 	}
+
+	busKey := busPB.GetCryptoKeyName()
 
 	var jobs []pipelineJob
 
@@ -80,6 +84,10 @@ func (b *InMemoryBackend) publishToBus(bus string, event map[string]any, hops in
 	}
 
 	b.mu.RUnlock()
+
+	if err := b.checkKeyUnlocked(busKey, cmek.Location(bus)); err != nil {
+		return err
+	}
 
 	for _, j := range jobs {
 		b.schedule(0, func() { b.runJob(j) })
@@ -198,6 +206,10 @@ func retryDelay(r *eventarcpb.Pipeline_RetryPolicy, failures int) time.Duration 
 }
 
 func (b *InMemoryBackend) deliverPipeline(ctx context.Context, j pipelineJob) error {
+	if err := b.checkKeyUnlocked(j.pipeline.GetCryptoKeyName(), cmek.Location(j.pipeline.GetName())); err != nil {
+		return err
+	}
+
 	msg := j.message
 
 	for _, m := range j.pipeline.GetMediations() {
@@ -423,29 +435,45 @@ func (b *InMemoryBackend) authorize(
 func (b *InMemoryBackend) routeToSources(project string, msg map[string]any) {
 	b.mu.RLock("routeToSources")
 
-	var buses []string
+	var sources []*eventarcpb.GoogleApiSource
 
 	for _, name := range sortedNames(b.advTable(sourceKind())) {
-		s, _ := b.advTable(sourceKind())[name].(*eventarcpb.GoogleApiSource)
-		if s != nil && sourceWants(s, project) {
-			buses = append(buses, s.GetDestination())
+		if s, _ := b.advTable(sourceKind())[name].(*eventarcpb.GoogleApiSource); s != nil {
+			sources = append(sources, clone(s))
 		}
 	}
 
+	org := b.svc.Org
 	b.mu.RUnlock()
 
-	for _, bus := range buses {
-		if err := b.publishToBus(bus, msg, 0); err != nil {
+	for _, s := range sources {
+		if !sourceWants(s, project, org) {
+			continue
+		}
+
+		if err := b.publishToBus(s.GetDestination(), msg, 0); err != nil {
 			ctx := context.Background()
 			logger.Load(ctx).
-				DebugContext(ctx, "gcpeventarc: could not route event to message bus", "bus", bus, "error", err)
+				DebugContext(ctx, "gcpeventarc: could not route event to message bus", "bus", s.GetDestination(), "error", err)
 		}
 	}
 }
 
-func sourceWants(s *eventarcpb.GoogleApiSource, project string) bool {
-	if s.GetOrganizationSubscription().GetEnabled() || project == "" {
+// sourceWants reports whether the source subscribes to the project, directly or through its organization
+// subscription; a project the organization does not know is still delivered.
+func sourceWants(s *eventarcpb.GoogleApiSource, project string, org Organization) bool {
+	if project == "" {
 		return true
+	}
+
+	if s.GetOrganizationSubscription().GetEnabled() {
+		if org == nil {
+			return true
+		}
+
+		if in, known := org.ProjectInOrganization(project); in || !known {
+			return true
+		}
 	}
 
 	for _, p := range s.GetProjectSubscriptions().GetList() {

@@ -103,7 +103,27 @@ func TestTriggers_Validation(t *testing.T) {
 				filter("database", "(default)"), {Attribute: "document", Value: "a", Operator: "regex"},
 			},
 		}, "firestore bad operator", true},
-		{&functionspb.EventTrigger{EventType: "google.cloud.audit.log.v1.written"}, "audit log unsupported", true},
+		{&functionspb.EventTrigger{EventType: gcpevents.AuditLogType}, "audit log without filters", true},
+		{&functionspb.EventTrigger{
+			EventType:    gcpevents.AuditLogType,
+			EventFilters: []*functionspb.EventFilter{filter("serviceName", "s.googleapis.com")},
+		}, "audit log without method", true},
+		{&functionspb.EventTrigger{
+			EventType: gcpevents.AuditLogType, EventFilters: []*functionspb.EventFilter{
+				filter("serviceName", "storage.googleapis.com"), filter("methodName", "storage.buckets.create"),
+				patternFilter("resourceName", "projects/_/buckets/{b}"),
+			},
+		}, "audit log ok", false},
+		{&functionspb.EventTrigger{
+			EventType: gcpevents.AuditLogType, PubsubTopic: topic, EventFilters: []*functionspb.EventFilter{
+				filter("serviceName", "s"), filter("methodName", "m"),
+			},
+		}, "audit log with topic", true},
+		{&functionspb.EventTrigger{
+			EventType: gcpevents.AuditLogType, EventFilters: []*functionspb.EventFilter{
+				filter("serviceName", "s"), filter("methodName", "m"), filter("bucket", "b1"),
+			},
+		}, "audit log bad attribute", true},
 		{&functionspb.EventTrigger{
 			EventType: gcpfunctions.EventTypePubSub, PubsubTopic: topic,
 			EventFilters: []*functionspb.EventFilter{filter("bucket", "b1")},

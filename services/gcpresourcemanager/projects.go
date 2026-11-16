@@ -458,3 +458,34 @@ func (b *InMemoryBackend) UndeleteProject(in *resourcemanagerpb.UndeleteProjectR
 
 	return b.opLocked("ud", &resourcemanagerpb.UndeleteProjectMetadata{}, p.view())
 }
+
+// ProjectInOrganization reports (inOrganization, known): whether the project sits under the emulated
+// organization through its folder ancestry, and false for known when the project is not registered.
+func (b *InMemoryBackend) ProjectInOrganization(ref string) (bool, bool) {
+	b.mu.RLock("ProjectInOrganization")
+	defer b.mu.RUnlock()
+
+	p, ok := b.findProjectLocked(ref)
+	if !ok {
+		return false, false
+	}
+
+	parent := p.Parent
+	for range len(b.folders) + 1 {
+		switch {
+		case parent == kindOrganizations+"/"+b.org.ID:
+			return true, true
+		case strings.HasPrefix(parent, kindFolders+"/"):
+			f, found := b.folders[strings.TrimPrefix(parent, kindFolders+"/")]
+			if !found {
+				return false, true
+			}
+
+			parent = f.Parent
+		default:
+			return false, true
+		}
+	}
+
+	return false, true
+}
