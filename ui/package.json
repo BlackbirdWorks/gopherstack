@@ -199,7 +199,7 @@
   "devDependencies": {
     "@bufbuild/protoc-gen-es": "2.16.0",
     "@sveltejs/adapter-static": "4.0.1",
-    "@sveltejs/kit": "3.0.1",
+    "@sveltejs/kit": "3.1.1",
     "@sveltejs/vite-plugin-svelte": "7.3.1",
     "@tailwindcss/vite": "4.3.3",
     "@testing-library/jest-dom": "7.0.1",
