@@ -171,7 +171,7 @@ func (b *InMemoryBackend) findZone(r ZoneRef) (*Zone, *APIError) {
 		return nil, errMissing("viewId is required when scope is PRIVATE")
 	}
 
-	name, ok := normName(r.Ref, false)
+	name, ok := normZoneName(r.Ref)
 	if !ok {
 		return nil, errNotFound(r.Ref)
 	}
@@ -310,7 +310,7 @@ func (b *InMemoryBackend) validateZoneIn(in *CreateZoneIn) *APIError {
 		return err
 	}
 
-	name, ok := normName(in.Name, false)
+	name, ok := normZoneName(in.Name)
 	if !ok {
 		return errParam("name is not a valid zone name")
 	}

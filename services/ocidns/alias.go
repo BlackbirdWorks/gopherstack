@@ -1,6 +1,12 @@
 package ocidns
 
-import "github.com/miekg/dns"
+import (
+	"context"
+
+	"github.com/miekg/dns"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+)
 
 // resolveAlias answers an A or AAAA query at an ALIAS owner with the target's address records, taken from whichever
 // GLOBAL zone of this backend holds the target; targets this emulator does not serve yield no answer.
@@ -16,6 +22,9 @@ func (a *zoneAnswer) resolveAlias(qtype uint16, owner string, al *RRSet, depth i
 
 	z := a.b.globalZoneFor(target)
 	if z == nil {
+		logger.Load(context.Background()).Debug("ocidns: would resolve ALIAS target outside this emulator",
+			"owner", owner, "target", target)
+
 		return
 	}
 

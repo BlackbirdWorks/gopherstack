@@ -1,6 +1,8 @@
 package ocimonitoring
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json/v2"
 	"errors"
@@ -231,7 +233,39 @@ func (h *Handler) serve(q *req, verify bool) error {
 		}
 	}
 
+	if aerr := q.decodeContentEncoding(); aerr != nil {
+		return aerr
+	}
+
 	return fn(h, q)
+}
+
+// decodeContentEncoding inflates a gzip body after its signature was verified over the bytes as sent.
+func (q *req) decodeContentEncoding() *APIError {
+	enc := strings.ToLower(strings.TrimSpace(q.r.Header.Get("Content-Encoding")))
+	if enc == "" || enc == "identity" {
+		return nil
+	}
+
+	if enc != "gzip" {
+		return errParam("Content-Encoding " + enc + " is not supported; use gzip or identity")
+	}
+
+	zr, err := gzip.NewReader(bytes.NewReader(q.body))
+	if err != nil {
+		return errParam("The request body is not valid gzip data")
+	}
+
+	defer zr.Close()
+
+	out, err := io.ReadAll(io.LimitReader(zr, maxBodyBytes+1))
+	if err != nil || len(out) > maxBodyBytes {
+		return newErr(http.StatusRequestEntityTooLarge, "PayloadTooLarge", "Request body is too large or unreadable")
+	}
+
+	q.body = out
+
+	return nil
 }
 
 type adminKeyReq struct {

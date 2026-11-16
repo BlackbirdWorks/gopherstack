@@ -51,6 +51,7 @@ type InMemoryBackend struct {
 	compartment func(string) bool
 	vcns        func() []VcnInfo
 	subnet      func(string) (SubnetInfo, bool)
+	pick        func(int) int
 	zones       map[string]*Zone
 	views       map[string]*View
 	resolvers   map[string]*Resolver

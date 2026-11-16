@@ -44,6 +44,7 @@ type InMemoryBackend struct {
 	Auth          *ociauth.Registry
 	retry         *ociretry.Store
 	tagLookup     ocitags.Lookup
+	within        func(id, ancestor string) bool
 	transition    time.Duration
 	seq           int64
 }
@@ -62,6 +63,18 @@ func (b *InMemoryBackend) resetMaps() {
 	b.workReqs, b.entries = map[string]*WorkRequest{}, map[string][]*Entry{}
 	b.savedSearches = map[string]*SavedSearch{}
 	b.retry = ociretry.New()
+}
+
+// SetCompartmentTree wires isCompartmentIdInSubtree matching against the compartment hierarchy (OCI Identity).
+func (b *InMemoryBackend) SetCompartmentTree(within func(id, ancestor string) bool) {
+	b.mu.Lock("SetCompartmentTree")
+	b.within = within
+	b.mu.Unlock()
+}
+
+// inCompartment reports whether a resource in have is selected by a compartmentId filter; the caller holds the lock.
+func (b *InMemoryBackend) inCompartment(have, want string, subtree bool) bool {
+	return have == want || subtree && b.within != nil && b.within(have, want)
 }
 
 // SetTagLookup wires defined-tag validation against a tag namespace source (OCI Identity); nil accepts any namespace.

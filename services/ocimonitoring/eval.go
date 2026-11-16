@@ -125,14 +125,61 @@ func (b *InMemoryBackend) step(a *Alarm, hits []firing, prev []map[string]string
 		return b.transition(a, statusOK, noticeTypeOK, now, nil, prev)
 	}
 
+	out := b.streamChanges(a, hits, prev, now)
+
 	if repeat, ok := parseISODuration(
 		a.RepeatNotification,
 	); ok && a.LastNotified != nil &&
 		now.Sub(*a.LastNotified) >= repeat {
-		return b.notices(a, noticeTypeRepeat, now, hits, prev)
+		return append(out, b.notices(a, noticeTypeRepeat, now, hits, prev)...)
 	}
 
-	return nil
+	return out
+}
+
+// streamChanges sends split messages for streams that start or stop breaching while the alarm keeps firing.
+func (b *InMemoryBackend) streamChanges(a *Alarm, hits []firing, prev []map[string]string, now time.Time) []notice {
+	if a.PerDimension == nil || !*a.PerDimension {
+		return nil
+	}
+
+	was := map[string]bool{}
+	for _, d := range prev {
+		was[streamID(d)] = true
+	}
+
+	is := map[string]bool{}
+	for _, h := range hits {
+		is[streamID(h.dims)] = true
+	}
+
+	var started []firing
+
+	for _, h := range hits {
+		if !was[streamID(h.dims)] {
+			started = append(started, h)
+		}
+	}
+
+	var stopped []map[string]string
+
+	for _, d := range prev {
+		if !is[streamID(d)] {
+			stopped = append(stopped, d)
+		}
+	}
+
+	var out []notice
+
+	if len(started) > 0 {
+		out = append(out, b.notices(a, noticeTypeFiring, now, started, prev)...)
+	}
+
+	if len(stopped) > 0 {
+		out = append(out, b.notices(a, noticeTypeOK, now, nil, stopped)...)
+	}
+
+	return out
 }
 
 func (b *InMemoryBackend) transition(
@@ -179,19 +226,65 @@ func (b *InMemoryBackend) notices(
 
 	a.LastNotified = &now
 
-	title, body, asJSON := renderNotice(a, kind, now, hits)
-
 	var out []notice
 
-	for _, d := range a.Destinations {
-		if strings.HasPrefix(d, destTopicPrefix) {
-			out = append(out, notice{topic: d, title: title, body: body, asJSON: asJSON})
-		} else if strings.HasPrefix(d, destStreamPrefix) {
-			out = append(out, notice{stream: d, title: title, body: body})
+	for _, g := range messageGroups(a, kind, hits, prev) {
+		title, body, asJSON := renderNotice(a, kind, now, g)
+
+		for _, d := range a.Destinations {
+			if strings.HasPrefix(d, destTopicPrefix) {
+				out = append(out, notice{topic: d, title: title, body: body, asJSON: asJSON})
+			} else if strings.HasPrefix(d, destStreamPrefix) {
+				out = append(out, notice{stream: d, title: title, body: body})
+			}
 		}
 	}
 
 	return out
+}
+
+// messageGroups is the streams each message covers: all of them in one grouped message, or one split message
+// per metric stream (for FIRING_TO_OK, per stream that was firing).
+func messageGroups(a *Alarm, kind string, hits []firing, prev []map[string]string) [][]firing {
+	if a.PerDimension == nil || !*a.PerDimension {
+		return [][]firing{hits}
+	}
+
+	items := hits
+
+	if kind == noticeTypeOK {
+		items = make([]firing, 0, len(prev))
+		for _, d := range prev {
+			items = append(items, firing{dims: d})
+		}
+	}
+
+	if len(items) == 0 {
+		return [][]firing{hits}
+	}
+
+	out := make([][]firing, 0, len(items))
+	for _, f := range items {
+		out = append(out, []firing{f})
+	}
+
+	return out
+}
+
+func streamID(dims map[string]string) string {
+	keys := make([]string, 0, len(dims))
+	for k := range dims {
+		keys = append(keys, k)
+	}
+
+	slices.Sort(keys)
+
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, k+"="+dims[k])
+	}
+
+	return strings.Join(parts, ",")
 }
 
 type metaWire struct {
@@ -245,7 +338,14 @@ func renderNotice(a *Alarm, kind string, now time.Time, hits []firing) (string, 
 	if q, err := ParseMQL(a.Query); err == nil {
 		for _, h := range hits {
 			meta.Dimensions = append(meta.Dimensions, h.dims)
-			meta.MetricValues = append(meta.MetricValues, map[string]float64{q.Metric: h.value})
+
+			if kind != noticeTypeOK {
+				meta.MetricValues = append(meta.MetricValues, map[string]float64{q.Metric: h.value})
+			}
+		}
+
+		if kind == noticeTypeOK {
+			meta.TotalMetricsFiring = 0
 		}
 	}
 
@@ -254,10 +354,20 @@ func renderNotice(a *Alarm, kind string, now time.Time, hits []firing) (string, 
 			a.Name, status, a.Severity, a.Namespace, a.Query, summary, a.Body), false
 	}
 
+	dedupe, kindOf := a.ID, "Grouped messages across metric streams"
+
+	if a.PerDimension != nil && *a.PerDimension {
+		kindOf = "Split messages per metric stream"
+
+		if len(hits) == 1 {
+			dedupe = a.ID + ":" + streamID(hits[0].dims)
+		}
+	}
+
 	w := noticeWire{
-		DedupeKey: a.ID, Title: title, Body: a.Body, Type: kind, Severity: a.Severity,
+		DedupeKey: dedupe, Title: title, Body: a.Body, Type: kind, Severity: a.Severity,
 		Timestamp: now.Format(time.RFC3339Nano), TimestampEpochMillis: now.UnixMilli(),
-		NotificationType: "Grouped metrics", AlarmMetaData: []metaWire{meta}, Version: noticeVersion,
+		NotificationType: kindOf, AlarmMetaData: []metaWire{meta}, Version: noticeVersion,
 	}
 
 	var (

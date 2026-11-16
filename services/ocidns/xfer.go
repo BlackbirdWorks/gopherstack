@@ -273,6 +273,7 @@ func (b *InMemoryBackend) applyTransfer(zoneID string, rrs []dns.RR) error {
 		Domain: z.Name, Rtype: rtypeSOA, TTL: int(soa.Hdr.Ttl), Version: serial,
 		Rdata: []string{strings.TrimPrefix(soa.String(), soa.Hdr.String())},
 	}
+	z.archive()
 	z.ApexNS, z.Records, z.Version = apexNS, records, serial
 
 	for _, rs := range records {

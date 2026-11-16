@@ -79,10 +79,12 @@ type Delivery struct {
 }
 
 type job struct {
-	rec    *Delivery
-	ruleID string
-	action Action
-	body   []byte
+	rec         *Delivery
+	ruleID      string
+	compartment string
+	source      string
+	action      Action
+	body        []byte
 }
 
 func buildEnvelope(ev Event, id string) ([]byte, map[string]any, error) {
@@ -149,7 +151,18 @@ func (b *InMemoryBackend) Emit(ev Event) {
 
 	jobs, spawn := b.plan(ev, id, raw, generic)
 
+	b.mu.RLock("Emit")
+	sink := b.ruleSink
+	b.mu.RUnlock()
+
 	for _, j := range jobs {
+		if sink != nil {
+			sink(RuleExecution{
+				Time: j.rec.Time, RuleID: j.ruleID, CompartmentID: j.compartment, EventID: id, Source: j.source,
+				Target: j.rec.TargetID,
+			})
+		}
+
 		spawn(func() { b.finish(j.rec, b.deliver(j)) })
 	}
 }
@@ -199,7 +212,9 @@ func (b *InMemoryBackend) plan(ev Event, id string, raw []byte, generic map[stri
 				ActionType: a.ActionType, TargetID: targetOf(a), Status: deliveryPending,
 			}
 			b.deliveries = append(b.deliveries, rec)
-			jobs = append(jobs, job{rec: rec, action: *a, body: raw, ruleID: r.ID})
+			jobs = append(jobs, job{
+				rec: rec, action: *a, body: raw, ruleID: r.ID, compartment: r.CompartmentID, source: ev.Source,
+			})
 		}
 	}
 

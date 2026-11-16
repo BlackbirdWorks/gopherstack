@@ -260,3 +260,51 @@ func TestAuthEnforcement(t *testing.T) {
 	status, _ = rawDo(t, http.MethodGet, e.base+"/20200531/nope", "")
 	assert.Equal(t, http.StatusNotFound, status)
 }
+
+func TestListInCompartmentSubtree(t *testing.T) {
+	t.Parallel()
+
+	const child = "ocid1.compartment.oc1..child"
+
+	tests := []struct {
+		name    string
+		subtree *bool
+		want    []string
+	}{
+		{"default exact", nil, []string{"parent"}},
+		{"false exact", new(false), []string{"parent"}},
+		{"subtree", new(true), []string{"child", "parent"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, envOpts{})
+			e.backend.SetCompartmentTree(
+				func(id, ancestor string) bool { return id == child && ancestor == testCompartment },
+			)
+
+			for name, comp := range map[string]string{"parent": testCompartment, "child": child} {
+				_, err := e.mgmt.CreateLogGroup(t.Context(), logging.CreateLogGroupRequest{
+					CompartmentId: new(comp), DisplayName: new(name),
+				})
+				require.NoError(t, err)
+			}
+
+			e.settle()
+
+			list, err := e.mgmt.ListLogGroups(t.Context(), logging.ListLogGroupsRequest{
+				CompartmentId: new(testCompartment), IsCompartmentIdInSubtree: tt.subtree,
+			})
+			require.NoError(t, err)
+
+			got := make([]string, 0, len(list.Items))
+			for _, g := range list.Items {
+				got = append(got, *g.DisplayName)
+			}
+
+			assert.ElementsMatch(t, tt.want, got)
+		})
+	}
+}

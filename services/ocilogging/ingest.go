@@ -1,6 +1,7 @@
 package ocilogging
 
 import (
+	"context"
 	"encoding/json/v2"
 	"net/http"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
@@ -130,6 +132,13 @@ func (b *InMemoryBackend) append(logID string, e *Entry) {
 	}
 
 	b.entries[logID] = es
+
+	if l := b.logs[logID]; l != nil && l.Config != nil && l.Config.Archiving != nil && *l.Config.Archiving {
+		l.Archived++
+
+		logger.Load(context.Background()).Debug("ocilogging: would archive entry to Object Storage",
+			"log", logID, "entry", e.ID)
+	}
 }
 
 // ServiceEvent is a log record emitted by another emulated OCI service.

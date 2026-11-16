@@ -3,6 +3,7 @@ package ocidns
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"slices"
 	"strconv"
 	"time"
 )
@@ -96,6 +97,7 @@ type Zone struct {
 	Records      map[string]*RRSet `json:"records"`
 	ApexSOA      *RRSet            `json:"apexSoa,omitempty"`
 	ApexNS       *RRSet            `json:"apexNs,omitempty"`
+	History      []ZoneRevision    `json:"history,omitempty"`
 	meta
 	Tags
 	ID                  string      `json:"id"`
@@ -110,6 +112,49 @@ type Zone struct {
 	ExternalDownstreams []ExtServer `json:"externalDownstreams"`
 	Version             int64       `json:"version"`
 	Seq                 int64       `json:"seq"`
+}
+
+// ZoneRevision is the user records of an earlier zone version.
+type ZoneRevision struct {
+	Records map[string]*RRSet `json:"records"`
+	Version int64             `json:"version"`
+}
+
+// maxZoneRevisions bounds the earlier versions kept per zone.
+const maxZoneRevisions = 20
+
+// archive keeps the current records as an earlier version before they change.
+func (z *Zone) archive() {
+	rev := ZoneRevision{Version: z.Version, Records: make(map[string]*RRSet, len(z.Records))}
+
+	for k, rs := range z.Records {
+		c := *rs
+		c.Rdata = slices.Clone(rs.Rdata)
+		rev.Records[k] = &c
+	}
+
+	z.History = append(z.History, rev)
+	if len(z.History) > maxZoneRevisions {
+		z.History = slices.Delete(z.History, 0, len(z.History)-maxZoneRevisions)
+	}
+}
+
+// at returns the zone as it was at version, or nil when that version is not kept.
+func (z *Zone) at(version int64) *Zone {
+	if version == z.Version {
+		return z
+	}
+
+	for _, rev := range z.History {
+		if rev.Version == version {
+			old := *z
+			old.Records, old.Version = rev.Records, rev.Version
+
+			return &old
+		}
+	}
+
+	return nil
 }
 
 // View is a private DNS view.

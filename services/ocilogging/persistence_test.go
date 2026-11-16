@@ -232,3 +232,40 @@ func TestAdminKeyEndpoint(t *testing.T) {
 	assert.Equal(t, http.StatusOK, status)
 	assert.Contains(t, body, testTenancy)
 }
+
+func TestArchivingRecordsEntries(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		want    string
+		archive bool
+	}{
+		{"enabled", `"archivedEntries":2`, true},
+		{"disabled", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, envOpts{})
+			g := e.mkGroup(t, "arch")
+			l := e.mkLog(t, g, "app", func(d *logging.CreateLogDetails) {
+				d.Configuration = &logging.Configuration{
+					CompartmentId: new(testCompartment), Archiving: &logging.Archiving{IsEnabled: new(tt.archive)},
+				}
+			})
+			e.put(t, l, 0, `{"a":1}`, `{"a":2}`)
+
+			snap := string(e.backend.Snapshot(t.Context()))
+			if tt.want == "" {
+				assert.NotContains(t, snap, "archivedEntries")
+
+				return
+			}
+
+			assert.Contains(t, snap, tt.want)
+		})
+	}
+}

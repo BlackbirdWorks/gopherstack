@@ -82,6 +82,7 @@ type Log struct {
 	Etag         string     `json:"etag"`
 	Retention    int        `json:"retentionDuration"`
 	Seq          int64      `json:"seq"`
+	Archived     int64      `json:"archivedEntries,omitempty"`
 	Enabled      bool       `json:"isEnabled"`
 }
 

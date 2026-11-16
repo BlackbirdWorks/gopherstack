@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	ocievents "github.com/blackbirdworks/gopherstack/services/ocievents"
 	ocifunctionsbackend "github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
 	ocilogging "github.com/blackbirdworks/gopherstack/services/ocilogging"
@@ -168,4 +169,57 @@ func TestWireOCIMonitoringNotifications(t *testing.T) {
 	require.Len(t, deliveries, 1)
 	assert.Contains(t, deliveries[0].Body, "OK_TO_FIRING")
 	assert.Equal(t, "JSON", deliveries[0].MessageType)
+}
+
+func TestRuleExecutionLogger(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		resource string
+		wantHits int
+	}{
+		{"log enabled for the rule", "ocid1.eventrule.oc1..rule", 1},
+		{"log for another rule", "ocid1.eventrule.oc1..other", 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			logH := ocilogging.NewHandler(ocilogging.NewInMemoryBackend())
+			evH := ocievents.NewHandler(ocievents.NewInMemoryBackend())
+			wireOCILoggingMonitoring(map[string]service.Registerable{"OCILogging": logH, "OCIEvents": evH})
+
+			b := logH.Backend
+			b.SetTransition(0)
+
+			_, err := b.CreateLogGroup(ocilogging.CreateLogGroupIn{Name: "g", Compartment: wireCompartment})
+			require.NoError(t, err)
+
+			groups, err := b.ListLogGroups(wireCompartment, "", ocilogging.ListOpts{})
+			require.NoError(t, err)
+			require.Len(t, groups.Data, 1)
+
+			_, err = b.CreateLog(groups.Data[0].ID, ocilogging.CreateLogIn{
+				Name: "ev", LogType: "SERVICE",
+				Configuration: &ocilogging.ConfigWire{Source: &ocilogging.SourceWire{
+					Service: "events", Resource: tt.resource, Category: "ruleexecutionlog",
+				}},
+			})
+			require.NoError(t, err)
+
+			ruleExecutionLogger(b)(ocievents.RuleExecution{
+				Time: time.Now(), RuleID: "ocid1.eventrule.oc1..rule", EventID: "e-1", Target: "ocid1.onstopic.oc1..t",
+			})
+
+			now := time.Now()
+			out, _, err := b.SearchLogs(ocilogging.SearchIn{
+				TimeStart: new(now.Add(-time.Hour)), TimeEnd: new(now.Add(time.Hour)),
+				SearchQuery: `search "` + wireCompartment + `/g/ev" | where data.message = 'Rule has matched event'`,
+			}, "", 0)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantHits, out.Summary.ResultCount)
+		})
+	}
 }

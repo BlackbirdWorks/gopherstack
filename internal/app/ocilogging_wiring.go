@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	ocievents "github.com/blackbirdworks/gopherstack/services/ocievents"
 	ocifunctionsbackend "github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
 	ocilogging "github.com/blackbirdworks/gopherstack/services/ocilogging"
@@ -18,6 +19,9 @@ const (
 	functionsLogService   = "functions"
 	functionsLogCategory  = "invoke"
 	functionsEventType    = "com.oraclecloud.functions.invoke"
+	eventsLogService      = "events"
+	eventsLogCategory     = "ruleexecutionlog"
+	eventsLogType         = "com.oraclecloud.eventsservice.eventrule.ruleexecutionlog"
 )
 
 // GetOCILoggingSettings returns OCI Logging settings (ocilogging.ConfigProvider).
@@ -36,6 +40,7 @@ func wireOCILoggingMonitoring(byName map[string]service.Registerable) {
 		if logH != nil {
 			logH.Backend.Auth.Link(identityH.Backend.Auth)
 			logH.Backend.SetTagLookup(identityH.Backend.TagDefinition)
+			logH.Backend.SetCompartmentTree(identityH.Backend.CompartmentWithin)
 		}
 
 		if monH != nil {
@@ -43,6 +48,10 @@ func wireOCILoggingMonitoring(byName map[string]service.Registerable) {
 			monH.Backend.SetCompartmentTree(ociidentitybackend.TenancyID, identityH.Backend.CompartmentWithin)
 			monH.Backend.SetTagLookup(identityH.Backend.TagDefinition)
 		}
+	}
+
+	if evH, ok := byName["OCIEvents"].(*ocievents.Handler); ok && logH != nil {
+		evH.Backend.SetRuleExecutionSink(ruleExecutionLogger(logH.Backend))
 	}
 
 	if fnH, ok := byName["OCIFunctions"].(*ocifunctionsbackend.Handler); ok && logH != nil {
@@ -79,6 +88,17 @@ func functionLogObserver(b *ocilogging.InMemoryBackend) ocifunctionsbackend.Invo
 
 		b.EmitServiceLog(functionsLogService, ev.AppID, functionsLogCategory, ocilogging.ServiceEvent{
 			Time: ev.Time, Type: functionsEventType, Subject: ev.FunctionID, Data: data,
+		})
+	}
+}
+
+// ruleExecutionLogger writes each rule match to the SERVICE log enabled for the rule.
+func ruleExecutionLogger(b *ocilogging.InMemoryBackend) func(ocievents.RuleExecution) {
+	return func(x ocievents.RuleExecution) {
+		b.EmitServiceLog(eventsLogService, x.RuleID, eventsLogCategory, ocilogging.ServiceEvent{
+			Time: x.Time, Type: eventsLogType, Subject: x.RuleID, Data: map[string]any{
+				"ruleId": x.RuleID, "eventId": x.EventID, keyMessageField: "Rule has matched event", "target": x.Target,
+			},
 		})
 	}
 }

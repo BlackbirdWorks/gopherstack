@@ -2,6 +2,7 @@ package ocilogging
 
 import (
 	"encoding/json/v2"
+	"maps"
 	"net/http"
 	"slices"
 	"strconv"
@@ -173,17 +174,23 @@ func (b *InMemoryBackend) SearchLogs(in SearchIn, token string, limit int) (Sear
 		return compareRows(c, a, []sortKey{{path: []string{fieldTime}}}) // newest first
 	})
 
-	rows, counted := q.apply(rows)
+	rows, counted, cols, aerr := q.apply(rows)
+	if aerr != nil {
+		return SearchOut{}, "", aerr
+	}
 
-	return b.finishSearch(rows, counted, in, token, limit)
+	return b.finishSearch(rows, counted, cols, in, token, limit)
 }
 
 func (b *InMemoryBackend) finishSearch(
-	rows []*row, counted *int, in SearchIn, token string, limit int,
+	rows []*row, counted *int, cols []string, in SearchIn, token string, limit int,
 ) (SearchOut, string, error) {
 	out := SearchOut{Results: []searchResultWire{}}
 
 	fields := []string{fieldTime, fieldRaw, fieldRegion}
+	if cols != nil {
+		fields = cols
+	}
 
 	if counted != nil {
 		out.Results = append(out.Results, searchResultWire{Data: map[string]any{kindCount: *counted}})
@@ -192,9 +199,15 @@ func (b *InMemoryBackend) finishSearch(
 	} else {
 		pg := page.New(rows, token, limit, defaultSearchLimit)
 		for _, r := range pg.Data {
-			out.Results = append(out.Results, searchResultWire{Data: map[string]any{
-				fieldTime: int64(r.ms), fieldRaw: r.ce, fieldRegion: Region,
-			}})
+			if r.projected {
+				out.Results = append(out.Results, searchResultWire{Data: r.cols})
+
+				continue
+			}
+
+			data := map[string]any{fieldTime: int64(r.ms), fieldRaw: r.ce, fieldRegion: Region}
+			maps.Copy(data, r.cols)
+			out.Results = append(out.Results, searchResultWire{Data: data})
 		}
 
 		out.Summary = searchSummaryWire{ResultCount: len(pg.Data), FieldCount: len(fields)}
