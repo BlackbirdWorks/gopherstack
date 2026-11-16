@@ -27,3 +27,7 @@ func errPrecondition(format string, a ...any) error {
 }
 
 func errUnsupported(msg string) error { return status.Error(codes.Unimplemented, msg) }
+
+func errExhausted(format string, a ...any) error {
+	return status.Error(codes.ResourceExhausted, fmt.Sprintf(format, a...))
+}

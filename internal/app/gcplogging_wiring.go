@@ -11,6 +11,7 @@ import (
 	gcpbigquerybackend "github.com/blackbirdworks/gopherstack/services/gcpbigquery"
 	gcploggingbackend "github.com/blackbirdworks/gopherstack/services/gcplogging"
 	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
+	gcpresourcemanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpresourcemanager"
 	gcpstoragebackend "github.com/blackbirdworks/gopherstack/services/gcpstorage"
 )
 
@@ -132,5 +133,36 @@ func wireGCPLogging(byName map[string]service.Registerable) {
 		logH.Backend.SetTableStore(logSinkTables{b: bq.Backend})
 	}
 
+	if rm, isRM := byName["GCPResourceManager"].(*gcpresourcemanagerbackend.Handler); isRM {
+		logH.Backend.SetAncestryResolver(projectAncestors(rm.Backend))
+	}
+
 	wireGCPLogCapture(byName)
+}
+
+const maxAncestryDepth = 12
+
+// projectAncestors resolves the folders and organization above a project in the Resource Manager emulator.
+func projectAncestors(rm *gcpresourcemanagerbackend.InMemoryBackend) gcploggingbackend.AncestryResolver {
+	return func(project string) []string {
+		p, err := rm.GetProject(project)
+		if err != nil {
+			return nil
+		}
+
+		var chain []string
+
+		for parent := p.GetParent(); parent != "" && len(chain) < maxAncestryDepth; {
+			chain = append(chain, parent)
+
+			f, ferr := rm.GetFolder(parent)
+			if ferr != nil {
+				break
+			}
+
+			parent = f.GetParent()
+		}
+
+		return chain
+	}
 }

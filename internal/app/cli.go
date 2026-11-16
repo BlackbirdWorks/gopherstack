@@ -4058,6 +4058,7 @@ func wireMessagingAndEventingIntegrations(byName map[string]service.Registerable
 	wireSignin(byName)
 	wireS3VectorsKMS(byName)
 	wireGCPCMEK(byName)
+	wireGCPPubSubIdentity(byName)
 	wireAWSKeyLookups(byName)
 
 	// Wire AWS Config's DeliverConfigSnapshot to S3 (and SNS, when a

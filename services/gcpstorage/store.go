@@ -35,6 +35,7 @@ type InMemoryBackend struct {
 	mu        *lockmetrics.RWMutex
 	buckets   map[string]*Bucket
 	uploads   map[string]*uploadSession
+	mpus      map[string]*xmlUpload
 	hmac      map[string]*HMACKey
 	softBkts  []*Bucket
 	clock     atomic.Pointer[clockFn]
@@ -54,6 +55,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		mu:      lockmetrics.New("gcpstorage"),
 		buckets: make(map[string]*Bucket),
 		uploads: make(map[string]*uploadSession),
+		mpus:    make(map[string]*xmlUpload),
 		hmac:    make(map[string]*HMACKey),
 	}
 }
@@ -65,6 +67,7 @@ func (b *InMemoryBackend) Reset() {
 
 	b.buckets = make(map[string]*Bucket)
 	b.uploads = make(map[string]*uploadSession)
+	b.mpus = make(map[string]*xmlUpload)
 	b.hmac = make(map[string]*HMACKey)
 	b.softBkts = nil
 	b.lastGen = 0
@@ -192,6 +195,10 @@ func (b *InMemoryBackend) createBucket(project string, p Patch) (*Bucket, error)
 		return nil, apiErr
 	}
 
+	if apiErr := bk.finalizeAutoclass(autoclassState{}, now); apiErr != nil {
+		return nil, apiErr
+	}
+
 	if len(bk.Labels) > maxLabelCount {
 		return nil, errInvalid("Too many labels.")
 	}
@@ -280,6 +287,7 @@ func (b *InMemoryBackend) updateBucket(name string, p Patch, replace bool, pre P
 	}
 
 	prevRet, prevSoft := bk.policyState()
+	prevAuto := bk.autoclass()
 	next := bk.clone()
 	next.Objects, next.SoftDeleted = bk.Objects, bk.SoftDeleted
 
@@ -292,6 +300,10 @@ func (b *InMemoryBackend) updateBucket(name string, p Patch, replace bool, pre P
 	}
 
 	if apiErr := next.finalizePolicies(prevRet, prevSoft, b.now().UTC()); apiErr != nil {
+		return nil, apiErr
+	}
+
+	if apiErr := next.finalizeAutoclass(prevAuto, b.now().UTC()); apiErr != nil {
 		return nil, apiErr
 	}
 
@@ -414,6 +426,14 @@ func (b *InMemoryBackend) newObject(bk *Bucket, name string, data []byte, p Patc
 
 	if apiErr := applyObject(o, p); apiErr != nil {
 		return nil, apiErr
+	}
+
+	if apiErr := b.applyObjectRetention(bk, o, nil, p, now); apiErr != nil {
+		return nil, apiErr
+	}
+
+	if bk.autoclass().enabled {
+		o.StorageClass, o.Accessed = classStandard, now
 	}
 
 	if o.ContentType == "" {
@@ -558,6 +578,10 @@ func (b *InMemoryBackend) UpdateObject(
 		return nil, apiErr
 	}
 
+	if apiErr := b.applyObjectRetention(bk, next, cur, p, b.now().UTC()); apiErr != nil {
+		return nil, apiErr
+	}
+
 	if next.ContentType == "" {
 		next.ContentType = defaultContentType
 	}
@@ -613,6 +637,12 @@ func (b *InMemoryBackend) DeleteObject(bucket, name string, gen int64, pre Preco
 
 	if apiErr := b.guardMutation(bk, cur); apiErr != nil {
 		return apiErr
+	}
+
+	if gen != 0 {
+		if apiErr := b.guardObjectRetention(bk, cur, true); apiErr != nil {
+			return apiErr
+		}
 	}
 
 	if gen == 0 && bk.Versioning {

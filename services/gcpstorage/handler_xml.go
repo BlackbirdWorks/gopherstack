@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"net/http"
-	"strings"
 
 	"github.com/labstack/echo/v5"
 )
@@ -88,6 +87,10 @@ func (h *Handler) xmlGetObject(c *echo.Context, rt route) error {
 		return apiErr
 	}
 
+	if c.Request().Method != http.MethodHead {
+		h.Backend.NoteRead(rt.bucket, rt.object, gen)
+	}
+
 	serveObject(c, o)
 
 	return nil
@@ -111,34 +114,16 @@ func xmlPreconds(hdr http.Header) Preconds {
 func (h *Handler) xmlPutObject(c *echo.Context, rt route) error {
 	r := c.Request()
 
+	if r.Header.Get(copySourceHeader) != "" {
+		return h.xmlCopyObject(c, rt)
+	}
+
 	data, err := readBody(c)
 	if err != nil {
 		return err
 	}
 
-	meta := Patch{}
-
-	for k, v := range map[string]string{
-		keyContentType: r.Header.Get("Content-Type"), keyContentEncoding: r.Header.Get("Content-Encoding"),
-		keyCacheControl: r.Header.Get("Cache-Control"), keyContentDisposition: r.Header.Get("Content-Disposition"),
-		keyContentLanguage: r.Header.Get("Content-Language"), keyStorageClass: r.Header.Get("X-Goog-Storage-Class"),
-	} {
-		if v != "" {
-			meta[k] = marshalRaw(v)
-		}
-	}
-
-	custom := map[string]string{}
-
-	for k, v := range r.Header {
-		if len(v) > 0 && strings.HasPrefix(k, metaHeaderPrefix) {
-			custom[strings.ToLower(k[len(metaHeaderPrefix):])] = v[0]
-		}
-	}
-
-	if len(custom) > 0 {
-		meta[keyMetadata] = marshalRaw(custom)
-	}
+	meta := xmlObjectMeta(r)
 
 	meta, apiErr := withUploadKey(r, meta)
 	if apiErr != nil {

@@ -128,6 +128,10 @@ func (b *InMemoryBackend) ListLogEntries(req *loggingpb.ListLogEntriesRequest) (
 		return nil, "", err
 	}
 
+	if err = b.checkReadable(srcs); err != nil {
+		return nil, "", err
+	}
+
 	f, err := compileFilter(req.GetFilter())
 	if err != nil {
 		return nil, "", err

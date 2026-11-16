@@ -27,7 +27,7 @@ func validateBucketFields(bk *loggingpb.LogBucket) error {
 		return errInvalid("Bucket description is too long.")
 	}
 
-	return nil
+	return validateBucketIndexing(bk)
 }
 
 // purgeDeletedLocked removes buckets whose undelete window has passed.
@@ -80,10 +80,15 @@ func (b *InMemoryBackend) CreateBucket(req *loggingpb.CreateBucketRequest) (*log
 		return nil, errExists("Bucket %s already exists.", name)
 	}
 
+	if err := b.checkBucketCountLocked(m[1]); err != nil {
+		return nil, err
+	}
+
 	now := timestamppb.New(b.now())
 	pb, _ := proto.Clone(in).(*loggingpb.LogBucket)
 	pb.Name, pb.CreateTime, pb.UpdateTime = name, now, now
 	pb.LifecycleState = loggingpb.LifecycleState_ACTIVE
+	stampIndexConfigs(nil, pb, now.AsTime())
 
 	if pb.GetRetentionDays() == 0 {
 		pb.RetentionDays = defaultRetentionDays
@@ -168,6 +173,23 @@ func pageTokenOK(token string) error {
 	return nil
 }
 
+func applyBucketIndexing(cur, src *loggingpb.LogBucket, path string) error {
+	switch path {
+	case "restricted_fields":
+		cur.RestrictedFields = src.GetRestrictedFields()
+	case "index_configs":
+		cur.IndexConfigs = src.GetIndexConfigs()
+	default:
+		if cur.GetAnalyticsEnabled() && !src.GetAnalyticsEnabled() {
+			return errPrecondition("Log analytics cannot be disabled once enabled.")
+		}
+
+		cur.AnalyticsEnabled = src.GetAnalyticsEnabled()
+	}
+
+	return nil
+}
+
 func applyBucketMask(cur, src *loggingpb.LogBucket, paths []string) error {
 	for _, p := range paths {
 		switch p {
@@ -185,12 +207,10 @@ func applyBucketMask(cur, src *loggingpb.LogBucket, paths []string) error {
 			}
 
 			cur.Locked = src.GetLocked()
-		case "restricted_fields":
-			cur.RestrictedFields = src.GetRestrictedFields()
-		case "index_configs":
-			cur.IndexConfigs = src.GetIndexConfigs()
-		case "analytics_enabled":
-			cur.AnalyticsEnabled = src.GetAnalyticsEnabled()
+		case "restricted_fields", "index_configs", "analytics_enabled":
+			if err := applyBucketIndexing(cur, src, p); err != nil {
+				return err
+			}
 		case "cmek_settings":
 			cur.CmekSettings = src.GetCmekSettings()
 		default:
@@ -255,6 +275,7 @@ func (b *InMemoryBackend) UpdateBucket(req *loggingpb.UpdateBucketRequest) (*log
 	}
 
 	next.UpdateTime = timestamppb.New(b.now())
+	stampIndexConfigs(bd.pb, next, b.now())
 	bd.pb = next
 	b.expireLocked(bd)
 

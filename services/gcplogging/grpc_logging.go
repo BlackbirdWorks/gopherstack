@@ -25,6 +25,10 @@ func (s *loggingServer) WriteLogEntries(
 func (s *loggingServer) ListLogEntries(
 	_ context.Context, in *loggingpb.ListLogEntriesRequest,
 ) (*loggingpb.ListLogEntriesResponse, error) {
+	if err := s.b.admitList(in.GetResourceNames()); err != nil {
+		return nil, err
+	}
+
 	entries, next, err := s.b.ListLogEntries(in)
 	if err != nil {
 		return nil, err

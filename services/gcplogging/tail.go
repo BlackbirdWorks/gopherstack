@@ -1,6 +1,7 @@
 package gcplogging
 
 import (
+	"slices"
 	"time"
 
 	"cloud.google.com/go/logging/apiv2/loggingpb"
@@ -23,19 +24,27 @@ type tailSub struct {
 	parents map[string]struct{}
 	f       *filter
 	dropped int32
+	limited int32
+}
+
+type tailRate struct {
+	start time.Time
+	count int
 }
 
 type tailHub struct {
-	mu   *lockmetrics.RWMutex
-	subs map[*tailSub]struct{}
-	done chan struct{}
+	mu    *lockmetrics.RWMutex
+	subs  map[*tailSub]struct{}
+	rates map[string]*tailRate
+	done  chan struct{}
 }
 
 func newTailHub() *tailHub {
 	return &tailHub{
-		mu:   lockmetrics.New("gcplogging.tail"),
-		subs: make(map[*tailSub]struct{}),
-		done: make(chan struct{}),
+		mu:    lockmetrics.New("gcplogging.tail"),
+		subs:  make(map[*tailSub]struct{}),
+		rates: make(map[string]*tailRate),
+		done:  make(chan struct{}),
 	}
 }
 
@@ -43,8 +52,18 @@ func (h *tailHub) add(s *tailSub) error {
 	h.mu.Lock("add")
 	defer h.mu.Unlock()
 
-	if len(h.subs) >= maxTailSubs {
-		return status.Error(codes.ResourceExhausted, "Too many concurrent tailing sessions.")
+	for p := range s.parents {
+		open := 0
+
+		for o := range h.subs {
+			if _, ok := o.parents[p]; ok {
+				open++
+			}
+		}
+
+		if open >= maxTailSubs {
+			return status.Errorf(codes.ResourceExhausted, "%s already has %d open tailing sessions.", p, maxTailSubs)
+		}
 	}
 
 	h.subs[s] = struct{}{}
@@ -58,24 +77,48 @@ func (h *tailHub) remove(s *tailSub) {
 	h.mu.Unlock()
 }
 
-// takeDropped returns and clears the count of entries the subscriber missed.
-func (h *tailHub) takeDropped(s *tailSub) int32 {
-	h.mu.Lock("takeDropped")
+// takeSuppressed returns and clears the counts of entries withheld by the quota and by a slow consumer.
+func (h *tailHub) takeSuppressed(s *tailSub) (int32, int32) {
+	h.mu.Lock("takeSuppressed")
 	defer h.mu.Unlock()
 
-	n := s.dropped
-	s.dropped = 0
+	limited, dropped := s.limited, s.dropped
+	s.limited, s.dropped = 0, 0
 
-	return n
+	return limited, dropped
 }
 
-func (h *tailHub) publish(entries []*loggingpb.LogEntry) {
+// allow charges one delivered entry to a parent and reports whether the per-minute tailing quota has room.
+func (h *tailHub) allow(parent string, now time.Time) bool {
+	r := h.rates[parent]
+	if r == nil || now.Sub(r.start) >= quotaWindow {
+		r = &tailRate{start: now}
+		h.rates[parent] = r
+	}
+
+	if r.count >= tailEntriesPerMinute {
+		return false
+	}
+
+	r.count++
+
+	return true
+}
+
+func (h *tailHub) publish(entries []*loggingpb.LogEntry, now time.Time) {
 	h.mu.Lock("publish")
 	defer h.mu.Unlock()
 
 	for s := range h.subs {
 		for _, e := range entries {
-			if _, ok := s.parents[parentOf(e.GetLogName())]; !ok || !s.f.matches(newDoc(e)) {
+			parent := parentOf(e.GetLogName())
+			if _, ok := s.parents[parent]; !ok || !s.f.matches(newDoc(e)) {
+				continue
+			}
+
+			if !h.allow(parent, now) {
+				s.limited++
+
 				continue
 			}
 
@@ -134,7 +177,23 @@ func (b *InMemoryBackend) newTail(req *loggingpb.TailLogEntriesRequest) (*tailSu
 	return sub, b.tails.add(sub)
 }
 
-// Tail streams new matching entries to send until the client goes away or the server stops.
+const defaultBufferWindow = 2 * time.Second
+
+func tailWindow(req *loggingpb.TailLogEntriesRequest) time.Duration {
+	if w := req.GetBufferWindow(); w != nil {
+		return w.AsDuration()
+	}
+
+	return defaultBufferWindow
+}
+
+type heldEntry struct {
+	due   time.Time
+	entry *loggingpb.LogEntry
+}
+
+// Tail streams new matching entries to send until the client goes away or the server stops. Entries wait
+// buffer_window on the server and leave in timestamp order, so late arrivals do not reach the client out of order.
 func (b *InMemoryBackend) Tail(
 	stream loggingpb.LoggingServiceV2_TailLogEntriesServer,
 	req *loggingpb.TailLogEntriesRequest,
@@ -148,21 +207,80 @@ func (b *InMemoryBackend) Tail(
 
 	ctx := stream.Context()
 	done := b.tails.doneChan()
+	window := tailWindow(req)
 
 	go drainRecv(stream)
 
+	var held []heldEntry
+
+	timer := time.NewTimer(time.Hour)
+	defer timer.Stop()
+
 	for {
+		var due <-chan time.Time
+
+		if len(held) > 0 {
+			timer.Reset(max(time.Until(held[0].due), 0))
+			due = timer.C
+		}
+
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-done:
 			return status.Error(codes.Unavailable, "server is shutting down")
 		case e := <-sub.ch:
-			if err = b.sendBatch(stream, sub, e); err != nil {
-				return err
+			if window == 0 {
+				err = b.sendEntries(stream, sub, drainReady(sub, e))
+			} else if held = append(held, heldEntry{due: time.Now().Add(window), entry: e}); len(held) >= tailBuffer {
+				err, held = b.flushHeld(stream, sub, held), nil
 			}
+		case <-due:
+			err, held = b.flushHeld(stream, sub, held), nil
+		}
+
+		if err != nil {
+			return err
 		}
 	}
+}
+
+// drainReady collects first and every entry already queued, up to one batch.
+func drainReady(sub *tailSub, first *loggingpb.LogEntry) []*loggingpb.LogEntry {
+	out := []*loggingpb.LogEntry{first}
+
+	for len(out) < tailBatch {
+		select {
+		case e := <-sub.ch:
+			out = append(out, e)
+
+			continue
+		default:
+		}
+
+		break
+	}
+
+	return out
+}
+
+// flushHeld sends every held entry, ordered by timestamp: the oldest one's window has elapsed, and entries that
+// arrived within it leave together so a late arrival is not delivered after a newer entry.
+func (b *InMemoryBackend) flushHeld(
+	stream loggingpb.LoggingServiceV2_TailLogEntriesServer,
+	sub *tailSub,
+	held []heldEntry,
+) error {
+	ready := make([]*loggingpb.LogEntry, len(held))
+	for i, h := range held {
+		ready[i] = h.entry
+	}
+
+	slices.SortStableFunc(ready, func(a, c *loggingpb.LogEntry) int {
+		return a.GetTimestamp().AsTime().Compare(c.GetTimestamp().AsTime())
+	})
+
+	return b.sendEntries(stream, sub, ready)
 }
 
 // drainRecv consumes further client messages so the receive side never blocks.
@@ -174,31 +292,50 @@ func drainRecv(stream loggingpb.LoggingServiceV2_TailLogEntriesServer) {
 	}
 }
 
-func (b *InMemoryBackend) sendBatch(
+func (b *InMemoryBackend) sendEntries(
 	stream loggingpb.LoggingServiceV2_TailLogEntriesServer,
 	sub *tailSub,
-	first *loggingpb.LogEntry,
+	entries []*loggingpb.LogEntry,
 ) error {
-	resp := &loggingpb.TailLogEntriesResponse{Entries: []*loggingpb.LogEntry{first}}
+	limited, dropped := b.tails.takeSuppressed(sub)
 
-	for len(resp.GetEntries()) < tailBatch {
-		select {
-		case e := <-sub.ch:
-			resp.Entries = append(resp.Entries, e)
+	for first := true; first || len(entries) > 0; first = false {
+		n := min(len(entries), tailBatch)
+		resp := &loggingpb.TailLogEntriesResponse{Entries: entries[:n]}
+		entries = entries[n:]
 
-			continue
-		default:
+		if first {
+			resp.SuppressionInfo = suppression(limited, dropped)
 		}
 
-		break
+		if len(resp.GetEntries()) == 0 && len(resp.GetSuppressionInfo()) == 0 {
+			return nil
+		}
+
+		if err := stream.Send(resp); err != nil {
+			return err
+		}
 	}
 
-	if n := b.tails.takeDropped(sub); n > 0 {
-		resp.SuppressionInfo = []*loggingpb.TailLogEntriesResponse_SuppressionInfo{{
+	return nil
+}
+
+func suppression(limited, dropped int32) []*loggingpb.TailLogEntriesResponse_SuppressionInfo {
+	var out []*loggingpb.TailLogEntriesResponse_SuppressionInfo
+
+	if limited > 0 {
+		out = append(out, &loggingpb.TailLogEntriesResponse_SuppressionInfo{
 			Reason:          loggingpb.TailLogEntriesResponse_SuppressionInfo_RATE_LIMIT,
-			SuppressedCount: n,
-		}}
+			SuppressedCount: limited,
+		})
 	}
 
-	return stream.Send(resp)
+	if dropped > 0 {
+		out = append(out, &loggingpb.TailLogEntriesResponse_SuppressionInfo{
+			Reason:          loggingpb.TailLogEntriesResponse_SuppressionInfo_NOT_CONSUMED,
+			SuppressedCount: dropped,
+		})
+	}
+
+	return out
 }

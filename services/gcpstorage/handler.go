@@ -65,7 +65,10 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 		opRewriteObject: h.copyObject, opComposeObject: h.composeObject, opInsertObject: h.insertObject,
 		opResumableUpload: h.resumableUpload, opCancelUpload: h.cancelUpload, opDownloadObject: h.downloadObject,
 		opXMLGetObject: h.xmlGetObject, opXMLHeadObject: h.xmlGetObject, opXMLPutObject: h.xmlPutObject,
-		opXMLDeleteObject:    h.xmlDeleteObject,
+		opXMLDeleteObject: h.xmlDeleteObject,
+		opXMLListObjects:  h.xmlListObjects, opXMLInitiateMPU: h.xmlInitiateMultipart,
+		opXMLUploadPart: h.xmlUploadPart, opXMLCompleteMPU: h.xmlCompleteMultipart,
+		opXMLAbortMPU:        h.xmlAbortMultipart,
 		opInsertNotification: h.insertNotification, opGetNotification: h.getNotification,
 		opListNotifications: h.listNotifications, opDeleteNotification: h.deleteNotification,
 		opLockRetention: h.lockRetentionPolicy, opRestoreObject: h.restoreObject,
@@ -89,7 +92,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		opGetIamPolicy, opSetIamPolicy, opTestIamPermissions, opListObjects, opGetObject, opPatchObject,
 		opUpdateObject, opDeleteObject, opCopyObject, opRewriteObject, opComposeObject, opInsertObject,
 		opResumableUpload, opCancelUpload, opDownloadObject, opXMLGetObject, opXMLHeadObject,
-		opXMLPutObject, opXMLDeleteObject, opInsertNotification, opGetNotification, opListNotifications,
+		opXMLPutObject, opXMLDeleteObject, opXMLListObjects, opXMLInitiateMPU, opXMLUploadPart,
+		opXMLCompleteMPU, opXMLAbortMPU, opInsertNotification, opGetNotification, opListNotifications,
 		opDeleteNotification, opLockRetention, opRestoreObject, opCreateHMACKey, opGetHMACKey, opListHMACKeys,
 		opUpdateHMACKey, opDeleteHMACKey, opGetServiceAccount, opRestoreBucket,
 	}...)
@@ -123,6 +127,10 @@ func (h *Handler) Reset() { h.Backend.Reset() }
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		rt := parseRoute(c.Request())
+
+		if h.handleCORS(c) {
+			return nil
+		}
 
 		if apiErr := h.authenticate(c.Request()); apiErr != nil {
 			return h.fail(c, apiErr, strings.HasPrefix(rt.op, "XML") || rt.op == opDownloadObject)

@@ -186,6 +186,10 @@ func (b *InMemoryBackend) ComposeObject(
 			return nil, apiErr
 		}
 
+		if apiErr := checkAutoclassCompose(bk, src); apiErr != nil {
+			return nil, apiErr
+		}
+
 		data = append(data, src.Data...)
 		count += max(src.ComponentCount, 1)
 	}

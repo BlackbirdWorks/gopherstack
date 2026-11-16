@@ -1,6 +1,7 @@
 package gcpstorage
 
 import (
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -33,6 +34,11 @@ const (
 	opXMLHeadObject       = "XMLHeadObject"
 	opXMLPutObject        = "XMLPutObject"
 	opXMLDeleteObject     = "XMLDeleteObject"
+	opXMLListObjects      = "XMLListObjects"
+	opXMLInitiateMPU      = "XMLInitiateMultipartUpload"
+	opXMLUploadPart       = "XMLUploadPart"
+	opXMLCompleteMPU      = "XMLCompleteMultipartUpload"
+	opXMLAbortMPU         = "XMLAbortMultipartUpload"
 	opInsertNotification  = "InsertNotification"
 	opGetNotification     = "GetNotification"
 	opListNotifications   = "ListNotifications"
@@ -113,8 +119,25 @@ func parseRoute(r *http.Request) route {
 
 		return route{op: unknownOperation}
 	default:
-		return xmlRoute(r.Method, segs)
+		return xmlRoute(r.Method, virtualHostSegments(r.Host, segs), r.URL.Query())
 	}
+}
+
+const virtualHostSuffix = ".storage.googleapis.com"
+
+// virtualHostSegments turns a virtual-hosted-style request (BUCKET.storage.googleapis.com/OBJECT) into the
+// path-style segments (BUCKET/OBJECT); other hosts keep the path as is.
+func virtualHostSegments(host string, segs []string) []string {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+
+	bucket, ok := strings.CutSuffix(strings.ToLower(host), virtualHostSuffix)
+	if !ok || bucket == "" {
+		return segs
+	}
+
+	return append([]string{bucket}, segs...)
 }
 
 func uploadRoute(method string, s []string, session bool) route {
@@ -136,14 +159,24 @@ func uploadRoute(method string, s []string, session bool) route {
 	return rt
 }
 
-func xmlRoute(method string, segs []string) route {
+func xmlRoute(method string, segs []string, q url.Values) route {
 	const minXMLSegments = 2
+
+	if len(segs) == 1 && method == http.MethodGet {
+		return route{bucket: segs[0], op: opXMLListObjects}
+	}
 
 	if len(segs) < minXMLSegments {
 		return route{op: unknownOperation}
 	}
 
 	rt := route{bucket: segs[0], object: strings.Join(segs[1:], "/"), op: unknownOperation}
+
+	if op := multipartOp(method, q); op != "" {
+		rt.op = op
+
+		return rt
+	}
 
 	switch method {
 	case http.MethodGet:
@@ -368,4 +401,19 @@ func aclOp(method string, withEntity bool, kind aclKind) string {
 	}
 
 	return verb + aclFamily(kind)
+}
+
+func multipartOp(method string, q url.Values) string {
+	switch {
+	case method == http.MethodPost && q.Has("uploads"):
+		return opXMLInitiateMPU
+	case method == http.MethodPut && q.Has("uploadId") && q.Has("partNumber"):
+		return opXMLUploadPart
+	case method == http.MethodPost && q.Has("uploadId"):
+		return opXMLCompleteMPU
+	case method == http.MethodDelete && q.Has("uploadId"):
+		return opXMLAbortMPU
+	default:
+		return ""
+	}
 }

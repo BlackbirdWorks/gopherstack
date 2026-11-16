@@ -130,6 +130,10 @@ func (b *InMemoryBackend) CreateLogMetric(req *loggingpb.CreateLogMetricRequest)
 		return nil, errExists("Metric %s already exists.", m.GetName())
 	}
 
+	if countErr := b.checkMetricCountLocked(parent); countErr != nil {
+		return nil, countErr
+	}
+
 	now := timestamppb.New(b.now())
 	m.CreateTime, m.UpdateTime = now, now
 	b.metrics[key] = &metricRec{pb: m, compiled: cm, series: map[string]*seriesRec{}}

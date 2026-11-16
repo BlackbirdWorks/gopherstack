@@ -147,3 +147,60 @@ func TestCmekKeyValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestReadsFailWhenKeyUnavailable(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(*testing.T, *gcplogging.InMemoryBackend)
+		name    string
+		resName string
+	}{
+		{
+			name:    "bucket key",
+			resName: proj + "/locations/us-east1/buckets/b",
+			setup: func(t *testing.T, b *gcplogging.InMemoryBackend) {
+				t.Helper()
+
+				_, err := b.CreateBucket(&loggingpb.CreateBucketRequest{
+					Parent: proj + "/locations/us-east1", BucketId: "b",
+					Bucket: &loggingpb.LogBucket{CmekSettings: &loggingpb.CmekSettings{KmsKeyName: keyEast}},
+				})
+				require.NoError(t, err)
+			},
+		},
+		{
+			name:    "organization key",
+			resName: "organizations/1",
+			setup: func(t *testing.T, b *gcplogging.InMemoryBackend) {
+				t.Helper()
+
+				_, err := b.UpdateCmekSettings(&loggingpb.UpdateCmekSettingsRequest{
+					Name:         "organizations/1/cmekSettings",
+					CmekSettings: &loggingpb.CmekSettings{KmsKeyName: keyEast},
+				})
+				require.NoError(t, err)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			kb := newKMS(t)
+			b := gcplogging.NewInMemoryBackend()
+			b.SetKeyChecker(kb)
+			tt.setup(t, b)
+
+			req := &loggingpb.ListLogEntriesRequest{ResourceNames: []string{tt.resName}}
+			_, _, err := b.ListLogEntries(req)
+			require.NoError(t, err, "readable while the key is enabled")
+
+			disableKey(t, kb, keyEast)
+
+			_, _, err = b.ListLogEntries(req)
+			require.Equal(t, codes.FailedPrecondition, status.Code(err))
+		})
+	}
+}

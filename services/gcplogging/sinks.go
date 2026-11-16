@@ -190,6 +190,10 @@ func (b *InMemoryBackend) CreateSink(req *loggingpb.CreateSinkRequest) (*logging
 		return nil, errExists("Sink %s already exists.", in.GetName())
 	}
 
+	if err := b.checkSinkCountLocked(parent); err != nil {
+		return nil, err
+	}
+
 	now := timestamppb.New(b.now())
 	sink := cloneSink(in)
 	sink.WriterIdentity = writerIdentity(parent, in.GetName(), uniqueIdentity(parent, req.GetUniqueWriterIdentity()))

@@ -204,10 +204,14 @@ func (b *InMemoryBackend) RunLifecycle() {
 }
 
 func (b *InMemoryBackend) sweepBucketLocked(bk *Bucket, now time.Time) {
+	b.sweepAutoclassLocked(bk, now)
+
 	rules := lifecycleRules(bk)
 	if len(rules) == 0 {
 		return
 	}
+
+	b.sweepMultipartLocked(bk, rules, now)
 
 	for _, versions := range bk.Objects {
 		for i, o := range slices.Clone(versions) {

@@ -136,7 +136,11 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	workerCtx := logger.WithWorker(ctx, "gcplogging", "listener")
 	log := logger.Load(workerCtx)
 
-	srv := gcpenforce.NewServer(ctx, "logging.googleapis.com", grpc.UnaryInterceptor(logInterceptor(log)))
+	srv := gcpenforce.NewServer(
+		ctx, "logging.googleapis.com",
+		grpc.UnaryInterceptor(logInterceptor(log)),
+		grpc.MaxRecvMsgSize(maxWriteRequestBytes+recvSlack),
+	)
 	registerServers(srv, h.Backend)
 
 	h.srvMu.Lock("StartWorker")

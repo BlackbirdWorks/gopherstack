@@ -90,6 +90,7 @@ func (h *Handler) getObject(c *echo.Context, rt route) error {
 	}
 
 	if media {
+		h.Backend.NoteRead(rt.bucket, rt.object, gen)
 		serveObject(c, o)
 
 		return nil
@@ -114,6 +115,7 @@ func (h *Handler) downloadObject(c *echo.Context, rt route) error {
 		return apiErr
 	}
 
+	h.Backend.NoteRead(rt.bucket, rt.object, gen)
 	serveObject(c, o)
 
 	return nil
@@ -130,7 +132,7 @@ func (h *Handler) updateObject(c *echo.Context, rt route) error {
 		return err
 	}
 
-	p = withACLParams(c, p, keyPredefined)
+	p = withACLParams(c, p, keyPredefined, keyOverrideUnlocked)
 
 	o, err := h.Backend.UpdateObject(rt.bucket, rt.object, gen, p, c.Request().Method == http.MethodPut, pre)
 	if err != nil {

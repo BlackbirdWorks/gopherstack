@@ -60,12 +60,9 @@ families:
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state. RPC failures are logged at debug; gRPC calls are not fed to the shared telemetry operation metrics."}
   audit_logs: {status: ok, note: "ObserveEntries lets Eventarc see every entry after it is stored; audit-log entries written by other emulators (pkgs/gcpaudit) are ordinary entries of the cloudaudit.googleapis.com/activity and data_access logs."}
 items_still_open:
-  - "Sinks on folders, organizations and billing accounts are stored, but include_children aggregation is not applied: only entries written to that parent's own logs are routed."
-  - "A missing sink destination is not rejected at create time (the sinks.create reference does not say the destination must exist) and only logs a warning when an entry is exported; the live service reports a failed export through the sink writer permission, which is not modelled."
+  - "Sinks on billing accounts store include_children, but the project-to-billing-account association is not modelled, so only entries written to the billing account's own logs are routed. Folder and organization sinks aggregate through the Resource Manager emulator when it is wired."
   - "Cloud Storage export appends to the hourly object immediately instead of batching with the live service's delay; BigQuery tables use a fixed schema with JSON columns instead of the live typed schema, and partitioned tables are plain tables."
-  - "ListLogEntries and routing do not fail after a bucket's or the organization's CMEK key becomes unavailable (the docs say queries stop functioning); nothing is encrypted."
-  - "Error message texts of the live service, quota errors (60 ListLogEntries requests per minute, 10 tail sessions, 60000 tail entries per minute, 1000 resource names per write) and SaveStatus details are not modelled or not documented; Tail does not buffer entries for buffer_window and sends no keepalives."
-  - "Bucket index_configs, restricted_fields and analytics_enabled are stored but have no effect on queries."
+  - "restricted_fields hide fields only from principals without logging.fields.access, which needs IAM evaluation (out of scope), and analytics_enabled does not enable Log Analytics SQL queries; index_configs have no effect on query results (that indexing only changes performance is from memory, not a page read)."
 leaks: {status: clean, note: "The only background resource is the grpc.Server (and its gcprest bridge), stopped and joined by Shutdown; tail streams end when the server stops. goleak runs in TestMain."}
 ---
 
@@ -74,3 +71,18 @@ Verified 2026-11-13: entry timestamp, label and entry size limits (docs.cloud.go
 Initial implementation (2026-10-21): LoggingServiceV2, ConfigServiceV2 and MetricsServiceV2 verified through the official cloud.google.com/go/logging client, logadmin and the generated apiv2 clients in the package tests, REST/JSON transcoding through resttest, sink routing against fake and real Pub/Sub, Storage and BigQuery emulators, and hashicorp/google in test/terraform/gcp (google_logging_project_sink, google_logging_metric, google_logging_project_exclusion).
 
 Pass 2026-11-13: CMEK keys on log buckets, UpdateCmekSettings and UpdateSettings.kms_key_name resolve against gcpkms when wired: the key must exist, be ENCRYPT_DECRYPT with an enabled primary version and match the bucket location (settings: storage_location when set); log buckets in `global` cannot use CMEK (docs.cloud.google.com/logging/docs/routing/managed-encryption). INVALID_ARGUMENT/FAILED_PRECONDITION codes are the emulator's choice.
+
+Quotas enforced (docs.cloud.google.com/logging/quotas): 60 ListLogEntries requests per minute per parent, 10 open tail sessions and 60000 tailed entries per minute per parent (entries over the rate are counted as RATE_LIMIT suppression; entries a slow client could not take are NOT_CONSUMED), 1000 distinct logs and 10 MB per WriteLogEntries, 200 sinks, 100 log buckets, 30 views per bucket and 500 log-based metrics per parent (the built-in _Default and _Required sinks and buckets and the _AllLogs view are not counted), 20 restricted fields of up to 800 bytes (eligible roots textPayload, jsonPayload, protoPayload, httpRequest, labels, sourceLocation per the LogBucket.restricted_fields comment) and 20 index_configs per bucket; index_configs.create_time is server-set and analytics cannot be disabled once enabled (LogBucket field comments).
+
+Reads of a bucket whose Cloud KMS key, or of an organization whose Log Router key, is no longer usable fail with FAILED_PRECONDITION because queries stop functioning (docs.cloud.google.com/logging/docs/routing/managed-encryption).
+
+Tail holds entries for buffer_window (default 2000 ms, 0 to 60000 ms) and releases them together in timestamp order (loggingpb TailLogEntriesRequest.buffer_window field comment).
+
+include_children: a folder or organization sink also receives entries of projects below it, resolved through gcpresourcemanager project and folder parents.
+
+## Emulator choices where the vendor is silent
+
+- A sink destination that does not exist is not rejected at create time and only logs a warning on export: the sinks.create reference does not say the destination must exist, and the live failure report goes through the sink writer permission.
+- Routing keeps working when a CMEK key is unavailable: the managed-encryption page only says Logging cannot write temporary files and that routing to Cloud Storage "might also be affected".
+- RESOURCE_EXHAUSTED and INVALID_ARGUMENT for the quota and count limits, FAILED_PRECONDITION for an unreadable CMEK bucket, and all error message texts are the emulator's choice: the quotas page names a status only for ingestion over quota and future timestamps.
+- Tail sends no keepalive responses and the SaveStatus details of WriteLogEntries are not modelled: the loggingpb comments and the quotas page describe neither (this rests on the earlier audit, not a fresh page read).

@@ -41,6 +41,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	defer b.mu.Unlock()
 
 	b.uploads = make(map[string]*uploadSession)
+	b.mpus = make(map[string]*xmlUpload)
 
 	if snap.Version != snapshotVersion {
 		logger.Load(ctx).WarnContext(ctx, "gcpstorage: discarding incompatible snapshot version, starting empty",

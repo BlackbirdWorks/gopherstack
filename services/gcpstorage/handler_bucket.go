@@ -56,7 +56,7 @@ func (h *Handler) insertBucket(c *echo.Context, _ route) error {
 		return err
 	}
 
-	p = withACLParams(c, p, keyPredefined, keyPredefDef)
+	p = withACLParams(c, p, keyPredefined, keyPredefDef, keyEnableRetention)
 
 	b, err := h.Backend.CreateBucket(project, p)
 	if err != nil {

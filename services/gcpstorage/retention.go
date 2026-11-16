@@ -212,6 +212,10 @@ func (b *InMemoryBackend) guardMutation(bk *Bucket, o *Object) *APIError {
 		}
 	}
 
+	if apiErr := b.guardObjectRetention(bk, o, false); apiErr != nil {
+		return apiErr
+	}
+
 	if exp := bk.retentionExpiry(o); b.now().Before(exp) {
 		return &APIError{
 			Status: http.StatusForbidden, Reason: reasonRetentionNotMet, XMLCode: codeAccessDenied,
