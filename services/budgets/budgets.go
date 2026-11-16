@@ -308,7 +308,7 @@ func (b *InMemoryBackend) ListBudgets(
 		all = append(all, b.viewLocked(r, showFilter))
 	}
 
-	return paginate(all, token, maxResults, maxBudgetsPageSize)
+	return paginate(b.now(), all, token, maxResults, maxBudgetsPageSize)
 }
 
 func (b *InMemoryBackend) accountBudgetsLocked(account string) []*BudgetRecord {

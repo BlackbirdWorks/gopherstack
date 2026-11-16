@@ -269,7 +269,7 @@ func (b *InMemoryBackend) ListActionsForBudget(
 		return page.Page[Action]{}, err
 	}
 
-	return paginate(actionsOf(b.actionsOfLocked(account, name)), token, maxResults, maxPageSize)
+	return paginate(b.now(), actionsOf(b.actionsOfLocked(account, name)), token, maxResults, maxPageSize)
 }
 
 // ListActionsForAccount pages every action of an account.
@@ -285,7 +285,7 @@ func (b *InMemoryBackend) ListActionsForAccount(
 	b.mu.RLock("ListActionsForAccount")
 	defer b.mu.RUnlock()
 
-	return paginate(actionsOf(b.actionsOfLocked(account, "")), token, maxResults, maxPageSize)
+	return paginate(b.now(), actionsOf(b.actionsOfLocked(account, "")), token, maxResults, maxPageSize)
 }
 
 func actionsOf(recs []*ActionRecord) []Action {
@@ -326,5 +326,5 @@ func (b *InMemoryBackend) ListActionHistories(
 
 	slices.Reverse(all)
 
-	return paginate(all, token, maxResults, maxPageSize)
+	return paginate(b.now(), all, token, maxResults, maxPageSize)
 }

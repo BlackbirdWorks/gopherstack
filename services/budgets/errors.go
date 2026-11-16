@@ -14,6 +14,7 @@ var (
 	ErrCreationLimitExceeded = errors.New("creation limit exceeded")
 	ErrInvalidParameter      = errors.New("invalid parameter")
 	ErrInvalidNextToken      = errors.New("invalid next token")
+	ErrExpiredNextToken      = errors.New("expired next token")
 	ErrResourceLocked        = errors.New("resource locked")
 	errUnknownOperation      = errors.New("unknown operation")
 )
@@ -33,6 +34,7 @@ func errorTable() map[error]awserr.APIError {
 		ErrCreationLimitExceeded: apiErr("CreationLimitExceededException", http.StatusBadRequest),
 		ErrInvalidParameter:      apiErr("InvalidParameterException", http.StatusBadRequest),
 		ErrInvalidNextToken:      apiErr("InvalidNextTokenException", http.StatusBadRequest),
+		ErrExpiredNextToken:      apiErr("ExpiredNextTokenException", http.StatusBadRequest),
 		ErrResourceLocked:        apiErr("ResourceLockedException", http.StatusBadRequest),
 		errUnknownOperation:      apiErr("InvalidParameterException", http.StatusBadRequest),
 	}

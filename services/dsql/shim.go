@@ -28,7 +28,13 @@ var (
 	vacuumRE     = regexp.MustCompile(`(?is)^vacuum\b`)
 	tablespaceRE = regexp.MustCompile(`(?is)^create\s+tablespace\b`)
 	databaseRE   = regexp.MustCompile(`(?is)^create\s+database\b`)
-	plpgsqlRE    = regexp.MustCompile(
+	dropTrigRE   = regexp.MustCompile(
+		`(?is)^(drop\s+trigger|alter\s+table\b.*\b(disable|enable)\s+(replica\s+|always\s+)?trigger)\b`)
+	isolationRE = regexp.MustCompile(
+		`(?is)^((set\s+(session\s+characteristics\s+as\s+)?transaction|(begin|start)(\s+transaction|\s+work)?)` +
+			`\s+(.*\s)?isolation\s+level\s+(read\s+(un)?committed|serializable)` +
+			`|set\s+(session\s+|local\s+)?(default_)?transaction_isolation\s*(to|=)\s*'?(read|serializable))\b`)
+	plpgsqlRE = regexp.MustCompile(
 		`(?is)^create\s+(or\s+replace\s+)?(function|procedure)\b.*\blanguage\s+'?plpgsql\b`,
 	)
 )
@@ -46,6 +52,8 @@ func unsupportedStatements() []unsupportedRule {
 		{vacuumRE, "VACUUM"},
 		{tablespaceRE, "CREATE TABLESPACE"},
 		{databaseRE, "CREATE DATABASE"},
+		{dropTrigRE, "DROP or DISABLE TRIGGER"},
+		{isolationRE, "isolation levels other than repeatable read"},
 		{plpgsqlRE, "PL/pgSQL"},
 	}
 }

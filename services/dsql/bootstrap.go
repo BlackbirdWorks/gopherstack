@@ -97,10 +97,23 @@ BEGIN
 	END;
 END $fn$;
 
-CREATE OR REPLACE FUNCTION sys.gs_txn_guard(kind text, n bigint) RETURNS void
+CREATE TABLE IF NOT EXISTS sys.gs_limits (name text PRIMARY KEY, value bigint NOT NULL);
+INSERT INTO sys.gs_limits (name, value) VALUES
+	('columns', 255), ('indexes', 24), ('index_keys', 8), ('ext_stats', 5), ('schemas', 10), ('tables', 1000),
+	('views', 5000), ('sequences', 5000), ('txn_rows', 3000), ('txn_bytes', 10485760), ('row_bytes', 2097152),
+	('col_bytes', 1048576)
+	ON CONFLICT DO NOTHING;
+
+CREATE OR REPLACE FUNCTION sys.gs_limit(n text) RETURNS bigint
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
+AS $fn$ SELECT value FROM sys.gs_limits WHERE name = n $fn$;
+
+CREATE OR REPLACE FUNCTION sys.gs_txn_guard(
+	kind text, n bigint, bytes bigint, maxrow bigint, maxcol bigint) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $fn$
 DECLARE
 	total bigint;
+	size bigint;
 BEGIN
 	IF session_user = 'gsroot' OR current_setting('gs.internal', true) = '1' THEN
 		RETURN;
@@ -118,39 +131,63 @@ BEGIN
 	IF current_setting('gs.ddl', true) = '1' THEN
 		RAISE EXCEPTION 'ddl and dml are not supported in the same transaction' USING ERRCODE = '0A000';
 	END IF;
+	IF maxrow > sys.gs_limit('row_bytes') THEN
+		RAISE EXCEPTION 'maximum row size exceeded' USING ERRCODE = '54000';
+	END IF;
+	IF maxcol > sys.gs_limit('col_bytes') THEN
+		RAISE EXCEPTION 'maximum column size exceeded' USING ERRCODE = '54000';
+	END IF;
 	total := coalesce(nullif(current_setting('gs.rows', true), ''), '0')::bigint + n;
-	IF total > 3000 THEN
+	IF total > sys.gs_limit('txn_rows') THEN
 		RAISE EXCEPTION 'transaction row limit exceeded' USING ERRCODE = '54000';
+	END IF;
+	size := coalesce(nullif(current_setting('gs.bytes', true), ''), '0')::bigint + bytes;
+	IF size > sys.gs_limit('txn_bytes') THEN
+		RAISE EXCEPTION 'transaction size limit %mb exceeded', sys.gs_limit('txn_bytes') / 1048576
+			USING ERRCODE = '54000', DETAIL = format('Current transaction size %smb', round(size / 1048576.0, 2));
 	END IF;
 	PERFORM set_config('gs.dml', '1', true);
 	PERFORM set_config('gs.rows', total::text, true);
+	PERFORM set_config('gs.bytes', size::text, true);
 END $fn$;
 
 CREATE OR REPLACE FUNCTION sys.gs_dml_ins() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $fn$
 BEGIN
-	PERFORM sys.gs_txn_guard('dml', (SELECT count(*) FROM gs_new));
+	PERFORM sys.gs_txn_guard('dml', s.n, s.total, s.widest, s.col)
+		FROM (SELECT count(*) AS n, coalesce(sum(octet_length(t::text)), 0) AS total,
+			coalesce(max(octet_length(t::text)), 0) AS widest,
+			coalesce(max((SELECT max(octet_length(e.value)) FROM jsonb_each_text(to_jsonb(t)) e)), 0) AS col
+			FROM gs_new t) s;
 	RETURN NULL;
 END $fn$;
 
 CREATE OR REPLACE FUNCTION sys.gs_dml_upd() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $fn$
 BEGIN
-	PERFORM sys.gs_txn_guard('dml', (SELECT count(*) FROM gs_new));
+	PERFORM sys.gs_txn_guard('dml', s.n, s.total, s.widest, s.col)
+		FROM (SELECT count(*) AS n, coalesce(sum(octet_length(t::text)), 0) AS total,
+			coalesce(max(octet_length(t::text)), 0) AS widest,
+			coalesce(max((SELECT max(octet_length(e.value)) FROM jsonb_each_text(to_jsonb(t)) e)), 0) AS col
+			FROM gs_new t) s;
 	RETURN NULL;
 END $fn$;
 
 CREATE OR REPLACE FUNCTION sys.gs_dml_del() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $fn$
 BEGIN
-	PERFORM sys.gs_txn_guard('dml', (SELECT count(*) FROM gs_old));
+	PERFORM sys.gs_txn_guard('dml', s.n, s.total, 0, 0)
+		FROM (SELECT count(*) AS n, coalesce(sum(octet_length(t::text)), 0) AS total FROM gs_old t) s;
 	RETURN NULL;
 END $fn$;
 
 CREATE OR REPLACE FUNCTION sys.gs_ddl_start() RETURNS event_trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $fn$
 BEGIN
-	PERFORM sys.gs_txn_guard('ddl', 0);
+	IF TG_TAG = 'DROP TRIGGER' AND session_user <> 'gsroot' THEN
+		RAISE EXCEPTION 'DROP TRIGGER is not supported in Aurora DSQL' USING ERRCODE = '0A000';
+	END IF;
+	PERFORM sys.gs_txn_guard('ddl', 0, 0, 0, 0);
 END $fn$;
 
 CREATE OR REPLACE FUNCTION sys.gs_ddl_end() RETURNS event_trigger
@@ -170,6 +207,67 @@ BEGIN
 			EXECUTE format('CREATE TRIGGER gs_dml_del AFTER DELETE ON %s REFERENCING OLD TABLE AS gs_old '
 				'FOR EACH STATEMENT EXECUTE FUNCTION sys.gs_dml_del()', r.objid::regclass);
 			PERFORM set_config('gs.internal', '', true);
+		END IF;
+	END LOOP;
+END $fn$;
+
+CREATE OR REPLACE FUNCTION sys.gs_count_user(kind "char") RETURNS bigint
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $fn$
+	SELECT count(*) FROM pg_class k JOIN pg_namespace n ON n.oid = k.relnamespace
+	WHERE k.relkind = kind AND n.nspname NOT LIKE 'pg\_%' AND n.nspname NOT IN ('information_schema', 'sys')
+$fn$;
+
+CREATE OR REPLACE FUNCTION sys.gs_check_relation(rel oid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $fn$
+BEGIN
+	IF (SELECT count(*) FROM pg_attribute a WHERE a.attrelid = rel AND a.attnum > 0 AND NOT a.attisdropped)
+		> sys.gs_limit('columns') THEN
+		RAISE EXCEPTION 'tables can have at most % columns', sys.gs_limit('columns') USING ERRCODE = '54011';
+	END IF;
+	IF (SELECT coalesce(max(i.indnkeyatts), 0) FROM pg_index i WHERE i.indrelid = rel) > sys.gs_limit('index_keys') THEN
+		RAISE EXCEPTION 'more than % column keys in an index are not supported', sys.gs_limit('index_keys')
+			USING ERRCODE = '54011';
+	END IF;
+	IF (SELECT count(*) FROM pg_index i WHERE i.indrelid = rel AND NOT i.indisprimary) > sys.gs_limit('indexes') THEN
+		RAISE EXCEPTION 'more than % indexes per table are not allowed', sys.gs_limit('indexes') USING ERRCODE = '54000';
+	END IF;
+	IF (SELECT count(*) FROM pg_statistic_ext e WHERE e.stxrelid = rel) > sys.gs_limit('ext_stats') THEN
+		RAISE EXCEPTION 'more than % extended statistics per table are not allowed', sys.gs_limit('ext_stats')
+			USING ERRCODE = '54000';
+	END IF;
+END $fn$;
+
+CREATE OR REPLACE FUNCTION sys.gs_ddl_limits() RETURNS event_trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $fn$
+DECLARE
+	r record;
+	rel oid;
+BEGIN
+	FOR r IN SELECT c.objid, c.object_type, c.command_tag FROM pg_event_trigger_ddl_commands() c LOOP
+		rel := NULL;
+		IF r.object_type = 'table' THEN
+			rel := r.objid;
+			IF r.command_tag IN ('CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO')
+				AND sys.gs_count_user('r') + sys.gs_count_user('p') > sys.gs_limit('tables') THEN
+				RAISE EXCEPTION 'creating more than % tables not allowed', sys.gs_limit('tables') USING ERRCODE = '54000';
+			END IF;
+		ELSIF r.object_type = 'index' THEN
+			SELECT i.indrelid INTO rel FROM pg_index i WHERE i.indexrelid = r.objid;
+		ELSIF r.object_type = 'statistics object' THEN
+			SELECT e.stxrelid INTO rel FROM pg_statistic_ext e WHERE e.oid = r.objid;
+		ELSIF r.object_type = 'schema' THEN
+			IF (SELECT count(*) FROM pg_namespace n WHERE n.nspname NOT LIKE 'pg\_%'
+				AND n.nspname NOT IN ('information_schema', 'sys')) > sys.gs_limit('schemas') THEN
+				RAISE EXCEPTION 'more than % schemas not allowed', sys.gs_limit('schemas') USING ERRCODE = '54000';
+			END IF;
+		ELSIF r.object_type = 'view' AND sys.gs_count_user('v') > sys.gs_limit('views') THEN
+			RAISE EXCEPTION 'creating more than % views not allowed', sys.gs_limit('views') USING ERRCODE = '54000';
+		ELSIF r.object_type = 'sequence' AND sys.gs_count_user('S') > sys.gs_limit('sequences') THEN
+			RAISE EXCEPTION 'creating more than % sequences is not allowed', sys.gs_limit('sequences')
+				USING ERRCODE = '54000';
+		END IF;
+		IF rel IS NOT NULL THEN
+			PERFORM sys.gs_check_relation(rel);
 		END IF;
 	END LOOP;
 END $fn$;
@@ -221,6 +319,9 @@ ALTER DATABASE postgres SET default_transaction_isolation TO 'repeatable read';
 CREATE EVENT TRIGGER gs_ddl_start ON ddl_command_start EXECUTE FUNCTION sys.gs_ddl_start();
 CREATE EVENT TRIGGER gs_ddl_end ON ddl_command_end
 	WHEN TAG IN ('CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO') EXECUTE FUNCTION sys.gs_ddl_end();
+CREATE EVENT TRIGGER gs_ddl_limits ON ddl_command_end
+	WHEN TAG IN ('CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO', 'ALTER TABLE', 'CREATE INDEX', 'CREATE STATISTICS',
+		'CREATE SCHEMA', 'CREATE VIEW', 'CREATE SEQUENCE') EXECUTE FUNCTION sys.gs_ddl_limits();
 ALTER SCHEMA public OWNER TO admin;
 GRANT CREATE ON DATABASE postgres TO admin;
 `

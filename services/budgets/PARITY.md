@@ -39,18 +39,21 @@ families:
   Tags: {status: ok, note: "Budgets and budget actions are taggable; unknown ARNs return NotFoundException."}
 gaps: []
 items_still_open:
-  - CalculatedSpend: spend is metered from emulated resources only for EC2 instances, EBS volumes, S3 storage and requests, Lambda and DynamoDB on-demand units; every other service contributes the 90-day synthetic seed catalogue
-  - CalculatedSpend: RI_UTILIZATION and RI_COVERAGE are computed from EC2 reservations, but nothing seeds EC2 ReservedInstancesOfferings (services/ec2/reserved_instances.go:112) so no reservation can be purchased through the API; SAVINGS_PLANS_UTILIZATION and SAVINGS_PLANS_COVERAGE report 0 PERCENTAGE because no Savings Plans service exists
-  - CostFilters/FilterExpression: CostCategories and ProductAttributes clauses and the CostFilters CostCategory and SubscriptionId keys do not narrow spend (cost category rules carry no expression and ledger rows carry no product attributes or subscription)
+  - CalculatedSpend: metering other services means editing their backends and ce Accrue (services/ce/spend.go:60), out of scope for this pass; spend is metered from emulated resources only for EC2 instances, EBS volumes, S3 storage and requests, Lambda and DynamoDB on-demand units; every other service contributes the 90-day synthetic seed catalogue
+  - CalculatedSpend: RI_UTILIZATION and RI_COVERAGE are computed from EC2 reservations, but nothing seeds EC2 ReservedInstancesOfferings (services/ec2/reserved_instances.go:112) so no reservation can be purchased through the API (seeding the catalogue is an EC2 backend change); SAVINGS_PLANS_UTILIZATION and SAVINGS_PLANS_COVERAGE report 0 PERCENTAGE because no Savings Plans service exists
+  - CostFilters/FilterExpression: CostCategories and ProductAttributes clauses and the CostFilters CostCategory and SubscriptionId keys do not narrow spend (cost category rules carry no expression (services/ce/models.go CostCategoryRule has only Value) and ledger rows carry no product attributes or subscription (services/ce/models.go CostEntry); both are ce model changes)
   - CostTypes: charge types other than Usage enter the ledger only through RecordCharge; no emulated service produces Tax, Support, Credit, Refund or RIFee lines, so the Include* flags change spend only for such recorded entries
-  - Alerting: topic policies granting budgets.amazonaws.com are not checked; evaluator cadence is 1 minute versus AWS several times a day
-  - ExecuteBudgetAction: ExecutionRoleArn must exist in IAM when the action runs (a missing role fails the execution) but its trust policy is never evaluated or assumed; SSM actions start AWS-Stop*/Start* automation documents through the SSM backend
-  - BillingViewArn: format-checked only; HealthStatus is always HEALTHY
-  - AccessDeniedException, ThrottlingException, InternalErrorException, ExpiredNextTokenException, BillingViewHealthStatusException, ServiceQuotaExceededException: never raised
+  - Alerting: topic policies granting budgets.amazonaws.com are not checked (evaluating a resource policy is IAM policy evaluation, out of scope); evaluator cadence is 1 minute versus the documented up to three updates a day 8 to 12 hours apart (cost-management userguide budgets-managing-costs), kept so alarms fire inside a test run
+  - ExecuteBudgetAction: ExecutionRoleArn must exist in IAM when the action runs (a missing role fails the execution) but its trust policy is never evaluated or assumed (trust policy evaluation is IAM policy evaluation, out of scope); SSM actions start AWS-Stop*/Start* automation documents through the SSM backend
+  - BillingViewArn: format-checked only and HealthStatus is always HEALTHY, because no billing view service exists under services/ (ls services/ has only bcmdataexports and cur) to resolve the ARN or report a status
+  - "AccessDeniedException (needs IAM policy evaluation, out of scope), BillingViewHealthStatusException (no billing view service under services/ to report a view health status), ServiceQuotaExceededException (no per-account quota is documented in the Billing quotas page or the pinned SDK operation docs, so there is no limit to enforce), ThrottlingException and InternalErrorException (the emulator has no request-rate limiter or internal fault source, and routing a synthetic one would fabricate failures): never raised"
 structural_gaps: []
 deferred: []
 leaks: {status: clean, note: "one worker.Group ticker bound to the janitor context; unit tests never start it"}
 ---
+
+## Emulator choices where the vendor is silent
+- A NextToken is stamped with its issue time and expires after 24 hours with ExpiredNextTokenException; the API reference documents the exception (types/errors.go) but no lifetime.
 
 ## Notes
 Protocol awsjson1.1, X-Amz-Target prefix AWSBudgetServiceGateway. Budgets is a global service homed in us-east-1: ARNs are arn:aws:budgets::acct:budget/name and .../action/id.
