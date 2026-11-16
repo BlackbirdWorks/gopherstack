@@ -187,21 +187,40 @@ func (h *Handler) authenticateAssertion(
 // PasswordAuthenticator is implemented by a ClientAuthenticator that also verifies resource-owner password
 // sign-ins (grant_type=password). The error is a *ClientAuthError for a rejected sign-in.
 type PasswordAuthenticator interface {
-	AuthenticateUser(username, password string) (objectID string, err error)
+	AuthenticateUser(username, password string) (objectID, userPrincipalName string, err error)
 }
 
 const grantTypePassword = "password"
 
-// authenticateUser handles grant_type=password: the user's object ID becomes the token's oid. handled is false
-// when the request is not a password grant or no directory is wired.
-func (h *Handler) authenticateUser(form map[string][]string) (string, bool, *ClientAuthError) {
+// signedInUser identifies the user a password grant authenticated.
+type signedInUser struct{ oid, upn string }
+
+// tenantServes reports whether tenant, from the token URL, names the directory the user signs in to: its ID, a
+// multi-tenant alias, or the domain of the user name.
+func (h *Handler) tenantServes(tenant, username string) bool {
+	if strings.EqualFold(tenant, h.Settings.TenantID) || strings.EqualFold(tenant, "common") ||
+		strings.EqualFold(tenant, "organizations") {
+		return true
+	}
+
+	_, domain, ok := strings.Cut(username, "@")
+
+	return ok && strings.EqualFold(tenant, domain)
+}
+
+// authenticateUser handles grant_type=password. handled is false when the request is not a password grant or no
+// directory is wired.
+func (h *Handler) authenticateUser(
+	tenant, clientID string,
+	form map[string][]string,
+) (signedInUser, bool, *ClientAuthError) {
 	if v := form["grant_type"]; len(v) == 0 || v[0] != grantTypePassword {
-		return "", false, nil
+		return signedInUser{}, false, nil
 	}
 
 	pa, ok := h.clients.(PasswordAuthenticator)
 	if !ok {
-		return "", false, nil
+		return signedInUser{}, false, nil
 	}
 
 	first := func(k string) string {
@@ -212,26 +231,38 @@ func (h *Handler) authenticateUser(form map[string][]string) (string, bool, *Cli
 		return ""
 	}
 
-	username, password := first("username"), first("password")
-	if username == "" || password == "" {
-		return "", true, &ClientAuthError{
-			Status:      http.StatusBadRequest,
-			Name:        "invalid_request",
-			Code:        codeMissingCredential,
-			Description: "AADSTS900144: The request body must contain the following parameter: 'username' and 'password'.",
+	username, password := first(acrFieldUsername), first("password")
+
+	for _, missing := range []struct{ name, value string }{
+		{"client_id", clientID}, {acrFieldUsername, username}, {"password", password},
+	} {
+		if missing.value == "" {
+			return signedInUser{}, true, &ClientAuthError{
+				Status: http.StatusBadRequest, Name: "invalid_request", Code: codeMissingCredential,
+				Description: "AADSTS900144: The request body must contain the following parameter: '" +
+					missing.name + "'.",
+			}
 		}
 	}
 
-	oid, err := pa.AuthenticateUser(username, password)
+	if !h.tenantServes(tenant, username) {
+		return signedInUser{}, true, &ClientAuthError{
+			Status: http.StatusBadRequest, Name: "invalid_request", Code: codeTenantNotFound,
+			Description: "AADSTS90002: Tenant '" + tenant +
+				"' not found. Check to make sure you have the correct tenant ID.",
+		}
+	}
+
+	oid, upn, err := pa.AuthenticateUser(username, password)
 	if err == nil {
-		return oid, true, nil
+		return signedInUser{oid: oid, upn: upn}, true, nil
 	}
 
 	if ce, isCE := err.(*ClientAuthError); isCE { //nolint:errorlint // adapter returns the concrete type
-		return "", true, ce
+		return signedInUser{}, true, ce
 	}
 
-	return "", true, &ClientAuthError{
+	return signedInUser{}, true, &ClientAuthError{
 		Status: http.StatusBadRequest, Name: "invalid_grant", Code: codeInvalidGrant,
 		Description: strings.TrimSpace(err.Error()),
 	}
@@ -239,5 +270,6 @@ func (h *Handler) authenticateUser(form map[string][]string) (string, bool, *Cli
 
 const (
 	codeMissingCredential = 900144
+	codeTenantNotFound    = 90002
 	codeInvalidGrant      = 50126
 )

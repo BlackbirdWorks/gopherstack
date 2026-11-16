@@ -51,6 +51,8 @@ type registry struct {
 	Tokens         map[string]*Token               `json:"tokens,omitempty"`
 	CacheRules     map[string]*CacheRule           `json:"cacheRules,omitempty"`
 	RetentionDue   map[string]map[string]time.Time `json:"retentionDue,omitempty"`
+	GarbageDue     map[string]map[string]time.Time `json:"garbageDue,omitempty"`
+	touched        map[string]time.Time
 	raw            http.Handler
 	app            http.Handler
 	driver         storagedriver.StorageDriver

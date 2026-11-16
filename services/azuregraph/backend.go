@@ -30,6 +30,7 @@ type Backend struct {
 	dirRoles    map[string]string
 	secrets     map[string]string
 	signIns     map[string]*signInState
+	hooks       signInHooks
 	keyMaterial map[string]string
 	fics        map[string][]FederatedCredential
 	apps        store[Application]

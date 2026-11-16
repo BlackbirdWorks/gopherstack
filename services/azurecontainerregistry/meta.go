@@ -13,6 +13,11 @@ type attrs = ociregistry.Attrs
 // RecordManifestPut notes a stored manifest, and the tag when ref is one. A manifest left without tags is
 // scheduled for deletion when the registry's retention policy is enabled.
 func (b *InMemoryBackend) RecordManifestPut(reg, repo, ref, digest string) {
+	b.recordManifestPut(reg, repo, ref, digest)
+	b.settleBlobs(reg, digest)
+}
+
+func (b *InMemoryBackend) recordManifestPut(reg, repo, ref, digest string) {
 	days, retain := b.retentionPolicy(reg)
 
 	b.mu.Lock("RecordManifestPut")

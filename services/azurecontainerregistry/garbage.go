@@ -103,19 +103,8 @@ func (b *InMemoryBackend) liveManifests(reg string) (storagedriver.StorageDriver
 	return r.driver, out
 }
 
-// collectGarbage removes the manifest blob and the config and layer blobs of the deleted manifest digest that no
-// remaining manifest of the registry references, and unlinks them from repo. The caller holds the delete gate.
-func (b *InMemoryBackend) collectGarbage(ctx context.Context, reg, repo, digest string) {
-	drv, live := b.liveManifests(reg)
-	if drv == nil || !ociregistry.IsDigest(digest) {
-		return
-	}
-
-	candidates, ok := referencedBlobs(ctx, drv, digest)
-	if !ok {
-		return
-	}
-
+// keepSet is every manifest of the registry and every config and layer blob they reference.
+func keepSet(ctx context.Context, drv storagedriver.StorageDriver, live []liveManifest) map[string]bool {
 	keep := map[string]bool{}
 
 	for _, m := range live {
@@ -128,12 +117,37 @@ func (b *InMemoryBackend) collectGarbage(ctx context.Context, reg, repo, digest 
 		}
 	}
 
+	return keep
+}
+
+// collectGarbage removes the manifest blob and the config and layer blobs of the deleted manifest digest that no
+// remaining manifest of the registry references, and unlinks them from repo. A blob an unfinished push touched
+// within blobGrace is kept and revisited by sweepGarbage. The caller holds the delete gate.
+func (b *InMemoryBackend) collectGarbage(ctx context.Context, reg, repo, digest string) {
+	drv, live := b.liveManifests(reg)
+	if drv == nil || !ociregistry.IsDigest(digest) {
+		return
+	}
+
+	candidates, ok := referencedBlobs(ctx, drv, digest)
+	if !ok {
+		return
+	}
+
+	keep := keepSet(ctx, drv, live)
+
 	if b.onPlanned != nil {
 		b.onPlanned()
 	}
 
 	for _, c := range append(candidates, digest) {
 		if keep[c] {
+			continue
+		}
+
+		if until, held := b.blobHeld(reg, c); held {
+			b.deferGarbage(reg, repo, c, until)
+
 			continue
 		}
 

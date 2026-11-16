@@ -1,11 +1,14 @@
 package azurecontainerregistry_test
 
 import (
+	"bytes"
 	"net/http"
 	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry/ocitest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -138,4 +141,26 @@ func TestRetentionScheduleSurvivesRestore(t *testing.T) {
 
 	c = second.client(t, "retsnap", basic(creds.Username, creds.Password1))
 	assert.Equal(t, http.StatusNotFound, c.Do(http.MethodGet, "/v2/app/manifests/"+img.Digest, nil, nil).Status)
+}
+
+func TestRetentionSkipsOCIManifests(t *testing.T) {
+	t.Parallel()
+
+	const ociType = "application/vnd.oci.image.manifest.v1+json"
+
+	e := newEnv(t, "")
+	creds := e.registry(t, "retoci", true)
+	c := e.client(t, "retoci", basic(creds.Username, creds.Password1))
+	e.h.Backend.SetRetentionSource(func(string) (int, bool) { return 0, true })
+
+	cfg := c.PushBlob("oci", []byte(`{"os":"linux"}`), 0)
+	layer := c.PushBlob("oci", []byte("oci layer"), 0)
+	body := bytes.ReplaceAll(manifestFor(t, cfg, layer), []byte(ocitest.ManifestMediaType), []byte(ociType))
+
+	put := c.Do(http.MethodPut, "/v2/oci/manifests/v1", body, map[string]string{"Content-Type": ociType})
+	require.Equal(t, http.StatusCreated, put.Status, string(put.Body))
+	require.Equal(t, http.StatusOK, c.Do(http.MethodDelete, "/acr/v1/oci/_tags/v1", nil, nil).Status)
+
+	got := c.Do(http.MethodGet, "/v2/oci/manifests/"+ocitest.Digest(body), nil, map[string]string{"Accept": ociType})
+	assert.Equal(t, http.StatusOK, got.Status, "OCI media types are outside the retention policy (Learn)")
 }

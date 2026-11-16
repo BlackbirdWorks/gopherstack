@@ -26,8 +26,7 @@ func audienceFromScope(scopeOrResource string) string {
 	s := ""
 
 	for f := range strings.FieldsSeq(scopeOrResource) {
-		switch f {
-		case "openid", "profile", "offline_access", "email":
+		if isOIDCScope(f) {
 			continue
 		}
 
@@ -78,4 +77,75 @@ func IssueTokenForObject(
 		ExpiresIn:   aadauth.DefaultTokenExpirySeconds,
 		AccessToken: tokenString,
 	}, nil
+}
+
+// issueUserToken issues the delegated token of a password sign-in: the user's oid and upn, the tenant's own ID as
+// tid whatever alias the URL used, and the scopes the request named (v2.0 scp).
+func issueUserToken(
+	issuer *aadauth.Issuer, baseURL, tenantID, clientID string, user signedInUser, scopeOrResource string,
+) (TokenResponse, error) {
+	audience, scopes := userAudienceAndScopes(scopeOrResource)
+
+	tokenString, err := issuer.IssueClientCredentialsToken(aadauth.ClientCredentialsClaims{
+		Issuer: baseURL + "/" + tenantID + "/v2.0", Audience: audience, TenantID: tenantID,
+		ClientID: clientID, ObjectID: user.oid, UserPrincipalName: user.upn, Scope: scopes,
+	}, aadauth.DefaultTokenExpirySeconds)
+	if err != nil {
+		return TokenResponse{}, err
+	}
+
+	return TokenResponse{
+		TokenType:   "Bearer",
+		ExpiresIn:   aadauth.DefaultTokenExpirySeconds,
+		AccessToken: tokenString,
+	}, nil
+}
+
+const graphAudience = "https://graph.microsoft.com/"
+
+// userAudienceAndScopes splits a delegated scope request: a bare scope name such as User.Read belongs to Microsoft
+// Graph, a URL scope names its resource, and ".default" asks for no particular scope.
+func userAudienceAndScopes(scopeOrResource string) (string, string) {
+	audience := ""
+
+	var names []string
+
+	for f := range strings.FieldsSeq(scopeOrResource) {
+		if isOIDCScope(f) {
+			continue
+		}
+
+		resource, name := "", f
+
+		if i := strings.LastIndex(f, "/"); i >= 0 {
+			resource, name = f[:i+1], f[i+1:]
+		}
+
+		if audience == "" {
+			audience = resource
+		}
+
+		if name != ".default" && name != "" {
+			names = append(names, name)
+		}
+	}
+
+	switch {
+	case audience != "":
+	case len(names) > 0:
+		audience = graphAudience
+	default:
+		audience = defaultTokenAudience
+	}
+
+	return audience, strings.Join(names, " ")
+}
+
+func isOIDCScope(s string) bool {
+	switch s {
+	case "openid", "profile", "offline_access", "email":
+		return true
+	}
+
+	return false
 }

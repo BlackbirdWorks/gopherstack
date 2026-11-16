@@ -60,12 +60,13 @@ func (h *Handler) handleToken(c *echo.Context, tenant string) error {
 		return h.writeClientAuthError(c, authErr)
 	}
 
-	if userOID, handled, userErr := h.authenticateUser(form); handled {
-		if userErr != nil {
-			return h.writeClientAuthError(c, userErr)
-		}
+	user, handled, userErr := h.authenticateUser(tenant, clientID, form)
+	if userErr != nil {
+		return h.writeClientAuthError(c, userErr)
+	}
 
-		oid = userOID
+	if handled {
+		oid = user.oid
 	}
 
 	if clientID == "" {
@@ -79,7 +80,13 @@ func (h *Handler) handleToken(c *echo.Context, tenant string) error {
 
 	baseURL := h.baseURLFor(r)
 
-	resp, err := IssueTokenForObject(h.Issuer, baseURL, tenant, clientID, oid, scope)
+	var resp TokenResponse
+	if handled {
+		resp, err = issueUserToken(h.Issuer, baseURL, h.Settings.TenantID, clientID, user, scope)
+	} else {
+		resp, err = IssueTokenForObject(h.Issuer, baseURL, tenant, clientID, oid, scope)
+	}
+
 	if err != nil {
 		return h.writeAPIError(c, err)
 	}

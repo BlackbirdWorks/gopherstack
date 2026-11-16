@@ -22,7 +22,7 @@ func duringPlan(e *env, reg string, push func() int) (func() (int, bool), func()
 
 	var once atomic.Bool
 
-	var finished atomic.Bool
+	var finished, finishedWhileHeld atomic.Bool
 
 	hook := func() {
 		if !once.CompareAndSwap(false, true) {
@@ -38,13 +38,11 @@ func duringPlan(e *env, reg string, push func() int) (func() (int, bool), func()
 		for !finished.Load() && e.h.Backend.GateWaiters(reg) == 0 {
 			runtime.Gosched()
 		}
+
+		finishedWhileHeld.Store(finished.Load())
 	}
 
-	collect := func() (int, bool) {
-		done := finished.Load()
-
-		return <-status, done
-	}
+	collect := func() (int, bool) { return <-status, finishedWhileHeld.Load() }
 
 	return collect, hook
 }

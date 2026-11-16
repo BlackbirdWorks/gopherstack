@@ -38,10 +38,33 @@ type signInState struct {
 
 func userSecretKey(id string) string { return userKeyPrefix + lc(id) }
 func userChangeKey(id string) string { return changeKeyPrefix + lc(id) }
-func derivePassword(pw string, salt []byte, iters int) string {
-	key, _ := pbkdf2.Key(sha256.New, pw, salt, iters, sha256.Size)
+func derivePassword(pw string, salt []byte, iters int) (string, bool) {
+	key, err := pbkdf2.Key(sha256.New, pw, salt, iters, sha256.Size)
+	if err != nil {
+		return "", false
+	}
 
-	return hex.EncodeToString(key)
+	return hex.EncodeToString(key), true
+}
+
+// signInHooks let tests observe the unlocked window of a sign-in.
+type signInHooks struct {
+	burned   func()
+	verified func()
+}
+
+// burnPasswordWork spends the PBKDF2 time of a real check so unknown and unusable accounts answer as slowly as
+// known ones.
+func (b *Backend) burnPasswordWork(pw string) {
+	if b.hooks.burned != nil {
+		b.hooks.burned()
+	}
+
+	if len(pw) > maxPasswordBytes {
+		return
+	}
+
+	_, _ = derivePassword(pw, make([]byte, saltLen), passwordIterations)
 }
 
 func hashPassword(pw string) (string, error) {
@@ -50,9 +73,13 @@ func hashPassword(pw string) (string, error) {
 		return "", fmt.Errorf("%w: %w", errNoRand, err)
 	}
 
+	derived, ok := derivePassword(pw, salt, passwordIterations)
+	if !ok {
+		return "", errNoRand
+	}
+
 	return strings.Join([]string{
-		hashScheme, strconv.Itoa(passwordIterations), hex.EncodeToString(salt),
-		derivePassword(pw, salt, passwordIterations),
+		hashScheme, strconv.Itoa(passwordIterations), hex.EncodeToString(salt), derived,
 	}, "$"), nil
 }
 
@@ -72,7 +99,9 @@ func passwordMatches(stored, pw string) bool {
 		return false
 	}
 
-	return subtle.ConstantTimeCompare([]byte(derivePassword(pw, salt, iters)), []byte(parts[3])) == 1
+	derived, ok := derivePassword(pw, salt, iters)
+
+	return ok && subtle.ConstantTimeCompare([]byte(derived), []byte(parts[3])) == 1
 }
 
 // storePassword keeps a salted hash of the user's password and whether the next sign-in must change it.
@@ -108,7 +137,6 @@ func passwordError(code int, format string, args ...any) *ClientAuthError {
 type signInAttempt struct {
 	stored string
 	id     string
-	change bool
 }
 
 // beginSignIn resolves the user and refuses locked, disabled and password-less accounts before any hashing.
@@ -147,33 +175,54 @@ func (b *Backend) beginSignIn(username string) (signInAttempt, *ClientAuthError)
 		)
 	}
 
-	return signInAttempt{id: u.ID, stored: stored, change: b.secrets[userChangeKey(u.ID)] != ""}, nil
+	return signInAttempt{id: u.ID, stored: stored}, nil
 }
 
-// AuthenticateUser verifies a resource-owner password sign-in and returns the user's object ID. Repeated
-// failures lock the account for a minute on the backend clock (Learn: howto-password-smart-lockout defaults).
-func (b *Backend) AuthenticateUser(username, password string) (string, error) {
+// AuthenticateUser verifies a resource-owner password sign-in and returns the user's object ID and user
+// principal name. Repeated failures lock the account for a minute on the backend clock (Learn:
+// howto-password-smart-lockout defaults); as in Entra, anyone who knows a user's name can trigger that lockout.
+func (b *Backend) AuthenticateUser(username, password string) (string, string, error) {
 	att, cerr := b.beginSignIn(username)
 	if cerr != nil {
-		return "", cerr
+		if cerr.Code != aadsAccountLocked {
+			b.burnPasswordWork(password)
+		}
+
+		return "", "", cerr
 	}
 
 	ok := passwordMatches(att.stored, password)
 
+	if b.hooks.verified != nil {
+		b.hooks.verified()
+	}
+
 	b.mu.Lock("AuthenticateUser")
 	defer b.mu.Unlock()
 
-	if _, found := b.users.get(lc(att.id)); !found || b.secrets[userSecretKey(att.id)] != att.stored {
-		return "", passwordError(
+	u, found := b.users.get(lc(att.id))
+	if !found || b.secrets[userSecretKey(att.id)] != att.stored {
+		return "", "", passwordError(
 			aadsBadCredentials,
 			"Error validating credentials due to invalid username or password.",
 		)
 	}
 
+	if st := b.signIns[lc(att.id)]; st != nil && b.now().Before(st.lockedUntil) {
+		return "", "", passwordError(
+			aadsAccountLocked,
+			"The account is locked because the user tried to sign in too many times with an incorrect user ID or password.",
+		)
+	}
+
+	if !u.AccountEnabled {
+		return "", "", passwordError(aadsAccountDisabled, "The user account is disabled.")
+	}
+
 	if !ok {
 		b.recordFailure(att.id)
 
-		return "", passwordError(
+		return "", "", passwordError(
 			aadsBadCredentials,
 			"Error validating credentials due to invalid username or password.",
 		)
@@ -181,14 +230,14 @@ func (b *Backend) AuthenticateUser(username, password string) (string, error) {
 
 	delete(b.signIns, lc(att.id))
 
-	if att.change {
-		return "", passwordError(
+	if b.secrets[userChangeKey(att.id)] != "" {
+		return "", "", passwordError(
 			aadsPasswordExpired,
 			"The password is expired; the user must change it at the next sign-in.",
 		)
 	}
 
-	return att.id, nil
+	return att.id, u.UserPrincipalName, nil
 }
 
 func (b *Backend) recordFailure(id string) {

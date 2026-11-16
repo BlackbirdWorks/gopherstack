@@ -4111,6 +4111,7 @@
       "registry.CreatedAt time.Time `json:\"createdAt\"`",
       "registry.Events map[string][]WebhookEvent `json:\"events,omitempty\"`",
       "registry.ExportDisabled bool `json:\"exportDisabled,omitempty\"`",
+      "registry.GarbageDue map[string]map[string]time.Time `json:\"garbageDue,omitempty\"`",
       "registry.KeyID string `json:\"keyId,omitempty\"`",
       "registry.Name string `json:\"name\"`",
       "registry.Network NetworkRules `json:\"network,omitzero\"`",
@@ -4124,7 +4125,8 @@
       "registry.app http.Handler",
       "registry.driver storagedriver.StorageDriver",
       "registry.gate *lockmetrics.RWMutex",
-      "registry.raw http.Handler"
+      "registry.raw http.Handler",
+      "registry.touched map[string]time.Time"
     ],
     "version": 1
   },

@@ -79,7 +79,7 @@ func TestAuthenticateUser(t *testing.T) {
 				upn += "@" + azuregraph.DefaultDomain
 			}
 
-			oid, err := e.h.Backend.AuthenticateUser(upn, tt.password)
+			oid, _, err := e.h.Backend.AuthenticateUser(upn, tt.password)
 			if tt.wantCode != 0 {
 				assert.Equal(t, tt.wantCode, authCode(t, err))
 				assert.Empty(t, oid)
@@ -102,21 +102,21 @@ func TestPasswordLockoutUsesBackendClock(t *testing.T) {
 	upn := "lock@" + azuregraph.DefaultDomain
 
 	for range 10 {
-		_, err := e.h.Backend.AuthenticateUser(upn, "wrong")
+		_, _, err := e.h.Backend.AuthenticateUser(upn, "wrong")
 		require.Equal(t, 50126, authCode(t, err))
 	}
 
-	_, err := e.h.Backend.AuthenticateUser(upn, goodPassword)
+	_, _, err := e.h.Backend.AuthenticateUser(upn, goodPassword)
 	assert.Equal(t, 50053, authCode(t, err), "locked even for the right password")
 
 	e.clock.advance(59 * time.Second)
 
-	_, err = e.h.Backend.AuthenticateUser(upn, goodPassword)
+	_, _, err = e.h.Backend.AuthenticateUser(upn, goodPassword)
 	assert.Equal(t, 50053, authCode(t, err))
 
 	e.clock.advance(2 * time.Second)
 
-	_, err = e.h.Backend.AuthenticateUser(upn, goodPassword)
+	_, _, err = e.h.Backend.AuthenticateUser(upn, goodPassword)
 	require.NoError(t, err)
 }
 
@@ -131,10 +131,10 @@ func TestPasswordChangeAndPersistence(t *testing.T) {
 		map[string]any{"passwordProfile": map[string]any{"password": newPassword}})
 	require.Equal(t, http.StatusNoContent, r.status, r.raw)
 
-	_, err := e.h.Backend.AuthenticateUser(upn, goodPassword)
+	_, _, err := e.h.Backend.AuthenticateUser(upn, goodPassword)
 	assert.Equal(t, 50126, authCode(t, err), "old password no longer works")
 
-	_, err = e.h.Backend.AuthenticateUser(upn, newPassword)
+	_, _, err = e.h.Backend.AuthenticateUser(upn, newPassword)
 	require.NoError(t, err)
 
 	snap := e.h.Backend.Snapshot(t.Context())
@@ -144,18 +144,18 @@ func TestPasswordChangeAndPersistence(t *testing.T) {
 	fresh := newEnv(t)
 	require.NoError(t, fresh.h.Backend.Restore(t.Context(), snap))
 
-	oid, err := fresh.h.Backend.AuthenticateUser(upn, newPassword)
+	oid, _, err := fresh.h.Backend.AuthenticateUser(upn, newPassword)
 	require.NoError(t, err)
 	assert.Equal(t, id, oid)
 
 	require.Equal(t, http.StatusNoContent, e.req(t, http.MethodDelete, "/v1.0/users/"+id, nil).status)
-	_, err = e.h.Backend.AuthenticateUser(upn, newPassword)
+	_, _, err = e.h.Backend.AuthenticateUser(upn, newPassword)
 	assert.Equal(t, 50034, authCode(t, err))
 
 	require.Equal(t, http.StatusOK,
 		e.req(t, http.MethodPost, "/v1.0/directory/deletedItems/"+id+"/restore", nil).status)
 
-	_, err = e.h.Backend.AuthenticateUser(upn, newPassword)
+	_, _, err = e.h.Backend.AuthenticateUser(upn, newPassword)
 	require.NoError(t, err, "a restored user keeps its password")
 }
 
@@ -171,11 +171,133 @@ func TestPasswordRestoreWithoutStoredHashFailsClosed(t *testing.T) {
 	fresh := newEnv(t)
 	require.NoError(t, fresh.h.Backend.Restore(t.Context(), []byte(stripped)))
 
-	_, err := fresh.h.Backend.AuthenticateUser("legacy@"+azuregraph.DefaultDomain, goodPassword)
+	_, _, err := fresh.h.Backend.AuthenticateUser("legacy@"+azuregraph.DefaultDomain, goodPassword)
 	require.Equal(t, 50126, authCode(t, err))
 
 	var ce *azuregraph.ClientAuthError
 
 	require.ErrorAs(t, err, &ce)
 	assert.Contains(t, ce.Description, "no stored password")
+}
+
+func TestPasswordSignInUnknownAccountsBurnHashWork(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		prep     func(*testing.T, *env)
+		name     string
+		username string
+		wantCode int
+		wantBurn int
+	}{
+		{name: "unknown user", username: "nobody@" + azuregraph.DefaultDomain, wantCode: 50034, wantBurn: 1},
+		{name: "disabled user", username: "off@" + azuregraph.DefaultDomain, wantCode: 50057, wantBurn: 1,
+			prep: func(t *testing.T, e *env) {
+				t.Helper()
+				newPasswordUser(t, e, "off", map[string]any{"accountEnabled": false})
+			}},
+		{name: "known user", username: "on@" + azuregraph.DefaultDomain, wantCode: 50126, wantBurn: 0,
+			prep: func(t *testing.T, e *env) {
+				t.Helper()
+				newPasswordUser(t, e, "on", nil)
+			}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t)
+			if tt.prep != nil {
+				tt.prep(t, e)
+			}
+
+			burned := 0
+
+			e.h.Backend.SetSignInHooks(func() { burned++ }, nil)
+
+			_, _, err := e.h.Backend.AuthenticateUser(tt.username, "wrong")
+			assert.Equal(t, tt.wantCode, authCode(t, err))
+			assert.Equal(t, tt.wantBurn, burned)
+		})
+	}
+}
+
+func TestPasswordSignInRevalidatesAfterHashing(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		race     func(*testing.T, *env, string, string)
+		name     string
+		wantCode int
+	}{
+		{name: "disabled meanwhile", wantCode: 50057,
+			race: func(t *testing.T, e *env, id, _ string) {
+				t.Helper()
+				r := e.req(t, http.MethodPatch, "/v1.0/users/"+id, map[string]any{"accountEnabled": false})
+				require.Equal(t, http.StatusNoContent, r.status, r.raw)
+			}},
+		{name: "locked meanwhile", wantCode: 50053,
+			race: func(t *testing.T, e *env, _, upn string) {
+				t.Helper()
+				for range 10 {
+					_, _, err := e.h.Backend.AuthenticateUser(upn, "wrong")
+					require.Error(t, err)
+				}
+			}},
+		{name: "password changed meanwhile", wantCode: 50126,
+			race: func(t *testing.T, e *env, id, _ string) {
+				t.Helper()
+				r := e.req(t, http.MethodPatch, "/v1.0/users/"+id,
+					map[string]any{"passwordProfile": map[string]any{"password": newPassword}})
+				require.Equal(t, http.StatusNoContent, r.status, r.raw)
+			}},
+		{name: "deleted meanwhile", wantCode: 50126,
+			race: func(t *testing.T, e *env, id, _ string) {
+				t.Helper()
+				require.Equal(t, http.StatusNoContent, e.req(t, http.MethodDelete, "/v1.0/users/"+id, nil).status)
+			}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t)
+			u := newPasswordUser(t, e, "race", nil)
+			upn := "race@" + azuregraph.DefaultDomain
+
+			e.h.Backend.SetSignInHooks(nil, func() {
+				e.h.Backend.SetSignInHooks(nil, nil)
+				tt.race(t, e, str(u, "id"), upn)
+			})
+
+			oid, _, err := e.h.Backend.AuthenticateUser(upn, goodPassword)
+			assert.Empty(t, oid)
+			assert.Equal(t, tt.wantCode, authCode(t, err))
+		})
+	}
+}
+
+func TestPasswordSignInReturnsUPNAndSuccessResetsLockout(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	newPasswordUser(t, e, "reset", nil)
+
+	upn := "reset@" + azuregraph.DefaultDomain
+
+	for range 9 {
+		_, _, err := e.h.Backend.AuthenticateUser(upn, "wrong")
+		require.Equal(t, 50126, authCode(t, err))
+	}
+
+	_, gotUPN, err := e.h.Backend.AuthenticateUser(upn, goodPassword)
+	require.NoError(t, err)
+	assert.Equal(t, upn, gotUPN)
+
+	for range 9 {
+		_, _, err = e.h.Backend.AuthenticateUser(upn, "wrong")
+		require.Equal(t, 50126, authCode(t, err), "success cleared the earlier failures")
+	}
 }
