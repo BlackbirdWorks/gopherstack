@@ -148,12 +148,8 @@ func (b *InMemoryBackend) validateCreate(in *createLBIn) (string, *APIError) {
 		return "", errUnsupported("reservedIps")
 	}
 
-	if in.IPMode != "" && in.IPMode != "IPV4" {
-		return "", errUnsupported("ipMode " + in.IPMode)
-	}
-
-	if in.Ipv6SubnetCidr != "" {
-		return "", errUnsupported("ipv6SubnetCidr")
+	if err := checkIPModeInputs(in.IPMode, in.Ipv6SubnetCidr); err != nil {
+		return "", err
 	}
 
 	return b.checkSubnets(in.SubnetIDs, boolOr(in.IsPrivate))
@@ -323,7 +319,12 @@ func (b *InMemoryBackend) createLB(in *createLBIn) (string, error) {
 		return "", verr
 	}
 
-	lb.IPAddresses = []IPAddress{{IPAddress: b.allocIP(cidrFor(lb, cidr)), IsPublic: !lb.IsPrivate}}
+	lb.IPMode, _ = parseIPMode(in.IPMode)
+	if lb.IPMode == "" {
+		lb.IPMode = ipModeV4
+	}
+
+	b.assignAddress(lb, in.Ipv6SubnetCidr, cidr)
 	lb.BusyUntil = *lb.TransitionAt
 	b.lbs[lb.ID] = lb
 
@@ -661,8 +662,12 @@ func checkPortSharing(lb *LoadBalancer) *APIError {
 // UpdateLoadBalancer changes mutable load balancer properties.
 func (b *InMemoryBackend) UpdateLoadBalancer(id, ifMatch, token string, in updateLBIn) (string, error) {
 	return b.Mutate(id, ifMatch, "UpdateLoadBalancer", token, false, func(lb *LoadBalancer) *APIError {
-		if in.IPMode != "" && in.IPMode != "IPV4" || in.Ipv6SubnetCidr != nil || len(in.ReservedIPs) > 0 {
-			return errUnsupported("ipMode, ipv6SubnetCidr and reservedIps changes")
+		if len(in.ReservedIPs) > 0 {
+			return errUnsupported("reservedIps changes")
+		}
+
+		if err := b.updateIPMode(lb, in); err != nil {
+			return err
 		}
 
 		if in.DisplayName != nil {

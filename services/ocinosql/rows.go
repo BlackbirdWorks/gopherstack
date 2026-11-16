@@ -62,20 +62,13 @@ type DeleteRowResult struct {
 func unitsFor(size int) int { return max(1, (size+bytesPerUnit-1)/bytesPerUnit) }
 
 func (t *Table) record(now time.Time, reads, writes int) {
-	if t.Usage == nil {
-		t.Usage = map[int64]*Usage{}
-	}
-
-	minute := now.Unix() / secondsPerMin * secondsPerMin
-
-	u := t.Usage[minute]
-	if u == nil {
-		u = &Usage{}
-		t.Usage[minute] = u
-	}
-
+	u := t.usageAt(now)
 	u.Reads += reads
 	u.Writes += writes
+
+	t.window.roll(now)
+	t.window.reads += reads
+	t.window.writes += writes
 }
 
 func (t *Table) nextVersion() string {
@@ -265,6 +258,10 @@ func (b *InMemoryBackend) UpdateRow(ref, ifMatch string, in updateRowIn) (Update
 		return UpdateRowResult{}, errMissing("value is required")
 	}
 
+	if aerr = b.throttle(t, b.nowUTC(), true); aerr != nil {
+		return UpdateRowResult{}, aerr
+	}
+
 	if in.Option != "" && in.Option != optIfAbsent && in.Option != optIfPresent {
 		return UpdateRowResult{}, errParam("option must be IF_ABSENT or IF_PRESENT")
 	}
@@ -380,6 +377,10 @@ func (b *InMemoryBackend) GetRow(ref, compartment string, key []string, consiste
 		return RowResult{}, "", errParam("consistency must be EVENTUAL or ABSOLUTE")
 	}
 
+	if aerr = b.throttle(t, b.nowUTC(), false); aerr != nil {
+		return RowResult{}, "", aerr
+	}
+
 	kv, aerr := parseKey(t, key)
 	if aerr != nil {
 		return RowResult{}, "", aerr
@@ -424,6 +425,10 @@ func (b *InMemoryBackend) DeleteRow(
 
 	t, aerr := b.rowTable(ref, compartment)
 	if aerr != nil {
+		return DeleteRowResult{}, aerr
+	}
+
+	if aerr = b.throttle(t, b.nowUTC(), true); aerr != nil {
 		return DeleteRowResult{}, aerr
 	}
 

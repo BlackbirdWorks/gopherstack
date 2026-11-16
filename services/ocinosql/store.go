@@ -28,18 +28,19 @@ const (
 
 // InMemoryBackend holds every table and work request under one lock.
 type InMemoryBackend struct {
-	mu          *lockmetrics.RWMutex
-	now         func() time.Time
-	tables      map[string]*Table
-	workReqs    map[string]*WorkRequest
-	Auth        *ociauth.Registry
-	compartment func(string) bool
-	retry       *ociretry.Store
-	config      *Configuration
-	tagLookup   ocitags.Lookup
-	transition  time.Duration
-	seq         int64
-	multiTenant bool
+	mu                *lockmetrics.RWMutex
+	now               func() time.Time
+	tables            map[string]*Table
+	workReqs          map[string]*WorkRequest
+	Auth              *ociauth.Registry
+	compartment       func(string) bool
+	retry             *ociretry.Store
+	config            *Configuration
+	tagLookup         ocitags.Lookup
+	transition        time.Duration
+	seq               int64
+	multiTenant       bool
+	enforceThroughput bool
 }
 
 // NewInMemoryBackend creates an empty backend.
@@ -55,6 +56,13 @@ func (b *InMemoryBackend) resetMaps() {
 	b.tables, b.workReqs = map[string]*Table{}, map[string]*WorkRequest{}
 	b.retry = ociretry.New()
 	b.config = nil
+}
+
+// SetEnforceThroughput turns on 429 throttling of PROVISIONED tables once a second's units are spent.
+func (b *InMemoryBackend) SetEnforceThroughput(on bool) {
+	b.mu.Lock("SetEnforceThroughput")
+	b.enforceThroughput = on
+	b.mu.Unlock()
 }
 
 // SetTagLookup wires defined-tag validation against a tag namespace source (OCI Identity); nil accepts any namespace.

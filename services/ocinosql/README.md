@@ -9,20 +9,14 @@
 | --- | --- |
 | PARITY entries audited | 27 (22 ok, 5 partial) |
 | Feature families | 9 (6 ok, 3 partial) |
-| Known gaps | 8 |
+| Known gaps | 2 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- Region names for CreateReplica are format-checked, not matched against a catalogue of OCI regions, and replicas have no data, throttling or per-replica limits beyond maxWriteUnits.
-- DeleteWorkRequest only marks the work request CANCELED; the resource transition is not rolled back. The entityType of UPDATE_CONFIGURATION work requests (configuration), the dry-run response and the kmsKey OCID prefixes are not documented by the SDK.
-- Throughput and storage limits are validated but not enforced: no read or write throttling, no storage quota, so the throttle counts of ListTableUsage stay 0.
-- Which REST error code applies to oversize keys, rows and query strings is not published: the OCI error reference (apierrors.htm) defines LimitExceeded as a tenancy-level resource limit and no NoSQL page states the code for size limits (emulator: LimitExceeded 400); key and row size are approximated from string and number bytes, not the server's serialized form.
-- Queries scan all rows of a table; indexes only validate and order ORDER BY clauses, there is no index selection, and maxReadInKBs is accepted but not used to cut a batch.
+- The storage quota (maxStorageInGBs) is not enforced and storageThrottleCount stays 0: the smallest quota is 1 GB (tables.go:77), so a write rejected for exceeding it cannot be exercised without storing over 1 GiB of rows.
 - IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified.
-- The dashboard has no OCI NoSQL page.
-- systemTags are never set.
 
 ## More
 

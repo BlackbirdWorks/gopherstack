@@ -87,6 +87,7 @@ func (b *InMemoryBackend) ListTableUsage(
 		items = append(items, UsageWire{
 			TimeStarted: time.Unix(m, 0).UTC(), SecondsInPeriod: secondsPerMin, ReadUnits: u.Reads,
 			WriteUnits: u.Writes, StorageInGBs: storage,
+			ReadThrottleCount: u.ReadThrottles, WriteThrottleCount: u.WriteThrottles,
 		})
 	}
 

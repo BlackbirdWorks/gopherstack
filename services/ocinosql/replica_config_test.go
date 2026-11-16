@@ -121,6 +121,16 @@ func TestReplicaErrors(t *testing.T) {
 			},
 		},
 		{
+			name: "unknownregion", status: http.StatusBadRequest, code: "InvalidParameter",
+			run: func(t *testing.T, e *env) error {
+				t.Helper()
+				e.mkFrozen(t)
+				_, err := e.addReplica(t, "mr", "ap-nowhere-1")
+
+				return err
+			},
+		},
+		{
 			name: "localregion", status: http.StatusBadRequest, code: "InvalidParameter",
 			run: func(t *testing.T, e *env) error {
 				t.Helper()

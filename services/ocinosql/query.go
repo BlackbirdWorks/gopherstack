@@ -16,6 +16,7 @@ const (
 
 type queryIn struct {
 	IsPrepared    *bool          `json:"isPrepared"`
+	MaxReadInKBs  *int           `json:"maxReadInKBs"`
 	Variables     map[string]any `json:"variables"`
 	CompartmentID string         `json:"compartmentId"`
 	Statement     string         `json:"statement"`
@@ -127,6 +128,10 @@ func (b *InMemoryBackend) Query(in queryIn, limit int, token string) (page.Page[
 		return page.Page[map[string]any]{}, usageWire{}, aerr
 	}
 
+	if aerr = b.throttle(pl.table, b.nowUTC(), false); aerr != nil {
+		return page.Page[map[string]any]{}, usageWire{}, aerr
+	}
+
 	rows, scanned := pl.run(b.nowUTC)
 	units := unitsFor(scanned)
 
@@ -136,7 +141,33 @@ func (b *InMemoryBackend) Query(in queryIn, limit int, token string) (page.Page[
 
 	pl.table.record(b.nowUTC(), units, 0)
 
+	if in.MaxReadInKBs != nil && *in.MaxReadInKBs > 0 {
+		limit = kbBoundedLimit(rows, page.DecodeToken(token), limit, *in.MaxReadInKBs)
+	}
+
 	return page.New(rows, token, limit, defaultQueryLimit), usageWire{ReadUnitsConsumed: units}, nil
+}
+
+// kbBoundedLimit shrinks the page size so the rows starting at start stay within maxKB;
+// a page always carries at least one row so paging makes progress.
+func kbBoundedLimit(rows []map[string]any, start, limit, maxKB int) int {
+	if limit <= 0 {
+		limit = defaultQueryLimit
+	}
+
+	budget := maxKB * bytesPerUnit
+	n := 0
+
+	for i := start; i < len(rows) && n < limit; i++ {
+		budget -= valueBytes(rows[i])
+		if budget < 0 && n > 0 {
+			break
+		}
+
+		n++
+	}
+
+	return max(n, 1)
 }
 
 // PrepareStatement validates a SELECT against its table and returns an opaque prepared form.

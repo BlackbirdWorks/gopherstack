@@ -96,6 +96,10 @@ func checkSnapshot(snap *backendSnapshot) error {
 }
 
 func (lb *LoadBalancer) fillMaps() {
+	if lb.IPMode == "" {
+		lb.IPMode = ipModeV4
+	}
+
 	if lb.Listeners == nil {
 		lb.Listeners = map[string]*Listener{}
 	}

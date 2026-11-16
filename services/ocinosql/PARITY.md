@@ -43,19 +43,25 @@ families:
   routing_isolation: {status: ok, note: "Own http.Server bound in StartWorker to --oci-nosql-port / OCI_NOSQL_PORT (default 8162); never on the shared AWS router; cli.go reserves the port in the shared pool."}
   observability: {status: ok, note: "telemetry.WrapEchoHandler feeds ExtractOperation/ExtractResource; one lockmetrics.RWMutex guards all state."}
 items_still_open:
-  - "Region names for CreateReplica are format-checked, not matched against a catalogue of OCI regions, and replicas have no data, throttling or per-replica limits beyond maxWriteUnits."
-  - "DeleteWorkRequest only marks the work request CANCELED; the resource transition is not rolled back. The entityType of UPDATE_CONFIGURATION work requests (configuration), the dry-run response and the kmsKey OCID prefixes are not documented by the SDK."
-  - "Throughput and storage limits are validated but not enforced: no read or write throttling, no storage quota, so the throttle counts of ListTableUsage stay 0."
-  - "Which REST error code applies to oversize keys, rows and query strings is not published: the OCI error reference (apierrors.htm) defines LimitExceeded as a tenancy-level resource limit and no NoSQL page states the code for size limits (emulator: LimitExceeded 400); key and row size are approximated from string and number bytes, not the server's serialized form."
-  - "Queries scan all rows of a table; indexes only validate and order ORDER BY clauses, there is no index selection, and maxReadInKBs is accepted but not used to cut a batch."
+  - "The storage quota (maxStorageInGBs) is not enforced and storageThrottleCount stays 0: the smallest quota is 1 GB (tables.go:77), so a write rejected for exceeding it cannot be exercised without storing over 1 GiB of rows."
   - "IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
-  - "The dashboard has no OCI NoSQL page."
-  - "systemTags are never set."
 ---
 
 ## Primary-source checks (2026-11-13)
+- ocinosql: the dashboard has a NoSQL page (ui/src/lib/components/oci/NoSQLDashboard.svelte, routed from ui/src/routes/oci/[service]/+page.svelte, served by dashboard/ocinosql_proxy.go).
 - ocinosql: Global Active table pages (creating-global-active-table.htm, dtddt global-active-tables) and mkdfa document CREATE TABLE ... WITH SCHEMA FROZEN [FORCE] and ALTER TABLE ... FREEZE SCHEMA [FORCE] / UNFREEZE SCHEMA; the FORCE variants are now accepted.
 
 ## Emulator choices where the vendor is silent
 
 - The 50/50/25 auto-reclaimable (Always Free) defaults and the minimum of 1 unit are not found in any primary source reached; the documented region-level limits (30 tables, 3 on-demand tables, 4 DDL operations per minute, 100 schema updates per table, 4 limit decreases per day, once-a-day capacity mode change, 10000/5000 on-demand ceiling) are not enforced.
+- DeleteWorkRequest marks the work request CANCELED and leaves the resource transition running; the SDK and the work-request pages state no rollback. The entityType of UPDATE_CONFIGURATION work requests (configuration), the dry-run response and the kmsKey OCID prefixes are not documented by the SDK.
+- Oversize keys, rows and query strings return LimitExceeded 400: apierrors.htm defines LimitExceeded as a tenancy-level resource limit and no NoSQL page names the code for size limits; sizes are approximated from string and number bytes, not the server's serialized form.
+- Queries scan every row; indexes validate and order ORDER BY clauses and no index is selected, because the query-plan format is not documented beyond an opaque object (nosql/prepared_statement.go).
+- maxReadInKBs bounds the bytes of the rows in a page (at least one row per page); a value of 0 or less means no bound. The SDK says only "A limit on the total amount of data read during this operation, in KB" (nosql/query_details.go:38).
+- Throughput throttling is opt-in (`--oci-nosql-enforce-throughput`, OCI_NOSQL_ENFORCE_THROUGHPUT): once a PROVISIONED table's read or write units for the current second are spent the next operation gets 429 TooManyRequests (apierrors.htm) and the throttle counts of ListTableUsage increment; on-demand tables are never throttled.
+- CreateReplica accepts the region identifiers of the SDK catalogue (oci-go-sdk common/regions.go); other names are InvalidParameter.
+- systemTags are never set: no NoSQL page lists system tags the service adds.
+
+## External effects that are recorded, not performed
+
+- CreateReplica records the replica and its work request; no data is copied to, and no throttling or limit is applied in, a remote region.
