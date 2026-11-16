@@ -9,18 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 35 (12 ok, 23 partial) |
 | Feature families | 9 (7 ok, 2 partial) |
-| Known gaps | 8 |
+| Known gaps | 5 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Soft delete: group restore conflicts are not published (checked directory-deleteditems-restore and directory-deleteditems-list); the bare GET /directory/deletedItems without a type cast is an emulator extra, the list reference documents only the type-cast URLs
-- Not implemented: custom role definitions, $expand=principal on role assignments, devices, contacts, create-group-in-administrative-unit (POST administrativeUnits/{id}/members), soft delete and restore of administrative units, administrative-unit scoped role assignments through roleManagement (directoryScopeId /administrativeUnits/{id}), applicationTemplates, tokenIssuancePolicies, claimsMappingPolicies, delta queries, extension attributes, photos, licensing, manager@odata.bind on user create/update (not documented on the user create/update pages; use PUT manager/$ref) and $expand for appRoleAssignments.
+- Not implemented (not attempted this pass for lack of budget after the password sign-in work): custom role definitions, devices, contacts, create-group-in-administrative-unit (POST administrativeUnits/{id}/members), soft delete and restore of administrative units, administrative-unit scoped role assignments through roleManagement (directoryScopeId /administrativeUnits/{id}), applicationTemplates, tokenIssuancePolicies, claimsMappingPolicies, delta queries, extension attributes, photos, licensing, manager@odata.bind on user create/update (not documented on the user create/update pages; use PUT manager/$ref) and $expand for appRoleAssignments.
 - Graph permissions are not enforced (no Authorization_RequestDenied for missing Application.ReadWrite.All and similar); requiredResourceAccess and appRoleAssignments are stored but grant nothing, and tokens carry no roles/scp claims.
-- Password users cannot sign in (no ROPC or authorization-code flow), so /me needs a hand-built user token. PFX (X509CertAndPassword) keys and PATCH of keyCredentials/passwordCredentials are not supported, so certificates cannot authenticate from a PFX-only credential.
-- Error message texts not published: checked graph/errors, json-batching, application-post-federatedidentitycredentials and user-post-users, which give status classes only; the texts are emulator choices for malformed ids ('Invalid object identifier'), duplicate identifierUris/uniqueName/UPN/servicePrincipalNames, unknown property, password complexity, appRoleAssignment validation, group creation rules (mail-enabled and neither-flag refusals, isAssignableToRole), the 405 error code, 'Unable to read JSON request payload', the federated-credential 409 code, the addKey proof failure, the $batch limit message, role assignment validation and the AADSTS assertion-failure texts
-- Built-in first-party service principals: only Microsoft Graph with a subset of its roles (Application.Read[Write].All, Directory.Read[Write].All, User.Read[Write].All, Group.Read[Write].All, Mail.Send) and scopes (User.Read, openid, profile, email, offline_access). Other well-known applications (Azure Service Management, Key Vault, ...) are absent, so looking them up by appId returns 404.
+- No authorization-code or device-code flow (only grant_type=password signs a user in), so interactive delegated flows still need a hand-built user token. PFX (X509CertAndPassword) keys and PATCH of keyCredentials/passwordCredentials are not supported, so certificates cannot authenticate from a PFX-only credential.
 - Terraform azuread fixture (application with web redirect URIs and requiredResourceAccess, service principal, application password) applies, replans empty and destroys against the container (test/terraform/azure/azuread_test.go) using metadata_host and the dev client; other azuread resources (groups, users, app role assignments, federated credentials, directory roles) are not exercised.
 - ARM role assignment validation (--azure-arm-validate-principals) does not know system-assigned identities of VMs, web apps and other ARM resources, so it stays opt-in.
 
