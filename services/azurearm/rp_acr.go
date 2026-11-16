@@ -323,6 +323,10 @@ func (p *ContainerRegistryProvider) putRegistry(
 		return nil, err
 	}
 
+	if err = p.syncPolicies(rec); err != nil {
+		return nil, err
+	}
+
 	var was *bool
 
 	if exists {
@@ -514,6 +518,12 @@ func (p *ContainerRegistryProvider) Patch(
 		return nil, err
 	}
 
+	if err := p.syncPolicies(rec); err != nil {
+		rec.extra, rec.sku = prevExtra, prevSKU
+
+		return nil, err
+	}
+
 	if err := p.syncEncryption(rec, &wasEncrypted); err != nil {
 		rec.extra, rec.sku = prevExtra, prevSKU
 
@@ -526,7 +536,9 @@ func (p *ContainerRegistryProvider) Patch(
 func (p *ContainerRegistryProvider) patchProps(
 	rec *storedACR, info ContainerRegistryInfo, props map[string]any,
 ) (ContainerRegistryInfo, error) {
-	maps.Copy(rec.extra, acrExtra(map[string]any{fieldProperties: props}))
+	patch := acrExtra(map[string]any{fieldProperties: props})
+	acrMergePolicies(rec.extra, patch)
+	maps.Copy(rec.extra, patch)
 
 	if err := p.syncAnonymousPull(rec); err != nil {
 		return info, err

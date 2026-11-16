@@ -179,11 +179,17 @@ func (b *InMemoryBackend) SweepRetention(ctx context.Context, reg string) {
 		return
 	}
 
+	defer b.deleteGate(reg)()
+
 	_, enabled := b.retentionPolicy(reg)
 
 	due := b.takeDue(reg, enabled)
 	if len(due) == 0 {
 		return
+	}
+
+	if b.onPlanned != nil {
+		b.onPlanned()
 	}
 
 	app, ok := b.app(reg)

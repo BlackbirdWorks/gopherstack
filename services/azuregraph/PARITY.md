@@ -55,9 +55,9 @@ families:
 gaps: []
 deferred: []
 items_still_open:
-  - "Not implemented: custom role definitions, devices, contacts, create-group-in-administrative-unit (POST administrativeUnits/{id}/members), soft delete and restore of administrative units, administrative-unit scoped role assignments through roleManagement (directoryScopeId /administrativeUnits/{id}), applicationTemplates, tokenIssuancePolicies, claimsMappingPolicies, delta queries, extension attributes, photos, licensing, manager@odata.bind on user create/update (not documented on the user create/update pages; use PUT manager/$ref) and $expand for appRoleAssignments."
+  - "Not implemented (not attempted this pass for lack of budget after the password sign-in work): custom role definitions, devices, contacts, create-group-in-administrative-unit (POST administrativeUnits/{id}/members), soft delete and restore of administrative units, administrative-unit scoped role assignments through roleManagement (directoryScopeId /administrativeUnits/{id}), applicationTemplates, tokenIssuancePolicies, claimsMappingPolicies, delta queries, extension attributes, photos, licensing, manager@odata.bind on user create/update (not documented on the user create/update pages; use PUT manager/$ref) and $expand for appRoleAssignments."
   - "Graph permissions are not enforced (no Authorization_RequestDenied for missing Application.ReadWrite.All and similar); requiredResourceAccess and appRoleAssignments are stored but grant nothing, and tokens carry no roles/scp claims."
-  - "Password users cannot sign in: the password of a created user is validated and discarded (users.go:117) and the /{tenant}/oauth2/v2.0/token endpoint lives in services/azurearm/directory.go, an existing file this pass could not edit, so there is no ROPC or authorization-code flow and /me needs a hand-built user token. PFX (X509CertAndPassword) keys and PATCH of keyCredentials/passwordCredentials are not supported, so certificates cannot authenticate from a PFX-only credential."
+  - "No authorization-code or device-code flow (only grant_type=password signs a user in), so interactive delegated flows still need a hand-built user token. PFX (X509CertAndPassword) keys and PATCH of keyCredentials/passwordCredentials are not supported, so certificates cannot authenticate from a PFX-only credential."
   - "Terraform azuread fixture (application with web redirect URIs and requiredResourceAccess, service principal, application password) applies, replans empty and destroys against the container (test/terraform/azure/azuread_test.go) using metadata_host and the dev client; other azuread resources (groups, users, app role assignments, federated credentials, directory roles) are not exercised."
   - "ARM role assignment validation (--azure-arm-validate-principals) does not know system-assigned identities of VMs, web apps and other ARM resources, so it stays opt-in."
 leaks: {status: clean, note: "StartWorker's http.Server is stopped by Shutdown (graceful, then Close); TestMain runs testleak.VerifyTestMain over the suite."}
@@ -70,6 +70,10 @@ The default user property set (businessPhones, displayName, givenName, id, jobTi
 ## Primary-source checks (2026-11-13)
 - azuregraph: user-delete states a restored user is also restored to its groups (fixed: deletedItems keep memberOf and restore rejoins surviving groups); directory-deleteditems-restore returns 200 with a typed directoryObject, matching the restore route.
 - azuregraph: json-batching documents the 20-request batch limit, application-post-federatedidentitycredentials the 20-credential cap, graph/errors the 405 status.
+
+## Password sign-in
+
+grant_type=password at the ARM token endpoint verifies a user's passwordProfile password (kept only as a salted PBKDF2-SHA256 hash, 120000 iterations, in the persisted secrets map; compared in constant time) and issues a token whose oid is the user. Errors follow the AADSTS codes of learn.microsoft.com/entra/identity-platform/reference-error-codes: 50126 invalid username or password, 50034 unknown user, 50057 disabled account, 50055 password change required, 50053 locked, 900144 missing username or password. Ten consecutive failures lock the account for one minute on the backend clock (learn.microsoft.com/entra/identity/authentication/howto-password-smart-lockout defaults); lockout state is in memory and is not persisted. Users restored from a snapshot without a stored hash fail with 50126 and a message naming PATCH /users/{id} passwordProfile.
 
 ## Emulator choices where the vendor is silent
 

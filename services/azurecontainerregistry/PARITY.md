@@ -39,7 +39,7 @@ gaps: []
 deferred: []
 items_still_open:
   - "Connected registries, agent pools and ACR Tasks (tasks, runs, taskRuns, scheduleRun, task run logs) are not modelled: the ARM routes belong in services/azurearm/rp_acr_routes.go:45 (containerRegistryRoutes), an existing file this pass could not edit, and a task build step needs an image build API that pkgs/container does not have (PullImage at pkgs/container/container.go:196 is the only image call)."
-  - "ARM listUsages is not served: its route belongs in services/azurearm/rp_acr_routes.go:45 and the Size usage needs registry size metering, which has no consumer until the route exists. Quarantine, content trust (Notary), export, soft delete and the other policies are stored and have no effect (the Learn quarantine page container-registry-quarantine answered 404 when checked), so quarantineState is always Passed, signed is always false and the webhook quarantine action never fires. Revoking the registry identity's Key Vault permission is not modelled (Key Vault permission evaluation is out of scope)."
+  - "Quarantine, content trust (Notary) and soft delete policies are stored and have no data-plane effect: quarantine has no Learn page (container-registry-quarantine answered 404 when checked) and its data-plane API is not documented, so quarantineState stays Passed and the webhook quarantine action never fires; content trust needs a Notary signing service that no emulated service provides (signed stays false); soft delete needs the data-plane list-deleted and restore paths, which Learn container-registry-soft-delete-policy names only as az acr commands (az acr manifest list-deleted, restore) without their REST paths. Revoking the registry identity's Key Vault permission is not modelled (Key Vault permission evaluation is out of scope)."
   - "Each registry's embedded distribution library leaves one go-events broadcaster goroutine running until process exit: distribution v3.1.2 registry/handlers/app.go:526 builds events.NewBroadcaster into the unexported app.events field and App.Shutdown (app.go:461) never closes it."
 leaks: {status: partial, note: "Shutdown closes the HTTP server and every registry; the distribution library's event broadcaster goroutine (one per registry built) cannot be stopped and is ignored by the leak check."}
 ---
@@ -62,7 +62,9 @@ Network rules: ipRules and defaultAction Deny need Premium and answer 403; publi
 
 Retention policy (Premium only; properties.policies.retentionPolicy status and days, 0 to 365): a manifest that becomes untagged while the policy is enabled is deleted after the configured days on the backend clock, at once for 0; only Docker manifests and manifest lists are deleted, never a manifest an index references, never one with delete-enabled false, and disabling the policy cancels pending deletions (learn.microsoft.com/azure/container-registry/container-registry-retention-policy). Manifests untagged before the policy was enabled are not scheduled.
 
-Deleting a manifest garbage collects the config, layer and manifest blobs that no remaining manifest of the registry references. Blobs uploaded but never referenced by a manifest are not collected, so an upload in flight is never lost.
+Deleting a manifest or repository garbage collects the config, layer and manifest blobs that no remaining manifest of the registry references; untagging keeps them (learn.microsoft.com/azure/container-registry/container-registry-delete). One registry-level gate serialises the work: manifest PUTs and imports hold it shared, deletes and the retention sweep hold it exclusively, so a tag written or a manifest pushed concurrently is never lost to a sweep or collection. Blobs uploaded but never referenced by a manifest are not collected.
+
+ARM listUsages (GET .../registries/{name}/listUsages) returns Size (stored bytes, deduplicated by digest) and Webhooks, plus Geo-replications (home replica included), IPRules and VNetRules on Premium, with the SKU limits of learn.microsoft.com/azure/container-registry/container-registry-skus. Export policy: disabling it needs a Premium registry with publicNetworkAccess Disabled and makes importImage from that registry fail with 400 (learn.microsoft.com/azure/container-registry/data-loss-prevention). ARM PATCH now merges nested policies instead of replacing the whole policies object.
 
 ## Emulator choices where the vendor is silent
 
@@ -73,6 +75,8 @@ Deleting a manifest garbage collects the config, layer and manifest blobs that n
 - A cache rule does not check that the target repository is absent.
 - The listener is plain HTTP unless --azure-acr-tls-cert and --azure-acr-tls-key are set: trusting a certificate is a client-side setting the emulator cannot change. This rests on reasoning, not on a checked source.
 - Webhook deliveries are not retried and each webhook keeps its last 100 events: learn.microsoft.com/azure/container-registry/container-registry-webhook mentions neither retries nor an event history size.
+- The Geo-replications usage limit (100) is an emulator value: Learn gives no maximum replica count.
+- A blob uploaded between two requests of a push is collected if the only manifest that referenced it is deleted before the manifest PUT arrives; the gate cannot span separate requests.
 - The retention sweep runs lazily when a request reaches the registry, not on a daily schedule: the Learn retention page gives no purge cadence.
 
 ## External effects that are recorded, not performed

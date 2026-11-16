@@ -50,12 +50,13 @@ func (b *InMemoryBackend) RecordManifestPut(reg, repo, ref, digest string) {
 }
 
 // RecordManifestDelete forgets a deleted manifest with its tags, or just the tag when ref is one. A manifest
-// the deleted tag leaves untagged is scheduled for deletion when the retention policy is enabled.
+// the deleted tag leaves untagged is scheduled for deletion when the retention policy is enabled. The caller
+// holds the delete gate.
 func (b *InMemoryBackend) RecordManifestDelete(reg, repo, ref string) {
 	b.recordManifestDelete(reg, repo, ref)
 
 	if ociregistry.IsDigest(ref) {
-		b.CollectGarbage(b.baseContext(), reg, repo, ref)
+		b.collectGarbage(b.baseContext(), reg, repo, ref)
 	}
 }
 

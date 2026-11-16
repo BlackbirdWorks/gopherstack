@@ -60,6 +60,14 @@ func (h *Handler) handleToken(c *echo.Context, tenant string) error {
 		return h.writeClientAuthError(c, authErr)
 	}
 
+	if userOID, handled, userErr := h.authenticateUser(form); handled {
+		if userErr != nil {
+			return h.writeClientAuthError(c, userErr)
+		}
+
+		oid = userOID
+	}
+
 	if clientID == "" {
 		clientID = h.Settings.ClientID
 	}

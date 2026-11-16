@@ -97,6 +97,10 @@ func (b *Backend) credentialsOf(id string) []string {
 		}
 	}
 
+	if _, ok := b.users.get(id); ok {
+		out = append(out, userSecretKey(id), userChangeKey(id))
+	}
+
 	return out
 }
 

@@ -90,7 +90,7 @@ func requireProps(kind string, body map[string]jsontext.Value, props ...string) 
 	return nil
 }
 
-// CreateUser creates a user. passwordProfile is validated and discarded.
+// CreateUser creates a user; only a salted hash of the passwordProfile password is kept.
 func (b *Backend) CreateUser(body map[string]jsontext.Value) (User, error) {
 	if err := requireProps(typeUser, body,
 		"accountEnabled", "displayName", "mailNickname", "passwordProfile", "userPrincipalName"); err != nil {
@@ -114,9 +114,14 @@ func (b *Backend) CreateUser(body map[string]jsontext.Value) (User, error) {
 		)
 	}
 
+	profile := u.PasswordProfile
 	u.PasswordProfile = nil
 
 	if err = b.validateUser(u, u.ID); err != nil {
+		return User{}, err
+	}
+
+	if err = b.storePassword(u.ID, profile); err != nil {
 		return User{}, err
 	}
 
@@ -168,10 +173,17 @@ func (b *Backend) UpdateUser(r Ref, body map[string]jsontext.Value) error {
 		)
 	}
 
+	profile := next.PasswordProfile
 	next.PasswordProfile = nil
 
 	if err = b.validateUser(next, cur.ID); err != nil {
 		return err
+	}
+
+	if profile != nil && profile.Password != "" {
+		if err = b.storePassword(cur.ID, profile); err != nil {
+			return err
+		}
 	}
 
 	b.users.put(cur.ID, next)

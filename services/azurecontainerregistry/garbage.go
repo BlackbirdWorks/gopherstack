@@ -103,9 +103,9 @@ func (b *InMemoryBackend) liveManifests(reg string) (storagedriver.StorageDriver
 	return r.driver, out
 }
 
-// CollectGarbage removes the manifest blob and the config and layer blobs of the deleted manifest digest that no
-// remaining manifest of the registry references, and unlinks them from repo.
-func (b *InMemoryBackend) CollectGarbage(ctx context.Context, reg, repo, digest string) {
+// collectGarbage removes the manifest blob and the config and layer blobs of the deleted manifest digest that no
+// remaining manifest of the registry references, and unlinks them from repo. The caller holds the delete gate.
+func (b *InMemoryBackend) collectGarbage(ctx context.Context, reg, repo, digest string) {
 	drv, live := b.liveManifests(reg)
 	if drv == nil || !ociregistry.IsDigest(digest) {
 		return
@@ -126,6 +126,10 @@ func (b *InMemoryBackend) CollectGarbage(ctx context.Context, reg, repo, digest 
 				keep[ref] = true
 			}
 		}
+	}
+
+	if b.onPlanned != nil {
+		b.onPlanned()
 	}
 
 	for _, c := range append(candidates, digest) {

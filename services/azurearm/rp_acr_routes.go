@@ -45,6 +45,12 @@ func isACRRegistryAction(segs []string, r *http.Request, method, action string) 
 var containerRegistryRoutes = []armRoute{
 	{
 		match: func(segs []string, r *http.Request) bool {
+			return isACRRegistryAction(segs, r, http.MethodGet, acrActionListUsages)
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleACRListUsages(c, segs) },
+	},
+	{
+		match: func(segs []string, r *http.Request) bool {
 			return r.Method == http.MethodPost && len(segs) == acrSubCheckLen && isSubscriptionScoped(segs) &&
 				segAt(segs, acrSubProviderSegIdx, providersSegment) &&
 				segAt(segs, acrSubProviderNsIdx, namespaceMicrosoftContainerRegistry) &&

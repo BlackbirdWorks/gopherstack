@@ -61,6 +61,12 @@ func (a *graphClientAuth) AuthenticateAssertion(clientID, assertion string, audi
 	return oid, known, armError(err)
 }
 
+func (a *graphClientAuth) AuthenticateUser(username, password string) (string, error) {
+	oid, err := a.backend.AuthenticateUser(username, password)
+
+	return oid, armError(err)
+}
+
 func armError(err error) error {
 	if ce, ok := errors.AsType[*azuregraph.ClientAuthError](err); ok {
 		return &azurearm.ClientAuthError{

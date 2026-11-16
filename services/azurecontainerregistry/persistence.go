@@ -75,6 +75,8 @@ func normalize(in map[string]*registry) (map[string]*registry, error) {
 			return nil, fmt.Errorf("%w: registry", errNullEntry)
 		}
 
+		r.gate = newGate()
+
 		if r.Repos == nil {
 			r.Repos = ociregistry.Ledger{}
 		}

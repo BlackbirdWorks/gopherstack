@@ -183,3 +183,61 @@ func (h *Handler) authenticateAssertion(
 		Description: strings.TrimSpace(err.Error()),
 	}
 }
+
+// PasswordAuthenticator is implemented by a ClientAuthenticator that also verifies resource-owner password
+// sign-ins (grant_type=password). The error is a *ClientAuthError for a rejected sign-in.
+type PasswordAuthenticator interface {
+	AuthenticateUser(username, password string) (objectID string, err error)
+}
+
+const grantTypePassword = "password"
+
+// authenticateUser handles grant_type=password: the user's object ID becomes the token's oid. handled is false
+// when the request is not a password grant or no directory is wired.
+func (h *Handler) authenticateUser(form map[string][]string) (string, bool, *ClientAuthError) {
+	if v := form["grant_type"]; len(v) == 0 || v[0] != grantTypePassword {
+		return "", false, nil
+	}
+
+	pa, ok := h.clients.(PasswordAuthenticator)
+	if !ok {
+		return "", false, nil
+	}
+
+	first := func(k string) string {
+		if v := form[k]; len(v) > 0 {
+			return v[0]
+		}
+
+		return ""
+	}
+
+	username, password := first("username"), first("password")
+	if username == "" || password == "" {
+		return "", true, &ClientAuthError{
+			Status:      http.StatusBadRequest,
+			Name:        "invalid_request",
+			Code:        codeMissingCredential,
+			Description: "AADSTS900144: The request body must contain the following parameter: 'username' and 'password'.",
+		}
+	}
+
+	oid, err := pa.AuthenticateUser(username, password)
+	if err == nil {
+		return oid, true, nil
+	}
+
+	if ce, isCE := err.(*ClientAuthError); isCE { //nolint:errorlint // adapter returns the concrete type
+		return "", true, ce
+	}
+
+	return "", true, &ClientAuthError{
+		Status: http.StatusBadRequest, Name: "invalid_grant", Code: codeInvalidGrant,
+		Description: strings.TrimSpace(err.Error()),
+	}
+}
+
+const (
+	codeMissingCredential = 900144
+	codeInvalidGrant      = 50126
+)

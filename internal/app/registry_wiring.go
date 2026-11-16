@@ -232,6 +232,16 @@ func (a *azureContainerRegistryAdapter) ImportImage(
 	return mapRegistryError(err)
 }
 
+func (a *azureContainerRegistryAdapter) SetExportAllowed(registry string, allowed bool) error {
+	return mapRegistryError(a.backend.SetExportAllowed(registry, allowed))
+}
+
+func (a *azureContainerRegistryAdapter) UsedBytes(registry string) (int64, error) {
+	n, err := a.backend.UsedBytes(registry)
+
+	return n, mapRegistryError(err)
+}
+
 func (a *azureContainerRegistryAdapter) SetNetworkRules(
 	registry string, rules azurearm.ContainerRegistryNetworkRules,
 ) error {

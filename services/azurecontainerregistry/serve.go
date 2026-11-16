@@ -320,6 +320,13 @@ func (h *Handler) serveRegistry(w http.ResponseWriter, r *http.Request) {
 		h.Backend.pullThrough(r.Context(), reg, app, repo, ref)
 	}
 
+	release, ok := h.gate(w, r, reg)
+	if !ok {
+		return
+	}
+
+	defer release()
+
 	ociregistry.ServeObserved(app, w, r, h.observer(reg, app, r))
 }
 

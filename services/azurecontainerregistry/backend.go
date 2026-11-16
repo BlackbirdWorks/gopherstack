@@ -43,24 +43,26 @@ type Credentials struct {
 }
 
 type registry struct {
-	CreatedAt    time.Time                       `json:"createdAt"`
-	Repos        ociregistry.Ledger              `json:"repos"`
-	Webhooks     map[string]*Webhook             `json:"webhooks,omitempty"`
-	Events       map[string][]WebhookEvent       `json:"events,omitempty"`
-	ScopeMaps    map[string]*ScopeMap            `json:"scopeMaps,omitempty"`
-	Tokens       map[string]*Token               `json:"tokens,omitempty"`
-	CacheRules   map[string]*CacheRule           `json:"cacheRules,omitempty"`
-	RetentionDue map[string]map[string]time.Time `json:"retentionDue,omitempty"`
-	raw          http.Handler
-	app          http.Handler
-	driver       storagedriver.StorageDriver
-	Name         string       `json:"name"`
-	Password1    string       `json:"password1"`
-	Password2    string       `json:"password2"`
-	KeyID        string       `json:"keyId,omitempty"`
-	Network      NetworkRules `json:"network,omitzero"`
-	Admin        bool         `json:"admin"`
-	Anonymous    bool         `json:"anonymousPull,omitempty"`
+	CreatedAt      time.Time                       `json:"createdAt"`
+	Repos          ociregistry.Ledger              `json:"repos"`
+	Webhooks       map[string]*Webhook             `json:"webhooks,omitempty"`
+	Events         map[string][]WebhookEvent       `json:"events,omitempty"`
+	ScopeMaps      map[string]*ScopeMap            `json:"scopeMaps,omitempty"`
+	Tokens         map[string]*Token               `json:"tokens,omitempty"`
+	CacheRules     map[string]*CacheRule           `json:"cacheRules,omitempty"`
+	RetentionDue   map[string]map[string]time.Time `json:"retentionDue,omitempty"`
+	raw            http.Handler
+	app            http.Handler
+	driver         storagedriver.StorageDriver
+	gate           *lockmetrics.RWMutex
+	Name           string       `json:"name"`
+	Password1      string       `json:"password1"`
+	Password2      string       `json:"password2"`
+	KeyID          string       `json:"keyId,omitempty"`
+	Network        NetworkRules `json:"network,omitzero"`
+	Admin          bool         `json:"admin"`
+	Anonymous      bool         `json:"anonymousPull,omitempty"`
+	ExportDisabled bool         `json:"exportDisabled,omitempty"`
 }
 
 // InMemoryBackend holds every registry's control-plane state under one lock; blobs and manifests live in
@@ -76,6 +78,7 @@ type InMemoryBackend struct {
 	secrets       SecretResolver
 	keyCheck      KeyChecker
 	retention     RetentionSource
+	onPlanned     func()
 	dataDir       string
 	secret        []byte
 	remoteImports bool
@@ -111,7 +114,7 @@ func (b *InMemoryBackend) SetContext(ctx context.Context) {
 
 func newRegistry(name string, now time.Time) *registry {
 	return &registry{
-		Name: name, CreatedAt: now, Repos: ociregistry.Ledger{},
+		Name: name, CreatedAt: now, Repos: ociregistry.Ledger{}, gate: newGate(),
 		Password1: awsid.NewN("", passwordChars), Password2: awsid.NewN("", passwordChars),
 	}
 }

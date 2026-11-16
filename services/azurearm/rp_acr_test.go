@@ -15,8 +15,10 @@ import (
 )
 
 type fakeRegistries struct {
-	regs map[string]*fakeReg
-	mu   sync.Mutex
+	regs          map[string]*fakeReg
+	exportAllowed map[string]bool
+	used          map[string]int64
+	mu            sync.Mutex
 }
 
 type fakeReg struct {
@@ -635,3 +637,23 @@ func (f *fakeRegistries) CredentialHealth(string, string) (bool, string, string)
 func (f *fakeRegistries) CheckEncryptionKey(string) error { return nil }
 
 func (f *fakeRegistries) SetEncryptionKey(string, string) error { return nil }
+
+func (f *fakeRegistries) SetExportAllowed(name string, allowed bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.exportAllowed == nil {
+		f.exportAllowed = map[string]bool{}
+	}
+
+	f.exportAllowed[name] = allowed
+
+	return nil
+}
+
+func (f *fakeRegistries) UsedBytes(name string) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.used[name], nil
+}
