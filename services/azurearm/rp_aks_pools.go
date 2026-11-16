@@ -115,6 +115,11 @@ func (p *ContainerServiceProvider) checkPool(
 		delete(props, k)
 	}
 
+	snapImage, snapErr := p.aksApplySnapshot(name, props)
+	if snapErr != nil {
+		return nil, snapErr
+	}
+
 	if prev != nil {
 		effective := prev.profile(false)
 
@@ -140,6 +145,10 @@ func (p *ContainerServiceProvider) checkPool(
 
 	if err := aksResolvePoolVersion(rec, prev, cc); err != nil {
 		return nil, err
+	}
+
+	if snapImage != "" {
+		rec.NodeImage = snapImage
 	}
 
 	if rec.NodeImage == "" {

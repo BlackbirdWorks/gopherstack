@@ -136,11 +136,15 @@ func mergeFlexMap(base, over map[string]any) map[string]any {
 }
 
 func (p *FlexDBProvider) storageBody(rec *flexServer) map[string]any {
+	if p.flavor.kind == flexKindPostgres && rec.StorageType == pgStoragePremiumV2 {
+		return pgPremiumV2Body(rec)
+	}
+
 	if p.flavor.kind == flexKindPostgres {
 		tier, iops := pgStorageTier(rec.StorageGB)
 
 		return map[string]any{
-			"storageSizeGB": rec.StorageGB, "autoGrow": rec.AutoGrow, aksFieldTier: tier, "iops": iops,
+			flexPropStorageGB: rec.StorageGB, flexPropAutoGrow: rec.AutoGrow, aksFieldTier: tier, flexPropIops: iops,
 		}
 	}
 
@@ -150,8 +154,13 @@ func (p *FlexDBProvider) storageBody(rec *flexServer) map[string]any {
 	}
 
 	return map[string]any{
-		"storageSizeGB": rec.StorageGB, "iops": iops, "autoGrow": rec.AutoGrow, "autoIoScaling": flexDisabled,
-		"logOnDisk": flexDisabled, "storageSku": "Premium_LRS", "storageRedundancy": "LocalRedundancy",
+		"storageSizeGB":     rec.StorageGB,
+		flexPropIops:        iops,
+		flexPropAutoGrow:    rec.AutoGrow,
+		"autoIoScaling":     flexDisabled,
+		"logOnDisk":         flexDisabled,
+		"storageSku":        "Premium_LRS",
+		"storageRedundancy": "LocalRedundancy",
 	}
 }
 
@@ -264,12 +273,10 @@ func (p *FlexDBProvider) ListChildren(id ResourceID, collection string) ([]map[s
 		for _, b := range p.liveBackups(rec) {
 			out = append(out, p.backupItemBody(id, b, strings.EqualFold(collection, flexBackupsV2Type)))
 		}
+	case strings.ToLower(flexThreatType):
+		return p.threatList(id, rec)
 	case strings.ToLower(flexConfigsType):
-		for _, c := range p.flavor.configs {
-			cid := id
-			cid.Types, cid.Names = []string{flexServersType, flexConfigsType}, []string{id.Names[0], c.name}
-			out = append(out, p.configEnvelope(cid, rec, c))
-		}
+		out = p.configList(id, rec)
 	case strings.ToLower(flexReplicasType):
 		for _, r := range p.replicasOf(p.key(id)) {
 			out = append(out, p.serverBody(p.recID(id.SubscriptionID, r), r))
@@ -358,4 +365,29 @@ func (p *FlexDBProvider) deleteFirewall(id ResourceID) (string, error) {
 	delete(rec.Firewall, k)
 
 	return p.newOp(id.ARMID(), false, "", nil), nil
+}
+
+const (
+	flexPropAutoGrow  = "autoGrow"
+	flexPropIops      = "iops"
+	flexPropStorageGB = "storageSizeGB"
+)
+
+func pgPremiumV2Body(rec *flexServer) map[string]any {
+	return map[string]any{
+		flexPropStorageGB: rec.StorageGB, flexPropAutoGrow: rec.AutoGrow, "type": pgStoragePremiumV2,
+		flexPropIops: rec.Iops, "throughput": rec.Throughput,
+	}
+}
+
+func (p *FlexDBProvider) configList(id ResourceID, rec *flexServer) []map[string]any {
+	out := make([]map[string]any, 0, len(p.flavor.configs))
+
+	for _, c := range p.flavor.configs {
+		cid := id
+		cid.Types, cid.Names = []string{flexServersType, flexConfigsType}, []string{id.Names[0], c.name}
+		out = append(out, p.configEnvelope(cid, rec, c))
+	}
+
+	return out
 }

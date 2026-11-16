@@ -142,6 +142,7 @@ type acaApp struct {
 	command []*string
 	args    []*string
 	ipRules []*armappcontainers.IPSecurityRestrictionRule
+	probes  []*armappcontainers.ContainerAppProbe
 	inits   []string
 	cpu     float64
 	port    int32
@@ -185,7 +186,7 @@ func (o acaApp) model(envID string) armappcontainers.ContainerApp {
 
 	tmpl := &armappcontainers.Template{
 		Containers: []*armappcontainers.Container{{
-			Name: new("main"), Image: &image, Env: o.env, Command: o.command, Args: o.args,
+			Name: new("main"), Image: &image, Env: o.env, Command: o.command, Args: o.args, Probes: o.probes,
 			Resources: &armappcontainers.ContainerResources{CPU: &cpu, Memory: &mem},
 		}},
 		Scale: o.scale,

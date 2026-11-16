@@ -531,6 +531,16 @@ func pgStorageTier(gb int) (string, int) {
 }
 
 const (
+	pgStoragePremium   = "Premium_LRS"
+	pgStoragePremiumV2 = "PremiumV2_LRS"
+	pgPremiumV2MaxGiB  = 65536
+	pgPremiumV2MinIops = 3000
+	pgPremiumV2MaxIops = 80000
+	pgPremiumV2MinMBps = 125
+	pgPremiumV2MaxMBps = 1200
+)
+
+const (
 	mysqlBaseIops   = 360
 	mysqlIopsPerGiB = 3
 )

@@ -174,6 +174,8 @@ func acaContainerWire(c map[string]any, secrets map[string]string, port int) aci
 		w.Properties.Ports = []aciPortWire{{Port: port, Protocol: aciProtoTCP}}
 	}
 
+	w.Properties.LivenessProbe, w.Properties.ReadinessProbe = acaProbeWires(acaList(c["probes"]))
+
 	return w
 }
 
