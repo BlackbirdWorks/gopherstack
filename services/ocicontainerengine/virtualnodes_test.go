@@ -337,3 +337,119 @@ func TestListPodShapes(t *testing.T) {
 		})
 	}
 }
+
+func TestVirtualNodePoolCycling(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		cycling *ke.VirtualNodePoolCyclingDetails
+		name    string
+		restore bool
+		cycled  bool
+	}{
+		{name: "enabled", cycled: true, cycling: &ke.VirtualNodePoolCyclingDetails{
+			IsVirtualNodeCyclingEnabled: new(true), MaximumSurge: new("25%"), MaximumUnavailable: new("1"),
+		}},
+		{name: "enabled after restore", cycled: true, restore: true, cycling: &ke.VirtualNodePoolCyclingDetails{
+			IsVirtualNodeCyclingEnabled: new(true),
+		}},
+		{name: "disabled", cycling: &ke.VirtualNodePoolCyclingDetails{IsVirtualNodeCyclingEnabled: new(false)}},
+		{name: "absent"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, envOpts{})
+			ctx := t.Context()
+			c := e.mkCluster(t, "vcyc", nil)
+
+			d := vnpDetails(c.Id, "vcyc", 2)
+			d.VirtualNodePoolCyclingDetails = tt.cycling
+
+			_, err := e.ce.CreateVirtualNodePool(ctx, ke.CreateVirtualNodePoolRequest{CreateVirtualNodePoolDetails: d})
+			require.NoError(t, err)
+			e.settle()
+
+			list, err := e.ce.ListVirtualNodePools(ctx, ke.ListVirtualNodePoolsRequest{
+				CompartmentId: new(testCompartment), Name: d.DisplayName,
+			})
+			require.NoError(t, err)
+			require.Len(t, list.Items, 1)
+
+			id := list.Items[0].Id
+			target := e
+
+			if tt.restore {
+				target = newEnv(t, envOpts{})
+				require.NoError(t, target.backend.Restore(ctx, e.backend.Snapshot(ctx)))
+			}
+
+			ids := func() []string {
+				nodes, lerr := target.ce.ListVirtualNodes(ctx, ke.ListVirtualNodesRequest{VirtualNodePoolId: id})
+				require.NoError(t, lerr)
+
+				out := make([]string, 0, len(nodes.Items))
+				for _, n := range nodes.Items {
+					out = append(out, *n.Id)
+				}
+
+				return out
+			}
+
+			before := ids()
+			require.Len(t, before, 2)
+
+			upd := ke.UpdateVirtualNodePoolDetails{
+				Taints: []ke.Taint{{Key: new("dedicated"), Value: new("x"), Effect: new("NoSchedule")}},
+			}
+			_, err = target.ce.UpdateVirtualNodePool(ctx, ke.UpdateVirtualNodePoolRequest{
+				VirtualNodePoolId: id, UpdateVirtualNodePoolDetails: upd,
+			})
+			require.NoError(t, err)
+			target.settle()
+
+			after := ids()
+			require.Len(t, after, 2)
+
+			if tt.cycled {
+				assert.NotContains(t, after, before[0])
+				assert.NotContains(t, after, before[1])
+
+				return
+			}
+
+			assert.ElementsMatch(t, before, after)
+		})
+	}
+}
+
+func TestVirtualNodePoolCyclingValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		cycling *ke.VirtualNodePoolCyclingDetails
+		name    string
+	}{
+		{name: "surge percent", cycling: &ke.VirtualNodePoolCyclingDetails{MaximumSurge: new("101%")}},
+		{name: "unavailable count", cycling: &ke.VirtualNodePoolCyclingDetails{MaximumUnavailable: new("9")}},
+		{name: "not a number", cycling: &ke.VirtualNodePoolCyclingDetails{MaximumSurge: new("lots")}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, envOpts{})
+			c := e.mkCluster(t, "vval", nil)
+			d := vnpDetails(c.Id, "vval", 2)
+			d.VirtualNodePoolCyclingDetails = tt.cycling
+
+			_, err := e.ce.CreateVirtualNodePool(
+				t.Context(), ke.CreateVirtualNodePoolRequest{CreateVirtualNodePoolDetails: d},
+			)
+			assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode())
+		})
+	}
+}

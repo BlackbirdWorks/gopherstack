@@ -33,7 +33,6 @@ families:
   routing_isolation: {status: ok, note: "Own http.Server bound in StartWorker to --oci-notifications-port / OCI_NOTIFICATIONS_PORT (default 8157); never on the shared AWS router; cli.go reserves the port in the shared pool."}
   observability: {status: ok, note: "telemetry.WrapEchoHandler feeds ExtractOperation/ExtractResource; one lockmetrics.RWMutex guards all state; the delivery log keeps the newest 2000 finished entries."}
 items_still_open:
-  - "Signed deliveries (X-OCI-NS-Signature, X-OCI-NS-Timestamp, X-OCI-NS-SignatureVersion, X-OCI-NS-SigningCertURL): the overview lists the headers but not the signed string or the certificate format, so they are not emitted; the friendly-formatting setting is not implemented."
   - "IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
 ---
 
@@ -48,6 +47,7 @@ items_still_open:
 - Per-subscription delivery rates (Email 10, HTTP 60, Functions 60, Slack 60, SMS 6 per minute) are not enforced: the page says over-rate messages are delayed or dropped without defining which; SMS is not restricted to Announcements, Monitoring and Connector Hub because the emulator cannot tell the publishing service.
 - The maxRetryDuration range (10 s to 24 h), topic name character rules, the status code of DeleteSubscription and DeleteTopic, and the error codes for bad confirmation tokens: the Go SDK, oci-python-sdk, oci-cli and the Content pages state none of them.
 - Deleted topics and unsubscribed subscriptions disappear instead of passing through a DELETED state (the SDK enum has DELETED for subscriptions; no source says when it is observable).
+- The Notifications overview (https://docs.oracle.com/en-us/iaas/Content/Notification/Concepts/notificationoverview.htm) lists X-OCI-NS-Signature, X-OCI-NS-Timestamp, X-OCI-NS-SignatureVersion and X-OCI-NS-SigningCertURL but not the signed string, algorithm, signature version values or certificate format, and defines friendly formatting only as "a setting to increase human readability of messages"; neither is emitted or applied.
 
 ## External effects that are recorded, not performed
 

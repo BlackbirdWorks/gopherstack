@@ -297,6 +297,10 @@ func (b *InMemoryBackend) CreateQueue(in CreateQueueIn) (string, error) {
 		return "", aerr
 	}
 
+	if aerr := b.checkQueueCount(); aerr != nil {
+		return "", aerr
+	}
+
 	q := &Queue{
 		ID: newOCID("queue"), CompartmentID: in.Compartment, Name: in.Name, State: stateCreating,
 		TimeCreated: now, TimeUpdated: now, TransitionAt: b.transitionAt(), Tags: in.Tags, Etag: newEtag(),

@@ -56,6 +56,7 @@ type VirtualNode struct {
 	SubnetID     string     `json:"subnetId"`
 	PrivateIP    string     `json:"privateIp,omitempty"`
 	State        string     `json:"state"`
+	Spec         string     `json:"spec,omitempty"`
 	NsgIDs       []string   `json:"nsgIds,omitempty"`
 	Seq          int64      `json:"seq"`
 }
@@ -337,7 +338,7 @@ func (b *InMemoryBackend) CreateVirtualNodePool(in CreateVNPIn) (string, error) 
 		b.checkVPlacements(in.Placements, c.VcnID),
 		b.checkPodConfig(in.PodConfig, c.VcnID),
 		b.checkNsgs("nsgIds", in.NsgIDs, c.VcnID),
-		checkNodePoolSettings(nil, in.Cycling, *in.Size), b.checkVirtualNodeLimit("", *in.Size),
+		checkVirtualCycling(in.Cycling, *in.Size), b.checkVirtualNodeLimit("", *in.Size),
 	); aerr != nil {
 		return "", aerr
 	}
@@ -375,24 +376,29 @@ func (b *InMemoryBackend) resizeVirtualNodes(p *VirtualNodePool) {
 	}
 
 	for i := len(live); i < p.Size; i++ {
-		pl := p.Placements[i%len(p.Placements)]
-		n := &VirtualNode{
-			ID: newOCID("virtualnode"), Name: p.Name + "-" + ocidTail(newOCID("n"), shortTail), Version: p.Version,
-			AD: pl.AvailabilityDomain, FaultDomain: faultDomainOne, SubnetID: pl.SubnetID, NsgIDs: p.NsgIDs,
-			State: stateCreating, TransitionAt: p.TransitionAt, TimeCreated: b.nowUTC(), Seq: b.nextSeq(),
-		}
-
-		if len(pl.FaultDomain) > 0 {
-			n.FaultDomain = pl.FaultDomain[0]
-		}
-
-		if p.NodeTags != nil {
-			n.Tags = *p.NodeTags
-		}
-
-		n.PrivateIP = b.allocIP(pl.SubnetID)
-		p.Nodes = append(p.Nodes, n)
+		p.Nodes = append(p.Nodes, b.newVirtualNode(p, p.Placements[i%len(p.Placements)]))
 	}
+}
+
+func (b *InMemoryBackend) newVirtualNode(p *VirtualNodePool, pl VPlacement) *VirtualNode {
+	n := &VirtualNode{
+		ID: newOCID("virtualnode"), Name: p.Name + "-" + ocidTail(newOCID("n"), shortTail), Version: p.Version,
+		AD: pl.AvailabilityDomain, FaultDomain: faultDomainOne, SubnetID: pl.SubnetID, NsgIDs: p.NsgIDs,
+		State: stateCreating, TransitionAt: p.TransitionAt, TimeCreated: b.nowUTC(), Seq: b.nextSeq(),
+		Spec: virtualNodeSpec(p),
+	}
+
+	if len(pl.FaultDomain) > 0 {
+		n.FaultDomain = pl.FaultDomain[0]
+	}
+
+	if p.NodeTags != nil {
+		n.Tags = *p.NodeTags
+	}
+
+	n.PrivateIP = b.allocIP(pl.SubnetID)
+
+	return n
 }
 
 func (b *InMemoryBackend) vnp(id string) (*VirtualNodePool, *APIError) {
@@ -540,7 +546,7 @@ func (b *InMemoryBackend) applyVNPUpdate(p *VirtualNodePool, in UpdateVNPIn, c *
 
 	if aerr := firstErr(
 		b.checkNsgs("nsgIds", in.NsgIDs, vcn),
-		checkNodePoolSettings(nil, in.Cycling, p.Size),
+		checkVirtualCycling(in.Cycling, p.Size),
 	); aerr != nil {
 		return aerr
 	}
@@ -572,6 +578,7 @@ func (b *InMemoryBackend) UpdateVirtualNodePool(id, ifMatch string, in UpdateVNP
 	now := b.nowUTC()
 	p.State, p.Etag, p.TimeUpdated, p.TransitionAt = stateUpdating, newEtag(), &now, b.transitionAt()
 	b.resizeVirtualNodes(p)
+	b.cycleVirtualNodes(p)
 
 	return b.newWR(wrVNPUpdate, p.CompartmentID, entityVNP, p.ID, actionUpdated, p.TransitionAt), nil
 }
