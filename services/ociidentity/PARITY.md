@@ -107,3 +107,4 @@ items_still_open:
 ## Emulator choices where the vendor is silent
 
 - Per-operation error mapping for duplicate names (409 Conflict), per-user credential limits and tenancy limits (400 LimitExceeded) is undocumented, and MOVE_COMPARTMENT is not among the SDK's work request operation types (DELETE_COMPARTMENT and DELETE_TAG_DEFINITION).
+- Auth tokens created before digests were stored (snapshots from older builds) have nothing to verify against, so registry logins with them fail closed (401 naming re-creation); delete and re-create the token. Verification always costs one PBKDF2 derivation (4096 rounds) whether or not the user exists, so timing does not reveal user names.

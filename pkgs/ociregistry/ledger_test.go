@@ -223,3 +223,58 @@ func TestServeObserved(t *testing.T) {
 		assert.Equal(t, http.StatusCreated, rec.Code)
 	})
 }
+
+func TestServeObservedPulled(t *testing.T) {
+	t.Parallel()
+
+	const manifest = "/v2/app/manifests/v1"
+
+	status := func(code int) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(code) })
+	}
+	implicit := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("{}")) })
+
+	tests := []struct {
+		app    http.Handler
+		name   string
+		method string
+		deny   bool
+		want   bool
+	}{
+		{name: "get 200", app: status(http.StatusOK), method: http.MethodGet, want: true},
+		{name: "get implicit 200", app: implicit, method: http.MethodGet, want: true},
+		{name: "get 404", app: status(http.StatusNotFound), method: http.MethodGet, want: false},
+		{name: "get 304", app: status(http.StatusNotModified), method: http.MethodGet, want: false},
+		{name: "head 200", app: status(http.StatusOK), method: http.MethodHead, want: false},
+		{name: "put 201", app: status(http.StatusCreated), method: http.MethodPut, want: false},
+		{name: "denied get", app: status(http.StatusOK), method: http.MethodGet, deny: true, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var pulled string
+
+			obs := ociregistry.Observer{
+				Permit: func(w http.ResponseWriter, _, _, _ string) bool {
+					if tt.deny {
+						w.WriteHeader(http.StatusForbidden)
+					}
+
+					return !tt.deny
+				},
+				Pulled: func(repo, ref string) { pulled = repo + " " + ref },
+			}
+
+			req := httptest.NewRequestWithContext(t.Context(), tt.method, manifest, http.NoBody)
+			ociregistry.ServeObserved(tt.app, httptest.NewRecorder(), req, obs)
+
+			if tt.want {
+				assert.Equal(t, "app v1", pulled)
+			} else {
+				assert.Empty(t, pulled)
+			}
+		})
+	}
+}

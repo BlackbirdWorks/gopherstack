@@ -86,3 +86,50 @@ func TestSyncTreeTransfersOnlyDifferences(t *testing.T) {
 		})
 	}
 }
+
+func TestSyncTreeNeverFollowsDestinationSymlinks(t *testing.T) {
+	t.Parallel()
+
+	t0 := time.Unix(1_700_000_000, 0)
+
+	tests := []struct {
+		src  map[string]string
+		name string
+		link string
+	}{
+		{name: "file over link", src: map[string]string{"x": "new"}, link: "x"},
+		{name: "directory over link", src: map[string]string{"x/inner": "new"}, link: "x"},
+		{name: "link not in source", src: map[string]string{"y": "new"}, link: "x"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			base := t.TempDir()
+			src, dst, outside := filepath.Join(base, "src"), filepath.Join(base, "dst"), filepath.Join(base, "out")
+
+			for n, c := range tt.src {
+				writeAt(t, src, n, c, t0)
+			}
+
+			writeAt(t, outside, "victim", "keep", t0)
+			require.NoError(t, os.MkdirAll(dst, 0o755))
+			require.NoError(t, os.Symlink(outside, filepath.Join(dst, tt.link)))
+
+			_, err := syncTree(src, dst)
+			require.NoError(t, err)
+
+			got, rerr := os.ReadFile(filepath.Join(outside, "victim"))
+			require.NoError(t, rerr)
+			assert.Equal(t, "keep", string(got))
+			assert.NoFileExists(t, filepath.Join(outside, "inner"))
+			assert.NoFileExists(t, filepath.Join(outside, "x"))
+
+			info, lerr := os.Lstat(filepath.Join(dst, tt.link))
+			if lerr == nil {
+				assert.Zero(t, info.Mode()&os.ModeSymlink)
+			}
+		})
+	}
+}

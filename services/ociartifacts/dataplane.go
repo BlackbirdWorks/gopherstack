@@ -165,7 +165,19 @@ func (b *InMemoryBackend) ValidLogin(username, password string) (string, bool) {
 		return user, true
 	}
 
-	return verify(user, password)
+	return verify(stripFederation(user), password)
+}
+
+const federationPrefix = "oracleidentitycloudservice/"
+
+// stripFederation drops the identity-provider segment of a federated login name
+// (`<namespace>/oracleidentitycloudservice/<user>`).
+func stripFederation(user string) string {
+	if len(user) > len(federationPrefix) && strings.EqualFold(user[:len(federationPrefix)], federationPrefix) {
+		return user[len(federationPrefix):]
+	}
+
+	return user
 }
 
 // SplitRegistryName strips the namespace from a registry repository name.

@@ -120,3 +120,4 @@ Pass 2026-11-13: kmsKeyId on CreateFileSystem and UpdateFileSystem is validated 
 
 - Cross-region replication targets and NSG rule enforcement on the mount target: the emulator has one region, and every NFS client reaches the loopback listener from 127.0.0.1, so no NSG rule can be evaluated against a real source (nfs.go clientAddr). Security attributes (ZPR) are stored on mount targets and file systems; Zero Trust Packet Routing is a network-layer service the emulator does not have.
 - Kerberos ticket validation against keytabs needs real KDC tickets, which AUTH_SYS-only NFS clients never present.
+- Snapshot, clone and replication data copies run while the backend lock is held, so a very large file system delays other API calls for the length of the copy; NFS writes wait on a per-file-system gate during a snapshot copy and read the quota rules before entering it.

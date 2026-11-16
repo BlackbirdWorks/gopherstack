@@ -35,6 +35,10 @@ func TestRegistryLoginVerifiedAgainstIdentity(t *testing.T) {
 		{"issued token", basic(loginUser, verifiedToken), http.StatusOK},
 		{"other token", basic(loginUser, loginToken), http.StatusUnauthorized},
 		{"other user", basic(testNamespace+"/bob", verifiedToken), http.StatusUnauthorized},
+		{
+			"federated user", basic(testNamespace+"/oracleidentitycloudservice/alice@example.com", verifiedToken),
+			http.StatusOK,
+		},
 		{"wrong namespace", basic("other/alice@example.com", verifiedToken), http.StatusUnauthorized},
 	}
 
@@ -71,4 +75,17 @@ func TestFirstPushRecordsUserOCID(t *testing.T) {
 		artifacts.GetContainerRepositoryRequest{RepositoryId: resp.Items[0].Id})
 	require.NoError(t, err)
 	assert.Equal(t, verifiedUserOCID, *full.CreatedBy)
+}
+
+func TestRejectedLoginExplainsReissue(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	e.backend.SetLoginVerifier(verifier)
+
+	resp := e.anonymous(t).Do(http.MethodGet, "/v2/", nil,
+		map[string]string{"Authorization": basic(loginUser, loginToken)})
+	assert.Equal(t, http.StatusUnauthorized, resp.Status)
+	assert.Contains(t, string(resp.Body), "re-created")
+	assert.NotContains(t, string(resp.Body), loginToken)
 }

@@ -1,7 +1,10 @@
 package ociartifacts_test
 
 import (
+	"fmt"
 	"net/http"
+	"strconv"
+	"sync"
 	"testing"
 
 	"github.com/oracle/oci-go-sdk/v65/artifacts"
@@ -65,4 +68,54 @@ func TestManifestStorageLimits(t *testing.T) {
 			assert.Equal(t, tt.want, resp.Status, string(resp.Body))
 		})
 	}
+}
+
+func TestConcurrentPushesRespectImageLimit(t *testing.T) {
+	t.Parallel()
+
+	const pushers = 24
+
+	e := newEnv(t, envOpts{})
+	e.createRepo(t, "race", nil)
+
+	c := e.registry(t)
+	name := testNamespace + "/race"
+	cfg := []byte(`{"architecture":"amd64","os":"linux"}`)
+	cfgDigest := c.PushBlob(name, cfg, 0)
+	bodies := make([][]byte, pushers)
+
+	for i := range bodies {
+		layer := []byte("layer " + strconv.Itoa(i))
+		bodies[i] = []byte(fmt.Sprintf(
+			`{"schemaVersion":2,"mediaType":%q,"config":{"mediaType":"application/vnd.docker.container.image.v1+json",`+
+				`"size":%d,"digest":%q},"layers":[{"mediaType":"application/vnd.docker.image.rootfs.diff.tar.gzip",`+
+				`"size":%d,"digest":%q}]}`,
+			ocitest.ManifestMediaType, len(cfg), cfgDigest, len(layer), c.PushBlob(name, layer, 0)))
+	}
+
+	e.backend.SetLimits(500, 1, 1<<40)
+
+	statuses := make(chan int, pushers)
+
+	var wg sync.WaitGroup
+
+	for i, body := range bodies {
+		wg.Go(func() {
+			statuses <- c.Do(http.MethodPut, "/v2/"+name+"/manifests/v"+strconv.Itoa(i), body,
+				map[string]string{"Content-Type": ocitest.ManifestMediaType}).Status
+		})
+	}
+
+	wg.Wait()
+	close(statuses)
+
+	created := 0
+
+	for st := range statuses {
+		if st == http.StatusCreated {
+			created++
+		}
+	}
+
+	assert.Equal(t, 1, created)
 }

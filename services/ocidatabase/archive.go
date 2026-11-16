@@ -28,6 +28,7 @@ var ErrRolledBack = errors.New("the previous contents were kept")
 var (
 	errDumpTooLarge = errors.New("the backup exceeds the 2 GiB emulator limit")
 	errDumpCorrupt  = errors.New("the stored backup failed its integrity check")
+	errDumpGone     = errors.New("the backup file is gone (only a persistent emulator keeps backups across restarts)")
 	errNotRunning   = errors.New("the database is not running")
 	errNoArchiver   = errors.New("the database cannot be dumped")
 )
@@ -117,10 +118,11 @@ func (b *InMemoryBackend) SetDumpLimit(n int64) {
 	b.mu.Unlock()
 }
 
-// SetDumpDir keeps backup files under dir instead of a temporary directory.
+// SetDumpDir keeps backup files under dir instead of a temporary directory. The directory belongs to the
+// operator: Close leaves it in place so backups outlive the process, Reset empties it.
 func (b *InMemoryBackend) SetDumpDir(dir string) {
 	b.mu.Lock("SetDumpDir")
-	b.dumpDir = dir
+	b.dumpDir, b.dumpKeep = dir, dir != ""
 	b.mu.Unlock()
 }
 
@@ -207,6 +209,8 @@ func (b *InMemoryBackend) finishBackup(bkID string, size int64, sum string, scn 
 
 	bk, ok := b.backups[bkID]
 	if !ok || bk.State != backupCreating {
+		removeDump(b.dumpDir, bkID)
+
 		return
 	}
 
@@ -276,32 +280,30 @@ func (b *InMemoryBackend) restoreWork(dbID string, in restoreIn) func(ctx contex
 		}
 		defer root.Close()
 
-		if _, err = root.Stat(dumpName(bk.ID)); errors.Is(err, fs.ErrNotExist) {
-			return nil
-		}
+		f, err := root.Open(dumpName(bk.ID))
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				err = errDumpGone
+			}
 
-		if err = verifyDump(root, bk); err != nil {
+			return fmt.Errorf("%w: %w", ErrRolledBack, err)
+		}
+		defer f.Close()
+
+		if err = verifyDump(f, bk); err != nil {
 			return fmt.Errorf("%w: %w", ErrRolledBack, err)
 		}
 
-		f, err := root.Open(dumpName(bk.ID))
-		if err != nil {
-			return fmt.Errorf("open the backup file: %w", err)
+		if _, err = f.Seek(0, io.SeekStart); err != nil {
+			return fmt.Errorf("%w: rewind the backup file: %w", ErrRolledBack, err)
 		}
-		defer f.Close()
 
 		return ar.Import(ctx, io.LimitReader(f, bk.DumpBytes))
 	}
 }
 
 // verifyDump re-reads the backup file and compares its size and SHA-256 with the recorded ones.
-func verifyDump(root *os.Root, bk *Backup) error {
-	f, err := root.Open(dumpName(bk.ID))
-	if err != nil {
-		return fmt.Errorf("open the backup file: %w", err)
-	}
-	defer f.Close()
-
+func verifyDump(f io.Reader, bk *Backup) error {
 	h := sha256.New()
 
 	n, err := io.Copy(h, io.LimitReader(f, bk.DumpBytes+1))

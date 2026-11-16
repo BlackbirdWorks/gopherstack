@@ -21,6 +21,12 @@ type EngineConfigProvider interface {
 	GetOCIDatabaseEngine() string
 }
 
+// DumpDirConfig locates the directory manual backups are kept in so they outlive the process; empty keeps them in
+// a temporary directory that is removed on shutdown.
+type DumpDirConfig interface {
+	GetOCIDatabaseDumpDir() string
+}
+
 // Provider implements service.Provider for OCI Database. It runs on its own listener (see Handler.StartWorker)
 // and never matches on the shared AWS router.
 type Provider struct{}
@@ -58,6 +64,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 		backend.SetLauncher(NewDockerLauncher(DockerConfig{Runtime: lr.Get, Ports: ctx.PortAlloc}), image)
 		backend.SetCloser(func() { _ = lr.Close() })
+	}
+
+	if dc, ok := ctx.Config.(DumpDirConfig); ok {
+		backend.SetDumpDir(dc.GetOCIDatabaseDumpDir())
 	}
 
 	handler := NewHandler(backend)

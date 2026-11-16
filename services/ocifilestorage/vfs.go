@@ -26,6 +26,7 @@ type vfs struct {
 	snaps billy.Filesystem
 	root  *os.Root
 	gate  *lockmetrics.RWMutex
+	qs    *quotaState
 	fsID  string
 	stat  ExportMount
 	ro    bool
@@ -71,6 +72,10 @@ func (v *vfs) OpenFile(name string, flag int, perm os.FileMode) (billy.File, err
 	if !snap {
 		v.gate.RLock("open")
 		defer v.gate.RUnlock()
+	}
+
+	if !snap && flag&os.O_TRUNC != 0 {
+		defer v.qs.invalidate()
 	}
 
 	f, err := fs.OpenFile(rel, flag, perm)
@@ -141,6 +146,8 @@ func (v *vfs) Rename(from, to string) error {
 	v.gate.RLock("rename")
 	defer v.gate.RUnlock()
 
+	defer v.qs.invalidate()
+
 	return v.live.Rename(relPath(from), relPath(to))
 }
 
@@ -151,6 +158,8 @@ func (v *vfs) Remove(name string) error {
 
 	v.gate.RLock("remove")
 	defer v.gate.RUnlock()
+
+	defer v.qs.invalidate()
 
 	return v.live.Remove(relPath(name))
 }
@@ -174,6 +183,8 @@ func (v *vfs) Symlink(target, link string) error {
 	v.gate.RLock("symlink")
 	defer v.gate.RUnlock()
 
+	defer v.qs.invalidate()
+
 	return v.live.Symlink(target, relPath(link))
 }
 
@@ -184,6 +195,8 @@ func (v *vfs) TempFile(dir, prefix string) (billy.File, error) {
 
 	v.gate.RLock("tempfile")
 	defer v.gate.RUnlock()
+
+	defer v.qs.invalidate()
 
 	return v.live.TempFile(relPath(dir), prefix)
 }
@@ -211,6 +224,8 @@ func (v *vfs) Chmod(name string, mode os.FileMode) error {
 	v.gate.RLock("change")
 	defer v.gate.RUnlock()
 
+	defer v.qs.invalidate()
+
 	return v.root.Chmod(rel, mode)
 }
 
@@ -222,6 +237,8 @@ func (v *vfs) Lchown(name string, uid, gid int) error {
 
 	v.gate.RLock("change")
 	defer v.gate.RUnlock()
+
+	defer v.qs.invalidate()
 
 	return v.root.Lchown(rel, uid, gid)
 }
@@ -235,6 +252,8 @@ func (v *vfs) Chown(name string, uid, gid int) error {
 	v.gate.RLock("change")
 	defer v.gate.RUnlock()
 
+	defer v.qs.invalidate()
+
 	return v.root.Chown(rel, uid, gid)
 }
 
@@ -246,6 +265,8 @@ func (v *vfs) Chtimes(name string, atime, mtime time.Time) error {
 
 	v.gate.RLock("change")
 	defer v.gate.RUnlock()
+
+	defer v.qs.invalidate()
 
 	return v.root.Chtimes(rel, atime, mtime)
 }

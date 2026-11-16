@@ -54,6 +54,7 @@ type opFunc func(h *Handler, q *req) error
 type Handler struct {
 	Backend     *InMemoryBackend
 	srvMu       *lockmetrics.RWMutex
+	pushMu      *lockmetrics.RWMutex
 	srv         *http.Server
 	ops         map[string]opFunc
 	wg          sync.WaitGroup
@@ -71,6 +72,7 @@ var (
 func NewHandler(backend *InMemoryBackend) *Handler {
 	return &Handler{
 		Backend: backend, Port: DefaultPort, ops: buildOps(), srvMu: lockmetrics.New("ociartifacts.server"),
+		pushMu: lockmetrics.New("ociartifacts.push"),
 	}
 }
 

@@ -33,14 +33,13 @@ func hashAuthToken(token string) (string, string) {
 }
 
 // VerifyAuthToken reports whether token is a current auth token of the active user with the given name, and
-// returns that user's OCID. Identity keeps only a salted PBKDF2 digest of each token.
+// returns that user's OCID. Identity keeps only a salted PBKDF2 digest of each token; tokens created before
+// digests were stored have none and never verify. Every call costs at least one derivation so response time
+// does not reveal whether the user exists.
 func (b *InMemoryBackend) VerifyAuthToken(userName, token string) (string, bool) {
-	type candidate struct{ salt, digest string }
+	type candidate struct{ user, salt, digest string }
 
-	var (
-		userID string
-		cands  []candidate
-	)
+	var cands []candidate
 
 	b.mu.RLock("VerifyAuthToken")
 
@@ -49,33 +48,34 @@ func (b *InMemoryBackend) VerifyAuthToken(userName, token string) (string, bool)
 			continue
 		}
 
-		userID = u.ID
-
 		for _, c := range u.AuthTokens {
-			cands = append(cands, candidate{c.Salt, c.Digest})
+			cands = append(cands, candidate{u.ID, c.Salt, c.Digest})
 		}
 	}
 
 	b.mu.RUnlock()
 
-	matched := false
+	if len(cands) == 0 {
+		deriveAuthToken(token, make([]byte, authTokenSaltBytes))
+
+		return "", false
+	}
+
+	userID, matched := "", false
 
 	for _, c := range cands {
 		salt, serr := hex.DecodeString(c.salt)
 		want, derr := hex.DecodeString(c.digest)
+		got := deriveAuthToken(token, salt)
 
 		if serr != nil || derr != nil || len(want) == 0 {
 			continue
 		}
 
-		if subtle.ConstantTimeCompare(deriveAuthToken(token, salt), want) == 1 {
-			matched = true
+		if subtle.ConstantTimeCompare(got, want) == 1 {
+			userID, matched = c.user, true
 		}
 	}
 
-	if !matched {
-		return "", false
-	}
-
-	return userID, true
+	return userID, matched
 }

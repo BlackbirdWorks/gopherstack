@@ -4,9 +4,12 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/go-git/go-billy/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 const bytesPerGB = int64(1) << 30
@@ -101,24 +104,66 @@ func (u QuotaUsage) of(r QuotaLimit, uid, gid int) int64 {
 	return u.Total
 }
 
-// admitGrowth refuses growth that would push a principal past a hard quota (EDQUOT, NFS3ERR_DQUOT).
-func (v *vfs) admitGrowth(rel string, grow int64) error {
-	if grow <= 0 || v.stat.Quotas == nil {
-		return nil
+// quotaState is the per-file-system state of hard-quota enforcement: a lock that makes a check and the write it
+// admits one step, and the usage measured by the last full walk, kept current by the writes admitted since.
+type quotaState struct {
+	mu       *lockmetrics.RWMutex
+	usage    QuotaUsage
+	gen      atomic.Uint64
+	usageGen uint64
+	walks    int
+	cached   bool
+}
+
+func newQuotaState() *quotaState { return &quotaState{mu: lockmetrics.New("ocifilestorage.quota")} }
+
+// invalidate marks the cached usage stale after a mutation the quota code did not account for.
+func (q *quotaState) invalidate() {
+	if q != nil {
+		q.gen.Add(1)
+	}
+}
+
+// current returns the usage, walking the tree only when something changed behind the cache. Caller holds q.mu.
+func (q *quotaState) current(root *os.Root) QuotaUsage {
+	g := q.gen.Load()
+	if !q.cached || q.usageGen != g {
+		q.usage, q.usageGen, q.cached = measureUsage(root), g, true
+		q.walks++
 	}
 
-	rules := v.stat.Quotas()
-	if len(rules) == 0 {
-		return nil
-	}
+	return q.usage
+}
 
-	info, err := v.root.Stat(rel)
-	if err != nil {
-		return nil //nolint:nilerr // the write itself reports a missing file
+// account applies the size change of one admitted write to the cached usage. Caller holds q.mu.
+func (q *quotaState) account(info fs.FileInfo, delta int64) {
+	if !q.cached || q.usageGen != q.gen.Load() {
+		return
 	}
 
 	uid, gid := ownerOf(info)
-	usage := measureUsage(v.root)
+	q.usage.Total += delta
+	q.usage.Users[uid] += delta
+	q.usage.Groups[gid] += delta
+}
+
+// invalidateUsage forgets the cached usage of a file system after its tree changed outside NFS.
+func (p *NFSPlane) invalidateUsage(fsID string) {
+	p.mu.Lock("invalidateUsage")
+	q := p.quotaLocked(fsID)
+	p.mu.Unlock()
+
+	q.invalidate()
+}
+
+// admitGrowth refuses growth that would push a principal past a hard quota (EDQUOT, NFS3ERR_DQUOT).
+func (v *vfs) admitGrowth(rules []QuotaLimit, rel string, info fs.FileInfo, grow int64) error {
+	if grow <= 0 {
+		return nil
+	}
+
+	uid, gid := ownerOf(info)
+	usage := v.qs.current(v.root)
 
 	for _, r := range applicable(rules, uid, gid) {
 		if r.Hard && usage.of(r, uid, gid)+grow > r.LimitBytes {
@@ -136,38 +181,77 @@ type guardedFile struct {
 	rel string
 }
 
-func (f *guardedFile) size() int64 {
-	info, err := f.v.root.Stat(f.rel)
-	if err != nil {
-		return 0
+// rules reads the quota rules before any file-system lock is taken: the backend lock is held across snapshot
+// copies, which wait for the gate, so a writer inside the gate must never wait for the backend lock.
+func (f *guardedFile) rules() []QuotaLimit {
+	if f.v.stat.Quotas == nil {
+		return nil
 	}
 
-	return info.Size()
+	return f.v.stat.Quotas()
 }
 
-func (f *guardedFile) Write(p []byte) (int, error) {
+// admitted runs op after checking that growing the file by grow(size, pos) keeps every hard quota. The check,
+// the write and the usage update are one step per file system, so concurrent writers cannot all pass on stale
+// usage.
+func (f *guardedFile) admitted(grow func(size, pos int64) int64, op func() error) error {
+	rules := f.rules()
+
 	f.v.gate.RLock("write")
 	defer f.v.gate.RUnlock()
 
+	if len(rules) == 0 {
+		defer f.v.qs.invalidate()
+
+		return op()
+	}
+
+	f.v.qs.mu.Lock("write")
+	defer f.v.qs.mu.Unlock()
+
+	before, err := f.v.root.Stat(f.rel)
+	if err != nil {
+		return op()
+	}
+
 	pos, err := f.File.Seek(0, io.SeekCurrent)
 	if err != nil {
-		return 0, err
-	}
-
-	if err = f.v.admitGrowth(f.rel, pos+int64(len(p))-f.size()); err != nil {
-		return 0, err
-	}
-
-	return f.File.Write(p)
-}
-
-func (f *guardedFile) Truncate(size int64) error {
-	f.v.gate.RLock("truncate")
-	defer f.v.gate.RUnlock()
-
-	if err := f.v.admitGrowth(f.rel, size-f.size()); err != nil {
 		return err
 	}
 
-	return f.File.Truncate(size)
+	if err = f.v.admitGrowth(rules, f.rel, before, grow(before.Size(), pos)); err != nil {
+		return err
+	}
+
+	err = op()
+
+	if after, serr := f.v.root.Stat(f.rel); serr == nil {
+		f.v.qs.account(after, after.Size()-before.Size())
+	} else {
+		f.v.qs.invalidate()
+	}
+
+	return err
+}
+
+func (f *guardedFile) Write(p []byte) (int, error) {
+	var written int
+
+	err := f.admitted(
+		func(size, pos int64) int64 { return pos + int64(len(p)) - size },
+		func() error {
+			var werr error
+
+			written, werr = f.File.Write(p)
+
+			return werr
+		})
+
+	return written, err
+}
+
+func (f *guardedFile) Truncate(size int64) error {
+	return f.admitted(
+		func(cur, _ int64) int64 { return size - cur },
+		func() error { return f.File.Truncate(size) })
 }

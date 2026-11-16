@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 var _ Archiver = (*dockerInstance)(nil)
@@ -29,11 +30,12 @@ const (
 )
 
 var (
-	errNoExec    = errors.New("the container runtime cannot run commands inside containers")
-	errExitCode  = errors.New("the command exited with an error")
-	errBadDir    = errors.New("the dump directory reported by the database is not a plain path")
-	errNoDumpDir = errors.New("the database reported no dump directory")
-	dirPattern   = regexp.MustCompile(`^/[A-Za-z0-9_./-]+$`)
+	errNoExec      = errors.New("the container runtime cannot run commands inside containers")
+	errExitCode    = errors.New("the command exited with an error")
+	errBadDir      = errors.New("the dump directory reported by the database is not a plain path")
+	errNoDumpDir   = errors.New("the database reported no dump directory")
+	errBadPassword = errors.New("the ADMIN password contains control characters")
+	dirPattern     = regexp.MustCompile(`^/[A-Za-z0-9_./-]+$`)
 )
 
 type execAPI interface {
@@ -121,6 +123,10 @@ func (d *dockerInstance) pumpDir(ctx context.Context) (string, int64, error) {
 // pump runs expdp or impdp with the connect string in a parameter file written through stdin, so the password
 // never appears in a command line; the file is removed afterwards.
 func (d *dockerInstance) pump(ctx context.Context, tool string, params ...string) error {
+	if strings.ContainsFunc(d.password, unicode.IsControl) {
+		return errBadPassword
+	}
+
 	tag := make([]byte, parTagBytes)
 	_, _ = rand.Read(tag)
 	par := "/tmp/gs-" + hex.EncodeToString(tag) + ".par"

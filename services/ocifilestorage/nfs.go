@@ -47,6 +47,7 @@ type NFSPlane struct {
 	servers  map[string]*mountServer
 	views    map[string]*vfs
 	gates    map[string]*lockmetrics.RWMutex
+	quotas   map[string]*quotaState
 	root     string
 	ownsRoot bool
 }
@@ -63,7 +64,8 @@ func NewNFSPlane(cfg NFSConfig) (*NFSPlane, error) {
 
 	p := &NFSPlane{
 		mu: lockmetrics.New("ocifilestorage.nfs"), ports: cfg.Ports, servers: map[string]*mountServer{},
-		views: map[string]*vfs{}, gates: map[string]*lockmetrics.RWMutex{}, root: cfg.Dir,
+		views: map[string]*vfs{}, gates: map[string]*lockmetrics.RWMutex{}, quotas: map[string]*quotaState{},
+		root: cfg.Dir,
 	}
 
 	if p.root == "" {
@@ -103,6 +105,7 @@ func (p *NFSPlane) RemoveFS(id string) {
 
 	p.mu.Lock("RemoveFS")
 	delete(p.gates, id)
+	delete(p.quotas, id)
 	p.mu.Unlock()
 
 	_ = os.RemoveAll(p.fsDir(id))
@@ -118,6 +121,16 @@ func (p *NFSPlane) gateLocked(fsID string) *lockmetrics.RWMutex {
 	}
 
 	return g
+}
+
+func (p *NFSPlane) quotaLocked(fsID string) *quotaState {
+	q, ok := p.quotas[fsID]
+	if !ok {
+		q = newQuotaState()
+		p.quotas[fsID] = q
+	}
+
+	return q
 }
 
 func (p *NFSPlane) gate(fsID string) *lockmetrics.RWMutex {
@@ -169,6 +182,8 @@ func (p *NFSPlane) CloneFrom(srcFS, snapshot, dstFS string) error {
 		return err
 	}
 
+	p.invalidateUsage(dstFS)
+
 	return copyTree(p.snapDir(srcFS, snapshot), p.fsDir(dstFS))
 }
 
@@ -178,6 +193,8 @@ func (p *NFSPlane) ReplicateSnapshot(srcFS, snapshot, dstFS string) (int64, erro
 	if err := p.CreateFS(dstFS); err != nil {
 		return 0, err
 	}
+
+	p.invalidateUsage(dstFS)
 
 	return syncTree(p.snapDir(srcFS, snapshot), p.fsDir(dstFS))
 }
@@ -324,7 +341,8 @@ func (p *NFSPlane) view(ex ExportMount, ro bool) (*vfs, error) {
 	}
 
 	v := &vfs{
-		gate: p.gateLocked(ex.FileSystemID), fsID: ex.FileSystemID, ro: ro, root: root,
+		gate: p.gateLocked(ex.FileSystemID), qs: p.quotaLocked(ex.FileSystemID),
+		fsID: ex.FileSystemID, ro: ro, root: root,
 		live:  osfs.New(p.fsDir(ex.FileSystemID), osfs.WithBoundOS()),
 		snaps: osfs.New(p.snapRoot(ex.FileSystemID), osfs.WithBoundOS()),
 		stat:  ex,

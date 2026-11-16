@@ -1,6 +1,8 @@
 package app
 
 import (
+	"path/filepath"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
 	"github.com/blackbirdworks/gopherstack/services/ocidatabase"
@@ -9,6 +11,16 @@ import (
 
 // GetOCIDatabaseSettings returns OCI Database settings (ocidatabase.ConfigProvider).
 func (c *CLI) GetOCIDatabaseSettings() ocidatabase.Settings { return c.OCIDatabase }
+
+// GetOCIDatabaseDumpDir keeps manual backup files under the data dir when --persist is on
+// (ocidatabase.DumpDirConfig).
+func (c *CLI) GetOCIDatabaseDumpDir() string {
+	if !c.Persist {
+		return ""
+	}
+
+	return filepath.Join(c.resolvedDataDir(), "ocidatabase-dumps")
+}
 
 // wireOCIDatabase shares OCI Identity keys and compartments and checks private endpoint subnets in OCI Core.
 func wireOCIDatabase(byName map[string]service.Registerable) {

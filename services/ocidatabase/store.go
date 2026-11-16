@@ -53,6 +53,7 @@ type InMemoryBackend struct {
 	eng         *dbEngine
 	onClose     func()
 	dumpDir     string
+	dumpKeep    bool
 	dumpLimit   int64
 	wg          sync.WaitGroup
 	transition  time.Duration
@@ -110,7 +111,10 @@ func (b *InMemoryBackend) Reset() {
 	live := b.detachAll()
 	b.resetMaps()
 	dumps := b.dumpDir
-	b.dumpDir = ""
+	if !b.dumpKeep {
+		b.dumpDir = ""
+	}
+
 	b.mu.Unlock()
 	b.Auth.Reset()
 	b.wg.Wait()
@@ -123,8 +127,11 @@ func (b *InMemoryBackend) Close() {
 	b.mu.Lock("Close")
 	b.cancel()
 	live := b.detachAll()
-	dumps := b.dumpDir
-	b.dumpDir = ""
+	dumps := ""
+	if !b.dumpKeep {
+		dumps, b.dumpDir = b.dumpDir, ""
+	}
+
 	b.mu.Unlock()
 	b.wg.Wait()
 	closeAll(live)

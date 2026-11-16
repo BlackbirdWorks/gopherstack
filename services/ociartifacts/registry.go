@@ -105,7 +105,13 @@ func challenge(w http.ResponseWriter, r *http.Request, scope, errCode string) {
 
 	w.Header().Set("WWW-Authenticate", value)
 	w.Header().Set(apiVersionHeader, apiVersion)
-	writeRegError(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
+	msg := "authentication required"
+	if r.Header.Get("Authorization") != "" {
+		msg += ": log in as <namespace>/<user> with a current auth token of that user; tokens created before " +
+			"their digest was stored cannot be verified and must be re-created"
+	}
+
+	writeRegError(w, http.StatusUnauthorized, "UNAUTHORIZED", msg)
 }
 
 // need is one access a registry request requires.
@@ -228,6 +234,12 @@ func (h *Handler) serveRepoRequest(
 	}
 
 	app := h.Backend.registry()
+
+	if _, _, manifest := ociregistry.SplitManifestPath(r.URL.Path); manifest && r.Method == http.MethodPut {
+		h.pushMu.Lock("PutManifest")
+		defer h.pushMu.Unlock()
+	}
+
 	ociregistry.ServeObserved(app, w, r, h.observer(app, r, display, who.user))
 }
 

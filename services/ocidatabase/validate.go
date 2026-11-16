@@ -82,6 +82,10 @@ func checkAdminPassword(pw string) *APIError {
 		return errParam(`adminPassword cannot contain the double quote symbol (")`)
 	}
 
+	if strings.ContainsFunc(pw, unicode.IsControl) {
+		return errParam("adminPassword cannot contain control characters")
+	}
+
 	if strings.Contains(strings.ToLower(pw), "admin") {
 		return errParam(`adminPassword cannot contain the username "admin", regardless of casing`)
 	}

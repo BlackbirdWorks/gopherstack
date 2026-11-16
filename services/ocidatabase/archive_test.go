@@ -71,6 +71,18 @@ func (i *echoInstance) Import(_ context.Context, r io.Reader) error {
 	return nil
 }
 
+// settled waits for the backend's background work, then checks the database is AVAILABLE.
+func (e *env) settled(t *testing.T, id *string) database.AutonomousDatabase {
+	t.Helper()
+
+	e.backend.Idle()
+
+	got := e.get(t, id)
+	require.Equal(t, database.AutonomousDatabaseLifecycleStateAvailable, got.LifecycleState, "%v", got.LifecycleDetails)
+
+	return got
+}
+
 func (e *env) dataBackup(t *testing.T, id *string, name string) database.AutonomousDatabaseBackup {
 	t.Helper()
 
@@ -78,7 +90,7 @@ func (e *env) dataBackup(t *testing.T, id *string, name string) database.Autonom
 		AutonomousDatabaseId: id, DisplayName: new(name),
 	})
 	require.NoError(t, err)
-	e.await(t, id, database.AutonomousDatabaseLifecycleStateAvailable)
+	e.settled(t, id)
 
 	return resp.AutonomousDatabaseBackup
 }
@@ -100,7 +112,7 @@ func (e *env) restoreLatest(t *testing.T, id *string, d database.RestoreAutonomo
 		AutonomousDatabaseId: id, RestoreAutonomousDatabaseDetails: d,
 	})
 	require.NoError(t, err)
-	e.await(t, id, database.AutonomousDatabaseLifecycleStateAvailable)
+	e.settled(t, id)
 }
 
 func TestBackupCapturesDataAndRestoreReloadsIt(t *testing.T) {
@@ -108,7 +120,7 @@ func TestBackupCapturesDataAndRestoreReloadsIt(t *testing.T) {
 
 	e, l := newEngineEnv(t)
 	db := e.mustCreate(t, createOpts{})
-	e.await(t, db.Id, database.AutonomousDatabaseLifecycleStateAvailable)
+	e.settled(t, db.Id)
 
 	l.arch.setDump([]byte("dump-one"), 100)
 	first := e.dataBackup(t, db.Id, "one")
@@ -150,7 +162,7 @@ func TestRestoreWithoutMatchingBackupChangesNothing(t *testing.T) {
 
 			e, l := newEngineEnv(t)
 			db := e.mustCreate(t, createOpts{})
-			created := e.await(t, db.Id, database.AutonomousDatabaseLifecycleStateAvailable)
+			created := e.settled(t, db.Id)
 
 			e.clock.Advance(time.Hour)
 			l.arch.setDump([]byte("late"), 100)
@@ -179,7 +191,7 @@ func TestBackupFailureAndLimits(t *testing.T) {
 
 			e, l := newEngineEnv(t)
 			db := e.mustCreate(t, createOpts{})
-			e.await(t, db.Id, database.AutonomousDatabaseLifecycleStateAvailable)
+			e.settled(t, db.Id)
 
 			l.arch.setDump([]byte("dump-bigger-than-three"), 1)
 			tt.setup(e, l)
@@ -201,7 +213,7 @@ func TestRestoreRejectsTamperedBackup(t *testing.T) {
 	e.backend.SetDumpDir(dir)
 
 	db := e.mustCreate(t, createOpts{})
-	e.await(t, db.Id, database.AutonomousDatabaseLifecycleStateAvailable)
+	e.settled(t, db.Id)
 
 	l.arch.setDump([]byte("original"), 10)
 	bk := e.dataBackup(t, db.Id, "kept")
@@ -213,7 +225,7 @@ func TestRestoreRejectsTamperedBackup(t *testing.T) {
 		Latest:               new(true),
 	})
 	require.NoError(t, err)
-	e.await(t, db.Id, database.AutonomousDatabaseLifecycleStateAvailable)
+	e.settled(t, db.Id)
 
 	assert.Equal(t, "FAILED", string(e.wr(t, resp.OpcWorkRequestId).Status))
 	assert.Empty(t, l.arch.importsSeen())
@@ -227,7 +239,7 @@ func TestDeleteBackupRemovesItsFile(t *testing.T) {
 	e.backend.SetDumpDir(dir)
 
 	db := e.mustCreate(t, createOpts{})
-	e.await(t, db.Id, database.AutonomousDatabaseLifecycleStateAvailable)
+	e.settled(t, db.Id)
 
 	l.arch.setDump([]byte("data"), 10)
 	bk := e.dataBackup(t, db.Id, "gone")
@@ -246,7 +258,7 @@ func TestBackupDumpRecordSurvivesSnapshot(t *testing.T) {
 
 	e, l := newEngineEnv(t)
 	db := e.mustCreate(t, createOpts{})
-	e.await(t, db.Id, database.AutonomousDatabaseLifecycleStateAvailable)
+	e.settled(t, db.Id)
 
 	l.arch.setDump([]byte("data"), 77)
 	bk := e.dataBackup(t, db.Id, "kept")
@@ -262,7 +274,7 @@ func TestBackupDumpRecordSurvivesSnapshot(t *testing.T) {
 	assert.Equal(t, database.AutonomousDatabaseBackupLifecycleStateActive, got.LifecycleState)
 }
 
-func TestRestoreSkipsBackupWhoseFileIsGone(t *testing.T) {
+func TestRestoreFailsWhenBackupFileIsGone(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -270,7 +282,7 @@ func TestRestoreSkipsBackupWhoseFileIsGone(t *testing.T) {
 	e.backend.SetDumpDir(dir)
 
 	db := e.mustCreate(t, createOpts{})
-	e.await(t, db.Id, database.AutonomousDatabaseLifecycleStateAvailable)
+	e.settled(t, db.Id)
 
 	l.arch.setDump([]byte("data"), 10)
 	bk := e.dataBackup(t, db.Id, "lost")
@@ -281,8 +293,58 @@ func TestRestoreSkipsBackupWhoseFileIsGone(t *testing.T) {
 		Latest:               new(true),
 	})
 	require.NoError(t, err)
-	e.await(t, db.Id, database.AutonomousDatabaseLifecycleStateAvailable)
+	e.settled(t, db.Id)
 
-	assert.Equal(t, "SUCCEEDED", string(e.wr(t, resp.OpcWorkRequestId).Status))
+	assert.Equal(t, "FAILED", string(e.wr(t, resp.OpcWorkRequestId).Status))
 	assert.Empty(t, l.arch.importsSeen())
+}
+
+func TestBackupFilesFollowTheDumpDirectoryOwner(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		stop  func(e *env)
+		name  string
+		keeps bool
+	}{
+		{name: "close keeps an operator directory", keeps: true, stop: func(e *env) { e.backend.Close() }},
+		{name: "reset empties an operator directory", keeps: false, stop: func(e *env) { e.backend.Reset() }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := filepath.Join(t.TempDir(), "dumps")
+			e, l := newEngineEnv(t)
+			e.backend.SetDumpDir(dir)
+
+			db := e.mustCreate(t, createOpts{})
+			e.settled(t, db.Id)
+
+			l.arch.setDump([]byte("data"), 10)
+			bk := e.dataBackup(t, db.Id, "kept")
+			path := filepath.Join(dir, *bk.Id+".dmp")
+			require.FileExists(t, path)
+
+			tt.stop(e)
+
+			if tt.keeps {
+				assert.FileExists(t, path)
+			} else {
+				assert.NoFileExists(t, path)
+			}
+		})
+	}
+}
+
+func TestAdminPasswordRejectsControlCharacters(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+
+	_, err := e.create(t, createOpts{mutate: func(d *database.CreateAutonomousDatabaseDetails) {
+		d.AdminPassword = new("Passw0rd_ok_12\nschemas=SYS")
+	}})
+	require.Error(t, err)
 }
