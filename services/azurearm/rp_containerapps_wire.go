@@ -292,6 +292,11 @@ func acaCheckProbes(container string, probes []any) error {
 			return err
 		}
 
+		if sch := strings.ToLower(strOf(mapOf(mapOf(e)["httpGet"]), "scheme")); sch != "" && sch != acaScaleHTTP &&
+			sch != acaSchemeHTTPS {
+			return acaBad("Container '%s' %s probe scheme must be HTTP or HTTPS.", container, typ)
+		}
+
 		seen[typ] = true
 	}
 

@@ -125,3 +125,46 @@ func TestACA_ProbeRanges(t *testing.T) {
 		})
 	}
 }
+
+func TestACA_ProbeSchemeRejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		scheme string
+		valid  bool
+	}{
+		{name: "http", scheme: "HTTP", valid: true},
+		{name: "https lower", scheme: "https", valid: true},
+		{name: "ftp", scheme: "ftp"},
+		{name: "url injection", scheme: "http://evil.example:1/#"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := newACAStack(t)
+			env := s.mustEnv(t, "rg", "env1")
+			typ := armappcontainers.TypeLiveness
+
+			p := &armappcontainers.ContainerAppProbe{
+				Type: &typ,
+				HTTPGet: &armappcontainers.ContainerAppProbeHTTPGet{
+					Port: new(int32(8080)), Scheme: new(armappcontainers.Scheme(tt.scheme)),
+				},
+			}
+
+			_, err := s.putApp(t, "rg", "schemed", *env.ID, acaApp{probes: []*armappcontainers.ContainerAppProbe{p}})
+			if tt.valid {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			_, status := respCode(t, err)
+			assert.Equal(t, http.StatusBadRequest, status)
+		})
+	}
+}

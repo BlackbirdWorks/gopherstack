@@ -62,12 +62,26 @@ func TestPGPremiumSSDv2Storage(t *testing.T) {
 func TestMySQLRejectsStorageType(t *testing.T) {
 	t.Parallel()
 
-	s := newFlexStack(t, nil)
-	status, resp := s.raw(t, http.MethodPut, flexServerPath(myNS, "myv2"),
-		`{"location":"x","sku":{"name":"Standard_B1ms","tier":"Burstable"},"properties":{`+
-			`"administratorLogin":"a1","administratorLoginPassword":"`+flexPassword+
-			`","storage":{"type":"PremiumV2_LRS","storageSizeGB":20}}}`, flexAPIMy)
-	assert.Equal(t, http.StatusBadRequest, status, resp)
+	tests := []struct {
+		name    string
+		storage string
+	}{
+		{name: "premium", storage: `"type":"Premium_LRS","storageSizeGB":20`},
+		{name: "premium v2", storage: `"type":"PremiumV2_LRS","storageSizeGB":20,"iops":3000,"throughput":125`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := newFlexStack(t, nil)
+			status, resp := s.raw(t, http.MethodPut, flexServerPath(myNS, "myv2"),
+				`{"location":"x","sku":{"name":"Standard_B1ms","tier":"Burstable"},"properties":{`+
+					`"administratorLogin":"a1","administratorLoginPassword":"`+flexPassword+
+					`","storage":{`+tt.storage+`}}}`, flexAPIMy)
+			assert.Equal(t, http.StatusBadRequest, status, resp)
+		})
+	}
 }
 
 func TestPGPremiumSSDv2Persistence(t *testing.T) {
@@ -90,4 +104,40 @@ func TestPGPremiumSSDv2Persistence(t *testing.T) {
 	assert.Equal(t, "PremiumV2_LRS", st["type"])
 	assert.InDelta(t, 12000, st["iops"], 0)
 	assert.InDelta(t, 500, st["throughput"], 0)
+}
+
+func TestPGStorageTypeImmutable(t *testing.T) {
+	t.Parallel()
+
+	const (
+		v2 = `"type":"PremiumV2_LRS","storageSizeGB":64,"iops":3000,"throughput":125`
+		v1 = `"type":"Premium_LRS","storageSizeGB":64`
+	)
+
+	tests := []struct {
+		name     string
+		create   string
+		update   string
+		wantCode int
+	}{
+		{name: "v1 to v2", create: v1, update: v2, wantCode: http.StatusBadRequest},
+		{name: "v2 to v1", create: v2, update: v1, wantCode: http.StatusBadRequest},
+		{name: "v2 same", create: v2, update: v2, wantCode: http.StatusOK},
+		{name: "v1 same", create: v1, update: v1, wantCode: http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := newFlexStack(t, nil)
+			path := flexServerPath(pgNS, "pgtype")
+
+			status, resp := s.raw(t, http.MethodPut, path, pgReq(pgLoginPW+`,"storage":{`+tt.create+`}`), flexAPIPG)
+			require.Equal(t, http.StatusAccepted, status, resp)
+
+			status, resp = s.raw(t, http.MethodPut, path, pgReq(pgLoginPW+`,"storage":{`+tt.update+`}`), flexAPIPG)
+			assert.Equal(t, tt.wantCode, status, resp)
+		})
+	}
 }

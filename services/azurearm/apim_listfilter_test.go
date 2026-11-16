@@ -4,6 +4,7 @@ import (
 	"encoding/json/v2"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -62,6 +63,12 @@ func TestAPIMListFilterByType(t *testing.T) {
 			want:   []string{"l2"},
 		},
 		{name: "unknown field", list: "tags", seed: tags, filter: "color eq 'red'", wantCode: http.StatusBadRequest},
+		{name: "nested ok", list: "tags", seed: tags, want: []string{"a"},
+			filter: strings.Repeat("(", 8) + "name eq 'a'" + strings.Repeat(")", 8)},
+		{name: "nested too deep", list: "tags", seed: tags, wantCode: http.StatusBadRequest,
+			filter: strings.Repeat("(", 40) + "name eq 'a'" + strings.Repeat(")", 40)},
+		{name: "too long", list: "tags", seed: tags, wantCode: http.StatusBadRequest,
+			filter: "name eq 'a'" + strings.Repeat(" or name eq 'a'", 1000)},
 	}
 
 	for _, tt := range tests {

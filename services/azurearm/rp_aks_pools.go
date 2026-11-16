@@ -115,9 +115,14 @@ func (p *ContainerServiceProvider) checkPool(
 		delete(props, k)
 	}
 
-	snapImage, snapErr := p.aksApplySnapshot(name, props)
-	if snapErr != nil {
-		return nil, snapErr
+	snapImage := ""
+
+	if prev == nil {
+		var snapErr error
+
+		if snapImage, snapErr = p.aksApplySnapshot(name, props); snapErr != nil {
+			return nil, snapErr
+		}
 	}
 
 	if prev != nil {

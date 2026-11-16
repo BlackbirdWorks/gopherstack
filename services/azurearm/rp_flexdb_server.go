@@ -1,6 +1,7 @@
 package azurearm
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"maps"
@@ -539,7 +540,7 @@ func (p *FlexDBProvider) applyStorage(rec *flexServer, props map[string]any, exi
 
 	f := p.flavor
 
-	if err := p.applyStorageType(rec, st); err != nil {
+	if err := p.applyStorageType(rec, st, exists); err != nil {
 		return err
 	}
 
@@ -578,7 +579,7 @@ func (p *FlexDBProvider) applyStorage(rec *flexServer, props map[string]any, exi
 	return nil
 }
 
-func (p *FlexDBProvider) applyStorageType(rec *flexServer, st map[string]any) error {
+func (p *FlexDBProvider) applyStorageType(rec *flexServer, st map[string]any, exists bool) error {
 	typ, ok := flexStr(st, "type")
 	if !ok || typ == "" {
 		return nil
@@ -590,6 +591,10 @@ func (p *FlexDBProvider) applyStorageType(rec *flexServer, st map[string]any) er
 
 	if typ != pgStoragePremium && typ != pgStoragePremiumV2 {
 		return flexInvalid("storage.type must be %s or %s.", pgStoragePremium, pgStoragePremiumV2)
+	}
+
+	if exists && typ != cmp.Or(rec.StorageType, pgStoragePremium) {
+		return flexInvalid("The storage type cannot be changed after the server is created.")
 	}
 
 	rec.StorageType = typ

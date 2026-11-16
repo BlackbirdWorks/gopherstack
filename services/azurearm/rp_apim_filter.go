@@ -15,9 +15,11 @@ type apimFilterField struct{ boolean, eqOnly, noFunc bool }
 var apimCompareOps = []string{"eq", "ne", "gt", "ge", "lt", "le"}
 
 const (
-	apimFieldDesc    = "description"
-	apimFieldDisplay = "displayname"
-	apimFilterMinSeg = 3
+	apimFieldDesc      = "description"
+	apimFieldDisplay   = "displayname"
+	apimFilterMinSeg   = 3
+	apimFilterMaxDepth = 32
+	apimFilterMaxLen   = 8192
 )
 
 //nolint:gochecknoglobals // static read-only tables
@@ -166,6 +168,7 @@ type apimFilter struct {
 	fields map[string]apimFilterField
 	toks   []apimTok
 	pos    int
+	depth  int
 }
 
 func (f *apimFilter) peek() string {
@@ -260,10 +263,16 @@ func (f *apimFilter) primary() (apimPred, error) {
 	if f.peek() == "(" {
 		f.pos++
 
+		if f.depth++; f.depth > apimFilterMaxDepth {
+			return nil, apimInvalid("The $filter expression is nested more than %d levels deep.", apimFilterMaxDepth)
+		}
+
 		p, err := f.or()
 		if err != nil {
 			return nil, err
 		}
+
+		f.depth--
 
 		return p, f.expect(")")
 	}
@@ -434,6 +443,10 @@ func applyAPIMFilter(path, expr string, items []any) ([]any, error) {
 	fields := apimFilterFieldsFor(path)
 	if fields == nil {
 		return items, nil
+	}
+
+	if len(expr) > apimFilterMaxLen {
+		return nil, apimInvalid("The $filter expression is longer than %d characters.", apimFilterMaxLen)
 	}
 
 	toks, err := apimLex(expr)

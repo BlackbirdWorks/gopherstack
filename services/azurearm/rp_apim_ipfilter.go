@@ -19,7 +19,7 @@ const (
 func apimParseAddr(s string) (netip.Addr, bool) {
 	a, err := netip.ParseAddr(strings.TrimSpace(s))
 
-	return a.Unmap(), err == nil
+	return a.Unmap(), err == nil && a.Zone() == ""
 }
 
 // validateIPFilter checks the ip-filter statement of learn.microsoft.com/azure/api-management/ip-filter-policy:

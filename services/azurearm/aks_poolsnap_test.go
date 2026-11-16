@@ -97,3 +97,50 @@ func TestAKSPoolFromSnapshot(t *testing.T) {
 		})
 	}
 }
+
+func TestAKSPoolFromSnapshotSurvivesSnapshotDelete(t *testing.T) {
+	t.Parallel()
+
+	s := newAKSStack(t)
+	s.mustPut(t, "snapdel", nil)
+
+	poolID := "/subscriptions/" + aciSub + "/resourceGroups/" + aksRG +
+		"/providers/Microsoft.ContainerService/managedClusters/snapdel/agentPools/sys"
+	snapID := "/subscriptions/" + aciSub + "/resourceGroups/" + aksRG +
+		"/providers/Microsoft.ContainerService/snapshots/snap"
+
+	_, err := s.factory.NewSnapshotsClient().CreateOrUpdate(t.Context(), aksRG, "snap",
+		armcontainerservice.Snapshot{
+			Location: new(aksLoc),
+			Properties: &armcontainerservice.SnapshotProperties{
+				CreationData: &armcontainerservice.CreationData{SourceResourceID: new(poolID)},
+			},
+		}, nil)
+	require.NoError(t, err)
+
+	pool := func(count int32) armcontainerservice.AgentPool {
+		return armcontainerservice.AgentPool{Properties: &armcontainerservice.ManagedClusterAgentPoolProfileProperties{
+			Mode: new(armcontainerservice.AgentPoolModeUser), Count: new(count),
+			CreationData: &armcontainerservice.CreationData{SourceResourceID: new(snapID)},
+		}}
+	}
+
+	put := func(count int32) error {
+		poller, perr := s.factory.NewAgentPoolsClient().
+			BeginCreateOrUpdate(t.Context(), aksRG, "snapdel", "fromsnap", pool(count), nil)
+		if perr != nil {
+			return perr
+		}
+
+		_, perr = poller.PollUntilDone(t.Context(), pollFast())
+
+		return perr
+	}
+
+	require.NoError(t, put(1))
+
+	_, err = s.factory.NewSnapshotsClient().Delete(t.Context(), aksRG, "snap", nil)
+	require.NoError(t, err)
+
+	assert.NoError(t, put(2))
+}
