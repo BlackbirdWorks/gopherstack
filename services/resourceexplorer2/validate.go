@@ -15,7 +15,6 @@ const (
 	maxViewName    = 64
 	maxViewsPerReg = 50
 	maxQueryLen    = 2048
-	maxARNLen      = 2048
 )
 
 var (

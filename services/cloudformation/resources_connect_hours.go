@@ -2,6 +2,7 @@ package cloudformation
 
 import (
 	"slices"
+	"strings"
 
 	connectbackend "github.com/blackbirdworks/gopherstack/services/connect"
 )
@@ -154,6 +155,21 @@ func hoursLink(inst, hoursID string, parents []string) *connectbackend.ParentHou
 	return &in
 }
 
+const (
+	hoursParentsStash  = "DeclaredParents"
+	hoursChildrenStash = "DeclaredChildren"
+)
+
+// declaredLinks returns the ids this resource declared on its previous apply and records want for the next one.
+func (c *connectCall) declaredLinks(key string, want []string) []string {
+	k := c.logicalID + "/" + key
+	prev := strings.Fields(c.phys[k])
+
+	c.phys[k] = strings.Join(want, " ")
+
+	return prev
+}
+
 func (c *connectCall) syncHoursParents(inst, id string, want []string) error {
 	cur, err := c.be.DescribeHoursOfOperation(inst, id)
 	if err != nil {
@@ -165,7 +181,9 @@ func (c *connectCall) syncHoursParents(inst, id string, want []string) error {
 		have = append(have, p.ID)
 	}
 
-	return c.relinkHours(have, want, func(ids []string, add bool) error {
+	prev := c.declaredLinks(hoursParentsStash, want)
+
+	return c.relinkHours(have, prev, want, func(ids []string, add bool) error {
 		in := hoursLink(inst, id, ids)
 		if add {
 			_, err = c.be.AssociateHoursOfOperations(c.ctx, in)
@@ -197,7 +215,9 @@ func (c *connectCall) syncHoursChildren(inst, id string, want []string) error {
 		token = out.NextToken
 	}
 
-	return c.relinkHours(have, want, func(ids []string, add bool) error {
+	prev := c.declaredLinks(hoursChildrenStash, want)
+
+	return c.relinkHours(have, prev, want, func(ids []string, add bool) error {
 		for _, child := range ids {
 			in := hoursLink(inst, child, []string{id})
 
@@ -217,8 +237,12 @@ func (c *connectCall) syncHoursChildren(inst, id string, want []string) error {
 	})
 }
 
-func (c *connectCall) relinkHours(have, want []string, apply func(ids []string, add bool) error) error {
-	remove := slices.DeleteFunc(slices.Clone(have), func(id string) bool { return slices.Contains(want, id) })
+// relinkHours adds the wanted links and removes only links this resource declared before; links another
+// resource of the stack declares on its own side are left alone.
+func (c *connectCall) relinkHours(have, prev, want []string, apply func(ids []string, add bool) error) error {
+	remove := slices.DeleteFunc(slices.Clone(have), func(id string) bool {
+		return slices.Contains(want, id) || !slices.Contains(prev, id)
+	})
 	add := slices.DeleteFunc(slices.Clone(want), func(id string) bool { return slices.Contains(have, id) })
 
 	if len(remove) > 0 {

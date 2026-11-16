@@ -375,17 +375,20 @@ func (b *InMemoryBackend) ListIndexesForMembers(
 	}
 
 	dir := b.orgDirectory()
+	members := make([]string, 0, len(accounts))
+
+	for _, a := range accounts {
+		if dir == nil || dir.IsMember(a) {
+			members = append(members, a)
+		}
+	}
 
 	b.mu.RLock("ListIndexesForMembers")
 	defer b.mu.RUnlock()
 
 	var all []MemberIndex
 
-	for _, a := range accounts {
-		if dir != nil && !dir.IsMember(a) {
-			continue
-		}
-
+	for _, a := range members {
 		for _, i := range b.liveIndexes(a) {
 			all = append(all, MemberIndex{AccountID: a, Arn: i.ARN, Region: i.Region, Type: i.Type})
 		}

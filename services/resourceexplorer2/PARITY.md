@@ -3,7 +3,7 @@ service: resourceexplorer2
 sdk_module: aws-sdk-go-v2/service/resourceexplorer2@v1.33.4
 last_audit_commit: e1a1dfbea
 last_audit_date: 2026-10-18
-overall: B            # all 32 SDK operations are backed by real state and verified through the SDK client; untagged resources are indexed for only a subset of services.
+overall: B            # 29 of 32 SDK operations are backed by real state and verified through the SDK client; the three service-view and streaming-access operations are not implemented and untagged resources are indexed for only a subset of services.
 ops:
   AssociateDefaultView: {wire: ok, errors: ok, state: ok, persist: ok}
   BatchGetView: {wire: ok, errors: ok, state: ok, persist: ok, note: "1-20 ARNs; unknown ARNs come back in Errors"}
@@ -17,9 +17,6 @@ ops:
   GetAccountLevelServiceConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "ENABLED when the Organizations backend has resource-explorer-2.amazonaws.com trusted access, else DISABLED"}
   GetDefaultView: {wire: ok, errors: ok, state: ok, persist: ok, note: "returns no ViewArn when none is set"}
   GetIndex: {wire: ok, errors: ok, state: ok, persist: ok, note: "ReplicatingFrom/ReplicatingTo are derived from the account's other indexes"}
-  GetServiceView: {wire: ok, errors: ok, state: ok, persist: ok, note: "reads service views registered through Backend.PutServiceView, scoped to the caller's account and Region; ResourceNotFoundException otherwise"}
-  ListServiceViews: {wire: ok, errors: ok, state: ok, persist: ok, note: "MaxResults 1-50 (SDK doc)"}
-  ListStreamingAccessForServices: {wire: ok, errors: ok, state: ok, persist: ok, note: "grants registered through Backend.GrantStreamingAccess; MaxResults 1-50 (SDK doc)"}
   GetManagedView: {wire: ok, errors: ok, state: ok, persist: ok, note: "ResourcePolicy grants the trusted service Search"}
   GetResourceExplorerSetup: {wire: ok, errors: ok, state: ok, persist: ok, note: "per-Region status derived from live index and view state"}
   GetServiceIndex: {wire: ok, errors: ok, state: ok, persist: ok, note: "the index of the caller's Region (ARN and Type), ResourceNotFoundException when none exists; SDK docs: api_op_GetServiceIndex.go"}
@@ -45,6 +42,9 @@ families:
   Tags: {status: ok, note: "Tags on indexes and views only."}
 gaps: []
 items_still_open:
+  - GetServiceView: not routed (UnknownOperationException); the API reference (API_ListServiceViews, API_ServiceView, API_ListStreamingAccessForServices) never says who creates service views or grants streaming access, and no public create or grant operation exists, so there is no state to read and an empty answer would be a real-looking stub
+  - ListServiceViews: not routed, same reason as GetServiceView (SDK docs give MaxResults 1-50)
+  - ListStreamingAccessForServices: not routed, same reason as GetServiceView (SDK docs give MaxResults 1-50)
   - "Search: untagged resources appear only for services with a tagging inventory provider (AMP, AppIntegrations, CloudHSM v2, CodeGuru Reviewer, RUM, Timestream for InfluxDB, EC2 kinds); each other service wired into the tagging aggregation (about 100, each with its own TaggedResources that keeps only tagged entries, e.g. services/rum/tags.go TaggedResources/InventoryResources pair) needs its own InventoryResources in a service directory this pass does not own"
 structural_gaps:
   - "Indexing is instantaneous and always complete: there is no crawler, so LastReportedAt is the query time and replication lag between Regions cannot occur."
@@ -71,7 +71,7 @@ Verified against docs.aws.amazon.com/resource-explorer (using-search-query-synta
 
 - ListSupportedResourceTypes: the supported-resource-types page (resource-explorer userguide supported-resource-types.html) and the CLI example in it carry only Service and ResourceType, no CloudFormation column, so CFNResourceTypes is filled only for the 48 curated rows whose mapping the emulator knows; every documented type is listed whether or not an emulated service can produce it, as the real API lists a global catalogue
 - resourcetype.supports:tags: the user guide defines it as "only the resources that are taggable" but publishes no per-type catalogue; every resource the emulator enumerates comes from a service wired into the tagging aggregation, so it matches all of them and any other value matches none
-- Service views and streaming access: AWS services create them internally and no public API does; Backend.PutServiceView and Backend.GrantStreamingAccess are the registration entry points, and nothing in the emulator calls them yet, so an account lists none until a caller registers one
+- ListIndexesForMembers: with Organizations wired, a caller outside the management account or a delegated administrator with service access gets AccessDeniedException (API_ListIndexesForMembers.html); a caller in no organization, and listed accounts that are not organization members, are choices the page does not describe (denied, and skipped silently)
 - CreateView scope: an organization or OU ARN is checked against Organizations when it is wired, otherwise accepted; a missing one is ValidationException (CreateView declares ValidationException, API_CreateView.html)
 
 - GetManagedView: the two managed view names (AWSDefaultViewForSystemsManager, AWSDefaultViewForResilienceHub) and their ARN UUIDs are emulator-defined; the user guide (aws-managed-views.html) names only the Systems Manager unified-console view as AWSManagedViewForSSM and publishes no ARN

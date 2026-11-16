@@ -446,11 +446,16 @@ func (c *connectCall) syncWorkspacePages(inst, id string, want []connectbackend.
 	}
 
 	for _, w := range want {
-		exists := slices.ContainsFunc(
-			have,
-			func(p connectbackend.WorkspacePage) bool { return strs.Equal(w.Page, p.Page) },
-		)
-		if err := c.putWorkspacePage(inst, id, w, exists); err != nil {
+		i := slices.IndexFunc(have, func(p connectbackend.WorkspacePage) bool { return strs.Equal(w.Page, p.Page) })
+		if i >= 0 && have[i] == w {
+			continue
+		}
+
+		if err := c.putWorkspacePage(inst, id, w, i >= 0); err != nil {
+			if i >= 0 {
+				_ = c.putWorkspacePage(inst, id, have[i], false)
+			}
+
 			return err
 		}
 	}

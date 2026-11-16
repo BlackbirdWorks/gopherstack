@@ -183,13 +183,49 @@ func validateFilters(bg *Budget) error {
 	}
 
 	if bg.FilterExpression != nil {
-		return validateExpression(bg.FilterExpression)
+		return validateExpression(bg.FilterExpression, 0)
 	}
 
 	return nil
 }
 
-func validateExpression(e *Expression) error {
+const maxExpressionDepth = 32
+
+func validateProductAttributes(f *ValuesFilter) error {
+	if !oneOf(f.Key, "feature", "inferenceType", "model", "provider") {
+		return fail(ErrInvalidParameter, "ProductAttributes key %q is not valid", f.Key)
+	}
+
+	absent, sensitive, equals := slices.Contains(f.MatchOptions, "ABSENT"),
+		slices.Contains(f.MatchOptions, "CASE_SENSITIVE"), slices.Contains(f.MatchOptions, "EQUALS")
+
+	switch {
+	case absent && (sensitive || equals):
+		return fail(ErrInvalidParameter, "ProductAttributes MatchOptions ABSENT cannot be combined with other options")
+	case sensitive && !equals:
+		return fail(ErrInvalidParameter, "ProductAttributes MatchOptions CASE_SENSITIVE needs EQUALS")
+	case !absent && len(f.Values) == 0:
+		return fail(ErrInvalidParameter, "ProductAttributes Values is required unless MatchOptions is ABSENT")
+	}
+
+	return nil
+}
+
+func validateExpression(e *Expression, depth int) error {
+	if depth > maxExpressionDepth {
+		return fail(ErrInvalidParameter, "FilterExpression is nested more than %d levels deep", maxExpressionDepth)
+	}
+
+	if e.CostCategories != nil && e.CostCategories.Key == "" {
+		return fail(ErrInvalidParameter, "CostCategories needs a Key")
+	}
+
+	if e.ProductAttributes != nil {
+		if err := validateProductAttributes(e.ProductAttributes); err != nil {
+			return err
+		}
+	}
+
 	clauses := 0
 
 	for _, f := range []*ValuesFilter{e.CostCategories, e.Dimensions, e.Tags, e.ProductAttributes} {
@@ -214,7 +250,7 @@ func validateExpression(e *Expression) error {
 	}
 
 	for i := range children {
-		if err := validateExpression(&children[i]); err != nil {
+		if err := validateExpression(&children[i], depth+1); err != nil {
 			return err
 		}
 	}

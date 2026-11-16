@@ -63,7 +63,7 @@ func (b *InMemoryBackend) categoryResolverLocked() categoryResolver {
 func costCategoryFilterMatches(e CostEntry, vals []string, cat categoryResolver) bool {
 	for _, kv := range vals {
 		name, want, ok := strings.Cut(kv, "$")
-		if ok && strings.EqualFold(cat(name, &e), want) {
+		if ok && name != "" && want != "" && strings.EqualFold(cat(name, &e), want) {
 			return true
 		}
 	}

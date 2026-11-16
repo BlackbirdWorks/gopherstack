@@ -1,6 +1,9 @@
 package resourceexplorer2_test
 
 import (
+	"runtime"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,10 +24,11 @@ const (
 )
 
 type fakeDirectory struct {
-	members map[string]bool
+	members  map[string]bool
+	noAccess bool
 }
 
-func (fakeDirectory) ServiceAccessEnabled(string) bool { return true }
+func (f fakeDirectory) ServiceAccessEnabled(string) bool { return !f.noAccess }
 
 func (f fakeDirectory) ManagementAccount() (string, bool) { return orgMgmt, true }
 func (f fakeDirectory) IsMember(a string) bool            { return f.members[a] }
@@ -160,6 +164,146 @@ func TestSearchResourceTypeSupportsFilter(t *testing.T) {
 			out, err := c.Search(t.Context(), &sdk.SearchInput{QueryString: aws.String(tc.query)})
 			require.NoError(t, err)
 			assert.Len(t, out.Resources, tc.want)
+		})
+	}
+}
+
+type lockProbeDirectory struct {
+	b    *resourceexplorer2.InMemoryBackend
+	held *atomic.Bool
+	fakeDirectory
+}
+
+func (lockProbeDirectory) ManagementAccount() (string, bool) { return testAccount, true }
+
+func (d lockProbeDirectory) IsMember(string) bool {
+	done := make(chan struct{})
+
+	go func() {
+		d.b.SetClock(time.Now)
+		close(done)
+	}()
+
+	for {
+		select {
+		case <-done:
+			return true
+		default:
+			if d.b.WriteWaiters() > 0 {
+				d.held.Store(true)
+
+				return true
+			}
+
+			runtime.Gosched()
+		}
+	}
+}
+
+func TestListIndexesForMembersCallsDirectoryOutsideLock(t *testing.T) {
+	t.Parallel()
+
+	b := resourceexplorer2.NewInMemoryBackend(orgMgmt, "us-east-1")
+	held := &atomic.Bool{}
+	b.SetOrgAccess(lockProbeDirectory{b: b, held: held})
+
+	_, err := b.ListIndexesForMembers(t.Context(), []string{orgMember}, "", 0)
+	require.NoError(t, err)
+	assert.False(t, held.Load(), "Organizations was called while the Resource Explorer lock was held")
+}
+
+func TestSearchMalformedQueries(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture(t)
+	c := f.client(t)
+	setupViewed(t, c, "tags")
+
+	tests := []struct {
+		name     string
+		query    string
+		wantCode string
+	}{
+		{name: "unterminated_quote", query: `"abc`, wantCode: "ValidationException"},
+		{name: "empty_filter_value", query: "service:", wantCode: "ValidationException"},
+		{name: "empty_supports_value", query: "resourcetype.supports:", wantCode: "ValidationException"},
+		{name: "negated_empty_filter", query: "-tag:", wantCode: "ValidationException"},
+		{name: "over_length", query: strings.Repeat("a", 2049), wantCode: "ValidationException"},
+		{name: "lone_dash", query: "-"},
+		{name: "lone_colon", query: ":"},
+		{name: "trailing_backslash", query: `abc\`},
+		{name: "only_quotes", query: `""""""`},
+		{name: "escaped_quotes_run", query: strings.Repeat(`\"`, 1000)},
+		{name: "max_length_terms", query: strings.Repeat("a ", 1024)},
+		{name: "max_length_values", query: "service:" + strings.Repeat("a,", 1020)},
+		{name: "nul_bytes", query: "a\x00b service:\x00"},
+		{name: "unknown_filter", query: "nosuch:value"},
+		{name: "multibyte", query: "日本語 tag:ключ=значение"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := c.Search(t.Context(), &sdk.SearchInput{QueryString: aws.String(tc.query)})
+			if tc.wantCode != "" {
+				assert.Equal(t, tc.wantCode, apiCode(err))
+
+				return
+			}
+
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestOrgChecksOffWithoutOrganizations(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture(t)
+	c := f.clientIn(t, "us-east-1", "333333333333")
+
+	_, err := c.CreateIndex(t.Context(), &sdk.CreateIndexInput{})
+	require.NoError(t, err)
+
+	out, err := c.ListIndexesForMembers(t.Context(), &sdk.ListIndexesForMembersInput{
+		AccountIdList: []string{"333333333333", "444444444444"},
+	})
+	require.NoError(t, err)
+	assert.Len(t, out.Indexes, 1)
+
+	_, err = c.CreateView(t.Context(), &sdk.CreateViewInput{
+		ViewName: aws.String("anyscope"),
+		Scope:    aws.String("arn:aws:organizations::1:ou/o-nothing/ou-nothing-1"),
+	})
+	assert.NoError(t, err)
+}
+
+func TestListIndexesForMembersNeedsServiceAccess(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		caller   string
+		wantCode string
+		noAccess bool
+	}{
+		{name: "admin_with_access", caller: orgAdmin},
+		{name: "admin_without_access", caller: orgAdmin, noAccess: true, wantCode: "AccessDeniedException"},
+		{name: "management_without_access", caller: orgMgmt, noAccess: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := resourceexplorer2.NewInMemoryBackend(orgMgmt, "us-east-1")
+			b.SetOrgAccess(fakeDirectory{members: map[string]bool{orgMember: true}, noAccess: tc.noAccess})
+			f := &fixture{backend: b, url: newServedURL(t, b)}
+
+			_, err := f.clientIn(t, "us-east-1", tc.caller).ListIndexesForMembers(
+				t.Context(), &sdk.ListIndexesForMembersInput{AccountIdList: []string{orgMember}})
+			assert.Equal(t, tc.wantCode, apiCode(err))
 		})
 	}
 }

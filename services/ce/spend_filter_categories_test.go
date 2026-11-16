@@ -32,6 +32,18 @@ func newCategoryLedger(t *testing.T) *ce.InMemoryBackend {
 	})
 	require.NoError(t, err)
 
+	_, err = client.CreateCostCategoryDefinition(t.Context(), &costexplorersdk.CreateCostCategoryDefinitionInput{
+		Name: aws.String("Env"), RuleVersion: cetypes.CostCategoryRuleVersionCostCategoryExpressionV1,
+		Rules: []cetypes.CostCategoryRule{{
+			Type: cetypes.CostCategoryRuleTypeInheritedValue,
+			InheritedValue: &cetypes.CostCategoryInheritedValueDimension{
+				DimensionName: cetypes.CostCategoryInheritedValueDimensionNameTag,
+				DimensionKey:  aws.String("env"),
+			},
+		}},
+	})
+	require.NoError(t, err)
+
 	base := ce.CostEntry{Date: "2026-01-05", Service: "Test Svc", Account: "000000000000", Region: "us-east-1"}
 
 	blue := base
@@ -67,6 +79,8 @@ func TestLedgerSpendCostCategoryAndSubscriptionFilters(t *testing.T) {
 		{name: "category_any_of", filters: map[string][]string{"CostCategory": {"Team$blue", "Team$red"}}, want: 15},
 		{name: "category_unknown", filters: map[string][]string{"CostCategory": {"Nope$blue"}}, want: 0},
 		{name: "category_malformed", filters: map[string][]string{"CostCategory": {"Team"}}, want: 0},
+		{name: "category_empty_value", filters: map[string][]string{"CostCategory": {"Nope$"}}, want: 0},
+		{name: "category_empty_name", filters: map[string][]string{"CostCategory": {"$blue"}}, want: 0},
 		{name: "subscription", filters: map[string][]string{"SubscriptionId": {"sp-1"}}, want: 3},
 		{name: "subscription_other", filters: map[string][]string{"SubscriptionId": {"sp-2"}}, want: 0},
 	}
@@ -97,6 +111,13 @@ func TestLedgerSpendFilteredCategoryAndProductAttributes(t *testing.T) {
 			name:   "category_equals",
 			filter: &ce.SpendFilter{CostCategories: &ce.SpendValues{Key: "Team", Values: []string{"blue"}}},
 			want:   10,
+		},
+		{
+			name: "category_absent",
+			filter: &ce.SpendFilter{CostCategories: &ce.SpendValues{
+				Key: "Env", MatchOptions: []string{"ABSENT"},
+			}},
+			want: 20,
 		},
 		{
 			name: "category_starts_with",
