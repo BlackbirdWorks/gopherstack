@@ -83,6 +83,10 @@ func (b *InMemoryBackend) serveDocker(w http.ResponseWriter, r *http.Request) {
 
 // createGCRRepo creates the project's gcr.io repository for a host the first time an image is pushed to it.
 func (b *InMemoryBackend) createGCRRepo(dp dockerPath) {
+	if !gcrProjectRe.MatchString(dp.project) {
+		return
+	}
+
 	ref := dp.ref()
 	pb := b.buildRepository(ref, &artifactregistrypb.Repository{
 		Format: artifactregistrypb.Repository_DOCKER, Description: "gcr.io repository",
@@ -182,6 +186,8 @@ type dockerPath struct {
 func (dp dockerPath) ref() repoRef {
 	return repoRef{project: dp.project, location: dp.location, id: dp.id}
 }
+
+var gcrProjectRe = regexp.MustCompile(`^[a-z][a-z0-9.:_-]{0,127}$`)
 
 var gcrRepoRe = regexp.MustCompile(`^((?:us\.|eu\.|asia\.)?)gcr\.io$`)
 

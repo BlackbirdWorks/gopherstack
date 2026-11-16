@@ -7,37 +7,39 @@ import (
 	"cloud.google.com/go/eventarc/apiv1/eventarcpb"
 )
 
-// multiRegionPrefix maps a Cloud Storage multi-region to the Eventarc location prefix it contains.
-func multiRegionPrefix(loc string) (string, bool) {
+// multiRegion maps a Cloud Storage multi-region to its Eventarc location name and region prefix.
+func multiRegion(loc string) (string, string, bool) {
 	switch strings.ToUpper(loc) {
 	case "US":
-		return "us-", true
+		return "us", "us-", true
 	case "EU":
-		return "europe-", true
+		return "eu", "europe-", true
 	case "ASIA":
-		return "asia-", true
+		return "asia", "asia-", true
 	}
 
-	return "", false
+	return "", "", false
 }
 
 // bucketMatchesLocation applies the documented rule that a bucket must be in the same region or
-// multi-region as the trigger (docs.cloud.google.com/eventarc/docs/run/create-trigger-storage-gcloud).
-// Dual-regions and the global location are not constrained.
+// multi-region as the trigger (docs.cloud.google.com/eventarc/docs/understand-locations). A multi-region
+// bucket accepts the multi-region trigger location and, leniently, its regions; dual-regions
+// (NAM4, EUR4, ASIA1 and configurable "a+b" pairs) and the global location are not constrained.
 func bucketMatchesLocation(bucketLoc, location string) bool {
+	location = strings.ToLower(location)
 	if location == globalLocation {
 		return true
 	}
 
-	if prefix, ok := multiRegionPrefix(bucketLoc); ok {
-		return strings.HasPrefix(location, prefix)
+	if name, prefix, ok := multiRegion(bucketLoc); ok {
+		return location == name || strings.HasPrefix(location, prefix)
 	}
 
-	if strings.Contains(bucketLoc, "-") {
-		return strings.EqualFold(bucketLoc, location)
+	if strings.Contains(bucketLoc, "+") || !strings.Contains(bucketLoc, "-") {
+		return true
 	}
 
-	return true
+	return strings.EqualFold(bucketLoc, location)
 }
 
 // checkBucketRegion rejects a Cloud Storage trigger whose bucket lives in another region. It must run

@@ -2,6 +2,7 @@ package gcpeventarc_test
 
 import (
 	"testing"
+	"time"
 
 	"cloud.google.com/go/eventarc/apiv1/eventarcpb"
 	"cloud.google.com/go/kms/apiv1/kmspb"
@@ -72,6 +73,26 @@ func TestPipelineDeliveryStopsWhenKeyDisabled(t *testing.T) {
 
 	disableKeyVersion(t, kb)
 
+	retries := make(chan time.Duration, 1)
+	e.handler.Backend.SetAfterFunc(func(d time.Duration, f func()) func() {
+		if d > 0 {
+			retries <- d
+
+			return func() {}
+		}
+
+		go f()
+
+		return func() {}
+	})
+
 	require.NoError(t, e.publishJSON(t, bus, orderEvent("evt-1", "order.created")))
+
+	select {
+	case <-retries:
+	case r := <-e.dest.got:
+		t.Fatalf("delivered to %s while the key is disabled", r.path)
+	}
+
 	e.dest.none(t)
 }

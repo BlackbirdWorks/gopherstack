@@ -1,6 +1,7 @@
 package gcpeventarc
 
 import (
+	"context"
 	"net/url"
 	"regexp"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -242,13 +244,18 @@ func (b *InMemoryBackend) rebindTransports() {
 	}
 
 	for _, x := range binds {
-		_, _ = ps.UpdateSubscription(&pubsubpb.UpdateSubscriptionRequest{
+		_, err := ps.UpdateSubscription(&pubsubpb.UpdateSubscriptionRequest{
 			Subscription: &pubsubpb.Subscription{
 				Name:       x.sub,
 				PushConfig: &pubsubpb.PushConfig{PushEndpoint: base + pushPath + x.trigger},
 			},
 			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"push_config"}},
 		})
+		if err != nil {
+			ctx := context.Background()
+			logger.Load(ctx).WarnContext(ctx, "gcpeventarc: could not rebind trigger transport",
+				"trigger", x.trigger, "subscription", x.sub, "error", err)
+		}
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -140,6 +141,8 @@ func withTag(image string) string {
 	return image + ":latest"
 }
 
+var gcrProjectRe = regexp.MustCompile(`^[a-z][a-z0-9.:_-]{0,127}$`)
+
 func isGCRHost(host string) bool {
 	switch host {
 	case "gcr.io", "us.gcr.io", "eu.gcr.io", "asia.gcr.io":
@@ -154,7 +157,7 @@ func registryTarget(addr, image string) (string, error) {
 	host, rest, ok := strings.Cut(image, "/")
 	if ok && isGCRHost(host) {
 		project, path, found := strings.Cut(rest, "/")
-		if !found || project == "" || path == "" {
+		if !found || !gcrProjectRe.MatchString(project) || path == "" {
 			return "", fmt.Errorf("%w: got %q", errRegistryHost, image)
 		}
 

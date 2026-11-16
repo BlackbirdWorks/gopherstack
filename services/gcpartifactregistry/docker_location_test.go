@@ -206,3 +206,35 @@ func TestGCRRepositoryPathCreatesRepositoryOnPush(t *testing.T) {
 		})
 	}
 }
+
+func TestGCRPushRejectsInvalidProject(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct{ name, host, path, project string }{
+		{name: "upper case host", host: "gcr.io", path: "/v2/BAD$PROJECT/app/blobs/uploads/", project: "BAD$PROJECT"},
+		{name: "leading dash host", host: "gcr.io", path: "/v2/-lead/app/blobs/uploads/", project: "-lead"},
+		{name: "upper case path", host: "", path: "/v2/BAD$PROJECT/gcr.io/app/blobs/uploads/", project: "BAD$PROJECT"},
+		{name: "dots path", host: "", path: "/v2/../gcr.io/app/blobs/uploads/", project: ".."},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, "")
+			c := e.docker(t)
+
+			if tt.host != "" {
+				c.Host = tt.host
+			}
+
+			c.Do("POST", tt.path, nil, nil)
+
+			it := e.client.ListRepositories(t.Context(), &artifactregistrypb.ListRepositoriesRequest{
+				Parent: "projects/" + tt.project + "/locations/-",
+			})
+			_, err := it.Next()
+			assert.ErrorIs(t, err, iterator.Done)
+		})
+	}
+}
