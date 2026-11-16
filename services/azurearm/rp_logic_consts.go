@@ -5,6 +5,7 @@ const (
 	logicKCode             = "code"
 	logicKBody             = "body"
 	logicKOutputs          = "outputs"
+	logicKInputs           = "inputs"
 	logicKHeaders          = "headers"
 	logicKContent          = "content"
 	logicKActions          = "actions"

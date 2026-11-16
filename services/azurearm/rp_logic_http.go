@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +23,8 @@ const (
 	logicRetryInterval  = 7 * time.Second
 	logicRetryMax       = 90
 	logicHTTPErrorFloor = 400
+	logicAsyncPollDelay = time.Second
+	logicAsyncMaxPolls  = 1000
 )
 
 type logicRetryPolicy struct {
@@ -108,7 +111,12 @@ func (rs *logicRunState) runHTTP(env *logicEnv, name string, def map[string]any)
 
 	req, err := rs.buildHTTPRequest(in, def)
 	if err != nil {
-		return failOutcome(logicCodeInvalidTmpl, err.Error())
+		code := logicCodeInvalidTmpl
+		if errors.Is(err, errLogicTokenRequest) {
+			code = logicCodeActionFailed
+		}
+
+		return failOutcome(code, err.Error())
 	}
 
 	resp, history, err := rs.doHTTP(req, policy, timeout)
@@ -160,6 +168,20 @@ func httpInputs(in map[string]any) map[string]any {
 	return out
 }
 
+func setRequestHeaders(h http.Header, in map[string]any, method string) {
+	if hs, ok := objectOf(in[logicKHeaders]); ok {
+		for k, v := range hs {
+			h.Set(k, logicString(v))
+		}
+	}
+
+	dropOmittedHeaders(h, method)
+
+	if c := stringOf(in["cookie"]); c != "" {
+		h.Set("Cookie", c)
+	}
+}
+
 func (rs *logicRunState) buildHTTPRequest(in, def map[string]any) (*logicHTTPRequest, error) {
 	method := strings.ToUpper(stringOf(in["method"]))
 	switch method {
@@ -182,20 +204,19 @@ func (rs *logicRunState) buildHTTPRequest(in, def map[string]any) (*logicHTTPReq
 		u.RawQuery = vals.Encode()
 	}
 
-	req := &logicHTTPRequest{method: method, url: u.String(), header: http.Header{}}
-
-	if h, ok := objectOf(in[logicKHeaders]); ok {
-		for k, v := range h {
-			req.header.Set(k, logicString(v))
-		}
+	req := &logicHTTPRequest{
+		method: method, url: u.String(), header: http.Header{},
+		async: !strings.Contains(strings.ToLower(stringOf(def["operationOptions"])), "disableasyncpattern"),
 	}
+
+	setRequestHeaders(req.header, in, method)
 
 	if b, has := in[logicKBody]; has {
 		req.body = b
 	}
 
 	if auth, ok := objectOf(in["authentication"]); ok {
-		if aerr := applyHTTPAuth(req, auth); aerr != nil {
+		if aerr := rs.applyHTTPAuth(req, auth); aerr != nil {
 			return nil, aerr
 		}
 	}
@@ -208,8 +229,15 @@ func (rs *logicRunState) buildHTTPRequest(in, def map[string]any) (*logicHTTPReq
 	return req, nil
 }
 
-func applyHTTPAuth(req *logicHTTPRequest, auth map[string]any) error {
+func (rs *logicRunState) applyHTTPAuth(req *logicHTTPRequest, auth map[string]any) error {
 	switch strings.ToLower(stringOf(auth[fieldType])) {
+	case "activedirectoryoauth":
+		tok, err := rs.fetchOAuthToken(auth)
+		if err != nil {
+			return err
+		}
+
+		req.header.Set("Authorization", tok)
 	case "basic":
 		cred := stringOf(auth["username"]) + ":" + stringOf(auth["password"])
 		req.header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(cred)))
@@ -228,6 +256,7 @@ type logicHTTPRequest struct {
 	header http.Header
 	method string
 	url    string
+	async  bool
 }
 
 type logicHTTPResponse struct {
@@ -263,6 +292,10 @@ func (rs *logicRunState) doHTTP(req *logicHTTPRequest, pol logicRetryPolicy, tim
 		retryable := err != nil && ctx.Err() == nil || resp != nil && retryableStatus(resp.status)
 
 		if !retryable || attempt >= pol.count {
+			if err == nil && req.async {
+				resp, err = rs.pollAsync(ctx, req, resp)
+			}
+
 			return resp, history, err
 		}
 
@@ -376,4 +409,110 @@ func decodeHTTPBody(contentType string, raw []byte) any {
 	}
 
 	return string(raw)
+}
+
+// dropOmittedHeaders removes the headers the HTTP action ignores (Learn: connectors-native-http, "Omitted HTTP
+// headers"); Content-* other than Disposition, Encoding and Type is dropped, and those too on GET.
+func dropOmittedHeaders(h http.Header, method string) {
+	for k := range h {
+		if omittedHeader(strings.ToLower(k), method) {
+			delete(h, k)
+		}
+	}
+}
+
+func omittedHeader(lk, method string) bool {
+	switch lk {
+	case acaRuleAllow, "cookie", "expires", "host", "last-modified", "origin", "set-cookie", "transfer-encoding":
+		return true
+	case "content-disposition", "content-encoding", "content-type":
+		return method == http.MethodGet
+	case "accept-version":
+		return false
+	}
+
+	return strings.HasPrefix(lk, "accept-") || strings.HasPrefix(lk, "content-")
+}
+
+// pollAsync follows the asynchronous operation pattern (Learn: logic-apps-create-api-app, connectors-native-http):
+// a 202 with a Location header is polled, every Retry-After seconds (default one second), until a non-202 answers.
+func (rs *logicRunState) pollAsync(ctx context.Context, req *logicHTTPRequest, resp *logicHTTPResponse,
+) (*logicHTTPResponse, error) {
+	for range logicAsyncMaxPolls {
+		if resp.status != http.StatusAccepted {
+			return resp, nil
+		}
+
+		loc := asyncLocation(req.url, resp.headers["Location"])
+		if loc == "" {
+			return resp, nil
+		}
+
+		if !rs.sleepCtx(ctx, asyncDelay(resp.headers["Retry-After"])) {
+			return nil, context.Cause(ctx)
+		}
+
+		poll := &logicHTTPRequest{method: http.MethodGet, url: loc, header: pollHeaders(req, loc)}
+
+		next, err := rs.p.sendHTTP(ctx, poll)
+		if err != nil {
+			return nil, err
+		}
+
+		resp = next
+	}
+
+	return resp, nil
+}
+
+func asyncLocation(base string, v any) string {
+	raw, _ := v.(string)
+	if raw == "" {
+		return ""
+	}
+
+	b, err := url.Parse(base)
+	if err != nil {
+		return ""
+	}
+
+	ref, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+
+	abs := b.ResolveReference(ref)
+	if abs.Host == "" || abs.Scheme != logicSchemeHTTP && abs.Scheme != logicSchemeHTTPS {
+		return ""
+	}
+
+	return abs.String()
+}
+
+func asyncDelay(v any) time.Duration {
+	raw, _ := v.(string)
+
+	n, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 32)
+	if err != nil || n < 0 {
+		return logicAsyncPollDelay
+	}
+
+	return time.Duration(n) * time.Second
+}
+
+func pollHeaders(req *logicHTTPRequest, loc string) http.Header {
+	h := req.header.Clone()
+	from, _ := url.Parse(req.url)
+	to, _ := url.Parse(loc)
+
+	for k := range h {
+		lk := strings.ToLower(k)
+
+		if strings.HasPrefix(lk, "content-") ||
+			(from == nil || to == nil || from.Host != to.Host) && (lk == "authorization" || lk == "cookie") {
+			delete(h, k)
+		}
+	}
+
+	return h
 }

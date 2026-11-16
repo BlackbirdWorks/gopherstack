@@ -248,6 +248,7 @@ func (rs *logicRunState) runOne(
 	rec := rs.begin(env, name, typ)
 	out := rs.dispatch(env, name, strings.ToLower(typ), def)
 	rs.finish(rec, out)
+	rs.applySecure(env, rec, def)
 
 	return out.status
 }
@@ -361,6 +362,10 @@ func containerOutcome(defs map[string]any, statuses map[string]string) logicOutc
 }
 
 func (rs *logicRunState) dispatch(env *logicEnv, name, typ string, def map[string]any) logicOutcome {
+	if out, ok := rs.staticResult(typ, def); ok {
+		return out
+	}
+
 	switch typ {
 	case "compose":
 		return rs.runCompose(env, name, def)
@@ -404,9 +409,11 @@ func (rs *logicRunState) runScope(env *logicEnv, def map[string]any) logicOutcom
 }
 
 // sleep waits d on the injected clock; it reports false if the run was stopped first.
-func (rs *logicRunState) sleep(d time.Duration) bool {
+func (rs *logicRunState) sleep(d time.Duration) bool { return rs.sleepCtx(rs.ctx, d) }
+
+func (rs *logicRunState) sleepCtx(ctx context.Context, d time.Duration) bool {
 	if d <= 0 {
-		return rs.ctx.Err() == nil
+		return ctx.Err() == nil
 	}
 
 	t := rs.p.currentClock().NewTimer(d)
@@ -415,7 +422,7 @@ func (rs *logicRunState) sleep(d time.Duration) bool {
 	select {
 	case <-t.C():
 		return true
-	case <-rs.ctx.Done():
+	case <-ctx.Done():
 		return false
 	}
 }

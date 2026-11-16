@@ -120,6 +120,8 @@ func (p *LogicProvider) recordSkippedTrigger(w *logicWorkflow, f logicFire, now 
 		h.Inputs = logicContent{Value: f.inputs, Set: true}
 	}
 
+	hideTriggerContent(w.triggerDef(f.trigger), &h.Inputs, &h.Outputs)
+
 	w.Histories = append(w.Histories, h)
 	trimLogicHistory(w)
 }
