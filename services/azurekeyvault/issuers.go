@@ -3,6 +3,7 @@ package azurekeyvault
 import (
 	"net/http"
 	"sort"
+	"strings"
 )
 
 // IssuerCredentials are the issuer account credentials.
@@ -51,6 +52,21 @@ type Contact struct {
 type Contacts struct {
 	ID       string    `json:"id,omitempty"`
 	Contacts []Contact `json:"contacts"`
+}
+
+// partnerIssuer reports whether name is a configured, enabled DigiCert or GlobalSign issuer.
+func (v *vault) partnerIssuer(name string) bool {
+	iss, ok := v.Issuers[name]
+	if !ok || iss.Attributes == nil || !iss.Attributes.enabled() {
+		return false
+	}
+
+	return strings.EqualFold(iss.Provider, "DigiCert") || strings.EqualFold(iss.Provider, "GlobalSign")
+}
+
+// canIssue reports whether the issuer name can issue or renew certificates.
+func (v *vault) canIssue(name string) bool {
+	return strings.EqualFold(name, issuerSelf) || strings.EqualFold(name, issuerUnknown) || v.partnerIssuer(name)
 }
 
 func (i *Issuer) wire(base, name string) Issuer {

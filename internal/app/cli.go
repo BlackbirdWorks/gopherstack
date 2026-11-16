@@ -2824,6 +2824,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"AzureEventHubs", "azureeventhubs", cli.AzureEventHubs.Port},
 		{"AzureEventHubsAMQP", "azureeventhubs-amqp", cli.AzureEventHubs.AMQPPort},
 		{"AzureEventHubsAMQPTLS", "azureeventhubs-amqp-tls", cli.AzureEventHubs.AMQPTLSPort},
+		{"AzureEventHubsKafka", "azureeventhubs-kafka", cli.AzureEventHubs.KafkaPort},
 		{"AzureEventGrid", "azureeventgrid", cli.AzureEventGrid.Port},
 		{"AzureAppConfig", "azureappconfig", cli.AzureAppConfig.Port},
 		{"AzureSearch", "azuresearch", cli.AzureSearch.Port},

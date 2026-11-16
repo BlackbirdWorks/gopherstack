@@ -59,9 +59,8 @@ families:
 gaps: []
 deferred: []
 items_still_open:
-  - "Put Range structured bodies (x-ms-structured-body: XSM/1.0; properties=crc64, x-ms-structured-content-length) are not decoded: neither the Put Range reference nor the pinned SDK (no public option) defines the segment and trailer byte layout."
   - "Metadata keys sent as headers come back in Go's canonical case (Foo) rather than the case sent: net/http canonicalises header names while parsing, and no connection-level hook exists in the repo. Fixing it means a net.Listener wrapper that frames each request head (Content-Length and chunked bodies, pipelining) on every connection and hands the original names to the handler, roughly 200 lines plus tests; list XML already returns stored case."
-  - "ARM fileServices/shares: not implemented are the shares lease action, $filter on List, nextAllowed*DowngradeTime, accessTierStatus and the dashboard UI."
+  - "ARM fileServices/shares: not implemented are the shares lease action, $filter on List, nextAllowed*DowngradeTime, accessTierStatus and the dashboard UI. The ARM HTTP handler and the property mapping live in services/azurearm (rp_storage_fileshares.go; FileShareView there has no such fields), which this work may not edit; azurefile.ShareView (arm_shares.go) would need the fields first."
   - "Share snapshots copy the node tree (names, metadata, SMB/NFS properties, extent lists) per snapshot while file bytes are already shared copy-on-write; at roughly 0.5 KiB per node, a 100,000-node share with the 200-snapshot cap can cost about 10 GB. Removing it needs a persistent (path-copying) tree, because every handler mutates nodes in place. Persistence still writes the bytes once per snapshot."
 leaks: {status: clean, note: "StartWorker's http.Server is stopped by Shutdown (graceful, then Close); TestMain runs testleak.VerifyTestMain over the SDK-driven suite."}
 ---
@@ -82,6 +81,7 @@ Evidence (Microsoft Learn, fetched 2026-11-14): Rename File (NFS not available; 
 
 ## Emulator choices where the vendor is silent
 
+- Put Range structured bodies (x-ms-structured-body: XSM/1.0; properties=crc64, x-ms-structured-content-length) are not decoded: neither the Put Range reference nor the pinned SDK (no public option) defines the segment and trailer byte layout, so the body is stored as sent.
 - Create Hard Link and Create Symbolic Link on an SMB share answer 400 InvalidUri; the references give no code.
 - A new NFS directory reports link count 2; the references give no default.
 - Rename on an NFS share answers 400 InvalidUri; the reference only marks NFS as not available.

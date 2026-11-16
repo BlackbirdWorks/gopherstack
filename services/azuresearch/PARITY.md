@@ -33,9 +33,9 @@ gaps: []
 deferred: []
 items_still_open:
   - "Semantic ranking, spell correction and answers/captions need Microsoft's ranking models (queryType semantic is rejected with 400, whatever the service's semanticSearch setting); text queries through azureOpenAI/aiServicesVision/aml vectorizers and imageUrl/imageBinary vector queries need a hosted embedding model that no emulator in services/ provides (400)."
-  - "Indexers: no document cracking for PDF/Office/images (no parser dependency in go.mod), HTML and Markdown parsing modes, DocumentExtraction and Custom.WebApiSkill (the run holds the backend lock in finishRun, indexers.go; an HTTP call needs the run split into load, enrich and apply phases), no knowledge store projections, enrichment cache or index projections, and model-backed skills (OCR, entities, key phrases, language detection, translation, embedding) are recorded as warnings and skipped."
+  - "Indexers: no document cracking for PDF/Office/images (no parser dependency in go.mod), DocumentExtraction and Custom.WebApiSkill (the run holds the backend lock in finishRun, indexers.go; an HTTP call needs the run split into load, enrich and apply phases), no knowledge store projections, enrichment cache or index projections, and model-backed skills (OCR, entities, key phrases, language detection, translation, embedding) are recorded as warnings and skipped."
   - "Analyzers: Microsoft language analyzers and tokenizers (proprietary), the phonetic, hindi/indic/sorani/scandinavian normalization filters, light and minimal stemmers and KStem, and Lucene's stop word sets for languages other than en, fr, de, es are not implemented; token offsets after a char filter refer to the filtered text, the COMMENTS regex flag is rejected (RE2 has no equivalent), and normalizers are rejected."
-  - "ARM: network security perimeter configurations (no Microsoft.Network/networkSecurityPerimeters emulation exists to associate with) and semanticSearch (round-trips only; no ranker to enable) are not implemented; usage quotas per SKU are the documented defaults (unverified for raised quotas)."
+  - "ARM: network security perimeter configurations (no Microsoft.Network/networkSecurityPerimeters emulation exists to associate with) and semanticSearch (round-trips only; no ranker to enable) are not implemented."
 leaks: {status: clean, note: "Shutdown cancels the scheduler, closes the HTTPS server and waits for both goroutines."}
 ---
 
@@ -67,3 +67,9 @@ Sources fetched: azure-rest-api-specs search/resource-manager 2025-05-01 (search
 - Azure SQL rows are keyed by their first column and change-tracked by a hash of the row; the query interface returns text, so target field types coerce from strings.
 - The word_delimiter family emits every part at the original token's position.
 - Snowball stemmers stand in for Lucene's language-specific light stemmers.
+
+## Emulator choices where the vendor is silent
+
+- Blob content of text/html blobs (or .html/.htm names) in the default parsing mode is the visible text: tags, script and style content dropped, whitespace collapsed. Learn (search-how-to-index-azure-blob-storage) lists HTML as a supported format without defining the extraction.
+- Markdown parsing mode follows Learn search-how-to-index-azure-blob-markdown: oneToMany (default) emits content, sections.h1..hN and ordinal_position per non-empty content section, oneToOne emits document_content and the nested sections tree. Learn does not say what a section with only whitespace produces, nor how a header inside a fenced code block is treated; whitespace-only sections emit no document and fenced lines are never headers.
+- Usage quotas per SKU are the documented defaults; raised quotas granted through support cannot be observed by an emulator.

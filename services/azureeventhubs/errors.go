@@ -18,6 +18,7 @@ var (
 	ErrReceiverStolen        = errors.New("azureeventhubs: receiver superseded by a higher epoch")
 	ErrTooManyReceivers      = errors.New("azureeventhubs: too many concurrent receivers")
 	ErrInvalidSelector       = errors.New("azureeventhubs: invalid selector filter")
+	ErrTooManyKafkaGroups    = errors.New("azureeventhubs: too many kafka consumer groups")
 	ErrNilAppContext         = errors.New("azureeventhubs: nil app context")
 	errInvalidKeyType        = errors.New("azureeventhubs: keyType must be PrimaryKey or SecondaryKey")
 	errInvalidKey            = errors.New("azureeventhubs: key is too long")

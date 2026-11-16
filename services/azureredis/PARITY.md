@@ -23,17 +23,16 @@ families:
   endpoints: {status: ok, note: "hostName is <name>.redis.cache.windows.net; sslPort and port (plaintext, only while enableNonSslPort) are the real emulator ports. The TLS endpoint always serves a self-signed or configured (--azure-redis-tls-cert) certificate valid for localhost and 127.0.0.1; dial the host and set the TLS server name to localhost."}
   sdk_compat: {status: ok, note: "armredis v3: create/update/delete pollers, ListKeys, RegenerateKey, ForceReboot, ImportData, ExportData, FirewallRules and PatchSchedules; azurerm_redis_cache applies without drift."}
 gaps:
-  - "Microsoft.Cache/redisEnterprise (Redis Enterprise and Azure Managed Redis) is not implemented."
+  - "Microsoft.Cache/redisEnterprise (Redis Enterprise and Azure Managed Redis) is not implemented: the resource provider would live in services/azurearm (rp_redis*.go handle only Microsoft.Cache/redis), which this work may not edit."
   - "Clustering (shardCount, replicasPerPrimary), VNet injection, private endpoints, zones allocation and geo-replication data flow are not modelled; a cache is one Redis server."
   - "redisConfiguration is stored and echoed; miniredis has no CONFIG, so maxmemory-policy, maxclients and notify-keyspace-events are not enforced. rdb/aof backup settings only decide whether a full reboot keeps data."
-  - "Entra authentication: tokens are not re-checked for expiry on an open connection; the three built-in access policies use permission strings derived from their names (+@all allkeys; +@all -@dangerous allkeys; +@read +@connection allkeys) because Learn (azure-cache-for-redis/cache-configure-role-based-access-control) and REST 2024-11-01 access-policy list publish no built-in permission strings; deleting a custom policy that an assignment uses answers 400 InvalidRequestBody (the REST page documents no such rule)."
   - "Import accepts one RDB file; compact ziplist/listpack/intset encodings and streams fail with a 400."
   - "Create completes the server immediately; only the reported provisioningState lags."
 deferred: []
 items_still_open:
-  - "Microsoft.Cache/redisEnterprise (Redis Enterprise and Azure Managed Redis) is not implemented."
+  - "Microsoft.Cache/redisEnterprise (Redis Enterprise and Azure Managed Redis) is not implemented: the resource provider would live in services/azurearm (rp_redis*.go handle only Microsoft.Cache/redis), which this work may not edit."
   - "Clustering, VNet injection, private endpoints and geo-replication data flow are not modelled."
-  - "redisConfiguration settings are stored but not enforced (no CONFIG in miniredis)."
+  - "redisConfiguration settings are stored but not enforced: they stay in services/azurearm (rp_redis_cache.go:91, rp_redis_body.go:115) and never reach this service's Spec, and miniredis has no CONFIG, eviction or keyspace notifications to apply them to."
   - "Entra authentication: tokens are not re-checked for expiry on an open connection; the built-in access policy permission strings are not published by Learn or the REST reference and are derived from the policy names; deleting a custom policy that an assignment uses is refused although the REST page documents no such rule."
 leaks: {status: clean, note: "Reset and Shutdown close every cache's relays and Redis server and release their ports; the package runs under testleak."}
 ---
@@ -49,3 +48,9 @@ Data access policies: REST 2024-11-01 (learn.microsoft.com/rest/api/redis/access
 Each cache is a loopback miniredis server fronted by relays: a TLS relay (always) and a plaintext relay (only while enableNonSslPort), both on ports from the shared port pool. Access keys live in a per-cache keyring consulted by a pre-command hook that rewrites the secondary key to the primary one in AUTH and HELLO, because miniredis holds a single password.
 
 Persistence stores each cache's keys, spec and keyspace; servers restart on fresh ports and ARM reads the new ports on the next GET.
+
+## Emulator choices where the vendor is silent
+
+- A connection authenticated with a Microsoft Entra token is closed with an error on the first command after the token's exp claim; Learn (cache-azure-active-directory-for-authentication) says only that clients must AUTH again before expiry to avoid disrupting connections. A token without an exp claim never expires on the connection, and a fresh AUTH replaces the expiry.
+- The built-in access policy permission strings (Data Owner, Data Contributor, Data Reader) are not published by Learn or the REST reference; they are derived from the policy names.
+- Deleting a custom access policy that an assignment uses is refused although the REST reference documents no such rule.

@@ -83,9 +83,16 @@ func (h *hub) pick(pid int, key string) int {
 // Append stores events in one partition: pid, else the hash of the first
 // event's key, else round-robin. It returns the partition used.
 func (b *InMemoryBackend) Append(ref HubRef, pid int, evs []NewEvent) (int, error) {
+	used, _, err := b.appendEvents(ref, pid, evs)
+
+	return used, err
+}
+
+// appendEvents is Append that also reports the sequence number given to the first event.
+func (b *InMemoryBackend) appendEvents(ref HubRef, pid int, evs []NewEvent) (int, int64, error) {
 	for _, e := range evs {
 		if len(e.Raw) > MaxEventBytes {
-			return 0, ErrEventTooLarge
+			return 0, 0, ErrEventTooLarge
 		}
 	}
 
@@ -94,7 +101,7 @@ func (b *InMemoryBackend) Append(ref HubRef, pid int, evs []NewEvent) (int, erro
 
 	_, h, err := b.hubLocked(ref)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	key := ""
@@ -103,12 +110,13 @@ func (b *InMemoryBackend) Append(ref HubRef, pid int, evs []NewEvent) (int, erro
 	}
 
 	if pid >= len(h.Partitions) {
-		return 0, ErrPartitionNotFound
+		return 0, 0, ErrPartitionNotFound
 	}
 
 	pid = h.pick(pid, key)
 	now := b.now().UTC()
 	p := h.Partitions[pid]
+	first := p.NextSeq
 
 	for _, e := range evs {
 		p.LastOffset += int64(len(e.Raw)) + 1
@@ -122,7 +130,7 @@ func (b *InMemoryBackend) Append(ref HubRef, pid int, evs []NewEvent) (int, erro
 	b.trimLocked(h, now)
 	p.wake()
 
-	return pid, nil
+	return pid, first, nil
 }
 
 // Next blocks until the partition holds an event at or after cursor, ctx ends,
