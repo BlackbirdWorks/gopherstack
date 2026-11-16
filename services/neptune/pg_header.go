@@ -50,6 +50,7 @@ type pgColumn struct {
 	name   string
 	typ    string
 	card   string
+	space  string
 	kind   pgKind
 	array  bool
 	idProp bool
@@ -257,7 +258,9 @@ func parseCypherColumn(s string) (pgColumn, error) {
 	name, rest := strings.ReplaceAll(s[:i], `\:`, ":"), s[i+1:]
 
 	if rest == "ID" || strings.HasPrefix(rest, "ID(") {
-		return pgColumn{kind: colID, name: name, idProp: name != "", typ: typString}, nil
+		return pgColumn{
+			kind: colID, name: name, idProp: name != "", typ: typString, space: idSpace(rest, "ID"),
+		}, nil
 	}
 
 	if name == "" {
@@ -267,9 +270,9 @@ func parseCypherColumn(s string) (pgColumn, error) {
 		case rest == "TYPE":
 			return pgColumn{kind: colType}, nil
 		case rest == "START_ID" || strings.HasPrefix(rest, "START_ID("):
-			return pgColumn{kind: colFrom}, nil
+			return pgColumn{kind: colFrom, space: idSpace(rest, "START_ID")}, nil
 		case rest == "END_ID" || strings.HasPrefix(rest, "END_ID("):
-			return pgColumn{kind: colTo}, nil
+			return pgColumn{kind: colTo, space: idSpace(rest, "END_ID")}, nil
 		}
 
 		return pgColumn{}, pgHeaderErr("unknown system column %q", s)
@@ -285,6 +288,16 @@ func parseCypherColumn(s string) (pgColumn, error) {
 	}
 
 	return pgColumn{name: name, typ: typ}, nil
+}
+
+// idSpace extracts S from "<kind>(S)"; the docs name the space but not its allowed characters.
+func idSpace(rest, kind string) string {
+	sp, ok := strings.CutPrefix(rest, kind+"(")
+	if !ok {
+		return ""
+	}
+
+	return strings.TrimSuffix(sp, ")")
 }
 
 func dateLayouts() []string {

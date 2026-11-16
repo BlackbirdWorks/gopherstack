@@ -35,15 +35,19 @@ type ldDef struct {
 	protected bool
 }
 
+// ldContext is the active JSON-LD context; revert is where nested node objects restart when it does not propagate.
 type ldContext struct {
-	terms map[string]ldDef
-	vocab string
-	base  string
-	lang  string
+	terms  map[string]ldDef
+	revert *ldContext
+	vocab  string
+	base   string
+	lang   string
 }
 
 func (c ldContext) clone() ldContext {
-	n := ldContext{terms: make(map[string]ldDef, len(c.terms)), vocab: c.vocab, base: c.base, lang: c.lang}
+	n := ldContext{
+		terms: make(map[string]ldDef, len(c.terms)), vocab: c.vocab, base: c.base, lang: c.lang, revert: c.revert,
+	}
 	maps.Copy(n.terms, c.terms)
 
 	return n
@@ -191,6 +195,10 @@ func (c ldContext) extend(raw any) (ldContext, error) {
 }
 
 func (c ldContext) define(m map[string]any) (ldContext, error) {
+	if _, ok := m[ldImport]; ok {
+		return c, fmt.Errorf("%w: @import", errJSONLDRemote)
+	}
+
 	if v, ok := m[jsonLDVocabKey].(string); ok {
 		c.vocab = v
 	}
@@ -231,7 +239,23 @@ const (
 	ldNest      = "@nest"
 	ldIndex     = "@index"
 	ldNone      = "@none"
+	ldImport    = "@import"
+	ldPropagate = "@propagate"
+	ldIncluded  = "@included"
 )
+
+// ldPropagates reports whether a context map keeps applying inside nested node objects (default true).
+func ldPropagates(raw any) bool {
+	for _, it := range ldList(raw) {
+		if m, ok := it.(map[string]any); ok {
+			if v, set := m[ldPropagate].(bool); set && !v {
+				return false
+			}
+		}
+	}
+
+	return true
+}
 
 func ldSortedKeys(m map[string]any) []string {
 	keys := make([]string, 0, len(m))
@@ -388,6 +412,10 @@ func (p *ldParser) idTerm(id string) Term {
 }
 
 func (p *ldParser) node(m map[string]any, parent ldContext, graph Term) (Term, error) {
+	if parent.revert != nil {
+		parent = *parent.revert
+	}
+
 	ctx := parent
 
 	if raw, ok := m[jsonLDContextKey]; ok {
@@ -395,6 +423,15 @@ func (p *ldParser) node(m map[string]any, parent ldContext, graph Term) (Term, e
 		if ctx, err = parent.extend(raw); err != nil {
 			return Term{}, err
 		}
+
+		if !ldPropagates(raw) {
+			ctx.revert = &parent
+		}
+	}
+
+	ctx, err := ctx.applyTypeScoped(m)
+	if err != nil {
+		return Term{}, err
 	}
 
 	subj, err := p.subject(m, ctx)
@@ -405,6 +442,55 @@ func (p *ldParser) node(m map[string]any, parent ldContext, graph Term) (Term, e
 	return subj, p.members(subj, m, ctx, graph)
 }
 
+// applyTypeScoped applies the scoped contexts of the node's @type terms in lexicographic order; they do not
+// propagate into nested node objects unless the scoped context sets @propagate to true.
+func (c ldContext) applyTypeScoped(m map[string]any) (ldContext, error) {
+	var types []string
+
+	for _, t := range ldList(m[jsonLDType]) {
+		if s, ok := t.(string); ok {
+			types = append(types, s)
+		}
+	}
+
+	sort.Strings(types)
+
+	out := c
+
+	for _, t := range types {
+		def, ok := c.terms[t]
+		if !ok || def.scoped == nil {
+			continue
+		}
+
+		next, err := out.extend(def.scoped)
+		if err != nil {
+			return c, err
+		}
+
+		if out.revert == nil && !ldScopedPropagates(def.scoped) {
+			prev := c
+			next.revert = &prev
+		}
+
+		out = next
+	}
+
+	return out, nil
+}
+
+func ldScopedPropagates(raw any) bool {
+	for _, it := range ldList(raw) {
+		if m, ok := it.(map[string]any); ok {
+			if v, set := m[ldPropagate].(bool); set && v {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 func (p *ldParser) members(subj Term, m map[string]any, ctx ldContext, graph Term) error {
 	for _, k := range ldSortedKeys(m) {
 		v := m[k]
@@ -413,6 +499,8 @@ func (p *ldParser) members(subj Term, m map[string]any, ctx ldContext, graph Ter
 
 		switch kw := ctx.keyword(k); {
 		case kw == jsonLDID || kw == jsonLDContextKey || kw == ldIndex:
+		case kw == ldIncluded:
+			err = p.included(v, ctx, graph)
 		case kw == jsonLDGraph:
 			err = p.graphContent(v, ctx, subj, m)
 		case kw == jsonLDType:
@@ -431,6 +519,25 @@ func (p *ldParser) members(subj Term, m map[string]any, ctx ldContext, graph Ter
 		}
 
 		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (p *ldParser) included(v any, ctx ldContext, graph Term) error {
+	for _, e := range ldList(v) {
+		em, ok := e.(map[string]any)
+		if !ok {
+			return fmt.Errorf("%w: @included values must be node objects", errJSONLD)
+		}
+
+		if _, isValue := em[jsonLDValue]; isValue {
+			return fmt.Errorf("%w: @included values must be node objects", errJSONLD)
+		}
+
+		if _, err := p.node(em, ctx, graph); err != nil {
 			return err
 		}
 	}

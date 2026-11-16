@@ -35,6 +35,9 @@ var (
 	// ErrVersionsLimitExceeded is returned when a policy already has the maximum allowed versions.
 	ErrVersionsLimitExceeded = errors.New("versions limit exceeded")
 
+	// ErrLimitExceeded is returned when a documented per-resource quota would be exceeded.
+	ErrLimitExceeded = errors.New("limit exceeded")
+
 	// ErrTerminalState is returned when a device updates a job execution that already finished.
 	ErrTerminalState = errors.New("terminal state")
 

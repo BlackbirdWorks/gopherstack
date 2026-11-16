@@ -143,6 +143,27 @@ func TestPropertyGraphBulkLoader(t *testing.T) {
 			query:  "MATCH (n) RETURN n.age AS age, labels(n) AS l",
 			want:   []any{map[string]any{"age": float64(1), "l": []any{"x", "y"}}},
 		},
+		{
+			name: "opencypher same id in two id spaces is two nodes", format: "opencypher",
+			files: map[string]string{
+				"d/a.csv": "name:ID(person),:LABEL\nx,person\n",
+				"d/b.csv": "name:ID(software),:LABEL\nx,software\n",
+			},
+			status: "LOAD_COMPLETED",
+			query:  "MATCH (n) RETURN id(n) AS i ORDER BY i",
+			want:   []any{map[string]any{"i": "personx"}, map[string]any{"i": "softwarex"}},
+		},
+		{
+			name: "opencypher relationships resolve ids in their space", format: "opencypher",
+			files: map[string]string{
+				"d/a.csv": "name:ID(person),:LABEL\nx,person\n",
+				"d/b.csv": "name:ID(software),:LABEL\nx,software\n",
+				"d/r.csv": ":ID,:START_ID(person),:END_ID(software),:TYPE\ne1,x,x,created\n",
+			},
+			status: "LOAD_COMPLETED",
+			query:  "MATCH (a:person)-[r:created]->(b:software) RETURN count(r) AS c",
+			want:   []any{map[string]any{"c": float64(1)}},
+		},
 	}
 
 	for _, tt := range tests {

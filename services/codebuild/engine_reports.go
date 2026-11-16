@@ -88,7 +88,14 @@ func (r *buildRunner) processReport(name string, rep specReport) error {
 
 	content := r.parseReportFiles(base, format, files)
 
-	return r.b.recordBuildReport(r.build, name, rtype, content)
+	exp, err := r.b.recordBuildReportExport(r.build, name, rtype, content)
+	if err != nil {
+		return err
+	}
+
+	r.exportReport(base, files, exp)
+
+	return nil
 }
 
 func (r *buildRunner) parseReportFiles(base, format string, files []string) reportContent {
@@ -173,16 +180,25 @@ const (
 
 // recordBuildReport stores one report (and its parsed detail) for a finished build.
 func (b *InMemoryBackend) recordBuildReport(build Build, ref, rtype string, c reportContent) error {
+	_, err := b.recordBuildReportExport(build, ref, rtype, c)
+
+	return err
+}
+
+// recordBuildReportExport stores a report and returns the report group's export settings for it.
+func (b *InMemoryBackend) recordBuildReportExport(
+	build Build, ref, rtype string, c reportContent,
+) (reportExport, error) {
 	b.mu.Lock("recordBuildReport")
 	defer b.mu.Unlock()
 
 	rg, err := b.resolveReportGroup(build.ProjectName, ref, rtype)
 	if err != nil {
-		return err
+		return reportExport{}, err
 	}
 
 	reportArn := arn.Build("codebuild", b.region, b.accountID, "report/"+rg.Name+":"+randomID())
-	exportCfg := rg.ExportConfig
+	exportCfg := rg.ExportConfig.clone()
 	created := time.Now()
 	expired := awstime.Epoch(created.Add(reportRetention))
 	rep := &Report{
@@ -222,7 +238,7 @@ func (b *InMemoryBackend) recordBuildReport(build Build, ref, rtype string, c re
 	b.reports.Put(rep)
 	b.reportDetails.Put(detail)
 
-	return nil
+	return reportExport{cfg: exportCfg.clone(), reportArn: reportArn, groupName: rg.Name}, nil
 }
 
 // pickStatus prefers an explicit non-success parse status over the derived one.

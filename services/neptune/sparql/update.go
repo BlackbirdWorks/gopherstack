@@ -77,6 +77,7 @@ type journalEntry struct {
 type updateTx struct {
 	s       *Store
 	service ServiceFunc
+	pre     *prefetched
 	journal []journalEntry
 }
 
@@ -124,10 +125,15 @@ func (s *Store) Update(ctx context.Context, src string, opts UpdateOptions) (Upd
 
 // Apply runs a parsed update under the write lock; a failing operation rolls the whole request back.
 func (s *Store) Apply(ctx context.Context, u *Update, opts UpdateOptions) (UpdateResult, error) {
+	pre := prefetch(ctx, u, opts)
+
 	s.mu.Lock("Update")
 	defer s.mu.Unlock()
 
-	tx := &updateTx{s: s, service: opts.Service}
+	tx := &updateTx{s: s, pre: pre}
+	if opts.Service != nil {
+		tx.service = pre.serviceFunc
+	}
 	s.begin()
 
 	var res UpdateResult
@@ -369,7 +375,7 @@ func fetchDocument(ctx context.Context, src string, opts UpdateOptions) (Documen
 }
 
 func (t *updateTx) load(ctx context.Context, op *updateOp, opts UpdateOptions) (int, error) {
-	doc, err := fetchDocument(ctx, op.Src, opts)
+	doc, err := t.pre.document(ctx, op.Src, opts)
 	if err != nil {
 		return 0, &ParameterError{Msg: "Failed to load " + op.Src + ": " + err.Error(), Err: err}
 	}

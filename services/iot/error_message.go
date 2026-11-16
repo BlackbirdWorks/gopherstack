@@ -13,7 +13,11 @@ import (
 func publicMessage(err error) string {
 	msg := err.Error()
 
-	for _, s := range []error{ErrValidation, ErrAlreadyExists, ErrMalformedPolicy, ErrTerminalState, ErrInvalidQuery} {
+	sentinels := []error{
+		ErrValidation, ErrAlreadyExists, ErrMalformedPolicy, ErrLimitExceeded, ErrTerminalState, ErrInvalidQuery,
+	}
+
+	for _, s := range sentinels {
 		if errors.Is(err, s) {
 			msg = strings.TrimPrefix(msg, s.Error()+": ")
 			msg = strings.TrimSuffix(msg, ": "+s.Error())

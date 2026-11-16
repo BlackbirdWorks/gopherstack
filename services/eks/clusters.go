@@ -240,6 +240,8 @@ func (b *InMemoryBackend) CreateCluster(
 		return nil, err
 	}
 
+	quota := b.quotaGate.Lookup(b.accountID, b.region, quotaServiceCode, quotaClusters)
+
 	b.mu.Lock("CreateCluster")
 	defer b.mu.Unlock()
 
@@ -247,8 +249,13 @@ func (b *InMemoryBackend) CreateCluster(
 		return nil, fmt.Errorf("%w: Cluster already exists with name: %s", ErrAlreadyExists, name)
 	}
 
-	if n := b.countClusters(false); n >= b.limits.clustersPerAccount {
-		return nil, resourceLimitExceededErr("clusters", b.limits.clustersPerAccount)
+	maxClusters := b.limits.clustersPerAccount
+	if quota.Set {
+		maxClusters = int(quota.Value)
+	}
+
+	if n := b.countClusters(false); n >= maxClusters {
+		return nil, resourceLimitExceededErr("clusters", maxClusters)
 	}
 
 	if vpcConfig != nil {

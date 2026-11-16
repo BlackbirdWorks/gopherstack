@@ -23,6 +23,7 @@ func ParseUpdate(src string) (*Update, error) {
 			return nil, oerr
 		}
 
+		op.services, p.services = p.services, nil
 		u.ops = append(u.ops, op)
 
 		if !p.acceptP(";") {

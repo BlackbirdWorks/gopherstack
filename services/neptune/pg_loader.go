@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
@@ -207,12 +208,15 @@ type pgProp struct {
 }
 
 type pgRow struct {
-	id     string
-	from   string
-	to     string
-	typ    string
-	labels []string
-	props  []pgProp
+	id        string
+	idSpace   string
+	from      string
+	fromSpace string
+	to        string
+	toSpace   string
+	typ       string
+	labels    []string
+	props     []pgProp
 }
 
 // convertRow turns a record into typed values; any failure skips the whole record.
@@ -253,14 +257,14 @@ func (l *pgLoader) keepEmpty(c pgColumn, f csvField) bool {
 func (l *pgLoader) setColumn(row *pgRow, c pgColumn, f csvField, recNum int) bool {
 	switch c.kind {
 	case colID:
-		row.id = f.val
+		row.id, row.idSpace = f.val, c.space
 		if c.idProp {
 			row.props = append(row.props, pgProp{key: c.name, vals: []any{f.val}, card: cardSingle})
 		}
 	case colFrom:
-		row.from = f.val
+		row.from, row.fromSpace = f.val, c.space
 	case colTo:
-		row.to = f.val
+		row.to, row.toSpace = f.val, c.space
 	case colType:
 		row.typ = f.val
 	case colLabel:
@@ -335,7 +339,47 @@ func (l *pgLoader) row(rec []csvField, recNum int) {
 	}
 }
 
+// nodeID maps a node ID within an ID space to the stored node ID: the namespace plus the ID
+// (feature-opencypher-compliance.html, "Differences in Neptune openCypher language semantics"), so the same ID
+// in a second space is a second node. The docs name no separator.
+func (l *pgLoader) nodeID(space, id string) string {
+	if space == "" {
+		return id
+	}
+
+	j := l.job
+	key := idSpaceKey(space, id)
+
+	if stored, ok := j.idSpaces[key]; ok {
+		return stored
+	}
+
+	stored := space + id
+	for owner, taken := j.idOwners[stored]; taken && owner != space; owner, taken = j.idOwners[stored] {
+		stored = space + ":" + stored
+	}
+
+	if j.idSpaces == nil {
+		j.idSpaces, j.idOwners = map[string]string{}, map[string]string{}
+	}
+
+	j.idSpaces[key], j.idOwners[stored] = stored, space
+
+	return stored
+}
+
+func (l *pgLoader) lookupNodeID(space, id string) string {
+	if stored, ok := l.job.idSpaces[idSpaceKey(space, id)]; ok && space != "" {
+		return stored
+	}
+
+	return id
+}
+
+func idSpaceKey(space, id string) string { return strconv.Itoa(len(space)) + ":" + space + id }
+
 func (l *pgLoader) nodeRow(row *pgRow, recNum int) {
+	row.id = l.nodeID(row.idSpace, row.id)
 	n := l.st.Node(row.id)
 	labels := row.labels
 
@@ -377,7 +421,8 @@ func (l *pgLoader) mergeLabels(n *opencypher.Node, labels []string) {
 }
 
 func (l *pgLoader) edgeRow(row *pgRow, recNum int) {
-	from, to := l.st.Node(row.from), l.st.Node(row.to)
+	from := l.st.Node(l.lookupNodeID(row.fromSpace, row.from))
+	to := l.st.Node(l.lookupNodeID(row.toSpace, row.to))
 	if from == nil || to == nil {
 		l.res.records++
 		l.fail(pgErrInsert, errCodeMissingEnd,

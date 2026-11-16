@@ -297,6 +297,9 @@ type JobExecution struct {
 	InProgressDeadline               float64                    `json:"inProgressDeadline,omitempty"`
 	StepDeadline                     float64                    `json:"stepDeadline,omitempty"`
 	ForceCanceled                    bool                       `json:"forceCanceled,omitempty"`
+	RetryAttempt                     int32                      `json:"retryAttempt,omitempty"`
+	RetriedFailed                    int32                      `json:"retriedFailed,omitempty"`
+	RetriedTimedOut                  int32                      `json:"retriedTimedOut,omitempty"`
 }
 
 func cloneJob(j *Job) *Job {

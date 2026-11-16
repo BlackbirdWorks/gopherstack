@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
 	"github.com/blackbirdworks/gopherstack/pkgs/safemap"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/worker"
@@ -46,6 +47,7 @@ type InMemoryBackend struct {
 	certificateAuthoritiesByCluster  *store.Index[CertificateAuthority]
 	idempotency                      *store.Table[idempotencyRecord]
 	registry                         *store.Registry
+	quotaGate                        quotalimit.Gate
 	mu                               *lockmetrics.RWMutex
 	work                             *worker.Group
 	baseCtx                          context.Context

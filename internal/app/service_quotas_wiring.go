@@ -7,6 +7,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
+	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	servicequotasbackend "github.com/blackbirdworks/gopherstack/services/servicequotas"
@@ -24,6 +25,9 @@ var quotaCounters = map[string]quotaCounter{ //nolint:gochecknoglobals // immuta
 	"iam/L-BF35879D":      func(a *quotaUsageAdapter, _, _ string) (int, bool) { return a.iamCount(iamGroups) },
 	"vpc/L-F678F1CE":      func(a *quotaUsageAdapter, _, rgn string) (int, bool) { return a.ec2Count(rgn, false) },
 	"ec2/L-0263D0A3":      func(a *quotaUsageAdapter, _, rgn string) (int, bool) { return a.ec2Count(rgn, true) },
+	"iam/L-0DA4ABF3":      func(a *quotaUsageAdapter, _, _ string) (int, bool) { return a.iamCount(iamPolicies) },
+	"iam/L-E95E4862":      func(a *quotaUsageAdapter, _, _ string) (int, bool) { return a.iamCount(iamProfiles) },
+	"eks/L-1194D53C":      func(a *quotaUsageAdapter, _, _ string) (int, bool) { return a.eksCount() },
 }
 
 type iamKind int
@@ -32,6 +36,8 @@ const (
 	iamRoles iamKind = iota
 	iamUsers
 	iamGroups
+	iamPolicies
+	iamProfiles
 )
 
 // quotaUsageAdapter reads live resource counts from the emulated backends for Service Quotas.
@@ -40,6 +46,7 @@ type quotaUsageAdapter struct {
 	ddb *ddbbackend.InMemoryDB
 	iam *iambackend.InMemoryBackend
 	ec2 *ec2backend.Handler
+	eks *eksbackend.InMemoryBackend
 }
 
 // QuotaUsage implements servicequotas.UsageSource.
@@ -80,9 +87,21 @@ func (a *quotaUsageAdapter) iamCount(kind iamKind) (int, bool) {
 		return a.iam.RoleCount(), true
 	case iamUsers:
 		return a.iam.UserCount(), true
+	case iamPolicies:
+		return a.iam.PolicyCount(), true
+	case iamProfiles:
+		return a.iam.InstanceProfileCount(), true
 	default:
 		return a.iam.GroupCount(), true
 	}
+}
+
+func (a *quotaUsageAdapter) eksCount() (int, bool) {
+	if a.eks == nil {
+		return 0, false
+	}
+
+	return a.eks.ClusterTotal(), true
 }
 
 type ec2Counter interface {
@@ -134,6 +153,10 @@ func newQuotaUsageAdapter(byName map[string]service.Registerable) *quotaUsageAda
 
 	a.ec2, _ = byName["EC2"].(*ec2backend.Handler)
 
+	if h, ok := byName["EKS"].(*eksbackend.Handler); ok {
+		a.eks = h.Backend
+	}
+
 	return a
 }
 
@@ -174,5 +197,9 @@ func enforceServiceQuotas(limit quotalimit.Func, a *quotaUsageAdapter) {
 
 	if a.ec2 != nil {
 		a.ec2.SetQuotaLimiter(limit)
+	}
+
+	if a.eks != nil {
+		a.eks.SetQuotaLimiter(limit)
 	}
 }

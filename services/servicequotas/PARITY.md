@@ -38,13 +38,9 @@ families:
   Reports: {status: ok, note: "The report snapshot is taken when the report completes."}
   AutoManagement: {status: ok, note: "One configuration per account and Region."}
 items_still_open:
-  - ContextId/QuotaContext: resource-level quotas are not modeled; ContextId is rejected with IllegalArgumentException
-  - QuotaUtilization: only S3 buckets, EC2 Elastic IPs, VPCs, IAM roles/users/groups and DynamoDB tables report usage; the other catalogued quotas have no live counter
-  - AutoManagement: NotifyAndAdjust sends the 95% notification only (as documented) but files no automatic increase request: the Automatic Management page (docs.aws.amazon.com/servicequotas/latest/userguide/automatic-management.html) does not state the requested value or which quotas qualify for automated approval
-  - AppliedQuotaEnforcement: opt-in (--enforce-service-quotas) for S3 buckets, EC2 Elastic IPs and VPCs, IAM roles/users/groups and DynamoDB tables only; other quotas are never enforced and Lambda, SQS, SNS and the other newly catalogued quotas are never enforced
-  - Template: associating the template does not file increase requests for accounts created in or joined to the organization later (Organizations exposes no account-created hook)
-  - "RequestStatus: DENIED is entered only for desired values above the catalogued hard max (IAM roles, customer managed policies and instance profiles 10,000, groups 500); NOT_APPROVED and INVALID_REQUEST are never entered (CASE_CLOSED is entered when the request's Support case is resolved)"
-  - Errors: AccessDenied for non-template operations, DependencyAccessDenied, TagPolicyViolation, TooManyRequests and ServiceException are not raised (no emulated cause)
+  - "ContextId/QuotaContext: resource-level quotas are not modeled; ContextId is rejected with IllegalArgumentException. Blocker: the only documented resource-level quota is OpenSearch (es) 'Instances per domain' (request-quota-increase.html); the docs publish no list of resource-level quotas, no ContextScopeType values and no ARN pattern per quota, so INVALID_REQUEST (invalid ContextId ARN) cannot be decided from a source (quotas.go:70 checkContext)"
+  - "QuotaUtilization: S3 buckets, EC2 Elastic IPs, VPCs, IAM roles/users/groups/customer managed policies/instance profiles, EKS clusters and DynamoDB tables report usage; the other catalogued quotas (ECS clusters, RDS, CloudFormation, ELB, Lambda, the other VPC quotas) have no live counter wired in internal/app/service_quotas_wiring.go quotaCounters"
+  - "AppliedQuotaEnforcement: opt-in (--enforce-service-quotas) for S3 buckets, EC2 Elastic IPs and VPCs, IAM roles/users/groups/customer managed policies/instance profiles, EKS clusters and DynamoDB tables only; the other catalogued quotas are never enforced"
 gaps: []
 structural_gaps:
   - "Support staff never review a case: a request still auto-approves on the lifecycle dwell unless its Support case is resolved first (CASE_CLOSED)."
@@ -65,6 +61,7 @@ Emulator choices the SDK does not document:
 - Template operations need an organization with all features and service access for `servicequotas.amazonaws.com` enabled, wired from the Organizations backend; a standalone backend without a directory reports NoAvailableOrganizationException.
 - Get, List and Delete on template entries do not require an association; only Disassociate does.
 - Tag ARNs must name a catalogued quota of the caller account and Region.
+- Associating the template files its requests in accounts created in the organization afterwards (organization-templates.html: "Whenever new accounts are created in your organization, the template automatically requests quota increases"; existing accounts are not updated); invited accounts that join are not documented as receiving them and get none. Requests are filed once, at creation, with the management account root as requester.
 
 ## 2026-11-13 template limits
 
@@ -76,3 +73,9 @@ Quota request templates answer TemplatesNotAvailableInRegionException in opt-in,
 ## Emulator choices where the vendor is silent
 
 - Catalog: quotas without a documented code are absent (the General Reference prints codes only for adjustable quotas; SQS and SNS print none), and docs defaults that vary by Region use the Region-independent value, else us-east-1; codes are not verified against the live API.
+- AutoManagement NotifyAndAdjust sends the 95% notification only; automatic-management.html states neither the requested value nor which quotas qualify for automatic approval, so no automatic request is filed.
+- Errors AccessDenied (non-template operations), DependencyAccessDenied, TagPolicyViolation, TooManyRequests and ServiceException are not raised: they have no emulated cause (IAM evaluation is a separate setting).
+
+## External effects that are recorded, not performed
+
+- Support staff review: a request approves on the lifecycle dwell unless its Support case is resolved first (CASE_CLOSED). DENIED is entered only for desired values above the catalogued hard max; NOT_APPROVED is never entered because no reviewer exists.

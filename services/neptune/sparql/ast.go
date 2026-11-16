@@ -208,6 +208,7 @@ const (
 )
 
 type updateOp struct {
+	services   []*serviceEl
 	With       Term
 	Where      *group
 	Src        string

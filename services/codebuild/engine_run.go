@@ -140,6 +140,7 @@ func (b *InMemoryBackend) executeBuild(runCtx context.Context, eng *engineState,
 	r.ctx = ctx
 
 	status := r.run()
+	r.logSourceStatus(status)
 	b.completeBuild(snap.ID, status)
 }
 
@@ -149,6 +150,7 @@ func (r *buildRunner) run() string {
 	r.initLogs()
 
 	r.recordInstant("QUEUED")
+	r.logSourceStatus("PENDING")
 
 	steps := []struct {
 		fn   func() outcome

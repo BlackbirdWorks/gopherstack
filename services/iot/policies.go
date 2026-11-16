@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -75,7 +76,35 @@ func (b *InMemoryBackend) AttachPrincipalPolicy(input *AttachPrincipalPolicyInpu
 	b.mu.Lock("AttachPrincipalPolicy")
 	defer b.mu.Unlock()
 
+	if err := b.checkAttachLimitLocked(input.PolicyName, input.Principal); err != nil {
+		return err
+	}
+
 	b.policyTargets[input.PolicyName] = appendUnique(b.policyTargets[input.PolicyName], input.Principal)
+
+	return nil
+}
+
+// maxPoliciesPerPrincipal is the quota "Maximum number of policies that can be attached to a certificate or
+// Amazon Cognito identity" (docs.aws.amazon.com/general/latest/gr/iot-core.html).
+const maxPoliciesPerPrincipal = 10
+
+func (b *InMemoryBackend) checkAttachLimitLocked(policyName, target string) error {
+	if strings.Contains(target, ":thinggroup/") || slices.Contains(b.policyTargets[policyName], target) {
+		return nil
+	}
+
+	n := 0
+
+	for _, targets := range b.policyTargets {
+		if slices.Contains(targets, target) {
+			n++
+		}
+	}
+
+	if n >= maxPoliciesPerPrincipal {
+		return fmt.Errorf("%w: %q already has %d policies attached", ErrLimitExceeded, target, n)
+	}
 
 	return nil
 }
@@ -87,6 +116,10 @@ func (b *InMemoryBackend) AttachPolicy(input *AttachPolicyInput) error {
 
 	if !b.policies.Has(input.PolicyName) {
 		return fmt.Errorf("%w: %s", ErrPolicyNotFound, input.PolicyName)
+	}
+
+	if err := b.checkAttachLimitLocked(input.PolicyName, input.Target); err != nil {
+		return err
 	}
 
 	b.policyTargets[input.PolicyName] = appendUnique(b.policyTargets[input.PolicyName], input.Target)

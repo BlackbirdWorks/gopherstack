@@ -294,9 +294,11 @@ func (b *InMemoryBackend) UpdateDeviceJobExecution(in *UpdateDeviceJobExecutionI
 
 	b.queueTerminalJobExecutionEventLocked(exec)
 
+	view := deviceExecution(job, exec, true)
+	b.retryJobExecutionLocked(job, exec, now)
 	b.completeJobIfDoneLocked(job, now)
 
-	return deviceExecution(job, exec, true), nil
+	return view, nil
 }
 
 // completeJobIfDoneLocked moves a SNAPSHOT job to COMPLETED once every execution has finished.
@@ -431,6 +433,7 @@ func (b *InMemoryBackend) sweepJobTimeoutsLocked(now float64) {
 		b.queueJobExecutionEventLocked("timed_out", e)
 
 		job, _ := b.jobs.Get(e.JobID)
+		b.retryJobExecutionLocked(job, e, d)
 		b.completeJobIfDoneLocked(job, d)
 	}
 }

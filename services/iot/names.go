@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"unicode"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
@@ -43,7 +44,23 @@ func malformedPolicy(format string, args ...any) error {
 }
 
 // validatePolicyDocument checks the document is JSON with a Version and well-formed Statement entries.
+// maxPolicyDocumentChars is the quota "Maximum policy document size": 2048 characters excluding white
+// spaces (docs.aws.amazon.com/general/latest/gr/iot-core.html).
+const maxPolicyDocumentChars = 2048
+
 func validatePolicyDocument(doc string) error {
+	chars := 0
+
+	for _, r := range doc {
+		if !unicode.IsSpace(r) {
+			chars++
+		}
+	}
+
+	if chars > maxPolicyDocumentChars {
+		return malformedPolicy("policy document exceeds %d characters excluding white space", maxPolicyDocumentChars)
+	}
+
 	var v map[string]jsontext.Value
 	if err := json.Unmarshal([]byte(doc), &v, jsonx.V1()); err != nil {
 		return malformedPolicy("policy document is not valid JSON")

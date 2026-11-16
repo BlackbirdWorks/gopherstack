@@ -17,6 +17,8 @@ const maxManagedPolicySize = 6144
 
 // CreatePolicy creates a new IAM managed policy.
 func (b *InMemoryBackend) CreatePolicy(policyName, path, policyDocument string) (*Policy, error) {
+	limit := b.quotaLimit(quotaPolicies)
+
 	b.mu.Lock("CreatePolicy")
 	defer b.mu.Unlock()
 
@@ -31,6 +33,10 @@ func (b *InMemoryBackend) CreatePolicy(policyName, path, policyDocument string) 
 	if len(policyDocument) > maxManagedPolicySize {
 		return nil, fmt.Errorf("%w: managed policy %q exceeds %d bytes",
 			ErrLimitExceeded, policyName, maxManagedPolicySize)
+	}
+
+	if limit.Reached(len(b.sortedPolicyNames)) {
+		return nil, quotaExceeded("CustomerManagedPolicies", limit)
 	}
 
 	p := normPath(path)

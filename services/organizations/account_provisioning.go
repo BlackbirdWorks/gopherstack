@@ -3,6 +3,7 @@ package organizations
 import (
 	"encoding/json/v2"
 	"fmt"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
@@ -20,6 +21,14 @@ func (b *InMemoryBackend) SetAccountProvisioner(p AccountProvisioner) {
 	defer b.mu.Unlock()
 
 	b.provisioner = p
+}
+
+// OnAccountCreate registers fn to run (outside the backend lock) after an account was created in the organization.
+func (b *InMemoryBackend) OnAccountCreate(fn func(accountID string)) {
+	b.mu.Lock("OnAccountCreate")
+	defer b.mu.Unlock()
+
+	b.accountCreateHooks = append(b.accountCreateHooks, fn)
 }
 
 func accessRoleTrustPolicy(managementAccountID string) string {
@@ -42,7 +51,16 @@ func (b *InMemoryBackend) flushProvisions() {
 	b.provisionQueue = nil
 	prov := b.provisioner
 	mgmt := b.accountID
+	hooks := slices.Clone(b.accountCreateHooks)
 	b.mu.Unlock()
+
+	defer func() {
+		for _, r := range queue {
+			for _, fn := range hooks {
+				fn(r.accountID)
+			}
+		}
+	}()
 
 	if prov == nil {
 		return
