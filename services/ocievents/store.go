@@ -55,6 +55,7 @@ type InMemoryBackend struct {
 	streamer        Streamer
 	within          func(id, ancestor string) bool
 	compartmentName func(id string) string
+	ruleSink        func(RuleExecution)
 	Auth            *ociauth.Registry
 	compartment     func(string) bool
 	mu              *lockmetrics.RWMutex
@@ -113,6 +114,23 @@ func (b *InMemoryBackend) SetCompartmentTree(fn func(id, ancestor string) bool) 
 func (b *InMemoryBackend) SetCompartmentNamer(fn func(id string) string) {
 	b.mu.Lock("SetCompartmentNamer")
 	b.compartmentName = fn
+	b.mu.Unlock()
+}
+
+// RuleExecution describes one rule matching an event and handing it to an action.
+type RuleExecution struct {
+	Time          time.Time
+	RuleID        string
+	CompartmentID string
+	EventID       string
+	Source        string
+	Target        string
+}
+
+// SetRuleExecutionSink installs the receiver of rule execution records; it is called outside the backend lock.
+func (b *InMemoryBackend) SetRuleExecutionSink(fn func(RuleExecution)) {
+	b.mu.Lock("SetRuleExecutionSink")
+	b.ruleSink = fn
 	b.mu.Unlock()
 }
 

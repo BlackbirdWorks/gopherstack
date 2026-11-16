@@ -554,3 +554,41 @@ func TestZoneUpdateIsAtomic(t *testing.T) {
 		})
 	}
 }
+
+func TestZoneUnicodeNameBecomesPunycode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name, lookup, want string
+		ok                 bool
+	}{
+		{"bücher.example", "bücher.example", "xn--bcher-kva.example", true},
+		{"ünï.example.", "XN--N-NGA1B.example", "xn--n-nga1b.example", true},
+		{"ascii.example", "ascii.example", "ascii.example", true},
+		{"STRAßE.Example.", "straße.example.", "xn--strae-oqa.example", true},
+		{"bad name.é.example", "", "", false},
+	}
+
+	e := newEnv(t, envOpts{})
+
+	for _, tt := range tests {
+		t.Run(tt.want+tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if !tt.ok {
+				_, err := e.client.CreateZone(t.Context(), ocidnssdk.CreateZoneRequest{
+					CreateZoneDetails: ocidnssdk.CreateZoneBaseDetails(ocidnssdk.CreateZoneDetails{
+						Name: new(tt.name), CompartmentId: new(testCompartment),
+					}),
+				})
+				assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode())
+
+				return
+			}
+
+			z := e.createZone(t, tt.name, nil)
+			assert.Equal(t, tt.want, *z.Name)
+			assert.Equal(t, tt.want, *e.getZone(t, tt.lookup).Name)
+		})
+	}
+}

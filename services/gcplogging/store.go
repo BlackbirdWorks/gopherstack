@@ -64,6 +64,8 @@ type InMemoryBackend struct {
 	seeded     map[string]bool
 	filters    map[string]*filter
 	tails      *tailHub
+	listCalls  map[string][]time.Time
+	ancestry   AncestryResolver
 	observers  []EntryObserver
 	seq        uint64
 }
@@ -93,6 +95,7 @@ func (b *InMemoryBackend) resetMaps() {
 	b.cmek = make(map[string]*loggingpb.CmekSettings)
 	b.seeded = make(map[string]bool)
 	b.filters = make(map[string]*filter)
+	b.listCalls = make(map[string][]time.Time)
 }
 
 // Reset clears all state; exporter wiring is kept.

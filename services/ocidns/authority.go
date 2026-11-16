@@ -3,6 +3,7 @@ package ocidns
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"slices"
 	"strings"
 
@@ -25,11 +26,23 @@ func (a authority) Intercept(src net.Addr, req *dns.Msg, _ func() *dns.Msg) *dns
 		network = src.Network()
 	}
 
-	return a.b.Answer(req, network)
+	var client netip.Addr
+
+	if src != nil {
+		if ap, err := netip.ParseAddrPort(src.String()); err == nil {
+			client = ap.Addr().Unmap()
+		}
+	}
+
+	return a.b.answerFrom(req, network, client)
 }
 
 // Answer builds the authoritative response to req.
 func (b *InMemoryBackend) Answer(req *dns.Msg, network string) *dns.Msg {
+	return b.answerFrom(req, network, netip.Addr{})
+}
+
+func (b *InMemoryBackend) answerFrom(req *dns.Msg, network string, client netip.Addr) *dns.Msg {
 	resp := new(dns.Msg)
 	resp.SetReply(req)
 	resp.RecursionAvailable = false
@@ -40,7 +53,7 @@ func (b *InMemoryBackend) Answer(req *dns.Msg, network string) *dns.Msg {
 	case len(req.Question) != 1:
 		resp.Rcode = dns.RcodeFormatError
 	default:
-		b.answerQuestion(resp, req.Question[0])
+		b.answerQuestion(resp, req.Question[0], client)
 	}
 
 	size := classicUDP
@@ -57,7 +70,7 @@ func (b *InMemoryBackend) Answer(req *dns.Msg, network string) *dns.Msg {
 	return resp
 }
 
-func (b *InMemoryBackend) answerQuestion(resp *dns.Msg, q dns.Question) {
+func (b *InMemoryBackend) answerQuestion(resp *dns.Msg, q dns.Question, client netip.Addr) {
 	if q.Qclass != dns.ClassINET || q.Qtype == dns.TypeAXFR || q.Qtype == dns.TypeIXFR {
 		resp.Rcode = dns.RcodeRefused
 
@@ -81,7 +94,7 @@ func (b *InMemoryBackend) answerQuestion(resp *dns.Msg, q dns.Question) {
 		return
 	}
 
-	(&zoneAnswer{b: b, z: z, resp: resp, nodes: b.nodes(z)}).answer(q.Qtype, qname)
+	(&zoneAnswer{b: b, z: z, resp: resp, nodes: b.nodes(z), client: client}).answer(q.Qtype, qname)
 }
 
 // globalZoneFor picks the GLOBAL zone with the longest name enclosing qname.
@@ -139,10 +152,11 @@ func (b *InMemoryBackend) nodes(z *Zone) map[string]map[string]*RRSet {
 }
 
 type zoneAnswer struct {
-	b     *InMemoryBackend
-	z     *Zone
-	resp  *dns.Msg
-	nodes map[string]map[string]*RRSet
+	b      *InMemoryBackend
+	z      *Zone
+	resp   *dns.Msg
+	nodes  map[string]map[string]*RRSet
+	client netip.Addr
 }
 
 func (a *zoneAnswer) exists(name string) bool {
@@ -229,6 +243,10 @@ func (a *zoneAnswer) answer(qtype uint16, qname string) {
 		a.resp.Ns = append(a.resp.Ns, toRRs(ns.Domain, ns)...)
 		a.glue(a.resp.Ns)
 
+		return
+	}
+
+	if a.steer(qtype, qname) {
 		return
 	}
 
@@ -339,4 +357,41 @@ func (a *zoneAnswer) glue(rrs []dns.RR) {
 			}
 		}
 	}
+}
+
+// steer answers from the steering policy attached to qname when it covers the query type.
+func (a *zoneAnswer) steer(qtype uint16, qname string) bool {
+	rtype := dns.TypeToString[qtype]
+
+	for _, att := range a.b.attachments {
+		if att.ZoneID != a.z.ID || att.Domain != qname || !slices.Contains(att.Rtypes, rtype) {
+			continue
+		}
+
+		p := a.b.policies[att.SteeringPolicyID]
+		if p == nil {
+			continue
+		}
+
+		for _, ans := range a.b.steeredAnswers(p, steerQuery{client: a.client}) {
+			if strings.ToUpper(strField(ans, "rtype")) != rtype {
+				continue
+			}
+
+			a.resp.Answer = append(
+				a.resp.Answer,
+				toRRs(
+					qname,
+					&RRSet{Domain: qname, Rtype: rtype, TTL: p.TTL, Rdata: []string{strField(ans, "rdata")}},
+				)...)
+		}
+
+		if len(a.resp.Answer) == 0 {
+			a.negative(dns.RcodeSuccess)
+		}
+
+		return true
+	}
+
+	return false
 }

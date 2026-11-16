@@ -459,6 +459,7 @@ func (b *InMemoryBackend) sweepReplications(now time.Time) {
 		}
 
 		switch {
+		case r.Int.Copying:
 		case r.DeltaStatus != deltaIdle:
 			if r.Int.PhaseAt != nil && !r.Int.PhaseAt.After(now) {
 				b.advanceCycle(e, now)
@@ -474,7 +475,7 @@ func (b *InMemoryBackend) startCycle(e *entry[*Replication], now time.Time) {
 	r.Int.Number++
 	name := "replication-snapshot-" + strconv.Itoa(r.Int.Number) + "-" + now.UTC().Format("20060102150405")
 
-	_, aerr := b.takeSnapshot(createSnapshotIn{FileSystemID: r.SourceID, Name: name}, snapReplication, "")
+	_, job, aerr := b.beginSnapshot(createSnapshotIn{FileSystemID: r.SourceID, Name: name}, snapReplication, "")
 	if aerr != nil {
 		r.LifecycleDetails = aerr.Message
 		next := now.Add(minutes(r.ReplicationInterval))
@@ -486,6 +487,47 @@ func (b *InMemoryBackend) startCycle(e *entry[*Replication], now time.Time) {
 	r.LifecycleDetails = ""
 	r.Int.NextCycle = nil
 	b.setDelta(e, deltaCapturing, 0, now)
+
+	if job == nil {
+		return
+	}
+
+	r.Int.Copying = true
+
+	b.queueCopy(func() error {
+		err := job()
+
+		b.mu.Lock("settleCapture")
+		defer b.mu.Unlock()
+
+		r.Int.Copying = false
+
+		if err != nil {
+			b.abortCycle(e, "snapshot copy failed: "+err.Error())
+		}
+
+		return err
+	})
+}
+
+// abortCycle ends a cycle that could not copy its data and schedules the next one.
+func (b *InMemoryBackend) abortCycle(e *entry[*Replication], msg string) {
+	r := e.W
+	done := int64(progressDone)
+	now := b.nowUTC()
+	next := now.Add(minutes(r.ReplicationInterval))
+	r.DeltaStatus, r.DeltaProgress, r.Int.PhaseAt, r.Int.NextCycle = deltaIdle, &done, nil, &next
+	r.LifecycleDetails = msg
+	e.Etag = newEtag()
+
+	if t, ok := b.tgts[r.ReplicationTargetID]; ok {
+		t.W.DeltaStatus, t.W.DeltaProgress = deltaIdle, &done
+		t.Etag = newEtag()
+	}
+
+	if r.State == stDeleting {
+		b.finishReplicationDelete(e)
+	}
 }
 
 func (b *InMemoryBackend) setDelta(e *entry[*Replication], status string, progress int64, now time.Time) {
@@ -526,8 +568,46 @@ func (b *InMemoryBackend) completeCycle(e *entry[*Replication], now time.Time) {
 		}
 	}
 
+	if latest == nil || b.dp == nil {
+		b.finishCycle(e, latest, nil, now)
+
+		return
+	}
+
+	ctx, aerr := b.reserveCopy()
+	if aerr != nil {
+		b.finishCycle(e, latest, aerr, now)
+
+		return
+	}
+
+	r.Int.Copying = true
+	dp, src, name, dst := b.dp, r.SourceID, latest.W.Name, r.TargetID
+
+	b.queueCopy(func() error {
+		defer b.cp.wg.Done()
+
+		_, err := dp.ReplicateSnapshot(ctx, src, name, dst)
+
+		b.mu.Lock("settleCycle")
+		defer b.mu.Unlock()
+
+		r.Int.Copying = false
+
+		if b.reps[r.ID] == e {
+			b.finishCycle(e, latest, err, b.nowUTC())
+		}
+
+		return err
+	})
+}
+
+// finishCycle records a cycle's result after its data copy: copyErr is the copy's outcome, nil when there was none.
+func (b *InMemoryBackend) finishCycle(e *entry[*Replication], latest *entry[*Snapshot], copyErr error, now time.Time) {
+	r := e.W
+
 	if latest != nil {
-		b.applyReplicated(e, latest, now)
+		b.applyReplicated(e, latest, copyErr, now)
 	}
 
 	done := int64(progressDone)
@@ -547,17 +627,17 @@ func (b *InMemoryBackend) completeCycle(e *entry[*Replication], now time.Time) {
 	}
 }
 
-func (b *InMemoryBackend) applyReplicated(e *entry[*Replication], latest *entry[*Snapshot], now time.Time) {
+func (b *InMemoryBackend) applyReplicated(
+	e *entry[*Replication], latest *entry[*Snapshot], copyErr error, now time.Time,
+) {
 	r := e.W
 
-	if b.dp != nil {
-		if err := b.dp.ReplicateSnapshot(r.SourceID, latest.W.Name, r.TargetID); err != nil {
-			r.LifecycleDetails = "data copy failed: " + err.Error()
-			next := now.Add(minutes(r.ReplicationInterval))
-			r.Int.NextCycle = &next
+	if copyErr != nil {
+		r.LifecycleDetails = "data copy failed: " + copyErr.Error()
+		next := now.Add(minutes(r.ReplicationInterval))
+		r.Int.NextCycle = &next
 
-			return
-		}
+		return
 	}
 
 	for _, sn := range b.snaps {

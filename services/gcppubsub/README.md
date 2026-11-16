@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 38 (37 ok, 1 partial) |
 | Feature families | 6 (3 ok, 3 partial) |
-| Known gaps | 6 |
+| Known gaps | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -18,9 +18,6 @@
 - TestIamPermissions grants every requested pubsub.<collection>.* permission; policies are stored, not evaluated, and role names are not checked against the gcpiam catalog.
 - BigQuery, Cloud Storage and Bigtable subscriptions, topic ingestion sources and message transforms are rejected UNIMPLEMENTED.
 - PROTOCOL_BUFFER schemas are not compiled: definitions get a lexical check and messages a wire-format or JSON-object check only.
-- Push OIDC tokens are stored but not generated; push endpoints are not verified.
-- Snapshot expiry is a fixed 7 days from creation, not derived from the oldest unacked message.
-- Flow control is per stream; server-side per-subscription limits and publish quotas are not modelled.
 
 ## More
 

@@ -396,6 +396,7 @@ func (h *Handler) Shutdown(ctx context.Context) {
 		}
 	}
 
+	h.Backend.stopCopies()
 	h.wg.Wait()
 	h.Backend.Close()
 }

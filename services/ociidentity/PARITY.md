@@ -44,7 +44,7 @@ ops:
   UploadApiKey: {wire: ok, errors: partial, state: ok, persist: ok, note: "PEM RSA public key of at least 2048 bits; fingerprint is the colon MD5 of the PKIX DER computed by pkgs/ociauth; the key is registered in the registry every OCI service verifies against. 3 keys per user (400 LimitExceeded), duplicate fingerprint 409 Conflict; the limit and conflict codes are unverified."}
   ListApiKeys: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Includes keyValue, keyId (tenancy/user/fingerprint) and fingerprint."}
   DeleteApiKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "Also unregisters the key, so later signatures with it are rejected."}
-  CreateAuthToken: {wire: ok, errors: partial, state: ok, persist: ok, note: "The 20 character token is returned only here and is not stored. 2 per user (400 LimitExceeded, unverified code)."}
+  CreateAuthToken: {wire: ok, errors: partial, state: ok, persist: ok, note: "The 20 character token is returned only here; only a salted PBKDF2-SHA256 digest is kept (4096 rounds, constant-time compare) so OCI Container Registry logins can be verified (VerifyAuthToken). 2 per user (400 LimitExceeded, unverified code)."}
   ListAuthTokens: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Never includes the token."}
   UpdateAuthToken: {wire: ok, errors: ok, state: ok, persist: ok, note: "description."}
   DeleteAuthToken: {wire: ok, errors: ok, state: ok, persist: ok, note: ""}
@@ -91,7 +91,7 @@ families:
 items_still_open:
   - "IAM policy enforcement is not implemented: policies and dynamic groups are stored and validated but never evaluated, so no request is authorised or denied by them; any verified principal may call any operation."
   - "Identity domains (domains, SCIM-style users, MFA devices, OAuth2 client credentials, DB credentials, Swift passwords), identity providers and group mappings, network sources, authentication policy and the tenancy-level region subscription, bulk tag operations (BulkDeleteTags, BulkEditTags, ListBulkEditTagsResourceTypes), standard tag templates and the IAM work request operations (/iamWorkRequests, whose operation types in oci-go-sdk identity/iam_work_request.go are all identity-domain operations) are not implemented. Tag retire and reactivate are not separate SDK operations: they are isRetired on UpdateTag and UpdateTagNamespace (identity_client.go)."
-  - "Customer secret keys, auth tokens, SMTP credentials and the UI password are generated and listed but not stored, so they cannot be used for S3-compatible, registry, SMTP or console authentication."
+  - "Customer secret keys, SMTP credentials and the UI password are generated and listed but not stored, so they cannot be used for S3-compatible, SMTP or console authentication. Auth tokens authenticate OCI Container Registry logins only."
   - "DeleteCompartment only checks the IAM resources it owns; resources other emulated OCI services keep in a compartment do not block deletion."
   - "Statement subjects and locations are parsed but group, dynamic-group and compartment names are not resolved against existing resources, and variable and resource-type names are not checked against the documented lists."
   - "Access levels are not modelled: accessLevel is validated but every caller sees every compartment, and inactive states other than DELETING and DELETED are never produced."
@@ -107,3 +107,4 @@ items_still_open:
 ## Emulator choices where the vendor is silent
 
 - Per-operation error mapping for duplicate names (409 Conflict), per-user credential limits and tenancy limits (400 LimitExceeded) is undocumented, and MOVE_COMPARTMENT is not among the SDK's work request operation types (DELETE_COMPARTMENT and DELETE_TAG_DEFINITION).
+- Auth tokens created before digests were stored (snapshots from older builds) have nothing to verify against, so registry logins with them fail closed (401 naming re-creation); delete and re-create the token. Verification always costs one PBKDF2 derivation (4096 rounds) whether or not the user exists, so timing does not reveal user names.

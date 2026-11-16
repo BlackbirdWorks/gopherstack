@@ -23,6 +23,7 @@ func wireOCIArtifacts(byName map[string]service.Registerable) {
 		artH.Backend.SetCompartmentChecker(identityH.Backend.CompartmentActive)
 		artH.Backend.SetCompartmentTree(identityH.Backend.CompartmentWithin)
 		artH.Backend.SetTagLookup(identityH.Backend.TagDefinition)
+		artH.Backend.SetLoginVerifier(identityH.Backend.VerifyAuthToken)
 		artH.Backend.SetTenancy(ociidentitybackend.TenancyID)
 	}
 

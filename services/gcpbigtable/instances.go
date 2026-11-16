@@ -53,6 +53,38 @@ func validateLabels(labels map[string]string) error {
 	return nil
 }
 
+const (
+	ssdStorageTargetMin = 2560
+	ssdStorageTargetMax = 5120
+	hddStorageTargetMin = 8192
+	hddStorageTargetMax = 16384
+	scalingFactor2X     = 2
+)
+
+// validateStorageTarget applies the AutoscalingTargets.storage_utilization_gib_per_node ranges: 2560-5120 for SSD
+// and 8192-16384 for HDD, 0 meaning the default.
+func validateStorageTarget(target int32, storage adminpb.StorageType) error {
+	if target == 0 {
+		return nil
+	}
+
+	lo, hi := int32(ssdStorageTargetMin), int32(ssdStorageTargetMax)
+	if storage == adminpb.StorageType_HDD {
+		lo, hi = hddStorageTargetMin, hddStorageTargetMax
+	}
+
+	if target < lo || target > hi {
+		return errInvalid(
+			"storage_utilization_gib_per_node must be 0 or between %d and %d for %s clusters.",
+			lo,
+			hi,
+			storage,
+		)
+	}
+
+	return nil
+}
+
 func validateAutoscaling(cfg *adminpb.Cluster_ClusterAutoscalingConfig) error {
 	lim, tgt := cfg.GetAutoscalingLimits(), cfg.GetAutoscalingTargets()
 	if lim == nil || tgt == nil {
@@ -73,6 +105,27 @@ func validateAutoscaling(cfg *adminpb.Cluster_ClusterAutoscalingConfig) error {
 
 	if tgt.GetStorageUtilizationGibPerNode() < 0 {
 		return errInvalid("storage_utilization_gib_per_node must not be negative.")
+	}
+
+	return nil
+}
+
+// validateScalingFactor requires node counts in multiples of two on a NODE_SCALING_FACTOR_2X cluster.
+func validateScalingFactor(c *adminpb.Cluster) error {
+	if c.GetNodeScalingFactor() != adminpb.Cluster_NODE_SCALING_FACTOR_2X {
+		return nil
+	}
+
+	counts := []int32{c.GetServeNodes()}
+
+	if cfg := c.GetClusterConfig().GetClusterAutoscalingConfig(); cfg != nil {
+		counts = []int32{cfg.GetAutoscalingLimits().GetMinServeNodes(), cfg.GetAutoscalingLimits().GetMaxServeNodes()}
+	}
+
+	for _, n := range counts {
+		if n%scalingFactor2X != 0 {
+			return errInvalid("Node counts must be multiples of %d with NODE_SCALING_FACTOR_2X.", scalingFactor2X)
+		}
 	}
 
 	return nil
@@ -121,10 +174,17 @@ func settleScale(c *adminpb.Cluster, dev bool) error {
 			return err
 		}
 
+		if err := validateStorageTarget(
+			cfg.GetAutoscalingTargets().GetStorageUtilizationGibPerNode(),
+			c.GetDefaultStorageType(),
+		); err != nil {
+			return err
+		}
+
 		c.ServeNodes = min(max(c.GetServeNodes(), cfg.GetAutoscalingLimits().GetMinServeNodes()),
 			cfg.GetAutoscalingLimits().GetMaxServeNodes())
 
-		return nil
+		return validateScalingFactor(c)
 	}
 
 	c.Config = nil
@@ -136,7 +196,7 @@ func settleScale(c *adminpb.Cluster, dev bool) error {
 		return errInvalid("serve_nodes must be at least 1 for PRODUCTION clusters.")
 	}
 
-	return nil
+	return validateScalingFactor(c)
 }
 
 func (b *InMemoryBackend) instanceLocked(name string) (*instRec, error) {
@@ -166,6 +226,12 @@ func (b *InMemoryBackend) CreateInstance(in *adminpb.CreateInstanceRequest) (*lo
 	rec, err := buildInstance(project, in, b.now().UTC())
 	if err != nil {
 		return nil, err
+	}
+
+	for _, id := range collections.SortedKeys(rec.clusters) {
+		if err = b.checkClusterKey(rec.clusters[id]); err != nil {
+			return nil, err
+		}
 	}
 
 	b.mu.Lock("CreateInstance")
@@ -422,6 +488,15 @@ func (b *InMemoryBackend) CreateCluster(in *adminpb.CreateClusterRequest) (*long
 		return nil, err
 	}
 
+	c, err := buildCluster(project, in.GetParent(), in.GetClusterId(), in.GetCluster(), false)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = b.checkClusterKey(c); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateCluster")
 	defer b.mu.Unlock()
 
@@ -432,11 +507,6 @@ func (b *InMemoryBackend) CreateCluster(in *adminpb.CreateClusterRequest) (*long
 
 	if rec.pb.GetType() == adminpb.Instance_DEVELOPMENT {
 		return nil, errPrecondition("Clusters cannot be added to a DEVELOPMENT instance.")
-	}
-
-	c, err := buildCluster(project, in.GetParent(), in.GetClusterId(), in.GetCluster(), false)
-	if err != nil {
-		return nil, err
 	}
 
 	if _, exists := rec.clusters[in.GetClusterId()]; exists {

@@ -93,7 +93,9 @@ func (l *DockerLauncher) Launch(ctx context.Context, spec LaunchSpec) (Instance,
 		return nil, fmt.Errorf("start the database container: %w", err)
 	}
 
+	exec, _ := rt.(execAPI)
 	inst := &dockerInstance{
+		exec:     exec,
 		api:      api,
 		id:       id,
 		port:     port,
@@ -111,6 +113,7 @@ func (l *DockerLauncher) Launch(ctx context.Context, spec LaunchSpec) (Instance,
 }
 
 type dockerInstance struct {
+	exec     execAPI
 	api      containerAPI
 	ports    *portalloc.Allocator
 	id       string

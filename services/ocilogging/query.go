@@ -4,7 +4,7 @@ import (
 	"cmp"
 	"encoding/json/v2"
 	"fmt"
-	"regexp"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -176,7 +176,7 @@ func readPunct(rs []rune, i int) (string, int) {
 		return two, i + twoRunes
 	}
 
-	if strings.ContainsRune("=<>(),|", rs[i]) {
+	if strings.ContainsRune("=<>(),|+-*/", rs[i]) {
 		return string(rs[i]), i + 1
 	}
 
@@ -193,6 +193,8 @@ type qop struct {
 	where expr
 	kind  string
 	keys  []sortKey
+	cols  []projCol
+	aggs  []aggSpec
 	n     int
 }
 
@@ -202,8 +204,9 @@ type sortKey struct {
 }
 
 type parser struct {
-	toks []token
-	pos  int
+	toks  []token
+	pos   int
+	depth int
 }
 
 func (p *parser) peek() token { return p.toks[p.pos] }
@@ -230,12 +233,16 @@ func (p *parser) isPunct(s string) bool {
 }
 
 var unsupportedOps = []string{ //nolint:gochecknoglobals // immutable keyword list
-	"select", "extend", "dedup", "summarize", "fields", "head", "tail", "rename", "timestats", "join", "union",
+	"fields", "head", "tail", "rename", "timestats", "join", "union",
 	"distinct", "stats", "sample", "highlight", "parse",
 }
 
 // ParseQuery parses the supported subset of the Logging query language.
 func ParseQuery(src string) (*Query, error) {
+	if len(src) > maxQueryLen {
+		return nil, errParam("the search query is too long")
+	}
+
 	toks, aerr := lex(src)
 	if aerr != nil {
 		return nil, aerr
@@ -267,6 +274,10 @@ func ParseQuery(src string) (*Query, error) {
 
 	for p.isPunct("|") {
 		p.next()
+
+		if len(q.ops) == maxQueryOps {
+			return nil, errParam("the search query has too many operators")
+		}
 
 		o, err := p.parseOp()
 		if err != nil {
@@ -307,6 +318,8 @@ func (p *parser) parseOp() (qop, *APIError) {
 			return qop{kind: kindCount}, nil
 		case w == kindWhere:
 			p.next()
+		case slices.Contains(projectOps, w):
+			return p.parseProject(w)
 		}
 	}
 
@@ -409,10 +422,10 @@ type andExpr struct{ l, r expr }
 type notExpr struct{ e expr }
 
 type cmpExpr struct {
-	lit  any
-	op   string
-	path []string
-	set  []any
+	lit any
+	lhs vexpr
+	op  string
+	set []any
 }
 
 func (e orExpr) eval(r *row) bool  { return e.l.eval(r) || e.r.eval(r) }
@@ -469,20 +482,16 @@ func (p *parser) parseNot() (expr, *APIError) {
 	}
 
 	if p.isPunct("(") {
+		start := p.pos
 		p.next()
 
-		e, err := p.parseOr()
-		if err != nil {
-			return nil, err
+		if e, err := p.parseOr(); err == nil && p.isPunct(")") {
+			p.next()
+
+			return e, nil
 		}
 
-		if !p.isPunct(")") {
-			return nil, errParam("missing ) in search query")
-		}
-
-		p.next()
-
-		return e, nil
+		p.pos = start
 	}
 
 	return p.parseCmp()
@@ -513,12 +522,12 @@ func (p *parser) parseLiteral() (any, *APIError) {
 }
 
 func (p *parser) parseCmp() (expr, *APIError) {
-	t := p.next()
-	if t.kind != tkPath {
-		return nil, errParam("expected a field name in search query, got " + strconv.Quote(t.text))
+	lhs, err := p.parseAdd()
+	if err != nil {
+		return nil, err
 	}
 
-	c := cmpExpr{path: t.path}
+	c := cmpExpr{lhs: lhs}
 	nt := p.peek()
 
 	switch {
@@ -530,10 +539,10 @@ func (p *parser) parseCmp() (expr, *APIError) {
 			c.op = "!="
 		}
 
-		lit, err := p.parseLiteral()
+		lit, lerr := p.parseLiteral()
 		c.lit = lit
 
-		return c, err
+		return c, lerr
 	case p.isWord("in"):
 		p.next()
 
@@ -546,9 +555,9 @@ func (p *parser) parseCmp() (expr, *APIError) {
 		c.op = "in"
 
 		for {
-			lit, err := p.parseLiteral()
-			if err != nil {
-				return nil, err
+			lit, lerr := p.parseLiteral()
+			if lerr != nil {
+				return nil, lerr
 			}
 
 			c.set = append(c.set, lit)
@@ -579,13 +588,23 @@ func (p *parser) parseCmp() (expr, *APIError) {
 // Rows.
 
 type row struct {
-	ce  map[string]any
-	raw string
-	ms  float64
-	seq int64
+	ce        map[string]any
+	cols      map[string]any
+	raw       string
+	ms        float64
+	seq       int64
+	projected bool
 }
 
 func (r *row) lookup(path []string) (any, bool) {
+	if v, ok := r.cols[strings.Join(path, ".")]; ok {
+		return v, true
+	}
+
+	if r.projected {
+		return nil, false
+	}
+
 	switch {
 	case path[0] == fieldTime && len(path) == 1:
 		return r.ms, true
@@ -630,13 +649,30 @@ func scalarString(v any) string {
 	return string(b)
 }
 
+// wildcard matches s against a pattern in which * stands for any run of characters.
 func wildcard(pattern, s string) bool {
 	parts := strings.Split(pattern, "*")
-	for i := range parts {
-		parts[i] = regexp.QuoteMeta(parts[i])
+	if len(parts) == 1 {
+		return pattern == s
 	}
 
-	return regexp.MustCompile("(?s)^" + strings.Join(parts, ".*") + "$").MatchString(s)
+	first, last := parts[0], parts[len(parts)-1]
+	if len(s) < len(first)+len(last) || !strings.HasPrefix(s, first) || !strings.HasSuffix(s, last) {
+		return false
+	}
+
+	rest := s[len(first) : len(s)-len(last)]
+
+	for _, mid := range parts[1 : len(parts)-1] {
+		i := strings.Index(rest, mid)
+		if i < 0 {
+			return false
+		}
+
+		rest = rest[i+len(mid):]
+	}
+
+	return true
 }
 
 func equalVal(v, lit any) bool {
@@ -667,7 +703,7 @@ func toFloat(v any) (float64, bool) {
 	case string:
 		f, err := strconv.ParseFloat(x, 64)
 
-		return f, err == nil
+		return f, err == nil && !math.IsNaN(f) && !math.IsInf(f, 0)
 	}
 
 	return 0, false
@@ -688,7 +724,7 @@ func orderVal(v, lit any) (int, bool) {
 }
 
 func (c cmpExpr) eval(r *row) bool {
-	v, present := r.lookup(c.path)
+	v, present := c.lhs.value(r)
 
 	switch c.op {
 	case "truthy":
@@ -772,9 +808,16 @@ func b2i(b bool) int {
 	return 0
 }
 
-// apply runs the pipeline over rows; count replaces the rows by a single count row.
-func (q *Query) apply(rows []*row) ([]*row, *int) {
+// apply runs the pipeline over rows; count replaces the rows by a single count row. cols names the output columns
+// after a select or summarize and is nil while rows keep the log entry shape.
+func (q *Query) apply(rows []*row) ([]*row, *int, []string, *APIError) {
+	var cols []string
+
+	std := []string{fieldTime, fieldRaw, fieldRegion}
+
 	for _, o := range q.ops {
+		var aerr *APIError
+
 		switch o.kind {
 		case kindWhere:
 			rows = slices.DeleteFunc(rows, func(r *row) bool { return !o.where.eval(r) })
@@ -788,9 +831,28 @@ func (q *Query) apply(rows []*row) ([]*row, *int) {
 		case kindCount:
 			n := len(rows)
 
-			return nil, &n
+			return nil, &n, nil, nil
+		case kindSelect:
+			rows, cols = o.runSelect(rows, orCols(cols, std))
+		case kindExtend:
+			rows, cols = o.runExtend(rows, orCols(cols, std))
+		case kindDedup:
+			rows = o.runDedup(rows)
+		case kindSummarize:
+			rows, cols, aerr = o.runSummarize(rows)
+			if aerr != nil {
+				return nil, nil, nil, aerr
+			}
 		}
 	}
 
-	return rows, nil
+	return rows, nil, cols, nil
+}
+
+func orCols(cols, std []string) []string {
+	if cols == nil {
+		return std
+	}
+
+	return cols
 }

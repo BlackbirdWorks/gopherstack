@@ -959,27 +959,27 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [API Gateway](services/gcpapigateway/README.md) | B | 25 | 1 gap |
 | [Artifact Registry](services/gcpartifactregistry/README.md) | B | 52 | 3 gaps |
 | [BigQuery](services/gcpbigquery/README.md) | B | 28 | 8 gaps |
-| [Cloud Bigtable](services/gcpbigtable/README.md) | B | 43 | 6 gaps |
+| [Cloud Bigtable](services/gcpbigtable/README.md) | B | 45 | 1 gap |
 | [Cloud Build](services/gcpcloudbuild/README.md) | B | 21 | 6 gaps |
 | [Cloud DNS](services/gcpdns/README.md) | B | — | 8 families; 1 gap |
 | [Cloud Datastore](services/gcpdatastore/README.md) | B | 13 | 5 gaps |
 | [Cloud Functions](services/gcpfunctions/README.md) | B | 8 | 8 gaps |
 | [Cloud IAM](services/gcpiam/README.md) | B | 31 | 4 gaps |
-| [Cloud Logging](services/gcplogging/README.md) | B | 43 | 6 gaps |
+| [Cloud Logging](services/gcplogging/README.md) | B | 43 | 3 gaps |
 | [Cloud Monitoring](services/gcpmonitoring/README.md) | B | 54 | 5 gaps |
 | [Cloud Run](services/gcprun/README.md) | B | 34 | 3 gaps |
 | [Cloud SQL](services/gcpsql/README.md) | B | 45 | 7 gaps |
 | [Cloud Scheduler](services/gcpscheduler/README.md) | B | 10 | clean |
-| [Cloud Spanner](services/gcpspanner/README.md) | B | 18 | 6 gaps |
+| [Cloud Spanner](services/gcpspanner/README.md) | B | 31 | 2 gaps |
 | [Cloud Tasks](services/gcpcloudtasks/README.md) | B | 20 | clean |
 | [Compute Engine](services/gcpcompute/README.md) | B | — | 8 families; 7 gaps |
 | [Eventarc](services/gcpeventarc/README.md) | B | 47 | 7 gaps |
 | [Google Cloud Batch](services/gcpbatch/README.md) | B | 14 | 5 gaps |
 | [Google Cloud Firestore](services/gcpfirestore/README.md) | B | 17 | 3 gaps |
 | [Google Cloud KMS](services/gcpkms/README.md) | B | 35 | 4 gaps |
-| [Google Cloud Pub/Sub](services/gcppubsub/README.md) | B | 38 | 6 gaps |
+| [Google Cloud Pub/Sub](services/gcppubsub/README.md) | B | 38 | 3 gaps |
 | [Google Cloud Resource Manager and Service Usage](services/gcpresourcemanager/README.md) | B | 39 | 5 gaps |
-| [Google Cloud Storage](services/gcpstorage/README.md) | B | 39 | 6 gaps |
+| [Google Cloud Storage](services/gcpstorage/README.md) | B | 39 | 4 gaps |
 | [Google Secret Manager](services/gcpsecretmanager/README.md) | B | 18 | 1 gap |
 | [Identity Platform](services/gcpidentitytoolkit/README.md) | B | 1 | 1 gap |
 | [Kubernetes Engine](services/gcpcontainer/README.md) | B | — | 5 families; 4 gaps |
@@ -991,19 +991,19 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [OCI API Gateway](services/ociapigateway/README.md) | B | 52 | 7 gaps |
-| [OCI Artifacts and Container Registry](services/ociartifacts/README.md) | B | 37 | 7 gaps |
-| [OCI Autonomous Database](services/ocidatabase/README.md) | B | 21 | 7 gaps |
+| [OCI Artifacts and Container Registry](services/ociartifacts/README.md) | B | 37 | 1 gap |
+| [OCI Autonomous Database](services/ocidatabase/README.md) | B | 21 | 5 gaps |
 | [OCI Container Engine for Kubernetes](services/ocicontainerengine/README.md) | B | 50 | 1 gap |
 | [OCI Container Instances](services/ocicontainerinstances/README.md) | B | 18 | 6 gaps |
 | [OCI Core Services](services/ocicore/README.md) | B | 358 | 4 gaps |
-| [OCI DNS](services/ocidns/README.md) | B | 52 | 7 gaps |
+| [OCI DNS](services/ocidns/README.md) | B | 52 | 2 gaps |
 | [OCI Events](services/ocievents/README.md) | B | 6 | 4 gaps |
-| [OCI File Storage](services/ocifilestorage/README.md) | B | 74 | 7 gaps |
+| [OCI File Storage](services/ocifilestorage/README.md) | B | 74 | 3 gaps |
 | [OCI Functions](services/ocifunctions/README.md) | B | 16 | 2 gaps |
 | [OCI Identity](services/ociidentity/README.md) | B | 76 | 7 gaps |
 | [OCI Load Balancer](services/ociloadbalancer/README.md) | B | 61 | 3 gaps |
-| [OCI Logging](services/ocilogging/README.md) | B | 32 | 7 gaps |
-| [OCI Monitoring](services/ocimonitoring/README.md) | B | 18 | 7 gaps |
+| [OCI Logging](services/ocilogging/README.md) | B | 32 | 2 gaps |
+| [OCI Monitoring](services/ocimonitoring/README.md) | B | 18 | 3 gaps |
 | [OCI MySQL HeatWave Database Service](services/ocimysql/README.md) | B | 63 | 3 gaps |
 | [OCI NoSQL Database Cloud Service](services/ocinosql/README.md) | B | 27 | 2 gaps |
 | [OCI Notifications](services/ocinotifications/README.md) | B | 16 | 1 gap |

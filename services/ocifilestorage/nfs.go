@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"sync"
 
@@ -45,6 +46,8 @@ type NFSPlane struct {
 	ports    *portalloc.Allocator
 	servers  map[string]*mountServer
 	views    map[string]*vfs
+	gates    map[string]*lockmetrics.RWMutex
+	quotas   map[string]*quotaState
 	root     string
 	ownsRoot bool
 }
@@ -61,7 +64,8 @@ func NewNFSPlane(cfg NFSConfig) (*NFSPlane, error) {
 
 	p := &NFSPlane{
 		mu: lockmetrics.New("ocifilestorage.nfs"), ports: cfg.Ports, servers: map[string]*mountServer{},
-		views: map[string]*vfs{}, root: cfg.Dir,
+		views: map[string]*vfs{}, gates: map[string]*lockmetrics.RWMutex{}, quotas: map[string]*quotaState{},
+		root: cfg.Dir,
 	}
 
 	if p.root == "" {
@@ -98,43 +102,106 @@ func (p *NFSPlane) CreateFS(id string) error {
 // RemoveFS deletes a file system's data and snapshots.
 func (p *NFSPlane) RemoveFS(id string) {
 	p.dropViews(id)
+
+	p.mu.Lock("RemoveFS")
+	delete(p.gates, id)
+	delete(p.quotas, id)
+	p.mu.Unlock()
+
 	_ = os.RemoveAll(p.fsDir(id))
 	_ = os.RemoveAll(p.snapRoot(id))
 }
 
-// Usage returns the bytes held by a file system and its snapshots.
-func (p *NFSPlane) Usage(id string) int64 {
-	return treeSize(p.fsDir(id)) + treeSize(p.snapRoot(id))
+// gateLocked returns the lock that keeps writes out while a snapshot is copied; callers hold p.mu.
+func (p *NFSPlane) gateLocked(fsID string) *lockmetrics.RWMutex {
+	g, ok := p.gates[fsID]
+	if !ok {
+		g = lockmetrics.New("ocifilestorage.gate")
+		p.gates[fsID] = g
+	}
+
+	return g
 }
 
-// TakeSnapshot copies the file system tree into its snapshot area.
-func (p *NFSPlane) TakeSnapshot(fsID, name string) error {
-	return copyTree(p.fsDir(fsID), p.snapDir(fsID, name))
+func (p *NFSPlane) quotaLocked(fsID string) *quotaState {
+	q, ok := p.quotas[fsID]
+	if !ok {
+		q = newQuotaState()
+		p.quotas[fsID] = q
+	}
+
+	return q
+}
+
+func (p *NFSPlane) gate(fsID string) *lockmetrics.RWMutex {
+	p.mu.Lock("gate")
+	defer p.mu.Unlock()
+
+	return p.gateLocked(fsID)
+}
+
+// Usage returns the metered bytes of a file system: its live data plus the data only snapshots still reference.
+func (p *NFSPlane) Usage(id string) int64 { return p.meterOf(id).total }
+
+// SnapshotExclusiveBytes returns the bytes only the named snapshot references.
+func (p *NFSPlane) SnapshotExclusiveBytes(id, name string) int64 {
+	return p.meterOf(id).exclusive[name]
+}
+
+// QuotaUsage measures a file system's logical size by file owner.
+func (p *NFSPlane) QuotaUsage(id string) QuotaUsage {
+	root, err := os.OpenRoot(p.fsDir(id))
+	if err != nil {
+		return QuotaUsage{}
+	}
+
+	defer root.Close()
+
+	return measureUsage(root)
+}
+
+// TakeSnapshot copies the file system tree into its snapshot area while writes are held off.
+func (p *NFSPlane) TakeSnapshot(ctx context.Context, fsID, name string) error {
+	g := p.gate(fsID)
+	g.Lock("snapshot")
+	defer g.Unlock()
+
+	p.touchMeter(fsID)
+	defer p.touchMeter(fsID)
+
+	return copyTree(ctx, p.fsDir(fsID), p.snapDir(fsID, name))
 }
 
 // DropSnapshot removes a snapshot copy.
-func (p *NFSPlane) DropSnapshot(fsID, name string) { _ = os.RemoveAll(p.snapDir(fsID, name)) }
+func (p *NFSPlane) DropSnapshot(fsID, name string) {
+	_ = os.RemoveAll(p.snapDir(fsID, name))
 
-// CloneFrom populates dstFS from a snapshot of srcFS.
-func (p *NFSPlane) CloneFrom(srcFS, snapshot, dstFS string) error {
-	if err := p.CreateFS(dstFS); err != nil {
-		return err
-	}
-
-	return copyTree(p.snapDir(srcFS, snapshot), p.fsDir(dstFS))
+	p.touchMeter(fsID)
 }
 
-// ReplicateSnapshot replaces the contents of dstFS with a snapshot of srcFS.
-func (p *NFSPlane) ReplicateSnapshot(srcFS, snapshot, dstFS string) error {
+// CloneFrom populates dstFS from a snapshot of srcFS.
+func (p *NFSPlane) CloneFrom(ctx context.Context, srcFS, snapshot, dstFS string) error {
 	if err := p.CreateFS(dstFS); err != nil {
 		return err
 	}
 
-	if err := emptyDir(p.fsDir(dstFS)); err != nil {
-		return err
+	p.invalidateUsage(dstFS)
+	defer p.invalidateUsage(dstFS)
+
+	return copyTree(ctx, p.snapDir(srcFS, snapshot), p.fsDir(dstFS))
+}
+
+// ReplicateSnapshot brings dstFS in line with a snapshot of srcFS, transferring only what changed. It returns
+// the bytes transferred.
+func (p *NFSPlane) ReplicateSnapshot(ctx context.Context, srcFS, snapshot, dstFS string) (int64, error) {
+	if err := p.CreateFS(dstFS); err != nil {
+		return 0, err
 	}
 
-	return copyTree(p.snapDir(srcFS, snapshot), p.fsDir(dstFS))
+	p.invalidateUsage(dstFS)
+	defer p.invalidateUsage(dstFS)
+
+	return syncTree(ctx, p.snapDir(srcFS, snapshot), p.fsDir(dstFS))
 }
 
 // Endpoints maps mount target ids to their listen addresses.
@@ -279,6 +346,7 @@ func (p *NFSPlane) view(ex ExportMount, ro bool) (*vfs, error) {
 	}
 
 	v := &vfs{
+		gate: p.gateLocked(ex.FileSystemID), qs: p.quotaLocked(ex.FileSystemID),
 		fsID: ex.FileSystemID, ro: ro, root: root,
 		live:  osfs.New(p.fsDir(ex.FileSystemID), osfs.WithBoundOS()),
 		snaps: osfs.New(p.snapRoot(ex.FileSystemID), osfs.WithBoundOS()),
@@ -401,6 +469,10 @@ func (h *nfsHandler) Mount(
 		}
 
 		if deref(opt.RequirePrivilegedSourcePort, false) && port >= privilegedPort {
+			return nfs.MountStatusErrAcces, refused, nil
+		}
+
+		if len(opt.AllowedAuth) > 0 && !slices.Contains(opt.AllowedAuth, authSys) {
 			return nfs.MountStatusErrAcces, refused, nil
 		}
 

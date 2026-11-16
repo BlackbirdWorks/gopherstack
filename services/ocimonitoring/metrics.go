@@ -17,6 +17,7 @@ import (
 
 const (
 	maxStreamsPerPost  = 50
+	maxPointsPerStream = 100000
 	maxDimensions      = 20
 	maxDimKey          = 256
 	maxDimValue        = 512
@@ -273,6 +274,10 @@ func (b *InMemoryBackend) store(m MetricDataIn) {
 	}
 
 	sort.SliceStable(s.Points, func(i, j int) bool { return s.Points[i].T.Before(s.Points[j].T) })
+
+	if len(s.Points) > maxPointsPerStream {
+		s.Points = slices.Clone(s.Points[len(s.Points)-maxPointsPerStream:])
+	}
 }
 
 // group is a set of streams aggregated together.

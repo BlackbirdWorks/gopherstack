@@ -580,6 +580,8 @@ func (b *InMemoryBackend) policySnapshots(p *Policy, s schedule, at time.Time) {
 			continue
 		}
 
-		_, _ = b.takeSnapshot(in, snapPolicy, p.ID)
+		if _, job, aerr := b.beginSnapshot(in, snapPolicy, p.ID); aerr == nil && job != nil {
+			b.queueCopy(job)
+		}
 	}
 }

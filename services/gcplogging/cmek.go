@@ -2,6 +2,7 @@ package gcplogging
 
 import (
 	"errors"
+	"strings"
 
 	"cloud.google.com/go/logging/apiv2/loggingpb"
 
@@ -62,4 +63,34 @@ func (b *InMemoryBackend) checkBucketKey(bucket *loggingpb.LogBucket) error {
 	}
 
 	return checkCmekKey(b.keys, key, loc)
+}
+
+// checkReadable fails a read when the Cloud KMS key protecting a source bucket, or the Log Router key of an
+// organization, is unavailable (docs.cloud.google.com/logging/docs/routing/managed-encryption: queries stop
+// functioning; the page names no error code).
+func (b *InMemoryBackend) checkReadable(srcs []source) error {
+	keys := map[string]string{}
+
+	b.mu.RLock("checkReadable")
+	checker := b.keys
+
+	for _, s := range srcs {
+		if bd, ok := b.buckets[s.bucket]; ok && bd.pb.GetCmekSettings().GetKmsKeyName() != "" {
+			keys[bd.pb.GetCmekSettings().GetKmsKeyName()] = s.bucket
+		}
+
+		if p := parentOf(s.bucket); strings.HasPrefix(p, "organizations/") && b.cmek[p].GetKmsKeyName() != "" {
+			keys[b.cmek[p].GetKmsKeyName()] = p
+		}
+	}
+
+	b.mu.RUnlock()
+
+	for key, owner := range keys {
+		if err := cmek.Check(checker, key, ""); err != nil {
+			return errPrecondition("%s cannot be read: its Cloud KMS key [%s] is unavailable.", owner, key)
+		}
+	}
+
+	return nil
 }

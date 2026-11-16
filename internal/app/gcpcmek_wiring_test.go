@@ -3,6 +3,7 @@ package app
 import (
 	"testing"
 
+	"cloud.google.com/go/bigtable/admin/apiv2/adminpb"
 	"cloud.google.com/go/eventarc/apiv1/eventarcpb"
 	"cloud.google.com/go/kms/apiv1/kmspb"
 	"cloud.google.com/go/logging/apiv2/loggingpb"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	gcpbigtablebackend "github.com/blackbirdworks/gopherstack/services/gcpbigtable"
 	gcpeventarcbackend "github.com/blackbirdworks/gopherstack/services/gcpeventarc"
 	gcpkmsbackend "github.com/blackbirdworks/gopherstack/services/gcpkms"
 	gcploggingbackend "github.com/blackbirdworks/gopherstack/services/gcplogging"
@@ -109,6 +111,30 @@ func TestWireGCPCMEK(t *testing.T) {
 	_, err = gcs.CreateBucket("p", gcpstoragebackend.Patch{
 		"name": []byte(`"bkt"`), "location": []byte(`"US-EAST1"`),
 		"encryption": []byte(`{"defaultKmsKeyName":"` + bad + `"}`),
+	})
+	require.Error(t, err)
+}
+
+func TestWireGCPCMEK_Bigtable(t *testing.T) {
+	t.Parallel()
+
+	kms := gcpkmsbackend.NewInMemoryBackend()
+	bt := gcpbigtablebackend.NewInMemoryBackend()
+
+	wireGCPCMEK(map[string]service.Registerable{
+		"GCPKMS":      gcpkmsbackend.NewHandler(kms),
+		"GCPBigtable": gcpbigtablebackend.NewHandler(bt),
+	})
+
+	_, err := bt.CreateInstance(&adminpb.CreateInstanceRequest{
+		Parent: "projects/p", InstanceId: "inst",
+		Instance: &adminpb.Instance{DisplayName: "inst", Type: adminpb.Instance_PRODUCTION},
+		Clusters: map[string]*adminpb.Cluster{"c": {
+			Location: "projects/p/locations/us-east1-b", ServeNodes: 1,
+			EncryptionConfig: &adminpb.Cluster_EncryptionConfig{
+				KmsKeyName: "projects/p/locations/us-east1/keyRings/r/cryptoKeys/missing",
+			},
+		}},
 	})
 	require.Error(t, err)
 }

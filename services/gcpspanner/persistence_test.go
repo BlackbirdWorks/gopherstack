@@ -76,3 +76,44 @@ func TestReset_ClearsState(t *testing.T) {
 	_, err := e.instances.GetInstance(t.Context(), &instancepb.GetInstanceRequest{Name: inst.GetName()})
 	assert.Equal(t, codes.NotFound, status.Code(err))
 }
+
+func TestPersistence_ConfigsAndPartitions(t *testing.T) {
+	t.Parallel()
+
+	src := newEnv(t)
+	cfg := src.createConfig(t, "custom-nam3-ro", nam3Custom(roReplica("us-west1")))
+	inst := src.createInstance(t, "parts")
+
+	op, err := src.instances.CreateInstancePartition(t.Context(), &instancepb.CreateInstancePartitionRequest{
+		Parent: inst.GetName(), InstancePartitionId: "east",
+		InstancePartition: &instancepb.InstancePartition{
+			Config:          configRef,
+			DisplayName:     "East part",
+			ComputeCapacity: &instancepb.InstancePartition_NodeCount{NodeCount: 2},
+		},
+	})
+	require.NoError(t, err)
+
+	part, err := await(t, op)
+	require.NoError(t, err)
+
+	dst := newEnv(t)
+	require.NoError(t, dst.handler.Restore(t.Context(), src.handler.Snapshot(t.Context())))
+
+	gotCfg, err := dst.instances.GetInstanceConfig(
+		t.Context(),
+		&instancepb.GetInstanceConfigRequest{Name: cfg.GetName()},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, cfg.GetEtag(), gotCfg.GetEtag())
+	assert.Equal(t, instancepb.InstanceConfig_USER_MANAGED, gotCfg.GetConfigType())
+	assert.Len(t, gotCfg.GetReplicas(), 6)
+
+	gotPart, err := dst.instances.GetInstancePartition(
+		t.Context(),
+		&instancepb.GetInstancePartitionRequest{Name: part.GetName()},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), gotPart.GetNodeCount())
+	assert.Equal(t, part.GetEtag(), gotPart.GetEtag())
+}

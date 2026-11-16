@@ -2,6 +2,7 @@ package gcplogging
 
 import (
 	"context"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -31,6 +32,7 @@ func entryKey(e *loggingpb.LogEntry) string {
 // ingest routes entries to buckets and external destinations, then notifies metrics and tails.
 func (b *InMemoryBackend) ingest(ctx context.Context, entries []*loggingpb.LogEntry) {
 	deliveries := make([]delivery, 0, len(entries))
+	ancestors := b.ancestorsOf(entries)
 
 	b.mu.Lock("WriteLogEntries")
 
@@ -39,28 +41,30 @@ func (b *InMemoryBackend) ingest(ctx context.Context, entries []*loggingpb.LogEn
 		b.seedLocked(parent)
 
 		doc := newDoc(e)
-		deliveries = append(deliveries, b.routeLocked(parent, e, doc)...)
+		deliveries = append(deliveries, b.routeLocked(parent, ancestors[parent], e, doc)...)
 		b.updateMetricsLocked(parent, doc)
 	}
 
 	b.mu.Unlock()
 
 	b.deliver(ctx, deliveries)
-	b.tails.publish(entries)
+	b.tails.publish(entries, b.now())
 	b.notifyObservers(entries)
 }
 
-func (b *InMemoryBackend) routeLocked(parent string, e *loggingpb.LogEntry, doc *entryDoc) []delivery {
+func (b *InMemoryBackend) routeLocked(
+	parent string, ancestors []string, e *loggingpb.LogEntry, doc *entryDoc,
+) []delivery {
 	var out []delivery
 
-	prefix := parent + "/sinks/"
-
 	for name, sink := range b.sinks {
-		if !strings.HasPrefix(name, prefix) || sink.GetDisabled() {
+		owner, _, _ := strings.Cut(name, "/sinks/")
+		owns := owner == parent || (sink.GetIncludeChildren() && slices.Contains(ancestors, owner))
+		if sink.GetDisabled() || !owns {
 			continue
 		}
 
-		if !b.compiled(sink.GetFilter()).matches(doc) || b.excluded(parent, sink, doc) {
+		if !b.compiled(sink.GetFilter()).matches(doc) || b.excluded(owner, sink, doc) {
 			continue
 		}
 

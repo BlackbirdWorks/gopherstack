@@ -7,7 +7,7 @@ overall: B
 ops:
   CreateLogGroup: {wire: ok, errors: partial, state: ok, persist: ok, note: "202 with opc-work-request-id and no body. CREATING then ACTIVE after the transition window on the injectable clock. compartmentId and displayName required (255 characters), description up to 400 characters; a displayName must be unique per compartment (409 Conflict)."}
   GetLogGroup: {wire: ok, errors: ok, state: ok, persist: n/a, note: "etag header; bare resource body with lifecycleState and timeLastModified."}
-  ListLogGroups: {wire: ok, errors: ok, state: ok, persist: n/a, note: "compartmentId required; displayName filter; sortBy timeCreated or displayName; bare JSON array, paged with opc-next-page. isCompartmentIdInSubtree is ignored (the emulator has no compartment tree)."}
+  ListLogGroups: {wire: ok, errors: ok, state: ok, persist: n/a, note: "compartmentId required; displayName filter; sortBy timeCreated or displayName; bare JSON array, paged with opc-next-page. isCompartmentIdInSubtree=true also lists the groups of nested compartments when OCI Identity runs in the same process (SDK ListLogGroupsRequest docs)."}
   UpdateLogGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "202 with work request; displayName, description and tags apply at once and the group reports UPDATING for the transition window. If-Match gives 412 NoEtagMatch."}
   DeleteLogGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "202; DELETING then gone. A group that still contains logs answers 409 Conflict."}
   ChangeLogGroupCompartment: {wire: ok, errors: ok, state: ok, persist: ok, note: "Work request MOVE_LOG_GROUP; applies at once."}
@@ -19,7 +19,7 @@ ops:
   ChangeLogLogGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "Moves a log to another ACTIVE log group of the same compartment; work request MOVE_LOG."}
   CreateUnifiedAgentConfiguration: {wire: ok, errors: partial, state: ok, persist: ok, note: "serviceConfiguration is stored as sent. configurationType LOGGING needs at least one source with name and sourceType and a destination.logObjectId that references an existing log; MONITORING is stored without further checks. isEnabled is required."}
   GetUnifiedAgentConfiguration: {wire: ok, errors: ok, state: ok, persist: n/a, note: "etag header; configurationState is always VALID because invalid configurations are rejected at write time."}
-  ListUnifiedAgentConfigurations: {wire: ok, errors: ok, state: ok, persist: n/a, note: "{items:[...]} collection (the only Logging list with an envelope); filters logId, groupId, displayName, lifecycleState."}
+  ListUnifiedAgentConfigurations: {wire: ok, errors: ok, state: ok, persist: n/a, note: "{items:[...]} collection (the only Logging list with an envelope); filters logId, groupId, displayName, lifecycleState, isCompartmentIdInSubtree (nested compartments, with OCI Identity)."}
   UpdateUnifiedAgentConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "displayName, isEnabled and serviceConfiguration are required as in the SDK."}
   DeleteUnifiedAgentConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "202 with work request."}
   ChangeUnifiedAgentConfigurationCompartment: {wire: ok, errors: ok, state: ok, persist: ok, note: "Work request MOVE_CONFIGURATION."}
@@ -42,19 +42,14 @@ families:
   error_envelope: {status: partial, note: "Errors are {code,message} with opc-request-id. InvalidParameter, MissingParameter, NotAuthenticated, NotAuthorizedOrNotFound, NoEtagMatch, IncorrectState and Conflict follow the OCI reference; the status for an ingestion into a log that is not ACTIVE (409 IncorrectState) is unverified."}
   endpoints: {status: ok, note: "Management (/20200531), ingestion (/20200831) and search (/20190909) share one listener, so a single host serves LoggingManagementClient, LoggingClient and LogSearchClient."}
   lifecycle: {status: ok, note: "CREATING, UPDATING and DELETING last 2 seconds on the injectable backend clock; transitions and retention are applied on every request and by a one-minute sweeper."}
-  query_language: {status: partial, note: "Supported: search \"<compartment>[/<logGroup>[/<log>]]\" with several comma separated scopes (group and log by OCID or name); | where (keyword optional) with = != <> < <= > >=, in (...), and, or, not, parentheses, string/number/true/false/null literals and * wildcards in = and != string comparisons; | sort by f [asc|desc], ...; | top N by f [asc|desc]; | limit N; | count. Fields: datetime (epoch milliseconds), logContent (the entry data as text, or a path into the CloudEvent), regionId, and CloudEvent paths data.*, source, type, subject, id, time, oracle.*. Without sort the newest entry comes first. data.* resolves when the entry data is a JSON object. Unsupported (rejected 400): select, extend, dedup, summarize, fields, head, tail, rename, timestats, join and every other operator."}
+  query_language: {status: partial, note: "Supported: search \"<compartment>[/<logGroup>[/<log>]]\" with several comma separated scopes (group and log by OCID or name); | where (keyword optional) with = != <> < <= > >=, in (...), and, or, not, parentheses, string/number/true/false/null literals and * wildcards in = and != string comparisons; | sort by f [asc|desc], ...; | top N by f [asc|desc]; | limit N; | count. Fields: datetime (epoch milliseconds), logContent (the entry data as text, or a path into the CloudEvent), regionId, and CloudEvent paths data.*, source, type, subject, id, time, oracle.*. Without sort the newest entry comes first. data.* resolves when the entry data is a JSON object. | select (columns, * and as aliases), | extend (as alias), | dedup by one or more expressions (first row kept), | summarize count, sum, avg, min, max, first, last (with by and as; whole stream without by), scalar functions not, contains_ci, contains_cs, rounddown (datetime in ms, interval Nd|Nh|Nm|Ns), concat, upper, lower, substr (0-based), isnull, isnotnull, arithmetic + - * / and parentheses in where, select, extend, summarize (Logging query language specification page). Queries are limited to 8192 characters, 32 operators, 32 nesting levels and 10000 summarize groups. Unsupported (rejected 400): fields, head, tail, rename, timestats, join, time_format and every other operator."}
   retention: {status: ok, note: "Entries older than retentionDuration days (measured from ingestion) are dropped on the next request or sweep."}
-  service_logs: {status: partial, note: "OCI Functions writes one entry per finished invocation into the enabled SERVICE log whose source is functions/<application OCID>/invoke (in-process, wired in internal/app). Other services do not emit logs yet."}
+  service_logs: {status: partial, note: "OCI Functions writes one entry per finished invocation into the enabled SERVICE log whose source is functions/<application OCID>/invoke (in-process, wired in internal/app). Load Balancer, API Gateway and Events (rule execution: ruleexecutionlog on the rule OCID, one entry per rule action with ruleId, eventId, message and target, per the Events log reference) write through the same sink. Object Storage and flow logs do not emit."}
   observability: {status: ok, note: "telemetry.WrapEchoHandler feeds ExtractOperation/ExtractResource; one lockmetrics.RWMutex guards all state."}
   routing_isolation: {status: ok, note: "Own http.Server bound in StartWorker to --oci-logging-port / OCI_LOGGING_PORT (default 8160); never on the shared AWS router; cli.go reserves the port in the shared pool."}
 items_still_open:
-  - "The query language lacks select, extend, dedup, summarize, timestats, joins and functions; see families.query_language."
-  - "The service catalog is a fixed list of six services, and only OCI Functions feeds SERVICE logs; Object Storage, Load Balancer, API Gateway, Events and flow logs never emit entries."
-  - "Unified agent configurations are stored and validated but no agent consumes them, so they never produce entries."
-  - "Archiving (Object Storage export of logs) is stored on the configuration but nothing is exported."
-  - "The 1 MiB request-body limit is an emulator choice and not published (checked loggingingestion SDK LogEntry and Logging custom_logs.htm, which state only a per-entry limit of under 1 MB); the per-compartment uniqueness of log group names is an emulator choice."
-  - "isCompartmentIdInSubtree is ignored, and IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
-  - "systemTags are never set."
+  - "Object Storage read and write access logs are not emitted: access entries need request-level facts (client address, user agent, status, requestAction) that only the HTTP handler of services/ociobjectstorage sees, and that service has no access-log hook (only object and bucket events, events.go:63 and :32). Entry shape: Logging reference details_for_object_storage."
+  - "IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified (out of scope: IAM evaluation)."
 ---
 
 ## Verified against Oracle documentation
@@ -63,3 +58,16 @@ items_still_open:
 
 ## Primary-source checks (2026-11-13)
 - ocilogging: logging SDK Log comment confirms retention in 30-day increments up to 180; loggingingestion LogEntry comment confirms entries under 1 MB and data fields truncated at 10,000 characters.
+
+## Emulator choices where the vendor is silent
+
+- The query language page documents no limit, timestats or join, and gives no format syntax for time_format, no substr indexing base and no null handling for aggregates: timestats, join and time_format are rejected, substr is 0-based, aggregates skip missing values, summarize groups appear in the order of first occurrence, rounddown returns epoch milliseconds, and the optional third boolean argument of contains_ci and contains_cs is validated and ignored.
+- The service catalog is a fixed list of six services (Object Storage, Functions, flow logs, Load Balancer, API Gateway, Events).
+- The 1 MiB request-body limit is an emulator choice and not published (checked loggingingestion SDK LogEntry and Logging custom_logs.htm, which state only a per-entry limit of under 1 MB); the per-compartment uniqueness of log group names is an emulator choice.
+- systemTags are never set: the SDK documents only the free-tier key (`{"orcl-cloud": {"free-tier-retained": "true"}}`) and the emulated tenancy is never free tier.
+
+## External effects that are recorded, not performed
+
+- Unified agent configurations are stored and validated but no agent runs on a host, so they never produce entries.
+- Archiving (configuration.archiving, deprecated in favour of Service Connector Hub per the SDK Archiving docs) names no destination: with it enabled each ingested entry is counted in the persisted `archivedEntries` of the log and a "would archive" line is logged; nothing is exported.
+- Flow logs: the emulator carries no VCN packet traffic, so no flow log entry exists to emit.

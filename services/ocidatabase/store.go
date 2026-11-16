@@ -52,6 +52,9 @@ type InMemoryBackend struct {
 	subnet      func(string) (SubnetInfo, bool)
 	eng         *dbEngine
 	onClose     func()
+	dumpDir     string
+	dumpKeep    bool
+	dumpLimit   int64
 	wg          sync.WaitGroup
 	transition  time.Duration
 	seq         int64
@@ -107,10 +110,16 @@ func (b *InMemoryBackend) Reset() {
 	b.cancel()
 	live := b.detachAll()
 	b.resetMaps()
+	dumps := b.dumpDir
+	if !b.dumpKeep {
+		b.dumpDir = ""
+	}
+
 	b.mu.Unlock()
 	b.Auth.Reset()
 	b.wg.Wait()
 	closeAll(live)
+	removeDumps(dumps)
 }
 
 // Close stops every running database.
@@ -118,9 +127,15 @@ func (b *InMemoryBackend) Close() {
 	b.mu.Lock("Close")
 	b.cancel()
 	live := b.detachAll()
+	dumps := ""
+	if !b.dumpKeep {
+		dumps, b.dumpDir = b.dumpDir, ""
+	}
+
 	b.mu.Unlock()
 	b.wg.Wait()
 	closeAll(live)
+	removeDumps(dumps)
 
 	if b.onClose != nil {
 		b.onClose()

@@ -84,6 +84,15 @@ func (b *InMemoryBackend) snapView(e *entry[*Snapshot]) Snapshot {
 	return v
 }
 
+// withExclusive fills the metered bytes of a snapshot view. Callers must not hold the backend lock.
+func (b *InMemoryBackend) withExclusive(v Snapshot) Snapshot {
+	if dp := b.plane(); dp != nil {
+		v.ExclusiveBytes = dp.SnapshotExclusiveBytes(v.FileSystemID, v.Name)
+	}
+
+	return v
+}
+
 func snapSummary(v Snapshot) map[string]any {
 	return project(v, "fileSystemId", "id", "lifecycleState", "name", "timeCreated", "locks", "lockDurationDetails",
 		"snapshotType", "snapshotTime", "expirationTime", "provenanceId", "isCloneSource", "lifecycleDetails",
@@ -123,54 +132,66 @@ func (b *InMemoryBackend) CreateSnapshot(in createSnapshotIn, token string) (Sna
 	}
 
 	b.mu.Lock("CreateSnapshot")
-	defer b.mu.Unlock()
 
 	if id := b.retryHit(kindSnapshot, token); id != "" {
 		if e, ok := b.snaps[id]; ok {
-			return b.snapView(e), e.Etag, nil
+			v, etag := b.snapView(e), e.Etag
+			b.mu.Unlock()
+
+			return b.withExclusive(v), etag, nil
 		}
 	}
 
-	sn, aerr := b.takeSnapshot(in, snapUser, "")
+	sn, job, aerr := b.beginSnapshot(in, snapUser, "")
 	if aerr != nil {
+		b.mu.Unlock()
+
 		return Snapshot{}, "", aerr
 	}
 
 	b.remember(kindSnapshot, token, sn.W.ID)
+	b.mu.Unlock()
 
-	return b.snapView(sn), sn.Etag, nil
+	if job != nil {
+		if err := job(); err != nil {
+			return Snapshot{}, "", internalErr(err)
+		}
+	}
+
+	b.mu.RLock("CreateSnapshot")
+	v, etag := b.snapView(sn), sn.Etag
+	b.mu.RUnlock()
+
+	return b.withExclusive(v), etag, nil
 }
 
-// takeSnapshot records and copies a snapshot of any type. Callers hold the write lock.
-func (b *InMemoryBackend) takeSnapshot(in createSnapshotIn, typ, policyID string) (*entry[*Snapshot], *APIError) {
+// beginSnapshot validates and records a snapshot of any type. With a data plane the snapshot stays CREATING and
+// the returned job copies the tree outside the backend lock, then settles it. Callers hold the write lock.
+func (b *InMemoryBackend) beginSnapshot(
+	in createSnapshotIn, typ, policyID string,
+) (*entry[*Snapshot], copyJob, *APIError) {
 	fs, aerr := b.fss.usable(in.FileSystemID)
 	if aerr != nil {
-		return nil, aerr
+		return nil, nil, aerr
 	}
 
 	if fs.W.State != stActive {
-		return nil, errState("The file system " + fs.W.ID + " is in state " + fs.W.State)
+		return nil, nil, errState("The file system " + fs.W.ID + " is in state " + fs.W.State)
+	}
+
+	if _, busy := b.cp.busy[fs.W.ID+"/"+in.Name]; busy {
+		return nil, nil, errConflict("A snapshot named " + in.Name + " is still being copied on the file system")
 	}
 
 	for _, x := range b.snaps {
 		if x.W.FileSystemID == fs.W.ID && x.W.State != stDeleted && x.W.Name == in.Name {
-			return nil, errConflict("A snapshot named " + in.Name + " already exists on the file system")
+			return nil, nil, errConflict("A snapshot named " + in.Name + " already exists on the file system")
 		}
 	}
 
 	now := b.nowUTC()
-	if in.ExpirationTime != nil && !in.ExpirationTime.After(now) {
-		return nil, errParam("expirationTime must be in the future")
-	}
-
-	if aerr = checkLockDuration(in.LockDurationDetails); aerr != nil {
-		return nil, aerr
-	}
-
-	for _, l := range in.Locks {
-		if aerr = checkLock(l); aerr != nil {
-			return nil, aerr
-		}
+	if aerr = checkSnapshotIn(in, now); aerr != nil {
+		return nil, nil, aerr
 	}
 
 	sn := &Snapshot{
@@ -185,26 +206,99 @@ func (b *InMemoryBackend) takeSnapshot(in createSnapshotIn, typ, policyID string
 		sn.TimeLocked = &locked
 	}
 
-	if b.dp != nil {
-		if err := b.dp.TakeSnapshot(fs.W.ID, in.Name); err != nil {
-			return nil, internalErr(err)
+	if b.dp == nil {
+		return put(b, b.snaps, sn, stActive), nil, nil
+	}
+
+	ctx, aerr := b.reserveCopy()
+	if aerr != nil {
+		return nil, nil, aerr
+	}
+
+	e := &entry[*Snapshot]{W: sn, Etag: newEtag(), Seq: b.nextSeq()}
+	b.snaps[sn.ID] = e
+	b.cp.busy[fs.W.ID+"/"+in.Name] = struct{}{}
+
+	dp := b.dp
+
+	return e, func() error {
+		defer b.cp.wg.Done()
+
+		return b.settleSnapshot(e, dp.TakeSnapshot(ctx, sn.FileSystemID, sn.Name), dp)
+	}, nil
+}
+
+func checkSnapshotIn(in createSnapshotIn, now time.Time) *APIError {
+	if in.ExpirationTime != nil && !in.ExpirationTime.After(now) {
+		return errParam("expirationTime must be in the future")
+	}
+
+	if aerr := checkLockDuration(in.LockDurationDetails); aerr != nil {
+		return aerr
+	}
+
+	for _, l := range in.Locks {
+		if aerr := checkLock(l); aerr != nil {
+			return aerr
 		}
 	}
 
-	return put(b, b.snaps, sn, stActive), nil
+	return nil
+}
+
+// settleSnapshot finishes a snapshot copy: it makes the snapshot ACTIVE, or removes what the copy left when the
+// snapshot or its file system went away meanwhile or the copy failed.
+func (b *InMemoryBackend) settleSnapshot(e *entry[*Snapshot], copyErr error, dp dataPlane) error {
+	sn := e.W
+
+	b.mu.Lock("settleSnapshot")
+	delete(b.cp.busy, sn.FileSystemID+"/"+sn.Name)
+
+	fs, ok := b.fss[sn.FileSystemID]
+	fsLive := ok && fs.W.State != stDeleting && fs.W.State != stDeleted
+	live := sn.State == stCreating && b.snaps[sn.ID] == e
+
+	switch {
+	case live && copyErr == nil && fsLive:
+		moveTo(b, e, stActive)
+		e.Etag = newEtag()
+		b.mu.Unlock()
+
+		return nil
+	case live:
+		delete(b.snaps, sn.ID)
+	}
+
+	b.mu.Unlock()
+
+	if fsLive {
+		dp.DropSnapshot(sn.FileSystemID, sn.Name)
+	} else {
+		dp.RemoveFS(sn.FileSystemID)
+	}
+
+	if !live {
+		return nil
+	}
+
+	return copyErr
 }
 
 // GetSnapshot returns one snapshot.
 func (b *InMemoryBackend) GetSnapshot(id string) (Snapshot, string, error) {
 	b.mu.RLock("GetSnapshot")
-	defer b.mu.RUnlock()
 
 	e, aerr := b.snaps.get(id)
 	if aerr != nil {
+		b.mu.RUnlock()
+
 		return Snapshot{}, "", aerr
 	}
 
-	return b.snapView(e), e.Etag, nil
+	v, etag := b.snapView(e), e.Etag
+	b.mu.RUnlock()
+
+	return b.withExclusive(v), etag, nil
 }
 
 // ListSnapshots lists snapshots of a file system or snapshot policy.
@@ -214,7 +308,6 @@ func (b *InMemoryBackend) ListSnapshots(f SnapshotFilter, o ListOpts) (page.Page
 	}
 
 	b.mu.RLock("ListSnapshots")
-	defer b.mu.RUnlock()
 
 	keep := func(e *entry[*Snapshot]) bool {
 		w := e.W
@@ -234,17 +327,37 @@ func (b *InMemoryBackend) ListSnapshots(f SnapshotFilter, o ListOpts) (page.Page
 		return true
 	}
 
-	return listOf(
+	pg := listOf(
 		b.snaps,
 		keep,
 		ListOpts{Page: o.Page, Limit: o.Limit, Order: o.Order},
 		func(w *Snapshot) string { return w.Name },
 		func(e *entry[*Snapshot]) map[string]any { return snapSummary(b.snapView(e)) },
-	), nil
+	)
+	b.mu.RUnlock()
+
+	if dp := b.plane(); dp != nil {
+		for _, m := range pg.Data {
+			fsID, _ := m["fileSystemId"].(string)
+			name, _ := m["name"].(string)
+			m["exclusiveBytes"] = dp.SnapshotExclusiveBytes(fsID, name)
+		}
+	}
+
+	return pg, nil
 }
 
 // UpdateSnapshot changes a snapshot's tags, expiration or lock duration.
 func (b *InMemoryBackend) UpdateSnapshot(id, ifMatch string, in updateSnapshotIn) (Snapshot, string, error) {
+	v, etag, err := b.updateSnapshot(id, ifMatch, in)
+	if err != nil {
+		return Snapshot{}, "", err
+	}
+
+	return b.withExclusive(v), etag, nil
+}
+
+func (b *InMemoryBackend) updateSnapshot(id, ifMatch string, in updateSnapshotIn) (Snapshot, string, error) {
 	b.mu.Lock("UpdateSnapshot")
 	defer b.mu.Unlock()
 

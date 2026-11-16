@@ -96,6 +96,10 @@ func (b *InMemoryBackend) publish(
 			}
 		}
 
+		if err := checkMessageLimits(m.GetAttributes()); err != nil {
+			return nil, nil, nil, err
+		}
+
 		total += len(m.GetData())
 	}
 
@@ -436,6 +440,10 @@ func (b *InMemoryBackend) deadLetterLocked(s *subscription, m *subMsg) {
 
 // Acknowledge acknowledges messages; ids that are not currently leased are returned as invalid.
 func (b *InMemoryBackend) Acknowledge(name string, ids []string) ([]string, []string, error) {
+	if err := checkAckRequestSize(ids); err != nil {
+		return nil, nil, err
+	}
+
 	b.mu.Lock("Acknowledge")
 	defer b.mu.Unlock()
 
@@ -479,6 +487,10 @@ func (b *InMemoryBackend) Acknowledge(name string, ids []string) ([]string, []st
 func (b *InMemoryBackend) ModifyAckDeadline(name string, ids []string, seconds []int32) ([]string, []string, error) {
 	if len(seconds) == 0 {
 		return nil, nil, errInvalid("ack deadline seconds must be provided")
+	}
+
+	if err := checkAckRequestSize(ids); err != nil {
+		return nil, nil, err
 	}
 
 	b.mu.Lock("ModifyAckDeadline")
@@ -643,7 +655,8 @@ func (b *InMemoryBackend) pull(name string, maxMsgs int) (leaseResult, error) {
 	}
 
 	return b.leaseLocked(s, leaseReq{
-		maxMsgs: maxMsgs, deadline: time.Duration(s.pb.GetAckDeadlineSeconds()) * time.Second,
+		maxMsgs: maxMsgs, maxBytes: maxPullResponseBytes,
+		deadline: time.Duration(s.pb.GetAckDeadlineSeconds()) * time.Second,
 	}), nil
 }
 

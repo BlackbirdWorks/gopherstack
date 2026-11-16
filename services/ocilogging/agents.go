@@ -238,6 +238,7 @@ func (b *InMemoryBackend) GetAgentConfig(id string) (AgentConfigWire, string, er
 // AgentFilter narrows ListUnifiedAgentConfigurations.
 type AgentFilter struct {
 	Compartment, Name, State, LogID, GroupID string
+	Subtree                                  bool
 }
 
 // ListAgentConfigs lists the agent configurations of a compartment.
@@ -245,6 +246,8 @@ func (b *InMemoryBackend) ListAgentConfigs(f AgentFilter, o ListOpts) (page.Page
 	if f.Compartment == "" {
 		return page.Page[agentSummaryWire]{}, errMissing("compartmentId is required")
 	}
+
+	selected := b.compartmentFilter(f.Compartment, f.Subtree)
 
 	b.mu.Lock("ListAgentConfigs")
 	defer b.mu.Unlock()
@@ -254,7 +257,7 @@ func (b *InMemoryBackend) ListAgentConfigs(f AgentFilter, o ListOpts) (page.Page
 	var all []*AgentConfig
 
 	for _, a := range b.agents {
-		if a.CompartmentID != f.Compartment || (f.Name != "" && a.Name != f.Name) ||
+		if !selected(a.CompartmentID) || (f.Name != "" && a.Name != f.Name) ||
 			(f.State != "" && !strs.Equal(a.State, f.State)) ||
 			(f.LogID != "" && !bytes.Contains(a.ServiceConfig, []byte(`"`+f.LogID+`"`))) ||
 			(f.GroupID != "" && !strs.ContainsFold(a.Groups, f.GroupID)) {
@@ -407,6 +410,7 @@ func (h *Handler) listAgentConfigs(q *req) error {
 	pg, err := h.Backend.ListAgentConfigs(AgentFilter{
 		Compartment: q.query("compartmentId"), Name: q.query("displayName"), State: q.query("lifecycleState"),
 		LogID: q.query("logId"), GroupID: q.query("groupId"),
+		Subtree: q.query("isCompartmentIdInSubtree") == litTrue,
 	}, q.listOpts())
 	if err != nil {
 		return err

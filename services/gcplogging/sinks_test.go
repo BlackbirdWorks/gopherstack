@@ -411,3 +411,48 @@ func TestSinkWriterIdentityRules(t *testing.T) {
 		})
 	}
 }
+
+func TestAggregatedSinksFollowTheHierarchy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		parent   string
+		children bool
+		want     int
+	}{
+		{name: "folder with children", parent: "folders/1", children: true, want: 1},
+		{name: "folder without children", parent: "folders/1", want: 0},
+		{name: "organization with children", parent: "organizations/9", children: true, want: 1},
+		{name: "unrelated folder", parent: "folders/2", children: true, want: 0},
+		{name: "own project", parent: proj, want: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, true)
+			b := e.handler.Backend
+			b.SetAncestryResolver(func(project string) []string {
+				if project == proj {
+					return []string{"folders/1", "organizations/9"}
+				}
+
+				return nil
+			})
+
+			_, err := b.CreateSink(&loggingpb.CreateSinkRequest{
+				Parent: tt.parent, UniqueWriterIdentity: true,
+				Sink: &loggingpb.LogSink{
+					Name: "agg", Destination: "pubsub.googleapis.com/projects/p/topics/t", IncludeChildren: tt.children,
+					Filter: `severity>=ERROR`,
+				},
+			})
+			require.NoError(t, err)
+
+			e.write(t, textEntry("app", "boom", ltype.LogSeverity_ERROR, e.clk.now()))
+			assert.Len(t, e.pub.topic("projects/p/topics/t"), tt.want)
+		})
+	}
+}

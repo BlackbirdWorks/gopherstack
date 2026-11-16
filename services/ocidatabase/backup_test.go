@@ -153,6 +153,14 @@ func TestLongTermBackupAndTerminate(t *testing.T) {
 			)
 			assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode(), "retention below 90 days")
 
+			_, err = e.client.CreateAutonomousDatabaseBackup(
+				t.Context(),
+				database.CreateAutonomousDatabaseBackupRequest{
+					AutonomousDatabaseId: db.Id, IsLongTermBackup: new(true), RetentionPeriodInDays: new(3651),
+				},
+			)
+			assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode(), "retention above ten years")
+
 			resp, err := e.client.CreateAutonomousDatabaseBackup(
 				t.Context(),
 				database.CreateAutonomousDatabaseBackupRequest{

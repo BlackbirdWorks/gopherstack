@@ -224,6 +224,16 @@ func applyBucket(b *Bucket, p Patch, create bool) *APIError {
 		return apiErr
 	}
 
+	if apiErr = applyObjectRetentionMode(b, p, create); apiErr != nil {
+		return apiErr
+	}
+
+	applyBucketConfig(b, p)
+
+	return nil
+}
+
+func applyBucketConfig(b *Bucket, p Patch) {
 	for k, raw := range p {
 		if !isConfigKey(k) {
 			continue
@@ -241,11 +251,32 @@ func applyBucket(b *Bucket, p Patch, create bool) *APIError {
 
 		b.Config[k] = raw
 	}
-
-	return nil
 }
 
 func (b *Bucket) resetMutable() {
 	b.Labels, b.Config = nil, nil
 	b.Versioning, b.DefaultEventBasedHold = false, false
+}
+
+// applyObjectRetentionMode enables object retention from the enableObjectRetention parameter and refuses to
+// disable it again ("Once enabled, the feature cannot be disabled", docs.cloud.google.com/storage/docs/object-lock).
+func applyObjectRetentionMode(b *Bucket, p Patch, create bool) *APIError {
+	if create && p.str(keyEnableRetention) == "true" {
+		b.setConfig(keyObjectRetention, map[string]string{"mode": retentionModeEnabled})
+	}
+
+	raw, ok := p[keyObjectRetention]
+	if !ok || !b.objectRetentionEnabled() {
+		return nil
+	}
+
+	var mode struct {
+		Mode string `json:"mode"`
+	}
+
+	if isNull(raw) || json.Unmarshal(raw, &mode, jsonx.V1()) != nil || mode.Mode != retentionModeEnabled {
+		return errInvalid("Object retention cannot be disabled once it is enabled.")
+	}
+
+	return nil
 }

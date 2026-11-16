@@ -8,6 +8,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/cmek"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcplro"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -25,12 +26,14 @@ type rowRec struct {
 }
 
 type tableRec struct {
-	pb     *adminpb.Table
-	policy *iampb.Policy
-	rows   map[string]*rowRec
-	splits []string
-	keys   []string
-	dirty  bool
+	pb      *adminpb.Table
+	policy  *iampb.Policy
+	samples *sampleCache
+	rows    map[string]*rowRec
+	splits  []string
+	keys    []string
+	keyGen  uint64
+	dirty   bool
 }
 
 type backupRec struct {
@@ -45,6 +48,7 @@ type instRec struct {
 	clusters map[string]*adminpb.Cluster
 	profiles map[string]*adminpb.AppProfile
 	tables   map[string]*tableRec
+	deleted  map[string]*deletedTable
 	backups  map[string]*backupRec
 	tokens   map[string]map[string]bool
 }
@@ -55,6 +59,7 @@ func newInstRec(pb *adminpb.Instance) *instRec {
 		clusters: make(map[string]*adminpb.Cluster),
 		profiles: make(map[string]*adminpb.AppProfile),
 		tables:   make(map[string]*tableRec),
+		deleted:  make(map[string]*deletedTable),
 		backups:  make(map[string]*backupRec),
 		tokens:   make(map[string]map[string]bool),
 	}
@@ -66,21 +71,27 @@ func newTableRec(pb *adminpb.Table) *tableRec {
 
 // InMemoryBackend holds all Cloud Bigtable state under one lock.
 type InMemoryBackend struct {
-	now       func() time.Time
-	mu        *lockmetrics.RWMutex
-	ops       *gcplro.Store
-	instances map[string]*instRec
-	seq       uint64
+	now        func() time.Time
+	mu         *lockmetrics.RWMutex
+	ops        *gcplro.Store
+	instances  map[string]*instRec
+	keys       cmek.Checker
+	deletedCap int64
+	seq        uint64
 }
 
 // NewInMemoryBackend creates an empty backend.
 func NewInMemoryBackend() *InMemoryBackend {
-	return &InMemoryBackend{
-		mu:        lockmetrics.New("gcpbigtable"),
-		now:       time.Now,
-		ops:       gcplro.New("gcpbigtable"),
-		instances: make(map[string]*instRec),
+	b := &InMemoryBackend{
+		mu:         lockmetrics.New("gcpbigtable"),
+		now:        time.Now,
+		deletedCap: maxDeletedBytes,
+		ops:        gcplro.New("gcpbigtable"),
+		instances:  make(map[string]*instRec),
 	}
+	b.ops.SetClock(func() time.Time { return b.now() })
+
+	return b
 }
 
 func (b *InMemoryBackend) ts() *timestamppb.Timestamp { return timestamppb.New(b.now()) }
@@ -105,4 +116,11 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Unlock()
 
 	b.ops.Reset()
+}
+
+func (b *InMemoryBackend) clock() time.Time {
+	b.mu.RLock("clock")
+	defer b.mu.RUnlock()
+
+	return b.now()
 }

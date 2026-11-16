@@ -267,17 +267,20 @@ func (b *InMemoryBackend) CreateCredential(userID string, kind credKind, text st
 	}
 
 	c := Credential{ID: newOCID("credential"), Text: text, TimeCreated: b.nowUTC()}
+	secret := kind.secret()
 
 	switch kind.name {
 	case kindSecretKey:
 		c.ID = hex.EncodeToString(randBytes(accessKeyBytes))
 	case kindSMTP:
 		c.Username = userID + "@" + TenancyID + "." + smtpDomainTag + ".com"
+	case kindAuthToken:
+		c.Salt, c.Digest = hashAuthToken(secret)
 	}
 
 	*slot = append(*slot, c)
 
-	return c.view(userID, kind, kind.secret()), newEtag(), nil
+	return c.view(userID, kind, secret), newEtag(), nil
 }
 
 // ListCredentials lists a user's credentials of one kind, without secrets.

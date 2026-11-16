@@ -32,6 +32,7 @@ type Object struct {
 	SoftDeleteTime     time.Time `json:"softDeleteTime"`
 	HardDeleteTime     time.Time `json:"hardDeleteTime"`
 	ClassUpdated       time.Time `json:"classUpdated"`
+	Accessed           time.Time `json:"accessed,omitzero"`
 	retention          time.Time
 	Metadata           map[string]string `json:"metadata,omitempty"`
 	ContentLanguage    string            `json:"contentLanguage,omitempty"`
@@ -43,9 +44,11 @@ type Object struct {
 	CacheControl       string            `json:"cacheControl,omitempty"`
 	StorageClass       string            `json:"storageClass"`
 	MD5                string            `json:"md5,omitempty"`
+	PartsETag          string            `json:"partsEtag,omitempty"`
 	Name               string            `json:"name"`
 	CustomerKeySHA256  string            `json:"customerKeySha256,omitempty"`
 	KMSKeyName         string            `json:"kmsKeyName,omitempty"`
+	ObjectRetention    *ObjectRetention  `json:"objectRetention,omitempty"`
 	Data               []byte            `json:"data"`
 	ACL                []ACLEntry        `json:"acl,omitempty"`
 	Generation         int64             `json:"generation"`

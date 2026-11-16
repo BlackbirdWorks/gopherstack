@@ -240,6 +240,15 @@ func createOnEmulator(ctx context.Context, cc *grpc.ClientConn, project string, 
 
 // waitOp polls an emulator operation to completion and returns its error.
 func waitOp(ctx context.Context, cc *grpc.ClientConn, op *longrunningpb.Operation) error {
+	_, err := waitOpDone(ctx, cc, op)
+
+	return err
+}
+
+// waitOpDone is waitOp that also returns the finished operation.
+func waitOpDone(
+	ctx context.Context, cc *grpc.ClientConn, op *longrunningpb.Operation,
+) (*longrunningpb.Operation, error) {
 	ops := longrunningpb.NewOperationsClient(cc)
 	tick := time.NewTicker(opPollInterval)
 
@@ -248,21 +257,21 @@ func waitOp(ctx context.Context, cc *grpc.ClientConn, op *longrunningpb.Operatio
 	for !op.GetDone() {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("waiting for emulator operation: %w", ctx.Err())
+			return op, fmt.Errorf("waiting for emulator operation: %w", ctx.Err())
 		case <-tick.C:
 		}
 
 		var err error
 		if op, err = ops.GetOperation(ctx, &longrunningpb.GetOperationRequest{Name: op.GetName()}); err != nil {
-			return fmt.Errorf("poll emulator operation: %w", err)
+			return op, fmt.Errorf("poll emulator operation: %w", err)
 		}
 	}
 
 	if e := op.GetError(); e != nil {
-		return status.FromProto(e).Err()
+		return op, status.FromProto(e).Err()
 	}
 
-	return nil
+	return op, nil
 }
 
 type replayDB struct {
@@ -322,6 +331,8 @@ func (b *InMemoryBackend) reconcile(ctx context.Context, cc *grpc.ClientConn) er
 			}
 		}
 	}
+
+	b.replayData(ctx, cc)
 
 	return nil
 }

@@ -1,6 +1,8 @@
 package gcppubsub
 
 import (
+	"context"
+	"net/http"
 	"time"
 
 	"cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
@@ -38,4 +40,33 @@ func (b *InMemoryBackend) PullMessages(name string, n int) ([]*pubsubpb.Received
 	res, err := b.pull(name, n)
 
 	return res.msgs, err
+}
+
+// SetResourceLimits lowers the per-project resource limits.
+func (b *InMemoryBackend) SetResourceLimits(topics, subs, snapshots, schemas int) {
+	b.mu.Lock("SetResourceLimits")
+	defer b.mu.Unlock()
+
+	b.limits = resourceLimits{topics: topics, subs: subs, snapshots: snapshots, schemas: schemas}
+}
+
+// BuildPushRequest builds the HTTP request a push delivery would send.
+func (b *InMemoryBackend) BuildPushRequest(
+	ctx context.Context, sub, endpoint string, cfg *pubsubpb.PushConfig, rm *pubsubpb.ReceivedMessage,
+) (*http.Request, error) {
+	return b.buildPushRequest(ctx, pushJob{sub: sub, endpoint: endpoint, cfg: cfg}, rm)
+}
+
+// SendPush delivers one message with the production push client and reports whether it was acknowledged.
+func (b *InMemoryBackend) SendPush(
+	ctx context.Context, sub, endpoint string, cfg *pubsubpb.PushConfig, rm *pubsubpb.ReceivedMessage,
+) bool {
+	return b.sendPush(ctx, newPushClient(), pushJob{sub: sub, endpoint: endpoint, cfg: cfg}, rm)
+}
+
+// PushClientUsesProxy reports whether the push client consults proxy settings.
+func PushClientUsesProxy() bool {
+	tr, ok := newPushClient().Transport.(*http.Transport)
+
+	return !ok || tr.Proxy != nil
 }

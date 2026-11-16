@@ -7,20 +7,16 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 18 (17 ok, 1 partial) |
+| PARITY entries audited | 31 (30 ok, 1 partial) |
 | Feature families | 4 (1 ok, 3 partial) |
-| Known gaps | 6 |
+| Known gaps | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Table data is in the emulator's memory only: it is lost on restart. Persistence stores instances, policies, databases and their DDL, and replays the schema into a fresh emulator on first use.
-- Without a container runtime database DDL is stored but not validated or executed: GetDatabaseDdl returns the statements as submitted, DROP and ALTER statements are not folded in.
-- RestoreDatabase and ListDatabaseOperations are UNIMPLEMENTED: restoring would create emulator databases the backend does not track. Backups created through the proxy live only in the emulator and are lost on restart.
-- User-managed instance configs (Create/Update/DeleteInstanceConfig), instance partitions, MoveInstance, autoscaling_config, and replica_compute_capacity are not implemented.
-- The emulator runs every instance in its single emulator-config with 1 node; node_count and processing_units are metadata only, and the data plane is one shared emulator process.
-- Customer-managed encryption is validated on CreateDatabase for single-region instance configs only (kms_key_names coverage of a multi-region config's replicas is not checked); backend instance and database create_time values are not shared with the emulator.
+- Without a container runtime DDL is parsed structurally and folded (CREATE, DROP, ALTER TABLE ADD/DROP/ALTER COLUMN, ADD/DROP CONSTRAINT, SET ON DELETE), but ALTER TABLE actions SET OPTIONS, SET/DROP DEFAULT, RENAME TO and row deletion policy changes, ALTER INDEX, ALTER DATABASE, GRANT and REVOKE are stored verbatim, and column types, expressions and constraint bodies are not type-checked.
+- Backups created through the proxy live only in the emulator and are lost on restart: the emulator offers no export of a backup's contents, and recreating one from restored data would change its create_time and version_time (ddl_fold.go and restore.go hold no backup state). ListDatabaseOperations lists only operations the backend ran, not the emulator's backup operations.
 
 ## More
 

@@ -109,7 +109,7 @@ func TestOCILoggingProxy(t *testing.T) {
 				{http.MethodPost, api + "/search?limit=10", `{` + span() + `,"searchQuery":"search \"` + logComp +
 					`\" | where logContent = '*hello*'"}`, "hello dashboard", 200},
 				{http.MethodPost, api + "/search", `{` + span() + `,"searchQuery":"search \"` + logComp +
-					`\" | select x"}`, "", 400},
+					`\" | join x"}`, "", 400},
 				{http.MethodPost, api + "/logs/" + log + "/actions/push", `{"data":""}`, "unsupported", 400},
 			}
 		}},

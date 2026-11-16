@@ -152,9 +152,18 @@ func (b *InMemoryBackend) GetLogGroup(id string) (LogGroupWire, string, error) {
 
 // ListLogGroups lists the log groups of a compartment.
 func (b *InMemoryBackend) ListLogGroups(compartment, name string, o ListOpts) (page.Page[LogGroupWire], error) {
+	return b.ListLogGroupsIn(compartment, name, false, o)
+}
+
+// ListLogGroupsIn lists the log groups of a compartment, and of its nested compartments when subtree is set.
+func (b *InMemoryBackend) ListLogGroupsIn(
+	compartment, name string, subtree bool, o ListOpts,
+) (page.Page[LogGroupWire], error) {
 	if compartment == "" {
 		return page.Page[LogGroupWire]{}, errMissing("compartmentId is required")
 	}
+
+	selected := b.compartmentFilter(compartment, subtree)
 
 	b.mu.Lock("ListLogGroups")
 	defer b.mu.Unlock()
@@ -164,7 +173,7 @@ func (b *InMemoryBackend) ListLogGroups(compartment, name string, o ListOpts) (p
 	var all []*LogGroup
 
 	for _, g := range b.groups {
-		if g.CompartmentID == compartment && (name == "" || g.Name == name) {
+		if selected(g.CompartmentID) && (name == "" || g.Name == name) {
 			all = append(all, g)
 		}
 	}
@@ -308,7 +317,9 @@ func (h *Handler) getLogGroup(q *req) error {
 }
 
 func (h *Handler) listLogGroups(q *req) error {
-	pg, err := h.Backend.ListLogGroups(q.query("compartmentId"), q.query("displayName"), q.listOpts())
+	pg, err := h.Backend.ListLogGroupsIn(
+		q.query("compartmentId"), q.query("displayName"), q.query("isCompartmentIdInSubtree") == litTrue, q.listOpts(),
+	)
 
 	return listReply(q, pg, err)
 }

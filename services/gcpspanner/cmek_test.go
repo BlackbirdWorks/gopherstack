@@ -5,6 +5,7 @@ import (
 
 	"cloud.google.com/go/kms/apiv1/kmspb"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
+	"cloud.google.com/go/spanner/admin/instance/apiv1/instancepb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -136,4 +137,78 @@ func TestDatabase_DisabledKeyReportsStatus(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, db.GetEncryptionInfo(), 1)
 	assert.EqualValues(t, codes.FailedPrecondition, db.GetEncryptionInfo()[0].GetEncryptionStatus().GetCode())
+}
+
+func kmsKeyAt(loc string) string {
+	return "projects/" + project + "/locations/" + loc + "/keyRings/r/cryptoKeys/sym"
+}
+
+func TestDatabase_MultiRegionKeyCoverage(t *testing.T) {
+	t.Parallel()
+
+	all := []string{kmsKeyAt("us-east4"), kmsKeyAt("us-east1"), kmsKeyAt("us-central1")}
+
+	tests := []struct {
+		cfg  *databasepb.EncryptionConfig
+		name string
+		want codes.Code
+	}{
+		{name: "all replicas", cfg: &databasepb.EncryptionConfig{KmsKeyNames: all}},
+		{
+			name: "missing witness region",
+			cfg:  &databasepb.EncryptionConfig{KmsKeyNames: all[:2]},
+			want: codes.InvalidArgument,
+		},
+		{
+			name: "duplicate region",
+			cfg:  &databasepb.EncryptionConfig{KmsKeyNames: []string{all[0], all[0], all[1], all[2]}},
+			want: codes.InvalidArgument,
+		},
+		{
+			name: "extra region",
+			cfg:  &databasepb.EncryptionConfig{KmsKeyNames: append([]string{kmsKeyAt("us-west1")}, all...)},
+			want: codes.InvalidArgument,
+		},
+		{name: "single key", cfg: &databasepb.EncryptionConfig{KmsKeyName: all[0]}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			kb := gcpkms.NewInMemoryBackend()
+
+			for _, l := range []string{"us-east4", "us-east1", "us-central1", "us-west1"} {
+				_, err := kb.CreateKeyRing(
+					&kmspb.CreateKeyRingRequest{Parent: "projects/" + project + "/locations/" + l, KeyRingId: "r"},
+				)
+				require.NoError(t, err)
+
+				_, err = kb.CreateCryptoKey(&kmspb.CreateCryptoKeyRequest{
+					Parent: "projects/" + project + "/locations/" + l + "/keyRings/r", CryptoKeyId: "sym",
+					CryptoKey: &kmspb.CryptoKey{Purpose: kmspb.CryptoKey_ENCRYPT_DECRYPT},
+				})
+				require.NoError(t, err)
+			}
+
+			e := newEnvWith(t, func(b *gcpspanner.InMemoryBackend) {
+				b.UseNoRuntime()
+				b.SetKeyChecker(kb)
+			})
+
+			iop, err := e.instances.CreateInstance(t.Context(), &instancepb.CreateInstanceRequest{
+				Parent: parent, InstanceId: "multi",
+				Instance: &instancepb.Instance{Config: nam3Ref, DisplayName: "Multi region", NodeCount: 1},
+			})
+			require.NoError(t, err)
+
+			_, err = await(t, iop)
+			require.NoError(t, err)
+
+			_, err = e.databases.CreateDatabase(t.Context(), &databasepb.CreateDatabaseRequest{
+				Parent: parent + "/instances/multi", CreateStatement: "CREATE DATABASE `app`", EncryptionConfig: tt.cfg,
+			})
+			assert.Equal(t, tt.want, status.Code(err))
+		})
+	}
 }

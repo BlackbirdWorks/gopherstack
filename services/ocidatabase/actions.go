@@ -76,11 +76,12 @@ func (b *InMemoryBackend) RestartDatabase(id, ifMatch string) (AdbWire, string, 
 	}, nil)
 }
 
-// RestoreDatabase restores an available database to a point in time. Only the lifecycle is emulated: no data
-// changes.
+// RestoreDatabase restores an available database to a point in time. A running docker database is reloaded from
+// the newest backup with data that is not newer than the request; without one no data changes.
 func (b *InMemoryBackend) RestoreDatabase(id, ifMatch string, in restoreIn) (AdbWire, string, string, error) {
 	return b.transient(id, ifMatch, []string{stateAvailable}, step{
 		typ: "RESTORE_AUTONOMOUS_DATABASE", action: wrInProgress, state: stateRestoring, target: stateAvailable,
+		work: b.restoreWork(id, in),
 	}, func(db *ADB) *APIError { return b.checkRestore(db, in) })
 }
 
@@ -160,6 +161,8 @@ func (b *InMemoryBackend) ChangeCompartment(id, ifMatch, compartment string) (st
 }
 
 func (b *InMemoryBackend) dropBackup(bk *Backup) {
+	removeDump(b.dumpDir, bk.ID)
+
 	at := b.nowUTC().Add(b.transition)
 	bk.State, bk.TransitionAt = backupDeleting, &at
 }

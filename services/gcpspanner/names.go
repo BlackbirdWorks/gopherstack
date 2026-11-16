@@ -11,10 +11,12 @@ var (
 )
 
 const (
-	projectsSegment = "projects"
-	projectParts    = 2
-	instanceParts   = 4
-	databaseParts   = 6
+	projectsSegment        = "projects"
+	instanceConfigsSegment = "instanceConfigs"
+	fieldDisplayName       = "display_name"
+	projectParts           = 2
+	instanceParts          = 4
+	databaseParts          = 6
 )
 
 // parseProject parses projects/{p}.

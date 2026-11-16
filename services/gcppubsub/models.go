@@ -21,6 +21,7 @@ const (
 	defaultExpiration      = 31 * 24 * time.Hour
 	minExpiration          = 24 * time.Hour
 	snapshotLifetime       = 7 * 24 * time.Hour
+	minSnapshotLifetime    = time.Hour
 	maxLabels              = 64
 	minDeliveryAttempts    = 5
 	maxDeliveryAttempts    = 100

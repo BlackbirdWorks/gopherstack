@@ -39,6 +39,7 @@ type objectJSON struct {
 	MD5Hash            string                  `json:"md5Hash,omitempty"`
 	CRC32C             string                  `json:"crc32c,omitempty"`
 	CustomerEncryption *customerEncryptionJSON `json:"customerEncryption,omitempty"`
+	Retention          *objectRetentionJSON    `json:"retention,omitempty"`
 	KMSKeyName         string                  `json:"kmsKeyName,omitempty"`
 	ETag               string                  `json:"etag"`
 	ACL                []aclResource           `json:"acl,omitempty"`
@@ -110,6 +111,7 @@ func objectResourceBase(base string, o *Object, gen, esc string) objectJSON {
 		TemporaryHold:      o.TemporaryHold,
 		EventBasedHold:     o.EventBasedHold,
 		CustomerEncryption: o.customerEncryption(),
+		Retention:          o.retentionJSON(),
 		KMSKeyName:         o.KMSKeyName,
 	}
 }

@@ -241,3 +241,47 @@ func TestValidateData(t *testing.T) {
 		})
 	}
 }
+
+func TestSnapshotLifetimeFollowsOldestUnacked(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		age     time.Duration
+		want    time.Duration
+		publish bool
+		refused bool
+	}{
+		{name: "empty", want: 7 * 24 * time.Hour},
+		{name: "fresh", publish: true, want: 7 * 24 * time.Hour},
+		{name: "three days", publish: true, age: 3 * 24 * time.Hour, want: 4 * 24 * time.Hour},
+		{name: "too old", publish: true, age: 7*24*time.Hour - 30*time.Minute, refused: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b, sub := newBK(t, func(s *pubsubpb.Subscription) {
+				s.MessageRetentionDuration = durationpb.New(30 * 24 * time.Hour)
+			})
+			if tt.publish {
+				b.publish(t)
+			}
+
+			b.clock.Advance(tt.age)
+
+			sn, err := b.CreateSnapshot(
+				&pubsubpb.CreateSnapshotRequest{Name: proj + "/snapshots/snap1", Subscription: sub},
+			)
+			if tt.refused {
+				assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, b.clock.now.Add(tt.want), sn.GetExpireTime().AsTime())
+		})
+	}
+}

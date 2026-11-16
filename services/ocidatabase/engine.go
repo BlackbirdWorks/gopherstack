@@ -155,6 +155,16 @@ func (b *InMemoryBackend) spawn(id, wrID string, s step) {
 
 		wr := b.workReqs[wrID]
 
+		if err != nil && errors.Is(err, ErrRolledBack) {
+			b.settle(db, s.target)
+
+			if wr != nil {
+				b.failWR(wr, "OperationFailed", err.Error())
+			}
+
+			return
+		}
+
 		if err != nil {
 			db.State, db.Target, db.Etag = stateUnavailable, "", newEtag()
 			db.Details = "Operation failed: " + err.Error()

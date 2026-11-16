@@ -22,3 +22,7 @@ func errInvalid(format string, a ...any) error {
 func errPrecondition(format string, a ...any) error {
 	return status.Error(codes.FailedPrecondition, fmt.Sprintf(format, a...))
 }
+
+func errExhausted(format string, a ...any) error {
+	return status.Error(codes.ResourceExhausted, fmt.Sprintf(format, a...))
+}

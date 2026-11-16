@@ -44,6 +44,7 @@ type InMemoryBackend struct {
 	Auth          *ociauth.Registry
 	retry         *ociretry.Store
 	tagLookup     ocitags.Lookup
+	within        func(id, ancestor string) bool
 	transition    time.Duration
 	seq           int64
 }
@@ -62,6 +63,46 @@ func (b *InMemoryBackend) resetMaps() {
 	b.workReqs, b.entries = map[string]*WorkRequest{}, map[string][]*Entry{}
 	b.savedSearches = map[string]*SavedSearch{}
 	b.retry = ociretry.New()
+}
+
+// SetCompartmentTree wires isCompartmentIdInSubtree matching against the compartment hierarchy (OCI Identity).
+func (b *InMemoryBackend) SetCompartmentTree(within func(id, ancestor string) bool) {
+	b.mu.Lock("SetCompartmentTree")
+	b.within = within
+	b.mu.Unlock()
+}
+
+// compartmentFilter returns the predicate behind a compartmentId filter. With subtree set it asks the compartment tree
+// about every stored compartment before the caller takes the write lock, so no foreign lock is taken under b.mu.
+func (b *InMemoryBackend) compartmentFilter(want string, subtree bool) func(have string) bool {
+	if !subtree {
+		return func(have string) bool { return have == want }
+	}
+
+	b.mu.RLock("compartmentFilter")
+
+	within := b.within
+	seen := map[string]struct{}{}
+
+	for _, g := range b.groups {
+		seen[g.CompartmentID] = struct{}{}
+	}
+
+	for _, a := range b.agents {
+		seen[a.CompartmentID] = struct{}{}
+	}
+
+	b.mu.RUnlock()
+
+	nested := map[string]bool{}
+
+	if within != nil {
+		for id := range seen {
+			nested[id] = id != want && within(id, want)
+		}
+	}
+
+	return func(have string) bool { return have == want || nested[have] }
 }
 
 // SetTagLookup wires defined-tag validation against a tag namespace source (OCI Identity); nil accepts any namespace.

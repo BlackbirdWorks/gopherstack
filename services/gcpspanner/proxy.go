@@ -6,7 +6,9 @@ import (
 	"io"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/dynamicpb"
@@ -72,7 +74,7 @@ func (p *proxy) unary(md protoreflect.MethodDescriptor, full string) grpc.Method
 
 		out := dynamicpb.NewMessage(md.Output())
 		if err = cc.Invoke(forwardCtx(ctx), full, in, out); err != nil {
-			return nil, err //nolint:wrapcheck // emulator status passes through
+			return nil, explainUnimplemented(full, err)
 		}
 
 		return out, nil
@@ -93,7 +95,7 @@ func (p *proxy) stream(md protoreflect.MethodDescriptor, full string) grpc.Strea
 
 		cs, err := cc.NewStream(forwardCtx(ss.Context()), &grpc.StreamDesc{ServerStreams: true}, full)
 		if err != nil {
-			return err //nolint:wrapcheck // emulator status passes through
+			return explainUnimplemented(full, err)
 		}
 
 		if err = cs.SendMsg(in); err != nil {
@@ -104,11 +106,11 @@ func (p *proxy) stream(md protoreflect.MethodDescriptor, full string) grpc.Strea
 			return err //nolint:wrapcheck // emulator status passes through
 		}
 
-		return relay(ss, cs, md.Output())
+		return relay(ss, cs, md.Output(), full)
 	}
 }
 
-func relay(dst grpc.ServerStream, src grpc.ClientStream, out protoreflect.MessageDescriptor) error {
+func relay(dst grpc.ServerStream, src grpc.ClientStream, out protoreflect.MessageDescriptor, full string) error {
 	for {
 		msg := dynamicpb.NewMessage(out)
 
@@ -118,11 +120,21 @@ func relay(dst grpc.ServerStream, src grpc.ClientStream, out protoreflect.Messag
 		}
 
 		if err != nil {
-			return err //nolint:wrapcheck // emulator status passes through
+			return explainUnimplemented(full, err)
 		}
 
 		if err = dst.SendMsg(msg); err != nil {
 			return err //nolint:wrapcheck // transport status
 		}
 	}
+}
+
+// explainUnimplemented gives the emulator's message-less UNIMPLEMENTED a reason; other errors pass through.
+func explainUnimplemented(method string, err error) error {
+	st, ok := status.FromError(err)
+	if !ok || st.Code() != codes.Unimplemented || st.Message() != "" {
+		return err //nolint:wrapcheck // emulator status passes through
+	}
+
+	return status.Errorf(codes.Unimplemented, "The Cloud Spanner emulator does not implement %s.", method)
 }

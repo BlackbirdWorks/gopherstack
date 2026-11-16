@@ -2,7 +2,11 @@ package ociartifacts_test
 
 import (
 	"encoding/json/v2"
+	"io/fs"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -906,4 +910,40 @@ func TestCustomNamespace(t *testing.T) {
 
 	// The default namespace no longer logs in.
 	assert.Equal(t, http.StatusUnauthorized, e.registry(t).Do(http.MethodGet, "/v2/", nil, nil).Status)
+}
+
+func TestPullCountSkipsRejectedPulls(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	e := newEnv(t, envOpts{dataDir: dir})
+	e.createRepo(t, "lost", nil)
+
+	c := e.registry(t)
+	name := testNamespace + "/lost"
+	img := c.PushImage(name, "v1")
+
+	var removed int
+
+	require.NoError(t, filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && strings.Contains(p, "manifests") {
+			removed++
+
+			return os.Remove(p)
+		}
+
+		return err
+	}))
+	require.Positive(t, removed)
+
+	got := c.Do(http.MethodGet, "/v2/"+name+"/manifests/"+ocitest.Digest(img.Body), nil, nil)
+	require.NotEqual(t, http.StatusOK, got.Status)
+
+	images := e.listImages(t, nil)
+	require.Len(t, images, 1)
+
+	full, err := e.client.GetContainerImage(t.Context(), artifacts.GetContainerImageRequest{ImageId: images[0].Id})
+	require.NoError(t, err)
+	assert.Zero(t, *full.PullCount)
+	assert.Nil(t, full.TimeLastPulled)
 }

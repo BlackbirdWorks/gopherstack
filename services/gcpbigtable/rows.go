@@ -43,6 +43,7 @@ func (t *tableRec) row(key string) *rowRec {
 		r = &rowRec{fams: make(map[string]family)}
 		t.rows[key] = r
 		t.dirty = true
+		t.keyGen++
 	}
 
 	return r
@@ -53,6 +54,7 @@ func (t *tableRec) delRow(key string) {
 		delete(t.rows, key)
 
 		t.dirty = true
+		t.keyGen++
 	}
 }
 

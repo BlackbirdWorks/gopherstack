@@ -13,6 +13,8 @@ type Observer struct {
 	Put func(repo, ref, digest string)
 	// Delete runs after a manifest or tag is deleted (202).
 	Delete func(repo, ref string)
+	// Pulled runs after a manifest GET is answered 200.
+	Pulled func(repo, ref string)
 }
 
 type capture struct {
@@ -76,5 +78,7 @@ func ServeObserved(app http.Handler, w http.ResponseWriter, r *http.Request, obs
 		obs.Put(repo, ref, cw.Header().Get("Docker-Content-Digest"))
 	case r.Method == http.MethodDelete && cw.status == http.StatusAccepted && obs.Delete != nil:
 		obs.Delete(repo, ref)
+	case r.Method == http.MethodGet && (cw.status == http.StatusOK || cw.status == 0) && obs.Pulled != nil:
+		obs.Pulled(repo, ref)
 	}
 }

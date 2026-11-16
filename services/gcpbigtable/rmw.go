@@ -77,7 +77,7 @@ func stageRules(
 
 	for _, rule := range rules {
 		fam, q := rule.GetFamilyName(), string(rule.GetColumnQualifier())
-		if err := t.checkFamily(fam); err != nil {
+		if err := t.checkPlainFamily(fam); err != nil {
 			return nil, err
 		}
 

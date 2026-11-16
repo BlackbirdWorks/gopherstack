@@ -51,6 +51,8 @@ func errInvalidatedToken() *APIError {
 		"The retry token was used by an earlier request whose resource has since been deleted")
 }
 
+func errLimit(msg string) *APIError { return newErr(http.StatusBadRequest, "LimitExceeded", msg) }
+
 func errAuth(msg string) *APIError { return newErr(http.StatusUnauthorized, "NotAuthenticated", msg) }
 
 func errTooLarge() *APIError {

@@ -72,6 +72,10 @@ func (b *InMemoryBackend) CreateView(req *loggingpb.CreateViewRequest) (*logging
 		return nil, errExists("View %s already exists.", name)
 	}
 
+	if err := b.checkViewCountLocked(req.GetParent()); err != nil {
+		return nil, err
+	}
+
 	now := timestamppb.New(b.now())
 	v := cloneView(in)
 	v.Name, v.CreateTime, v.UpdateTime = name, now, now

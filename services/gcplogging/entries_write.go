@@ -143,6 +143,10 @@ func mergeLabels(e *loggingpb.LogEntry, defaults map[string]string) error {
 
 // WriteLogEntries stores entries, routes them through sinks, updates log-based metrics and feeds tails.
 func (b *InMemoryBackend) WriteLogEntries(ctx context.Context, req *loggingpb.WriteLogEntriesRequest) error {
+	if err := checkWriteRequest(req, proto.Size(req)); err != nil {
+		return err
+	}
+
 	in := req.GetEntries()
 	if len(in) > maxEntriesPerWrite {
 		return errInvalid("Too many log entries: %d, the maximum is %d per request.", len(in), maxEntriesPerWrite)

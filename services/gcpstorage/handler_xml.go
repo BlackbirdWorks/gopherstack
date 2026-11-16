@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"net/http"
-	"strings"
 
 	"github.com/labstack/echo/v5"
 )
@@ -39,7 +38,7 @@ func serveObject(c *echo.Context, o *Object) {
 			hdr.Set("ETag", `"`+hex.EncodeToString(raw)+`"`)
 		}
 	} else {
-		hdr.Set("ETag", `"`+objectETag(o)+`"`)
+		hdr.Set("ETag", xmlETag(o))
 	}
 
 	if o.CRC32C != "" {
@@ -76,7 +75,10 @@ func (h *Handler) xmlGetObject(c *echo.Context, rt route) error {
 		return apiErr
 	}
 
-	pre := xmlPreconds(c.Request().Header)
+	pre, apiErr := xmlPreconds(c.Request().Header)
+	if apiErr != nil {
+		return apiErr
+	}
 
 	o, err := h.Backend.GetObject(rt.bucket, rt.object, gen, pre)
 	if err != nil {
@@ -88,64 +90,55 @@ func (h *Handler) xmlGetObject(c *echo.Context, rt route) error {
 		return apiErr
 	}
 
+	if c.Request().Method != http.MethodHead {
+		h.Backend.NoteRead(rt.bucket, rt.object, gen)
+	}
+
 	serveObject(c, o)
 
 	return nil
 }
 
-func xmlPreconds(hdr http.Header) Preconds {
+func xmlPreconds(hdr http.Header) (Preconds, *APIError) {
 	var pre Preconds
 
 	for key, dst := range map[string]**int64{
 		"X-Goog-If-Generation-Match":     &pre.GenMatch,
 		"X-Goog-If-Metageneration-Match": &pre.MetaMatch,
 	} {
-		if v := hdr.Get(key); v != "" {
-			_ = parseOptInt(map[string][]string{"v": {v}}, "v", dst)
+		if apiErr := parseOptInt(map[string][]string{key: {hdr.Get(key)}}, key, dst); apiErr != nil {
+			return Preconds{}, apiErr
 		}
 	}
 
-	return pre
+	return pre, nil
 }
 
 func (h *Handler) xmlPutObject(c *echo.Context, rt route) error {
 	r := c.Request()
+
+	if r.Header.Get(copySourceHeader) != "" {
+		return h.xmlCopyObject(c, rt)
+	}
 
 	data, err := readBody(c)
 	if err != nil {
 		return err
 	}
 
-	meta := Patch{}
-
-	for k, v := range map[string]string{
-		keyContentType: r.Header.Get("Content-Type"), keyContentEncoding: r.Header.Get("Content-Encoding"),
-		keyCacheControl: r.Header.Get("Cache-Control"), keyContentDisposition: r.Header.Get("Content-Disposition"),
-		keyContentLanguage: r.Header.Get("Content-Language"), keyStorageClass: r.Header.Get("X-Goog-Storage-Class"),
-	} {
-		if v != "" {
-			meta[k] = marshalRaw(v)
-		}
-	}
-
-	custom := map[string]string{}
-
-	for k, v := range r.Header {
-		if len(v) > 0 && strings.HasPrefix(k, metaHeaderPrefix) {
-			custom[strings.ToLower(k[len(metaHeaderPrefix):])] = v[0]
-		}
-	}
-
-	if len(custom) > 0 {
-		meta[keyMetadata] = marshalRaw(custom)
-	}
+	meta := xmlObjectMeta(r)
 
 	meta, apiErr := withUploadKey(r, meta)
 	if apiErr != nil {
 		return apiErr
 	}
 
-	o, err := h.Backend.PutObject(rt.bucket, rt.object, data, meta, xmlPreconds(r.Header))
+	pre, apiErr := xmlPreconds(r.Header)
+	if apiErr != nil {
+		return apiErr
+	}
+
+	o, err := h.Backend.PutObject(rt.bucket, rt.object, data, meta, pre)
 	if err != nil {
 		return err
 	}
@@ -171,7 +164,12 @@ func (h *Handler) xmlDeleteObject(c *echo.Context, rt route) error {
 		return apiErr
 	}
 
-	if err := h.Backend.DeleteObject(rt.bucket, rt.object, gen, xmlPreconds(c.Request().Header)); err != nil {
+	pre, apiErr := xmlPreconds(c.Request().Header)
+	if apiErr != nil {
+		return apiErr
+	}
+
+	if err := h.Backend.DeleteObject(rt.bucket, rt.object, gen, pre); err != nil {
 		return err
 	}
 

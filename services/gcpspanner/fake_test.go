@@ -19,12 +19,20 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // fakeEmulator records what the backend forwards, standing in for the Cloud Spanner emulator.
 type fakeEmulator struct {
 	instances map[string]bool
 	ddl       map[string][]string
+	backups   map[string]*databasepb.Backup
+	tables    map[string][]fakeTable
+	commits   []fakeCommit
+	requires  map[string]string
+	failing   map[string]codes.Code
+	deleted   []string
+	sqls      []string
 	headers   []string
 	dropped   []string
 	mu        sync.Mutex
@@ -33,7 +41,11 @@ type fakeEmulator struct {
 func newFakeEmulator(t *testing.T) (*fakeEmulator, string) {
 	t.Helper()
 
-	f := &fakeEmulator{instances: map[string]bool{}, ddl: map[string][]string{}}
+	f := &fakeEmulator{
+		instances: map[string]bool{},
+		ddl:       map[string][]string{},
+		backups:   map[string]*databasepb.Backup{},
+	}
 	srv := grpc.NewServer()
 	instancepb.RegisterInstanceAdminServer(srv, fakeInst{f: f})
 	databasepb.RegisterDatabaseAdminServer(srv, fakeDB{f: f})
@@ -207,4 +219,244 @@ func (f *fakeEmulator) snapshot() (map[string]bool, map[string][]string) {
 	}
 
 	return inst, ddl
+}
+
+func (s fakeDB) RestoreDatabase(
+	_ context.Context, in *databasepb.RestoreDatabaseRequest,
+) (*longrunningpb.Operation, error) {
+	s.f.mu.Lock()
+	defer s.f.mu.Unlock()
+
+	bk, ok := s.f.backups[in.GetBackup()]
+	if !ok {
+		return nil, status.Error(codes.NotFound, "backup not found")
+	}
+
+	name := in.GetParent() + "/databases/" + in.GetDatabaseId()
+	s.f.ddl[name] = append([]string(nil), s.f.ddl[bk.GetDatabase()]...)
+
+	return doneOp(name + "/operations/restore"), nil
+}
+
+func (s fakeDB) GetBackup(_ context.Context, in *databasepb.GetBackupRequest) (*databasepb.Backup, error) {
+	s.f.mu.Lock()
+	defer s.f.mu.Unlock()
+
+	bk, ok := s.f.backups[in.GetName()]
+	if !ok {
+		return nil, status.Error(codes.NotFound, "backup not found")
+	}
+
+	return bk, nil
+}
+
+func (s fakeDB) GetDatabase(_ context.Context, in *databasepb.GetDatabaseRequest) (*databasepb.Database, error) {
+	return &databasepb.Database{
+		Name:            in.GetName(),
+		DatabaseDialect: databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
+	}, nil
+}
+
+func (s fakeDB) ListBackups(
+	_ context.Context,
+	in *databasepb.ListBackupsRequest,
+) (*databasepb.ListBackupsResponse, error) {
+	s.f.mu.Lock()
+	defer s.f.mu.Unlock()
+
+	var out []*databasepb.Backup
+
+	for n, bk := range s.f.backups {
+		if strings.HasPrefix(n, in.GetParent()+"/backups/") {
+			out = append(out, bk)
+		}
+	}
+
+	return &databasepb.ListBackupsResponse{Backups: out}, nil
+}
+
+func (f *fakeEmulator) addBackup(name, db string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.backups[name] = &databasepb.Backup{Name: name, Database: db, VersionTime: timestamppb.Now()}
+}
+
+type fakeTable struct {
+	name, parent string
+	columns      []string
+	rows         [][]*structpb.Value
+}
+
+type fakeCommit struct {
+	db, table string
+	columns   []string
+	rows      [][]string
+}
+
+func (f *fakeEmulator) seed(db string, tables ...fakeTable) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.tables == nil {
+		f.tables = map[string][]fakeTable{}
+	}
+
+	f.tables[db] = tables
+}
+
+func (f *fakeEmulator) committed() []fakeCommit {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return append([]fakeCommit(nil), f.commits...)
+}
+
+func dbOfSession(s string) string {
+	db, _, _ := strings.Cut(s, "/sessions/")
+
+	return db
+}
+
+func strRow(vals ...string) *structpb.ListValue {
+	lv := &structpb.ListValue{}
+	for _, v := range vals {
+		lv.Values = append(lv.Values, structpb.NewStringValue(v))
+	}
+
+	return lv
+}
+
+func (s fakeSpanner) BeginTransaction(
+	_ context.Context,
+	_ *spannerpb.BeginTransactionRequest,
+) (*spannerpb.Transaction, error) {
+	return &spannerpb.Transaction{Id: []byte("tx")}, nil
+}
+
+func (s fakeSpanner) DeleteSession(_ context.Context, _ *spannerpb.DeleteSessionRequest) (*emptypb.Empty, error) {
+	return &emptypb.Empty{}, nil
+}
+
+func (s fakeSpanner) ExecuteSql( //nolint:revive,staticcheck // gRPC method name
+	_ context.Context, in *spannerpb.ExecuteSqlRequest) (*spannerpb.ResultSet, error) {
+	s.f.mu.Lock()
+	defer s.f.mu.Unlock()
+
+	rs := &spannerpb.ResultSet{}
+	sql := strings.ToUpper(in.GetSql())
+	s.f.sqls = append(s.f.sqls, in.GetSql())
+
+	for _, t := range s.f.tables[dbOfSession(in.GetSession())] {
+		switch {
+		case strings.Contains(sql, "INFORMATION_SCHEMA.TABLES"):
+			rs.Rows = append(rs.Rows, strRow(t.name, t.parent))
+		case strings.Contains(sql, "INFORMATION_SCHEMA.COLUMNS"):
+			for _, c := range t.columns {
+				rs.Rows = append(rs.Rows, strRow(t.name, c))
+			}
+		}
+	}
+
+	return rs, nil
+}
+
+func (s fakeSpanner) Read(_ context.Context, in *spannerpb.ReadRequest) (*spannerpb.ResultSet, error) {
+	s.f.mu.Lock()
+	defer s.f.mu.Unlock()
+
+	rs := &spannerpb.ResultSet{}
+
+	for _, t := range s.f.tables[dbOfSession(in.GetSession())] {
+		if t.name == in.GetTable() {
+			for _, r := range t.rows {
+				rs.Rows = append(rs.Rows, &structpb.ListValue{Values: r})
+			}
+		}
+	}
+
+	return rs, nil
+}
+
+func (s fakeSpanner) Commit(_ context.Context, in *spannerpb.CommitRequest) (*spannerpb.CommitResponse, error) {
+	s.f.mu.Lock()
+	defer s.f.mu.Unlock()
+
+	for _, m := range in.GetMutations() {
+		if d := m.GetDelete(); d != nil {
+			s.f.deleted = append(s.f.deleted, d.GetTable())
+
+			continue
+		}
+
+		w := m.GetInsertOrUpdate()
+		if code, bad := s.f.failing[w.GetTable()]; bad {
+			return nil, status.Error(code, "injected")
+		}
+
+		if need, ok := s.f.requires[w.GetTable()]; ok && !s.f.committedLocked(need) {
+			return nil, status.Error(codes.FailedPrecondition, "referenced key missing in "+need)
+		}
+
+		c := fakeCommit{db: dbOfSession(in.GetSession()), table: w.GetTable(), columns: w.GetColumns()}
+
+		for _, r := range w.GetValues() {
+			row := make([]string, len(r.GetValues()))
+			for i, v := range r.GetValues() {
+				row[i] = v.GetStringValue()
+			}
+
+			c.rows = append(c.rows, row)
+		}
+
+		s.f.commits = append(s.f.commits, c)
+	}
+
+	return &spannerpb.CommitResponse{}, nil
+}
+
+func (f *fakeEmulator) queries() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return append([]string(nil), f.sqls...)
+}
+
+func (f *fakeEmulator) committedLocked(table string) bool {
+	for _, c := range f.commits {
+		if c.table == table {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (f *fakeEmulator) require(table, other string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.requires == nil {
+		f.requires = map[string]string{}
+	}
+
+	f.requires[table] = other
+}
+
+func (f *fakeEmulator) failCommits(table string, code codes.Code) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.failing == nil {
+		f.failing = map[string]codes.Code{}
+	}
+
+	f.failing[table] = code
+}
+
+func (f *fakeEmulator) deletedTables() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return append([]string(nil), f.deleted...)
 }

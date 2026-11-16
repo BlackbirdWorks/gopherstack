@@ -199,6 +199,10 @@ func (b *InMemoryBackend) CreateSubscription(in *pubsubpb.Subscription) (*pubsub
 		return nil, errNotFound("topics", sub.GetTopic())
 	}
 
+	if p := projectOf(sub.GetName()); countPrefix(b.subs, "projects/"+p+"/") >= b.limits.subs {
+		return nil, errLimit("subscriptions", p, b.limits.subs)
+	}
+
 	if err = b.validateSubLocked(sub); err != nil {
 		return nil, err
 	}
@@ -372,13 +376,30 @@ func (b *InMemoryBackend) CreateSnapshot(req *pubsubpb.CreateSnapshotRequest) (*
 		return nil, errPrecondition("the subscription's topic has been deleted")
 	}
 
+	if p := projectOf(req.GetName()); countPrefix(b.snaps, "projects/"+p+"/") >= b.limits.snapshots {
+		return nil, errLimit("snapshots", p, b.limits.snapshots)
+	}
+
 	now := b.now()
 	unacked := make(map[string]struct{})
+	oldest := now
 
 	for _, m := range s.msgs {
 		if !m.Acked {
 			unacked[m.Msg.ID] = struct{}{}
+
+			if m.Msg.PublishTime.Before(oldest) {
+				oldest = m.Msg.PublishTime
+			}
 		}
+	}
+
+	expire := now.Add(snapshotLifetime - now.Sub(oldest))
+	if expire.Sub(now) < minSnapshotLifetime {
+		return nil, errPrecondition(
+			"the snapshot would expire in less than %s: the oldest unacknowledged message is too old",
+			minSnapshotLifetime,
+		)
 	}
 
 	sn := &snapshot{
@@ -388,7 +409,7 @@ func (b *InMemoryBackend) CreateSnapshot(req *pubsubpb.CreateSnapshotRequest) (*
 			Name:       req.GetName(),
 			Topic:      s.pb.GetTopic(),
 			Labels:     req.GetLabels(),
-			ExpireTime: timestamppb.New(now.Add(snapshotLifetime)),
+			ExpireTime: timestamppb.New(expire),
 		},
 	}
 	b.dropPolicyLocked(req.GetName())

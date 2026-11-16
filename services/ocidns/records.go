@@ -9,8 +9,10 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/miekg/dns"
+	"golang.org/x/net/idna"
 )
 
 const (
@@ -128,6 +130,34 @@ func normName(s string, wildcardOK bool) (string, bool) {
 	return s, true
 }
 
+// normZoneName is normName for zone names: Unicode labels become punycode (SDK CreateZoneDetails.Name).
+func normZoneName(s string) (string, bool) {
+	if len(s) > maxDomainLen*utf8.UTFMax {
+		return "", false
+	}
+
+	if !isASCII(s) {
+		ascii, err := idna.Lookup.ToASCII(strings.TrimSuffix(strings.TrimSpace(s), "."))
+		if err != nil {
+			return "", false
+		}
+
+		s = ascii
+	}
+
+	return normName(s, false)
+}
+
+func isASCII(s string) bool {
+	for i := range len(s) {
+		if s[i] >= utf8.RuneSelf {
+			return false
+		}
+	}
+
+	return true
+}
+
 func inZone(zone, domain string) bool { return domain == zone || strings.HasSuffix(domain, "."+zone) }
 
 func (b *InMemoryBackend) nameservers(z *Zone) []string {
@@ -205,8 +235,15 @@ type RecordFilter struct {
 }
 
 func (b *InMemoryBackend) filterRecords(z *Zone, f RecordFilter) ([]recordWire, *APIError) {
-	if f.ZoneVersion != "" && f.ZoneVersion != strconv.FormatInt(z.Version, 10) {
-		return nil, errNotFound("zone version " + f.ZoneVersion)
+	if f.ZoneVersion != "" {
+		v, perr := strconv.ParseInt(f.ZoneVersion, 10, 64)
+		if perr != nil {
+			return nil, errNotFound("zone version " + f.ZoneVersion)
+		}
+
+		if z = z.at(v); z == nil {
+			return nil, errNotFound("zone version " + f.ZoneVersion)
+		}
 	}
 
 	domain := ""
@@ -536,6 +573,7 @@ func (b *InMemoryBackend) commit(z *Zone, next map[string]*RRSet) {
 		return
 	}
 
+	z.archive()
 	z.Version++
 
 	for k, rs := range next {

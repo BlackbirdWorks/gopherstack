@@ -37,6 +37,11 @@ const (
 	secretBytes      = 32
 	registryDirName  = "ociartifacts"
 	sortByName       = "DISPLAYNAME"
+
+	// Registry limits per region (docs.oracle.com Registry/Concepts/registryoverview.htm).
+	defaultMaxRepos  = 500
+	defaultMaxImages = 100_000
+	defaultMaxBytes  = int64(500) << 30
 )
 
 // InMemoryBackend holds every resource under one lock; image blobs live in an embedded registry.
@@ -45,6 +50,7 @@ type InMemoryBackend struct {
 	Auth         *ociauth.Registry
 	compartment  func(string) bool
 	within       func(id, ancestor string) bool
+	verifyToken  func(user, token string) (string, bool)
 	mu           *lockmetrics.RWMutex
 	now          func() time.Time
 	raw          http.Handler
@@ -62,6 +68,9 @@ type InMemoryBackend struct {
 	configEtag   string
 	secret       []byte
 	seq          int64
+	maxRepos     int
+	maxImages    int
+	maxBytes     int64
 	createOnPush bool
 }
 
@@ -73,6 +82,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{
 		ctx: context.Background(), mu: lockmetrics.New("ociartifacts"), now: time.Now, Auth: ociauth.NewRegistry(),
 		namespace: DefaultNamespace, tenancy: DefaultTenancy, secret: secret, createOnPush: true,
+		maxRepos: defaultMaxRepos, maxImages: defaultMaxImages, maxBytes: defaultMaxBytes,
 		configEtag: newEtag(),
 	}
 	b.initMaps()
@@ -152,6 +162,21 @@ func (b *InMemoryBackend) SetCompartmentChecker(fn func(string) bool) {
 func (b *InMemoryBackend) SetCompartmentTree(fn func(id, ancestor string) bool) {
 	b.mu.Lock("SetCompartmentTree")
 	b.within = fn
+	b.mu.Unlock()
+}
+
+// SetLoginVerifier checks registry logins against OCI Identity auth tokens; it returns the user's OCID. Nil
+// accepts any non-empty token.
+func (b *InMemoryBackend) SetLoginVerifier(fn func(user, token string) (string, bool)) {
+	b.mu.Lock("SetLoginVerifier")
+	b.verifyToken = fn
+	b.mu.Unlock()
+}
+
+// SetLimits overrides the per-region repository count, per-repository image count and total stored bytes.
+func (b *InMemoryBackend) SetLimits(repos, images int, bytes int64) {
+	b.mu.Lock("SetLimits")
+	b.maxRepos, b.maxImages, b.maxBytes = repos, images, bytes
 	b.mu.Unlock()
 }
 

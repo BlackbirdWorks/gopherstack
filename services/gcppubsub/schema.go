@@ -64,6 +64,10 @@ func validateDefinition(typ pubsubpb.Schema_Type, def string) error {
 		return errInvalid("schema definition must not be empty")
 	}
 
+	if len(def) > maxSchemaDefBytes {
+		return errInvalid("schema definition exceeds %d bytes", maxSchemaDefBytes)
+	}
+
 	switch typ {
 	case pubsubpb.Schema_AVRO:
 		if _, err := parseAvroSchema(def); err != nil {
@@ -242,6 +246,10 @@ func (b *InMemoryBackend) CreateSchema(req *pubsubpb.CreateSchemaRequest) (*pubs
 		return nil, errExists("schema", name)
 	}
 
+	if countPrefix(b.schemas, req.GetParent()+"/") >= b.limits.schemas {
+		return nil, errLimit("schemas", req.GetParent(), b.limits.schemas)
+	}
+
 	rev := schemaRevision{ID: awsid.NewN("", revisionIDLen), Definition: in.GetDefinition(), Created: b.now()}
 	rec := &schemaRec{Name: name, Type: int32(in.GetType()), Revisions: []schemaRevision{rev}}
 	b.dropPolicyLocked(name)
@@ -339,11 +347,15 @@ func (b *InMemoryBackend) ListSchemaRevisions(
 	return pg.Data, pg.Next, nil
 }
 
-func (b *InMemoryBackend) commitLocked(rec *schemaRec, def string) *pubsubpb.Schema {
+func (b *InMemoryBackend) commitLocked(rec *schemaRec, def string) (*pubsubpb.Schema, error) {
+	if len(rec.Revisions) >= maxSchemaRevisions {
+		return nil, errExhausted("schema %s has reached the limit of %d revisions", rec.Name, maxSchemaRevisions)
+	}
+
 	rev := schemaRevision{ID: awsid.NewN("", revisionIDLen), Definition: def, Created: b.now()}
 	rec.Revisions = append(rec.Revisions, rev)
 
-	return rec.view(rev, true)
+	return rec.view(rev, true), nil
 }
 
 // CommitSchema adds a revision to an existing schema.
@@ -369,7 +381,7 @@ func (b *InMemoryBackend) CommitSchema(req *pubsubpb.CommitSchemaRequest) (*pubs
 		return nil, err
 	}
 
-	return b.commitLocked(rec, in.GetDefinition()), nil
+	return b.commitLocked(rec, in.GetDefinition())
 }
 
 // RollbackSchema creates a new revision copying an earlier one.
@@ -391,7 +403,7 @@ func (b *InMemoryBackend) RollbackSchema(req *pubsubpb.RollbackSchemaRequest) (*
 		return nil, errNotFound("schema revisions", req.GetName()+"@"+req.GetRevisionId())
 	}
 
-	return b.commitLocked(rec, old.Definition), nil
+	return b.commitLocked(rec, old.Definition)
 }
 
 // DeleteSchemaRevision removes one revision; the last remaining revision cannot be deleted.

@@ -212,6 +212,7 @@ type repInt struct {
 	PhaseAt   *time.Time `json:"phaseAt,omitempty"`
 	Number    int        `json:"number"`
 	FinalPass bool       `json:"finalPass,omitempty"`
+	Copying   bool       `json:"-"`
 }
 
 // Replication is the stored and wire form of a replication.
@@ -276,6 +277,7 @@ type QuotaRule struct {
 	DisplayName   string    `json:"displayName"`
 	PrincipalType string    `json:"principalType"`
 	base
+	usage        int64
 	QuotaLimitGB int  `json:"quotaLimitInGigabytes"`
 	IsHardQuota  bool `json:"isHardQuota"`
 }

@@ -6,6 +6,7 @@ import (
 
 	"cloud.google.com/go/logging/apiv2/loggingpb"
 	"cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
+	"cloud.google.com/go/resourcemanager/apiv3/resourcemanagerpb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/genproto/googleapis/api/monitoredres"
@@ -14,6 +15,7 @@ import (
 	gcpbigquerybackend "github.com/blackbirdworks/gopherstack/services/gcpbigquery"
 	gcploggingbackend "github.com/blackbirdworks/gopherstack/services/gcplogging"
 	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
+	gcpresourcemanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpresourcemanager"
 	gcpstoragebackend "github.com/blackbirdworks/gopherstack/services/gcpstorage"
 )
 
@@ -143,4 +145,79 @@ func TestLogSinkToBigQuery(t *testing.T) {
 	res, err := f.bq.Backend.ListData("p", "logs", "app", gcpbigquerybackend.DataOptions{})
 	require.NoError(t, err)
 	assert.EqualValues(t, "2", res["totalRows"])
+}
+
+func TestLogSinkAggregatesProjectsInFolder(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		children bool
+		want     int
+	}{
+		{name: "include children", children: true, want: 1},
+		{name: "own logs only", want: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rm := gcpresourcemanagerbackend.NewHandler(gcpresourcemanagerbackend.NewInMemoryBackend())
+			f := &logSinkFixture{
+				logging: gcploggingbackend.NewHandler(gcploggingbackend.NewInMemoryBackend()),
+				pubsub:  gcppubsubbackend.NewHandler(gcppubsubbackend.NewInMemoryBackend()),
+			}
+			wireGCPLogging(map[string]service.Registerable{
+				"GCPLogging": f.logging, "GCPPubSub": f.pubsub, "GCPResourceManager": rm,
+			})
+
+			op, err := rm.Backend.CreateFolder(&resourcemanagerpb.CreateFolderRequest{
+				Folder: &resourcemanagerpb.Folder{Parent: "organizations/123456789012", DisplayName: "eng"},
+			})
+			require.NoError(t, err)
+
+			var folder resourcemanagerpb.Folder
+			require.NoError(t, op.GetResponse().UnmarshalTo(&folder))
+
+			_, err = rm.Backend.CreateProject(&resourcemanagerpb.CreateProjectRequest{
+				Project: &resourcemanagerpb.Project{
+					ProjectId:   "projectp",
+					DisplayName: "child project",
+					Parent:      folder.GetName(),
+				},
+			})
+			require.NoError(t, err)
+
+			topic := "projects/projectp/topics/agg"
+			_, err = f.pubsub.Backend.CreateTopic(&pubsubpb.Topic{Name: topic})
+			require.NoError(t, err)
+
+			_, err = f.pubsub.Backend.CreateSubscription(
+				&pubsubpb.Subscription{Name: "projects/projectp/subscriptions/aggsub", Topic: topic},
+			)
+			require.NoError(t, err)
+
+			_, err = f.logging.Backend.CreateSink(&loggingpb.CreateSinkRequest{
+				Parent: folder.GetName(), UniqueWriterIdentity: true,
+				Sink: &loggingpb.LogSink{
+					Name: "agg", Destination: "pubsub.googleapis.com/" + topic, IncludeChildren: tt.children,
+				},
+			})
+			require.NoError(t, err)
+
+			require.NoError(t, f.logging.Backend.WriteLogEntries(t.Context(), &loggingpb.WriteLogEntriesRequest{
+				LogName:  "projects/projectp/logs/app",
+				Resource: &monitoredres.MonitoredResource{Type: "global"},
+				Entries:  []*loggingpb.LogEntry{{Payload: &loggingpb.LogEntry_TextPayload{TextPayload: "child"}}},
+			}))
+
+			resp, err := f.pubsub.SubscriberAPI().Pull(t.Context(), &pubsubpb.PullRequest{
+				Subscription: "projects/projectp/subscriptions/aggsub", MaxMessages: 5,
+				ReturnImmediately: true, //nolint:staticcheck // immediate pull
+			})
+			require.NoError(t, err)
+			assert.Len(t, resp.GetReceivedMessages(), tt.want)
+		})
+	}
 }

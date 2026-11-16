@@ -30,12 +30,12 @@ func (b *InMemoryBackend) CreateInstance(in *instancepb.CreateInstanceRequest) (
 		return nil, errInvalid("instance is required.")
 	}
 
-	pb, err := buildInstance(project, in.GetInstanceId(), in.GetInstance(), b.now())
+	pb, err := buildInstance(project, in.GetInstanceId(), in.GetInstance(), b.now(), b.lookupConfigName)
 	if err != nil {
 		return nil, err
 	}
 
-	if err = b.insertInstance(&instRec{pb: pb, dbs: make(map[string]*dbRec)}); err != nil {
+	if err = b.insertInstance(newInstRec(pb)); err != nil {
 		return nil, err
 	}
 
@@ -65,6 +65,10 @@ func (b *InMemoryBackend) snapshotInstance(name string, fallback *instancepb.Ins
 func (b *InMemoryBackend) insertInstance(rec *instRec) error {
 	b.mu.Lock("CreateInstance")
 	defer b.mu.Unlock()
+
+	if err := b.configGoneLocked(rec.pb.GetConfig()); err != nil {
+		return err
+	}
 
 	name := rec.pb.GetName()
 	if _, exists := b.instances[name]; exists {
@@ -228,20 +232,17 @@ func (b *InMemoryBackend) applyUpdate(
 		return nil, err
 	}
 
-	if maskHas(paths, "node_count") || maskHas(paths, "processing_units") {
-		if err := normalizeCapacity(
-			next,
-			maskHas(paths, "node_count"),
-			maskHas(paths, "processing_units"),
-		); err != nil {
-			return nil, err
-		}
-	}
+	cfg, _ := b.lookupConfigLocked(next.GetConfig())
 
-	if err := validateCommon(next); err != nil {
+	if err := b.applyCapacity(next, rec.pb, paths); err != nil {
 		return nil, err
 	}
 
+	if err := validateCommon(next, cfg); err != nil {
+		return nil, err
+	}
+
+	replicaCapacity(next, cfg)
 	next.UpdateTime = b.ts()
 	rec.pb = next
 
@@ -270,6 +271,7 @@ func (b *InMemoryBackend) DeleteInstance(name string) (*emptypb.Empty, error) {
 	}
 
 	delete(b.instances, name)
+	b.dropPendingData(name)
 	b.mu.Unlock()
 
 	b.emu.dropInstance(context.Background(), name)

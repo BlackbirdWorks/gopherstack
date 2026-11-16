@@ -18,16 +18,19 @@ import (
 
 // InMemoryBackend holds all topics, subscriptions, snapshots and schemas under one lock.
 type InMemoryBackend struct {
-	now       func() time.Time
-	mu        *lockmetrics.RWMutex
-	topics    map[string]*topic
-	subs      map[string]*subscription
-	snaps     map[string]*snapshot
-	schemas   map[string]*schemaRec
-	iam       *gcpiampolicy.Store
-	pushWake  chan struct{}
-	observers []PublishObserver
-	lastMsg   int64
+	now        func() time.Time
+	mu         *lockmetrics.RWMutex
+	topics     map[string]*topic
+	subs       map[string]*subscription
+	snaps      map[string]*snapshot
+	schemas    map[string]*schemaRec
+	iam        *gcpiampolicy.Store
+	pushWake   chan struct{}
+	saResolver ServiceAccountResolver
+	signer     *oidcSigner
+	observers  []PublishObserver
+	limits     resourceLimits
+	lastMsg    int64
 }
 
 // NewInMemoryBackend creates an empty backend.
@@ -36,6 +39,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 		mu:       lockmetrics.New("gcppubsub"),
 		now:      time.Now,
 		pushWake: make(chan struct{}, 1),
+		limits:   defaultResourceLimits(),
+		signer:   &oidcSigner{},
 	}
 	b.resetMaps()
 
@@ -172,6 +177,10 @@ func (b *InMemoryBackend) CreateTopic(in *pubsubpb.Topic) (*pubsubpb.Topic, erro
 
 	if _, ok := b.topics[in.GetName()]; ok {
 		return nil, errExists("topic", in.GetName())
+	}
+
+	if p := projectOf(in.GetName()); countPrefix(b.topics, "projects/"+p+"/") >= b.limits.topics {
+		return nil, errLimit("topics", p, b.limits.topics)
 	}
 
 	if err := b.checkSchemaSettingsLocked(in.GetSchemaSettings()); err != nil {

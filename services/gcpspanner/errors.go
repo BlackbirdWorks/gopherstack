@@ -38,3 +38,7 @@ func errDatabaseNotFound(name string) error { return errNotFound("Database not f
 func errUnimplemented(format string, a ...any) error {
 	return status.Error(codes.Unimplemented, fmt.Sprintf(format, a...))
 }
+
+func errEtag(name string) error {
+	return status.Error(codes.Aborted, "The etag of "+name+" does not match the current version.")
+}

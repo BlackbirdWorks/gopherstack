@@ -73,6 +73,12 @@ func TestSnapshotRestoreRoundTrip(t *testing.T) {
 		[]string{"www.persist.example A 300 192.0.2.1", "persist.example MX 60 10 mx.persist.example."},
 		userRecords(dst.records(t, "persist.example")))
 
+	earlier, err := dst.client.GetZoneRecords(t.Context(), ocidnssdk.GetZoneRecordsRequest{
+		ZoneNameOrId: new("persist.example"), ZoneVersion: new("1"),
+	})
+	require.NoError(t, err, "earlier zone versions survive a restore")
+	assert.Empty(t, userRecords(earlier.Items))
+
 	assert.Len(
 		t,
 		dst.query(t, "udp", "www.persist.example.", dns.TypeA).Answer,

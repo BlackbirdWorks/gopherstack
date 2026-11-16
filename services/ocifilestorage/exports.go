@@ -400,13 +400,15 @@ func (b *InMemoryBackend) DeleteExport(id, ifMatch string, override bool) error 
 
 // ExportMount describes one export served by a mount target.
 type ExportMount struct {
+	// Quotas returns the enforced quota rules of the file system; nil when quotas are not in force.
+	Quotas         func() []QuotaLimit
 	ExportID       string
 	Path           string
 	FileSystemID   string
 	Options        []clientOptions
-	ForceRO        bool
 	MaxFsStatBytes int64
 	MaxFsStatFiles int64
+	ForceRO        bool
 }
 
 // mountExports lists the live exports of a mount target for its NFS server.
@@ -434,7 +436,7 @@ func (b *InMemoryBackend) mountExports(mtID string) []ExportMount {
 		out = append(out, ExportMount{
 			MaxFsStatBytes: statBytes, MaxFsStatFiles: statFiles,
 			ExportID: x.W.ID, Path: x.W.Path, FileSystemID: x.W.FileSystemID, Options: slices.Clone(x.W.ExportOptions),
-			ForceRO: b.isReplicationTarget(x.W.FileSystemID),
+			ForceRO: b.isReplicationTarget(x.W.FileSystemID), Quotas: b.quotaSource(x.W.FileSystemID),
 		})
 	}
 

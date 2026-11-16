@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"slices"
 	"sort"
+	"time"
 
 	btpb "cloud.google.com/go/bigtable/apiv2/bigtablepb"
 )
@@ -177,27 +178,75 @@ func (b *InMemoryBackend) SampleRowKeys(req *btpb.SampleRowKeysRequest) ([]*btpb
 		return nil, err
 	}
 
-	keys := t.sortedKeys()
-	out := make([]*btpb.SampleRowKeysResponse, 0, len(t.splits)+1)
+	return b.cachedSamples(t), nil
+}
 
-	var offset int64
+// sampleTTL is how long the size-based samples of an unchanged key set are reused: the response is approximate by
+// definition, and a full scan per call would be quadratic for clients that poll it.
+const sampleTTL = 10 * time.Second
 
-	pos := 0
+type sampleCache struct {
+	at     time.Time
+	out    []*btpb.SampleRowKeysResponse
+	gen    uint64
+	splits int
+}
 
-	for _, split := range t.splits {
-		for pos < len(keys) && keys[pos] < split {
-			offset += t.rows[keys[pos]].size()
-			pos++
+func (b *InMemoryBackend) cachedSamples(t *tableRec) []*btpb.SampleRowKeysResponse {
+	now := b.now()
+
+	if c := t.samples; c != nil && c.gen == t.keyGen && c.splits == len(t.splits) && now.Sub(c.at) < sampleTTL &&
+		!now.Before(c.at) {
+		return cloneSamples(c.out)
+	}
+
+	out := sampleKeys(t)
+	t.samples = &sampleCache{at: now, out: out, gen: t.keyGen, splits: len(t.splits)}
+
+	return cloneSamples(out)
+}
+
+func cloneSamples(in []*btpb.SampleRowKeysResponse) []*btpb.SampleRowKeysResponse {
+	out := make([]*btpb.SampleRowKeysResponse, len(in))
+	for i, r := range in {
+		out[i] = clone(r)
+	}
+
+	return out
+}
+
+// sampleStride is how many bytes of row data lie between two size-based samples.
+const sampleStride = 1 << 20
+
+// sampleKeys lists the split points and, every sampleStride bytes of data, the key of the row that crosses the
+// stride, each with the cumulative bytes before it, followed by the end-of-table marker.
+func sampleKeys(t *tableRec) []*btpb.SampleRowKeysResponse {
+	var (
+		out    []*btpb.SampleRowKeysResponse
+		offset int64
+		next   int64 = sampleStride
+		split        = 0
+	)
+
+	for _, key := range t.sortedKeys() {
+		for split < len(t.splits) && t.splits[split] <= key {
+			out = append(out, &btpb.SampleRowKeysResponse{RowKey: []byte(t.splits[split]), OffsetBytes: offset})
+			split++
 		}
 
-		out = append(out, &btpb.SampleRowKeysResponse{RowKey: []byte(split), OffsetBytes: offset})
+		if offset >= next && (len(out) == 0 || string(out[len(out)-1].GetRowKey()) != key) {
+			out = append(out, &btpb.SampleRowKeysResponse{RowKey: []byte(key), OffsetBytes: offset})
+			next = offset + sampleStride
+		}
+
+		offset += t.rows[key].size()
 	}
 
-	for ; pos < len(keys); pos++ {
-		offset += t.rows[keys[pos]].size()
+	for ; split < len(t.splits); split++ {
+		out = append(out, &btpb.SampleRowKeysResponse{RowKey: []byte(t.splits[split]), OffsetBytes: offset})
 	}
 
-	return append(out, &btpb.SampleRowKeysResponse{OffsetBytes: offset}), nil
+	return append(out, &btpb.SampleRowKeysResponse{OffsetBytes: offset})
 }
 
 // PingAndWarm checks that the instance exists.

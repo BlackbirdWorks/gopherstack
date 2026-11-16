@@ -2,6 +2,7 @@ package app
 
 import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	gcpbigtablebackend "github.com/blackbirdworks/gopherstack/services/gcpbigtable"
 	gcpeventarcbackend "github.com/blackbirdworks/gopherstack/services/gcpeventarc"
 	gcpkmsbackend "github.com/blackbirdworks/gopherstack/services/gcpkms"
 	gcploggingbackend "github.com/blackbirdworks/gopherstack/services/gcplogging"
@@ -36,6 +37,10 @@ func wireGCPCMEK(byName map[string]service.Registerable) {
 	}
 
 	if h, found := byName["GCPRedis"].(*gcpredisbackend.Handler); found {
+		h.Backend.SetKeyChecker(kms.Backend)
+	}
+
+	if h, found := byName["GCPBigtable"].(*gcpbigtablebackend.Handler); found {
 		h.Backend.SetKeyChecker(kms.Backend)
 	}
 

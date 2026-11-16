@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // Delivery statuses.
@@ -79,10 +80,12 @@ type Delivery struct {
 }
 
 type job struct {
-	rec    *Delivery
-	ruleID string
-	action Action
-	body   []byte
+	rec         *Delivery
+	ruleID      string
+	compartment string
+	source      string
+	action      Action
+	body        []byte
 }
 
 func buildEnvelope(ev Event, id string) ([]byte, map[string]any, error) {
@@ -149,7 +152,18 @@ func (b *InMemoryBackend) Emit(ev Event) {
 
 	jobs, spawn := b.plan(ev, id, raw, generic)
 
+	b.mu.RLock("Emit")
+	sink := b.ruleSink
+	b.mu.RUnlock()
+
 	for _, j := range jobs {
+		if sink != nil {
+			notifyRuleSink(sink, RuleExecution{
+				Time: j.rec.Time, RuleID: j.ruleID, CompartmentID: j.compartment, EventID: id, Source: j.source,
+				Target: j.rec.TargetID,
+			})
+		}
+
 		spawn(func() { b.finish(j.rec, b.deliver(j)) })
 	}
 }
@@ -171,6 +185,17 @@ func (b *InMemoryBackend) clockNow() time.Time {
 	defer b.mu.RUnlock()
 
 	return b.nowUTC()
+}
+
+// notifyRuleSink hands x to the sink; a panicking sink must not stop the event from being delivered.
+func notifyRuleSink(sink func(RuleExecution), x RuleExecution) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Load(context.Background()).Warn("ocievents: rule execution sink panicked", "panic", r)
+		}
+	}()
+
+	sink(x)
 }
 
 func (b *InMemoryBackend) plan(ev Event, id string, raw []byte, generic map[string]any) ([]job, func(func())) {
@@ -199,7 +224,9 @@ func (b *InMemoryBackend) plan(ev Event, id string, raw []byte, generic map[stri
 				ActionType: a.ActionType, TargetID: targetOf(a), Status: deliveryPending,
 			}
 			b.deliveries = append(b.deliveries, rec)
-			jobs = append(jobs, job{rec: rec, action: *a, body: raw, ruleID: r.ID})
+			jobs = append(jobs, job{
+				rec: rec, action: *a, body: raw, ruleID: r.ID, compartment: r.CompartmentID, source: ev.Source,
+			})
 		}
 	}
 

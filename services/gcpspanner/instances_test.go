@@ -52,7 +52,7 @@ func TestInstance_CreateValidation(t *testing.T) {
 		}, "bad pu step", codes.InvalidArgument},
 		{func(r *instancepb.CreateInstanceRequest) {
 			r.Instance.AutoscalingConfig = &instancepb.AutoscalingConfig{}
-		}, "autoscaling", codes.Unimplemented},
+		}, "autoscaling empty", codes.InvalidArgument},
 		{func(*instancepb.CreateInstanceRequest) {}, "ok", codes.OK},
 	}
 

@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json/v2"
 	"net/http"
 	"slices"
@@ -28,6 +29,7 @@ const (
 	permitOK = iota
 	permitUnknown
 	permitTagExists
+	permitLimit
 )
 
 // repoAccess is what the registry front end needs to know about a repository.
@@ -142,8 +144,9 @@ func (b *InMemoryBackend) ParseToken(token string) (tokenClaims, bool) {
 	return c, b.now().Unix() < c.Exp
 }
 
-// ValidLogin accepts `<namespace>/<user>` with any non-empty auth token and returns the user part. Auth tokens
-// are not stored by OCI Identity, so there is nothing to compare the password with.
+// ValidLogin accepts `<namespace>/<user>` with an auth token. With OCI Identity linked the token must be a
+// current auth token of that user and the user's OCID is returned; unlinked, any non-empty token passes and
+// the user part is returned.
 func (b *InMemoryBackend) ValidLogin(username, password string) (string, bool) {
 	ns, user, ok := strings.Cut(username, "/")
 	if !ok || user == "" || password == "" {
@@ -151,9 +154,30 @@ func (b *InMemoryBackend) ValidLogin(username, password string) (string, bool) {
 	}
 
 	b.mu.RLock("ValidLogin")
-	defer b.mu.RUnlock()
+	verify, namespace := b.verifyToken, b.namespace
+	b.mu.RUnlock()
 
-	return user, strings.EqualFold(ns, b.namespace)
+	if !strings.EqualFold(ns, namespace) {
+		return "", false
+	}
+
+	if verify == nil {
+		return user, true
+	}
+
+	return verify(stripFederation(user), password)
+}
+
+const federationPrefix = "oracleidentitycloudservice/"
+
+// stripFederation drops the identity-provider segment of a federated login name
+// (`<namespace>/oracleidentitycloudservice/<user>`).
+func stripFederation(user string) string {
+	if len(user) > len(federationPrefix) && strings.EqualFold(user[:len(federationPrefix)], federationPrefix) {
+		return user[len(federationPrefix):]
+	}
+
+	return user
 }
 
 // SplitRegistryName strips the namespace from a registry repository name.
@@ -203,6 +227,10 @@ func (b *InMemoryBackend) EnsureRepo(display, user string) *APIError {
 		)
 	}
 
+	if err := b.repoLimit(); err != nil {
+		return err
+	}
+
 	b.newRepo(display, b.tenancy, user)
 
 	return nil
@@ -210,7 +238,7 @@ func (b *InMemoryBackend) EnsureRepo(display, user string) *APIError {
 
 // PermitManifest decides whether a manifest read, write or delete may proceed. digest is the digest of the body
 // being written, when known.
-func (b *InMemoryBackend) PermitManifest(display, ref, op, digest string, pull bool) int {
+func (b *InMemoryBackend) PermitManifest(display, ref, op, digest string, body []byte) int {
 	b.mu.Lock("PermitManifest")
 	defer b.mu.Unlock()
 
@@ -229,21 +257,77 @@ func (b *InMemoryBackend) PermitManifest(display, ref, op, digest string, pull b
 		if im.State == stateDeleted {
 			return permitUnknown
 		}
-
-		if pull {
-			now := b.nowUTC()
-			im.PullCount++
-			im.TimeLastPulled = &now
-		}
 	case ociregistry.OpWrite:
 		if r.IsImmutable && !ociregistry.IsDigest(ref) {
 			if im := b.anyImageByRef(r.ID, ref); im != nil && im.Digest != digest {
 				return permitTagExists
 			}
 		}
+
+		if !b.withinLimits(r, body) {
+			return permitLimit
+		}
 	}
 
 	return permitOK
+}
+
+func manifestSum(body []byte) string {
+	h := sha256.Sum256(body)
+
+	return "sha256:" + hex.EncodeToString(h[:])
+}
+
+// withinLimits reports whether storing the manifest body keeps the repository and region under their limits.
+func (b *InMemoryBackend) withinLimits(r *Repo, body []byte) bool {
+	var doc manifestDoc
+
+	_ = json.Unmarshal(body, &doc, jsonx.V1())
+
+	sum := manifestSum(body)
+	if im := b.imageByDigest(r.ID, sum); im != nil && im.State != stateDeleted {
+		return true
+	}
+
+	added := int64(len(body))
+	for _, l := range doc.Layers {
+		added += l.Size
+	}
+
+	var count int
+
+	var used int64
+
+	for _, im := range b.images {
+		if im.State == stateDeleted {
+			continue
+		}
+
+		used += im.LayersSize + int64(im.ManifestSize)
+
+		if im.RepoID == r.ID {
+			count++
+		}
+	}
+
+	return count < b.maxImages && used+added <= b.maxBytes
+}
+
+// RecordPull counts a manifest GET the registry answered with 200.
+func (b *InMemoryBackend) RecordPull(display, ref string) {
+	b.mu.Lock("RecordPull")
+	defer b.mu.Unlock()
+
+	r := b.repoByName(display)
+	if r == nil {
+		return
+	}
+
+	if im := b.anyImageByRef(r.ID, ref); im != nil && im.State != stateDeleted {
+		now := b.nowUTC()
+		im.PullCount++
+		im.TimeLastPulled = &now
+	}
 }
 
 func (b *InMemoryBackend) anyImageByRef(repoID, ref string) *Image {

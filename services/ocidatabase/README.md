@@ -9,19 +9,17 @@
 | --- | --- |
 | PARITY entries audited | 21 (16 ok, 5 partial) |
 | Feature families | 7 (3 ok, 4 partial) |
-| Known gaps | 7 |
+| Known gaps | 5 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- Not published (checked the database SDK comments in create_autonomous_database_base.go and create_autonomous_database_backup_details.go): the ECPU maximum of 512 and OCPU range 1 to 128 (the SDK says the maximum depends on the compute model and infrastructure), the long-term backup minimum of 90 days, work request operation types, the _tls profile names, the connectionUrls hosts, the apexDetails versions, and OCID prefixes (all emulator choices)
-- cwallet.sso, keystore.jks and truststore.jks are not in the wallet zip; ewallet.p12 is encrypted with the modern PKCS#12 scheme, which very old Oracle clients may not read.
-- Backups and restore are lifecycle only: no data is copied, so restore never changes a database, with or without the docker engine.
-- Not routed: clones, refreshable clones, Data Guard, disaster recovery, key rotation and Vault keys, secretId, Data Safe, Operations Insights, Database Management, maintenance windows, resource pools, scheduled operations, regional wallets, character set listing, shrink, upgrade and the Exadata, container database and software image families. opc-dry-run is ignored.
-- Docker engine: every consumer group maps to the single FREEPDB1 service, the database is Oracle Database Free (no Autonomous features, ORDS, APEX or Mongo API behind connectionUrls), workload, compute and storage settings do not size the container, and dbName rename does not change the service name. Containers and TLS material do not survive an emulator restart.
+- cwallet.sso, keystore.jks and truststore.jks are not in the wallet zip. cwallet.sso is Oracle's auto-login wallet format with no published specification and no library in go.mod; JKS files could be written from the OpenJDK format description but there is no JDK or keytool on the host to check them against and installing a reference reader was refused, so they are not shipped unverified. ewallet.p12 uses the modern PKCS#12 scheme, which very old Oracle clients may not read.
+- Not routed: Data Guard and disaster recovery (FailOver, Switchover, peers, dataguard associations) need a second database with redo shipping; key rotation and Vault keys (RotateAutonomousDatabaseEncryptionKey, ConfigureAutonomousDatabaseVaultKey) and secretId need the ADB encryption-key fields (adb.go:95-96 rejects secretId); Data Safe, Operations Insights and Database Management enable/disable need those services; maintenance windows, resource pools, scheduled operations, regional wallets, shrink, upgrade, character set listing (docs page lists no values, see body), and the Exadata, container database and software image families are not implemented. Clones (source DATABASE, BACKUP_FROM_ID, BACKUP_FROM_TIMESTAMP, refreshable) are rejected at adb.go:97-98: the Archiver dump/import added for backups is the mechanism a full clone needs, but cloneType, sourceId and the inherited settings are not implemented. opc-dry-run is ignored.
+- Docker engine: every consumer group maps to the single FREEPDB1 service, the database is Oracle Database Free (no Autonomous features, ORDS, APEX or Mongo API behind connectionUrls), workload, compute and storage settings do not size the container, and dbName rename does not change the service name. Containers and TLS material do not survive an emulator restart; backup files live in a temporary directory removed on close, so backups restored from a snapshot after a restart have no data.
 - mTLS support is the TLS handshake level: the listener verifies the wallet client certificate against the database's client CA; Oracle's own wallet-based authentication is not involved.
-- IAM policy enforcement and quotas are not modelled.
+- IAM policy enforcement and quotas are not modelled (out of scope).
 
 ## More
 

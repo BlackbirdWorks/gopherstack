@@ -695,7 +695,7 @@ func TestGetZoneRecordsListing(t *testing.T) {
 		t.Context(),
 		ocidnssdk.GetZoneRecordsRequest{ZoneNameOrId: new(zoneName), ZoneVersion: new("1")},
 	)
-	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode(), "old versions are not retained")
+	require.NoError(t, err, "earlier versions are retained")
 
 	current := list(func(r *ocidnssdk.GetZoneRecordsRequest) { r.ZoneVersion = new("2") })
 	assert.Len(t, current.Items, 9)
@@ -768,6 +768,47 @@ func TestPatchDomainRdataNeedsRtype(t *testing.T) {
 				},
 				userRecords(e.records(t, zoneName)),
 			)
+		})
+	}
+}
+
+func TestZoneRecordsEarlierVersions(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	e.createZone(t, "hist.example", nil)
+	e.mustPatch(t, "hist.example", add("a.hist.example", "A", "192.0.2.1", 60))
+	e.mustPatch(t, "hist.example", add("b.hist.example", "A", "192.0.2.2", 60))
+	e.mustPatch(t, "hist.example", remove("a.hist.example", "A", "192.0.2.1"))
+
+	tests := []struct {
+		version string
+		want    []string
+		status  int
+	}{
+		{"1", []string{}, 0},
+		{"2", []string{"a.hist.example A 60 192.0.2.1"}, 0},
+		{"3", []string{"a.hist.example A 60 192.0.2.1", "b.hist.example A 60 192.0.2.2"}, 0},
+		{"4", []string{"b.hist.example A 60 192.0.2.2"}, 0},
+		{"99", nil, http.StatusNotFound},
+		{"x", nil, http.StatusNotFound},
+	}
+
+	for _, tt := range tests {
+		t.Run("v"+tt.version, func(t *testing.T) {
+			t.Parallel()
+
+			res, err := e.client.GetZoneRecords(t.Context(), ocidnssdk.GetZoneRecordsRequest{
+				ZoneNameOrId: new("hist.example"), ZoneVersion: new(tt.version),
+			})
+			if tt.status != 0 {
+				assert.Equal(t, tt.status, svcErr(t, err).GetHTTPStatusCode())
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.ElementsMatch(t, tt.want, userRecords(res.Items))
 		})
 	}
 }
