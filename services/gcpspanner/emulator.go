@@ -323,6 +323,8 @@ func (b *InMemoryBackend) reconcile(ctx context.Context, cc *grpc.ClientConn) er
 		}
 	}
 
+	b.replayData(ctx, cc)
+
 	return nil
 }
 

@@ -177,27 +177,41 @@ func (b *InMemoryBackend) SampleRowKeys(req *btpb.SampleRowKeysRequest) ([]*btpb
 		return nil, err
 	}
 
-	keys := t.sortedKeys()
-	out := make([]*btpb.SampleRowKeysResponse, 0, len(t.splits)+1)
+	return sampleKeys(t), nil
+}
 
-	var offset int64
+// sampleStride is how many bytes of row data lie between two size-based samples.
+const sampleStride = 1 << 20
 
-	pos := 0
+// sampleKeys lists the split points and, every sampleStride bytes of data, the key of the row that crosses the
+// stride, each with the cumulative bytes before it, followed by the end-of-table marker.
+func sampleKeys(t *tableRec) []*btpb.SampleRowKeysResponse {
+	var (
+		out    []*btpb.SampleRowKeysResponse
+		offset int64
+		next   int64 = sampleStride
+		split        = 0
+	)
 
-	for _, split := range t.splits {
-		for pos < len(keys) && keys[pos] < split {
-			offset += t.rows[keys[pos]].size()
-			pos++
+	for _, key := range t.sortedKeys() {
+		for split < len(t.splits) && t.splits[split] <= key {
+			out = append(out, &btpb.SampleRowKeysResponse{RowKey: []byte(t.splits[split]), OffsetBytes: offset})
+			split++
 		}
 
-		out = append(out, &btpb.SampleRowKeysResponse{RowKey: []byte(split), OffsetBytes: offset})
+		if offset >= next && (len(out) == 0 || string(out[len(out)-1].GetRowKey()) != key) {
+			out = append(out, &btpb.SampleRowKeysResponse{RowKey: []byte(key), OffsetBytes: offset})
+			next = offset + sampleStride
+		}
+
+		offset += t.rows[key].size()
 	}
 
-	for ; pos < len(keys); pos++ {
-		offset += t.rows[keys[pos]].size()
+	for ; split < len(t.splits); split++ {
+		out = append(out, &btpb.SampleRowKeysResponse{RowKey: []byte(t.splits[split]), OffsetBytes: offset})
 	}
 
-	return append(out, &btpb.SampleRowKeysResponse{OffsetBytes: offset}), nil
+	return append(out, &btpb.SampleRowKeysResponse{OffsetBytes: offset})
 }
 
 // PingAndWarm checks that the instance exists.

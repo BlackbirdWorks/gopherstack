@@ -400,9 +400,9 @@ func TestMutationErrors(t *testing.T) {
 		},
 		{
 			func(m *bigtable.Mutation) { m.AddIntToCell("cf", "a", 1000, 1) },
-			"aggregate mutation",
+			"aggregate mutation on a plain family",
 			"r",
-			codes.Unimplemented,
+			codes.InvalidArgument,
 		},
 	}
 

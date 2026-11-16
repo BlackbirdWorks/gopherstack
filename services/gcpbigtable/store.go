@@ -8,6 +8,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/cmek"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcplro"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -45,6 +46,7 @@ type instRec struct {
 	clusters map[string]*adminpb.Cluster
 	profiles map[string]*adminpb.AppProfile
 	tables   map[string]*tableRec
+	deleted  map[string]*deletedTable
 	backups  map[string]*backupRec
 	tokens   map[string]map[string]bool
 }
@@ -55,6 +57,7 @@ func newInstRec(pb *adminpb.Instance) *instRec {
 		clusters: make(map[string]*adminpb.Cluster),
 		profiles: make(map[string]*adminpb.AppProfile),
 		tables:   make(map[string]*tableRec),
+		deleted:  make(map[string]*deletedTable),
 		backups:  make(map[string]*backupRec),
 		tokens:   make(map[string]map[string]bool),
 	}
@@ -70,6 +73,7 @@ type InMemoryBackend struct {
 	mu        *lockmetrics.RWMutex
 	ops       *gcplro.Store
 	instances map[string]*instRec
+	keys      cmek.Checker
 	seq       uint64
 }
 
@@ -105,4 +109,11 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Unlock()
 
 	b.ops.Reset()
+}
+
+func (b *InMemoryBackend) clock() time.Time {
+	b.mu.RLock("clock")
+	defer b.mu.RUnlock()
+
+	return b.now()
 }

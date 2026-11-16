@@ -117,10 +117,87 @@ func (s *databaseServer) GetDatabaseDdl(
 	return s.b.GetDatabaseDdl(in.GetDatabase())
 }
 
-// localDatabaseMethods are answered by databaseServer; RestoreDatabase and ListDatabaseOperations stay
-// unimplemented because the emulator's databases and operations are not the backend's.
+func (s *databaseServer) RestoreDatabase(
+	ctx context.Context, in *databasepb.RestoreDatabaseRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.RestoreDatabase(ctx, in)
+}
+
+func (s *databaseServer) ListDatabaseOperations(
+	_ context.Context, in *databasepb.ListDatabaseOperationsRequest,
+) (*databasepb.ListDatabaseOperationsResponse, error) {
+	return s.b.ListDatabaseOperations(in)
+}
+
+// localDatabaseMethods are answered by databaseServer; the other DatabaseAdmin methods go to the emulator.
 var localDatabaseMethods = map[string]bool{ //nolint:gochecknoglobals // immutable catalog
 	"ListDatabases": true, "CreateDatabase": true, "GetDatabase": true, "UpdateDatabase": true,
 	"UpdateDatabaseDdl": true, "DropDatabase": true, "GetDatabaseDdl": true,
 	"RestoreDatabase": true, "ListDatabaseOperations": true,
+}
+
+func (s *instanceServer) CreateInstanceConfig(
+	_ context.Context, in *instancepb.CreateInstanceConfigRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.CreateInstanceConfig(in)
+}
+
+func (s *instanceServer) UpdateInstanceConfig(
+	_ context.Context, in *instancepb.UpdateInstanceConfigRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.UpdateInstanceConfig(in)
+}
+
+func (s *instanceServer) DeleteInstanceConfig(
+	_ context.Context, in *instancepb.DeleteInstanceConfigRequest,
+) (*emptypb.Empty, error) {
+	return s.b.DeleteInstanceConfig(in)
+}
+
+func (s *instanceServer) ListInstanceConfigOperations(
+	_ context.Context, in *instancepb.ListInstanceConfigOperationsRequest,
+) (*instancepb.ListInstanceConfigOperationsResponse, error) {
+	return s.b.ListInstanceConfigOperations(in)
+}
+
+func (s *instanceServer) CreateInstancePartition(
+	_ context.Context, in *instancepb.CreateInstancePartitionRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.CreateInstancePartition(in)
+}
+
+func (s *instanceServer) GetInstancePartition(
+	_ context.Context, in *instancepb.GetInstancePartitionRequest,
+) (*instancepb.InstancePartition, error) {
+	return s.b.GetInstancePartition(in.GetName())
+}
+
+func (s *instanceServer) ListInstancePartitions(
+	_ context.Context, in *instancepb.ListInstancePartitionsRequest,
+) (*instancepb.ListInstancePartitionsResponse, error) {
+	return s.b.ListInstancePartitions(in)
+}
+
+func (s *instanceServer) UpdateInstancePartition(
+	_ context.Context, in *instancepb.UpdateInstancePartitionRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.UpdateInstancePartition(in)
+}
+
+func (s *instanceServer) DeleteInstancePartition(
+	_ context.Context, in *instancepb.DeleteInstancePartitionRequest,
+) (*emptypb.Empty, error) {
+	return s.b.DeleteInstancePartition(in)
+}
+
+func (s *instanceServer) ListInstancePartitionOperations(
+	_ context.Context, in *instancepb.ListInstancePartitionOperationsRequest,
+) (*instancepb.ListInstancePartitionOperationsResponse, error) {
+	return s.b.ListInstancePartitionOperations(in)
+}
+
+func (s *instanceServer) MoveInstance(
+	ctx context.Context, in *instancepb.MoveInstanceRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.MoveInstance(ctx, in)
 }

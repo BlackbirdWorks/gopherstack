@@ -229,3 +229,26 @@ func (s *Store) CancelOperation(_ context.Context, in *longrunningpb.CancelOpera
 
 	return &emptypb.Empty{}, nil
 }
+
+// Under returns copies of every operation whose name starts with prefix, ordered by name.
+func (s *Store) Under(prefix string) []*longrunningpb.Operation {
+	s.mu.RLock("Under")
+	defer s.mu.RUnlock()
+
+	names := make([]string, 0, len(s.ops))
+
+	for name := range s.ops {
+		if strings.HasPrefix(name, prefix) {
+			names = append(names, name)
+		}
+	}
+
+	slices.Sort(names)
+
+	out := make([]*longrunningpb.Operation, 0, len(names))
+	for _, n := range names {
+		out = append(out, clone(s.ops[n]))
+	}
+
+	return out
+}

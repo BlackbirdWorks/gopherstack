@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json/jsontext"
 	"fmt"
+	"time"
 
 	"cloud.google.com/go/bigtable/admin/apiv2/adminpb"
 	"cloud.google.com/go/iam/apiv1/iampb"
@@ -46,7 +47,14 @@ type backupSnap struct {
 	Table  tableSnap      `json:"table"`
 }
 
+type deletedSnap struct {
+	Table     tableSnap `json:"table"`
+	DeletedAt int64     `json:"deletedAt"`
+	CMEK      bool      `json:"cmek,omitempty"`
+}
+
 type instSnap struct {
+	Deleted  map[string]deletedSnap    `json:"deleted,omitempty"`
 	Clusters map[string]jsontext.Value `json:"clusters,omitempty"`
 	Profiles map[string]jsontext.Value `json:"profiles,omitempty"`
 	Tables   map[string]tableSnap      `json:"tables,omitempty"`
@@ -140,6 +148,14 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 			s.Tables[id] = snapTable(t, now)
 		}
 
+		for id, d := range r.deleted {
+			if s.Deleted == nil {
+				s.Deleted = map[string]deletedSnap{}
+			}
+
+			s.Deleted[id] = deletedSnap{Table: snapTable(d.table, now), DeletedAt: d.at.UnixMicro(), CMEK: d.cmek}
+		}
+
 		for n, bk := range r.backups {
 			s.Backups[n] = backupSnap{
 				Backup: marshalPB(bk.pb),
@@ -222,6 +238,15 @@ func restoreInstance(s instSnap) (*instRec, error) {
 }
 
 func restoreTablesAndBackups(rec *instRec, s instSnap) error {
+	for id, ds := range s.Deleted {
+		t, err := restoreTable(ds.Table)
+		if err != nil {
+			return fmt.Errorf("deleted table %q: %w", id, err)
+		}
+
+		rec.deleted[id] = &deletedTable{table: t, at: time.UnixMicro(ds.DeletedAt), cmek: ds.CMEK}
+	}
+
 	for id, ts := range s.Tables {
 		t, err := restoreTable(ts)
 		if err != nil {

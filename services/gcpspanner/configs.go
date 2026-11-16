@@ -31,49 +31,9 @@ var regionalConfigs = []string{ //nolint:gochecknoglobals // immutable catalog
 	usCentral1, usEast1, "us-east4", "us-east5", "us-south1", "us-west1", "us-west2", "us-west3", "us-west4",
 }
 
-var multiRegionConfigs = map[string][]string{ //nolint:gochecknoglobals // immutable catalog
-	"nam3":          {"us-east4", usEast1, usCentral1},
-	"nam6":          {usCentral1, usEast1, "us-central2"},
-	"nam-eur-asia1": {usCentral1, "us-central2", europeWest1, asiaNortheast1},
-	"eur3":          {europeWest1, europeWest4, "europe-north1"},
-	"eur5":          {"europe-west2", europeWest1, europeWest4},
-	"asia1":         {asiaNortheast1, "asia-northeast2", "asia-northeast3"},
-}
-
 func regionalConfig(project, region string) *instancepb.InstanceConfig {
-	reps := make([]*instancepb.ReplicaInfo, 0, 3) //nolint:mnd // regional configs have three replicas
-	for range 3 {
-		reps = append(reps, &instancepb.ReplicaInfo{
-			Location: region, Type: instancepb.ReplicaInfo_READ_WRITE, DefaultLeaderLocation: len(reps) == 0,
-		})
-	}
-
-	return &instancepb.InstanceConfig{
-		Name:          configName(project, regionalPrefix+region),
-		DisplayName:   region,
-		ConfigType:    instancepb.InstanceConfig_GOOGLE_MANAGED,
-		Replicas:      reps,
-		LeaderOptions: []string{region},
-		State:         instancepb.InstanceConfig_READY,
-	}
-}
-
-func multiRegionConfig(project, id string, regions []string) *instancepb.InstanceConfig {
-	reps := make([]*instancepb.ReplicaInfo, 0, len(regions))
-	for i, r := range regions {
-		reps = append(reps, &instancepb.ReplicaInfo{
-			Location: r, Type: instancepb.ReplicaInfo_READ_WRITE, DefaultLeaderLocation: i == 0,
-		})
-	}
-
-	return &instancepb.InstanceConfig{
-		Name:          configName(project, id),
-		DisplayName:   id,
-		ConfigType:    instancepb.InstanceConfig_GOOGLE_MANAGED,
-		Replicas:      reps,
-		LeaderOptions: slices.Clone(regions),
-		State:         instancepb.InstanceConfig_READY,
-	}
+	return buildConfig(project, regionalPrefix+region, region, def(rw(region, regionalReplicas, true)),
+		regionalOptional[region])
 }
 
 func emulatorInstanceConfig(project string) *instancepb.InstanceConfig {
@@ -98,8 +58,8 @@ func allConfigs(project string) []*instancepb.InstanceConfig {
 		out = append(out, regionalConfig(project, r))
 	}
 
-	for id, regions := range multiRegionConfigs {
-		out = append(out, multiRegionConfig(project, id, regions))
+	for id, d := range multiRegionConfigs {
+		out = append(out, buildConfig(project, id, id, d.replicas, d.optional))
 	}
 
 	slices.SortFunc(out, func(a, b *instancepb.InstanceConfig) int { return strings.Compare(a.GetName(), b.GetName()) })
@@ -134,7 +94,7 @@ func (b *InMemoryBackend) ListInstanceConfigs(
 		return nil, errInvalid("Invalid page_token.")
 	}
 
-	pg := page.New(allConfigs(project), in.GetPageToken(), int(in.GetPageSize()), defaultPageSize)
+	pg := page.New(b.projectConfigs(project), in.GetPageToken(), int(in.GetPageSize()), defaultPageSize)
 
 	return &instancepb.ListInstanceConfigsResponse{InstanceConfigs: pg.Data, NextPageToken: pg.Next}, nil
 }
@@ -142,11 +102,11 @@ func (b *InMemoryBackend) ListInstanceConfigs(
 // GetInstanceConfig returns one configuration.
 func (b *InMemoryBackend) GetInstanceConfig(name string) (*instancepb.InstanceConfig, error) {
 	parts := strings.Split(name, "/")
-	if len(parts) != instanceParts || parts[0] != projectsSegment || parts[2] != "instanceConfigs" {
+	if len(parts) != instanceParts || parts[0] != projectsSegment || parts[2] != instanceConfigsSegment {
 		return nil, errInvalid("Invalid instance config name %q.", name)
 	}
 
-	cfg, ok := lookupConfig(parts[1], parts[3])
+	cfg, ok := b.lookupConfigName(name)
 	if !ok {
 		return nil, errNotFound("Instance config not found: %s", name)
 	}
@@ -156,6 +116,24 @@ func (b *InMemoryBackend) GetInstanceConfig(name string) (*instancepb.InstanceCo
 
 func cloneConfig(c *instancepb.InstanceConfig) *instancepb.InstanceConfig {
 	out, _ := proto.Clone(c).(*instancepb.InstanceConfig)
+
+	return out
+}
+
+// projectConfigs is the Google-managed catalog plus the project's user-managed configurations, sorted by name.
+func (b *InMemoryBackend) projectConfigs(project string) []*instancepb.InstanceConfig {
+	out := allConfigs(project)
+	prefix := configName(project, "")
+
+	b.mu.RLock("projectConfigs")
+	for name, c := range b.userConfigs {
+		if strings.HasPrefix(name, prefix) {
+			out = append(out, cloneIC(c))
+		}
+	}
+	b.mu.RUnlock()
+
+	slices.SortFunc(out, func(a, c *instancepb.InstanceConfig) int { return strings.Compare(a.GetName(), c.GetName()) })
 
 	return out
 }

@@ -6,6 +6,8 @@ import (
 	"context"
 	"time"
 
+	"cloud.google.com/go/spanner/admin/instance/apiv1/instancepb"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 )
 
@@ -54,3 +56,13 @@ func NewDockerLauncher(log *slog.Logger, pool *portalloc.Allocator, image string
 
 // Launcher is the data-plane launcher accepted by SetLauncher.
 type Launcher = launcher
+
+// SetInstanceType overrides the billing type of an instance.
+func (b *InMemoryBackend) SetInstanceType(name string, t instancepb.Instance_InstanceType) {
+	b.mu.Lock("SetInstanceType")
+	defer b.mu.Unlock()
+
+	if r, ok := b.instances[name]; ok {
+		r.pb.InstanceType = t
+	}
+}

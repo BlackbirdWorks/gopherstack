@@ -439,13 +439,15 @@ func TestUnsupportedSurface(t *testing.T) {
 			Id: "agg",
 			Mod: &adminpb.ModifyColumnFamiliesRequest_Modification_Create{Create: &adminpb.ColumnFamily{
 				ValueType: &adminpb.Type{Kind: &adminpb.Type_AggregateType{AggregateType: &adminpb.Type_Aggregate{
-					InputType:  &adminpb.Type{Kind: &adminpb.Type_Int64Type{Int64Type: &adminpb.Type_Int64{}}},
-					Aggregator: &adminpb.Type_Aggregate_Sum_{Sum: &adminpb.Type_Aggregate_Sum{}},
+					InputType: &adminpb.Type{Kind: &adminpb.Type_Int64Type{Int64Type: &adminpb.Type_Int64{}}},
+					Aggregator: &adminpb.Type_Aggregate_HllppUniqueCount{
+						HllppUniqueCount: &adminpb.Type_Aggregate_HyperLogLogPlusPlusUniqueCount{},
+					},
 				}}},
 			}},
 		}},
 	})
-	assert.Equal(t, codes.Unimplemented, code(err), "aggregate families")
+	assert.Equal(t, codes.Unimplemented, code(err), "hll aggregate families")
 
 	_, err = tc.SnapshotTable(t.Context(), &adminpb.SnapshotTableRequest{Name: tablePath})
 	assert.Equal(t, codes.Unimplemented, code(err))

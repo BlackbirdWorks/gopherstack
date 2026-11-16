@@ -41,7 +41,7 @@ func validateFamily(id string, cf *adminpb.ColumnFamily) error {
 	}
 
 	if cf.GetValueType().GetAggregateType() != nil {
-		return errUnimplemented("Aggregate column families are not supported by this emulator.")
+		return validateAggregateFamily(cf)
 	}
 
 	return nil
@@ -262,6 +262,7 @@ func (b *InMemoryBackend) DeleteTable(name string) (*emptypb.Empty, error) {
 		return nil, errPrecondition("Table %q has deletion protection enabled.", name)
 	}
 
+	b.retainDeletedLocked(rec, id, t)
 	delete(rec.tables, id)
 	delete(rec.tokens, name)
 
@@ -436,6 +437,10 @@ func updateFamily(cur, src *adminpb.ColumnFamily, paths []string, id string) err
 		case "value_type":
 			if cur.GetValueType().GetAggregateType() != nil {
 				return errInvalid("Immutable fields 'value_type.aggregate_type' cannot be updated.")
+			}
+
+			if src.GetValueType().GetAggregateType() != nil {
+				return errInvalid("Aggregate can only be set at family creation.")
 			}
 
 			cur.ValueType = clone(src.GetValueType())

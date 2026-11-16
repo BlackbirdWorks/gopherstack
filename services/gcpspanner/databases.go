@@ -82,20 +82,25 @@ func (b *InMemoryBackend) lookupDB(name string) (string, *dbRec, error) {
 	return inst, d, nil
 }
 
-func (b *InMemoryBackend) precheckCreate(in *databasepb.CreateDatabaseRequest) (string, error) {
+// precheckCreate validates the request and returns the database id and its instance's config. It must not call
+// other backends: the encryption check runs outside the lock.
+func (b *InMemoryBackend) precheckCreate(in *databasepb.CreateDatabaseRequest) (string, string, error) {
 	m := createStmtRe.FindStringSubmatch(in.GetCreateStatement())
 	if m == nil {
-		return "", errInvalid("create_statement must be CREATE DATABASE `{id}`.")
+		return "", "", errInvalid("create_statement must be CREATE DATABASE `{id}`.")
 	}
 
 	id := m[1]
 	if !databaseIDRe.MatchString(id) {
-		return "", errInvalid("Database id %q must be 2-30 characters: lowercase letters, digits, _ or -, starting "+
-			"with a letter and ending with a letter or digit.", id)
+		return "", "", errInvalid(
+			"Database id %q must be 2-30 characters: lowercase letters, digits, _ or -, starting "+
+				"with a letter and ending with a letter or digit.",
+			id,
+		)
 	}
 
 	if err := validateStatements(in.GetExtraStatements()); err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	b.mu.RLock("CreateDatabase")
@@ -103,36 +108,52 @@ func (b *InMemoryBackend) precheckCreate(in *databasepb.CreateDatabaseRequest) (
 
 	rec, err := b.instanceLocked(in.GetParent())
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	if rec.pb.GetState() != instancepb.Instance_READY {
-		return "", errPrecondition("Instance %s is not ready.", in.GetParent())
+		return "", "", errPrecondition("Instance %s is not ready.", in.GetParent())
 	}
 
-	if in.GetEncryptionConfig() != nil {
-		if err = b.checkEncryption(in.GetEncryptionConfig(), rec.pb.GetConfig()); err != nil {
-			return "", err
-		}
+	return id, rec.pb.GetConfig(), nil
+}
+
+func (b *InMemoryBackend) checkDatabaseSlot(parent, id string) error {
+	b.mu.RLock("CreateDatabase")
+	defer b.mu.RUnlock()
+
+	rec, err := b.instanceLocked(parent)
+	if err != nil {
+		return err
 	}
 
 	if _, dup := rec.dbs[id]; dup {
-		return "", errExists("Database already exists: %s", databaseName(in.GetParent(), id))
+		return errExists("Database already exists: %s", databaseName(parent, id))
 	}
 
 	if len(rec.dbs) >= maxDatabases {
-		return "", errExhausted("At most %d databases can exist in an instance.", maxDatabases)
+		return errExhausted("At most %d databases can exist in an instance.", maxDatabases)
 	}
 
-	return id, nil
+	return nil
 }
 
 // CreateDatabase creates a database, executing its DDL in the emulator when one is available.
 func (b *InMemoryBackend) CreateDatabase(
 	ctx context.Context, in *databasepb.CreateDatabaseRequest,
 ) (*longrunningpb.Operation, error) {
-	id, err := b.precheckCreate(in)
+	id, instanceConfig, err := b.precheckCreate(in)
 	if err != nil {
+		return nil, err
+	}
+
+	if in.GetEncryptionConfig() != nil {
+		if err = b.checkEncryption(in.GetEncryptionConfig(), instanceConfig); err != nil {
+			return nil, err
+		}
+	}
+
+	if err = b.checkDatabaseSlot(in.GetParent(), id); err != nil {
 		return nil, err
 	}
 
@@ -151,6 +172,15 @@ func (b *InMemoryBackend) CreateDatabase(
 		ddl = b.emulatorDDL(ctx, cc, name, ddl)
 	case !errors.Is(connErr, errNoDataPlane):
 		return nil, connErr
+	default:
+		var folded []string
+
+		folded, err = foldDDL(nil, ddl, in.GetDatabaseDialect() == databasepb.DatabaseDialect_POSTGRESQL)
+		if err != nil {
+			return nil, err
+		}
+
+		ddl = folded
 	}
 
 	pb := b.newDatabase(name, in.GetDatabaseDialect())
@@ -222,9 +252,10 @@ func (b *InMemoryBackend) GetDatabase(name string) (*databasepb.Database, error)
 	}
 
 	b.mu.RLock("GetDatabase")
-	defer b.mu.RUnlock()
+	out := cloneDatabase(d.pb)
+	b.mu.RUnlock()
 
-	return b.databaseView(d.pb), nil
+	return b.withEncryptionInfo(out), nil
 }
 
 // ListDatabases lists the databases of an instance.
@@ -261,11 +292,14 @@ func (b *InMemoryBackend) ListDatabases(
 
 	all := make([]*databasepb.Database, 0, len(ids))
 	for _, id := range ids {
-		all = append(all, b.databaseView(rec.dbs[id].pb))
+		all = append(all, cloneDatabase(rec.dbs[id].pb))
 	}
 	b.mu.RUnlock()
 
 	pg := page.New(all, in.GetPageToken(), int(in.GetPageSize()), defaultPageSize)
+	for _, d := range pg.Data {
+		b.withEncryptionInfo(d)
+	}
 
 	return &databasepb.ListDatabasesResponse{Databases: pg.Data, NextPageToken: pg.Next}, nil
 }
@@ -298,6 +332,8 @@ func (b *InMemoryBackend) DropDatabase(ctx context.Context, name string) (*empty
 	if rec, ok := b.instances[inst]; ok {
 		delete(rec.dbs, strings.TrimPrefix(name, inst+"/databases/"))
 	}
+
+	b.dropPendingData(name)
 
 	return &emptypb.Empty{}, nil
 }
@@ -392,9 +428,7 @@ func (b *InMemoryBackend) applyDDL(
 	case connErr == nil:
 		return b.emulatorUpdate(ctx, cc, in)
 	case errors.Is(connErr, errNoDataPlane):
-		b.appendDDL(in.GetDatabase(), in.GetStatements())
-
-		return ddlResult{}, nil
+		return b.foldStored(in.GetDatabase(), in.GetStatements()), nil
 	default:
 		return ddlResult{}, connErr
 	}
@@ -428,8 +462,19 @@ func (b *InMemoryBackend) currentDDL(db string) []string {
 	return out
 }
 
-func (b *InMemoryBackend) appendDDL(db string, stmts []string) {
-	b.mutateDB(db, func(d *dbRec) { d.ddl = append(d.ddl, stmts...) })
+// foldStored applies stmts to the stored DDL of db; the first failing statement stops the batch and is reported.
+func (b *InMemoryBackend) foldStored(db string, stmts []string) ddlResult {
+	var failure error
+
+	b.mutateDB(db, func(d *dbRec) {
+		d.ddl, failure = foldDDL(d.ddl, stmts, databaseIsPostgres(d.pb))
+	})
+
+	if failure != nil {
+		return ddlResult{failure: statusOf(failure)}
+	}
+
+	return ddlResult{}
 }
 
 func (b *InMemoryBackend) setDDL(db string, ddl []string) {

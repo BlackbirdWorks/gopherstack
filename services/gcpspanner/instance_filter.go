@@ -244,7 +244,7 @@ func instanceFieldGetter(field string) (func(*instancepb.Instance) (string, bool
 	switch {
 	case field == "name":
 		return func(in *instancepb.Instance) (string, bool) { return in.GetName(), true }, nil
-	case field == "display_name":
+	case field == fieldDisplayName:
 		return func(in *instancepb.Instance) (string, bool) { return in.GetDisplayName(), true }, nil
 	case strings.HasPrefix(field, "labels.") && len(field) > len("labels."):
 		key := strings.TrimPrefix(field, "labels.")

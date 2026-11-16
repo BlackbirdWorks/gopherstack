@@ -21,7 +21,8 @@ const (
 )
 
 var mutableInstanceFields = []string{ //nolint:gochecknoglobals // immutable catalog
-	"display_name", "node_count", "processing_units", "labels", "edition", "default_backup_schedule_type",
+	fieldDisplayName, "node_count", "processing_units", "labels", "edition", "default_backup_schedule_type",
+	"autoscaling_config",
 }
 
 func validateInstanceID(id string) error {
@@ -33,7 +34,7 @@ func validateInstanceID(id string) error {
 	return nil
 }
 
-func validateCommon(pb *instancepb.Instance) error {
+func validateCommon(pb *instancepb.Instance, cfg *instancepb.InstanceConfig) error {
 	if n := len(pb.GetDisplayName()); n < minDisplayName || n > maxDisplayName {
 		return errInvalid("display_name must be %d-%d characters.", minDisplayName, maxDisplayName)
 	}
@@ -42,11 +43,7 @@ func validateCommon(pb *instancepb.Instance) error {
 		return errInvalid("An instance can have at most %d labels.", maxLabels)
 	}
 
-	if pb.GetAutoscalingConfig() != nil || len(pb.GetReplicaComputeCapacity()) > 0 {
-		return errUnimplemented("Autoscaling and replica compute capacity are not supported by this emulator.")
-	}
-
-	return nil
+	return validateAutoscaling(pb.GetAutoscalingConfig(), cfg)
 }
 
 // normalizeCapacity requires exactly one capacity field and fills in the other.
@@ -75,24 +72,37 @@ func normalizeCapacity(pb *instancepb.Instance, nodeSet, puSet bool) error {
 	return nil
 }
 
-func buildInstance(project, id string, in *instancepb.Instance, now time.Time) (*instancepb.Instance, error) {
-	pb, _ := proto.Clone(in).(*instancepb.Instance)
+type configLookup func(name string) (*instancepb.InstanceConfig, bool)
 
-	if err := validateCommon(pb); err != nil {
-		return nil, err
-	}
+func buildInstance(
+	project, id string, in *instancepb.Instance, now time.Time, cfg configLookup,
+) (*instancepb.Instance, error) {
+	pb, _ := proto.Clone(in).(*instancepb.Instance)
 
 	if want := configName(project, ""); !strings.HasPrefix(pb.GetConfig(), want) {
 		return nil, errInvalid("config must be in the form %s{config}.", want)
 	}
 
-	if _, ok := lookupConfig(project, strings.TrimPrefix(pb.GetConfig(), configName(project, ""))); !ok {
+	c, ok := cfg(pb.GetConfig())
+	if !ok {
 		return nil, errNotFound("Instance config not found: %s", pb.GetConfig())
 	}
 
-	if err := normalizeCapacity(pb, in.GetNodeCount() != 0, in.GetProcessingUnits() != 0); err != nil {
+	if c.GetState() != instancepb.InstanceConfig_READY {
+		return nil, errPrecondition("Instance config %s is not ready.", pb.GetConfig())
+	}
+
+	if err := validateCommon(pb, c); err != nil {
 		return nil, err
 	}
+
+	if pb.GetAutoscalingConfig() != nil {
+		setInstanceCapacity(pb, autoscaleMin(pb.GetAutoscalingConfig()))
+	} else if err := normalizeCapacity(pb, in.GetNodeCount() != 0, in.GetProcessingUnits() != 0); err != nil {
+		return nil, err
+	}
+
+	replicaCapacity(pb, c)
 
 	pb.Name = instanceName(project, id)
 	pb.State = instancepb.Instance_CREATING
@@ -111,25 +121,39 @@ func buildInstance(project, id string, in *instancepb.Instance, now time.Time) (
 	return pb, nil
 }
 
-// applyInstanceMask copies the masked top-level fields of src onto dst.
+// applyInstanceMask copies the masked fields of src onto dst; a path below a message field copies only that leaf.
 func applyInstanceMask(dst, src *instancepb.Instance, paths []string) error {
-	d, s := dst.ProtoReflect(), src.ProtoReflect()
-
 	for _, p := range paths {
 		name, _, _ := strings.Cut(p, ".")
 		if !slices.Contains(mutableInstanceFields, name) {
 			return errInvalid("Update mask path %q is not an updatable field.", p)
 		}
 
-		fd := d.Descriptor().Fields().ByName(protoreflect.Name(name))
+		if !copyPath(dst.ProtoReflect(), src.ProtoReflect(), strings.Split(p, ".")) {
+			return errInvalid("Update mask path %q is not a field of Instance.", p)
+		}
+	}
+
+	return nil
+}
+
+func copyPath(d, s protoreflect.Message, path []string) bool {
+	fd := d.Descriptor().Fields().ByName(protoreflect.Name(path[0]))
+	if fd == nil {
+		return false
+	}
+
+	if len(path) == 1 || fd.Message() == nil || fd.IsMap() || fd.IsList() {
 		if s.Has(fd) {
 			d.Set(fd, s.Get(fd))
 		} else {
 			d.Clear(fd)
 		}
+
+		return true
 	}
 
-	return nil
+	return copyPath(d.Mutable(fd).Message(), s.Get(fd).Message(), path[1:])
 }
 
 func maskHas(paths []string, field string) bool {
@@ -138,4 +162,31 @@ func maskHas(paths []string, field string) bool {
 
 		return name == field
 	})
+}
+
+// applyCapacity settles node_count and processing_units after a masked update. With autoscaling on, both are
+// output-only: the current capacity is kept within the limits.
+func (b *InMemoryBackend) applyCapacity(next, prev *instancepb.Instance, paths []string) error {
+	nodeSet, puSet := maskHas(paths, "node_count"), maskHas(paths, "processing_units")
+
+	if next.GetAutoscalingConfig() != nil {
+		if nodeSet || puSet {
+			return errInvalid("node_count and processing_units are output-only while autoscaling is enabled.")
+		}
+
+		cur := capacity{units: prev.GetProcessingUnits()}
+		setInstanceCapacity(next, cur.clamp(next.GetAutoscalingConfig()))
+
+		return nil
+	}
+
+	if nodeSet || puSet {
+		return normalizeCapacity(next, nodeSet, puSet)
+	}
+
+	if prev.GetAutoscalingConfig() != nil {
+		setInstanceCapacity(next, capacity{units: prev.GetProcessingUnits()})
+	}
+
+	return nil
 }

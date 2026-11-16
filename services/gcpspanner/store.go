@@ -30,28 +30,32 @@ type instRec struct {
 	pb     *instancepb.Instance
 	policy *iampb.Policy
 	dbs    map[string]*dbRec
+	parts  map[string]*instancepb.InstancePartition
 }
 
 // InMemoryBackend holds all Cloud Spanner admin state under one lock. The data plane lives in the emulator.
 type InMemoryBackend struct {
-	now       func() time.Time
-	mu        *lockmetrics.RWMutex
-	ops       *gcplro.Store
-	wg        *sync.WaitGroup
-	instances map[string]*instRec
-	emu       *emulator
-	keys      cmek.Checker
-	etagSeq   uint64
+	now         func() time.Time
+	mu          *lockmetrics.RWMutex
+	ops         *gcplro.Store
+	wg          *sync.WaitGroup
+	instances   map[string]*instRec
+	userConfigs map[string]*instancepb.InstanceConfig
+	pendingData map[string]dbDataSnap
+	emu         *emulator
+	keys        cmek.Checker
+	etagSeq     uint64
 }
 
 // NewInMemoryBackend creates an empty backend with no data plane; see SetLauncher.
 func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{
-		mu:        lockmetrics.New("gcpspanner"),
-		now:       time.Now,
-		ops:       gcplro.New("gcpspanner"),
-		wg:        &sync.WaitGroup{},
-		instances: make(map[string]*instRec),
+		mu:          lockmetrics.New("gcpspanner"),
+		now:         time.Now,
+		ops:         gcplro.New("gcpspanner"),
+		wg:          &sync.WaitGroup{},
+		instances:   make(map[string]*instRec),
+		userConfigs: make(map[string]*instancepb.InstanceConfig),
 	}
 	b.emu = newEmulator(b, nil)
 
@@ -82,6 +86,8 @@ func (b *InMemoryBackend) Reset() {
 
 	b.mu.Lock("Reset")
 	b.instances = make(map[string]*instRec)
+	b.userConfigs = make(map[string]*instancepb.InstanceConfig)
+	b.pendingData = nil
 	b.etagSeq = 0
 	b.mu.Unlock()
 
@@ -92,4 +98,8 @@ func (b *InMemoryBackend) Reset() {
 func (b *InMemoryBackend) Close() {
 	b.wg.Wait()
 	b.emu.shutdown(context.Background())
+}
+
+func newInstRec(pb *instancepb.Instance) *instRec {
+	return &instRec{pb: pb, dbs: make(map[string]*dbRec), parts: make(map[string]*instancepb.InstancePartition)}
 }

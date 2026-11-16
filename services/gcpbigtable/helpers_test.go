@@ -32,7 +32,13 @@ type env struct {
 func newEnv(t *testing.T) *env {
 	t.Helper()
 
-	h := gcpbigtable.NewHandler(gcpbigtable.NewInMemoryBackend())
+	return newEnvWithBackend(t, gcpbigtable.NewInMemoryBackend())
+}
+
+func newEnvWithBackend(t *testing.T, b *gcpbigtable.InMemoryBackend) *env {
+	t.Helper()
+
+	h := gcpbigtable.NewHandler(b)
 	h.Port = 0
 
 	require.NoError(t, h.StartWorker(t.Context()))

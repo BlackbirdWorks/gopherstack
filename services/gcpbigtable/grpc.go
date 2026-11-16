@@ -212,6 +212,18 @@ func (s *tableAdminServer) RestoreTable(
 	return s.b.RestoreTable(in)
 }
 
+func (s *tableAdminServer) CopyBackup(
+	_ context.Context, in *adminpb.CopyBackupRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.CopyBackup(in)
+}
+
+func (s *tableAdminServer) UndeleteTable(
+	_ context.Context, in *adminpb.UndeleteTableRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.UndeleteTable(in)
+}
+
 func (s *tableAdminServer) GetIamPolicy(_ context.Context, in *iampb.GetIamPolicyRequest) (*iampb.Policy, error) {
 	return s.b.GetIamPolicy(in.GetResource(), in.GetOptions().GetRequestedPolicyVersion())
 }
@@ -297,6 +309,8 @@ func (s *dataServer) SampleRowKeys(in *btpb.SampleRowKeysRequest, stream btpb.Bi
 }
 
 func (s *dataServer) ReadRows(in *btpb.ReadRowsRequest, stream btpb.Bigtable_ReadRowsServer) error {
+	start := s.b.clock()
+
 	res, err := s.b.ReadRows(in)
 	if err != nil {
 		return err
@@ -324,8 +338,10 @@ func (s *dataServer) ReadRows(in *btpb.ReadRowsRequest, stream btpb.Bigtable_Rea
 	if in.GetRequestStatsView() == btpb.ReadRowsRequest_REQUEST_STATS_FULL {
 		return stream.Send(&btpb.ReadRowsResponse{RequestStats: &btpb.RequestStats{
 			StatsView: &btpb.RequestStats_FullReadStatsView{FullReadStatsView: &btpb.FullReadStatsView{
-				ReadIterationStats:  res.Stats,
-				RequestLatencyStats: &btpb.RequestLatencyStats{FrontendServerLatency: durationpb.New(0)},
+				ReadIterationStats: res.Stats,
+				RequestLatencyStats: &btpb.RequestLatencyStats{
+					FrontendServerLatency: durationpb.New(s.b.clock().Sub(start)),
+				},
 			}},
 		}})
 	}

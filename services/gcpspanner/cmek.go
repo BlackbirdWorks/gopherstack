@@ -2,16 +2,15 @@ package gcpspanner
 
 import (
 	"errors"
-	"strings"
+	"slices"
 
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
+	"cloud.google.com/go/spanner/admin/instance/apiv1/instancepb"
 	"google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/cmek"
 )
-
-const regionalConfigPrefix = "regional-"
 
 // SetKeyChecker validates database encryption keys against Cloud KMS; without one, encryption_config is
 // UNIMPLEMENTED.
@@ -38,20 +37,55 @@ func encryptionKeys(cfg *databasepb.EncryptionConfig) []string {
 	return keys
 }
 
-// regionalLocation returns the region of a single-region instance config, "" for multi-region configs.
-func regionalLocation(instanceConfig string) string {
-	_, id, ok := strings.Cut(instanceConfig, "/instanceConfigs/")
-	if !ok || !strings.HasPrefix(id, regionalConfigPrefix) {
-		return ""
+const emulatorLocation = "emulator-location"
+
+// replicaLocations returns the distinct locations of a configuration's replicas.
+func replicaLocations(c *instancepb.InstanceConfig) []string {
+	var out []string
+
+	for _, r := range c.GetReplicas() {
+		if !slices.Contains(out, r.GetLocation()) {
+			out = append(out, r.GetLocation())
+		}
 	}
 
-	return strings.TrimPrefix(id, regionalConfigPrefix)
+	return out
 }
 
-// checkEncryption requires every key of a database's encryption_config to be usable and, on a single-region
-// instance, in the instance's region. The caller holds the lock.
+// checkCoverage requires kms_key_names to hold one key in each replica location of a multi-region configuration
+// (https://docs.cloud.google.com/spanner/docs/use-cmek lists one regional key per replica location).
+func checkCoverage(cfg *databasepb.EncryptionConfig, locs []string) error {
+	if len(cfg.GetKmsKeyNames()) == 0 || len(locs) < 2 {
+		return nil
+	}
+
+	have := map[string]int{}
+	for _, k := range cfg.GetKmsKeyNames() {
+		have[cmek.Location(k)]++
+	}
+
+	for _, l := range locs {
+		if have[l] != 1 {
+			return errInvalid(
+				"kms_key_names must hold exactly one key in each replica location; %q has %d.",
+				l,
+				have[l],
+			)
+		}
+	}
+
+	if len(have) != len(locs) {
+		return errInvalid("kms_key_names holds a key outside the replica locations %v.", locs)
+	}
+
+	return nil
+}
+
+// checkEncryption requires every key of a database's encryption_config to be usable, in the instance's region
+// on a single-region instance and, with kms_key_names, to cover every replica location of a multi-region one.
+// The caller must not hold the lock: Cloud KMS is consulted.
 func (b *InMemoryBackend) checkEncryption(cfg *databasepb.EncryptionConfig, instanceConfig string) error {
-	c := b.keys
+	c := b.keyChecker()
 	if c == nil {
 		return errUnimplemented("Customer-managed encryption is not supported by this emulator.")
 	}
@@ -61,7 +95,17 @@ func (b *InMemoryBackend) checkEncryption(cfg *databasepb.EncryptionConfig, inst
 		return errInvalid("encryption_config must name kms_key_name or kms_key_names.")
 	}
 
-	loc := regionalLocation(instanceConfig)
+	ic, _ := b.lookupConfigName(instanceConfig)
+	locs := replicaLocations(ic)
+
+	var loc string
+	if len(locs) == 1 && locs[0] != emulatorLocation {
+		loc = locs[0]
+	}
+
+	if err := checkCoverage(cfg, locs); err != nil {
+		return err
+	}
 
 	for _, key := range keys {
 		err := cmek.Check(c, key, loc)
@@ -110,11 +154,11 @@ func encryptionInfo(c cmek.Checker, cfg *databasepb.EncryptionConfig) []*databas
 	return out
 }
 
-// databaseView clones a database with its live encryption_info; the caller holds the lock.
-func (b *InMemoryBackend) databaseView(pb *databasepb.Database) *databasepb.Database {
-	out := cloneDatabase(pb)
+// withEncryptionInfo adds the live encryption_info to a database copy. The caller must not hold the lock:
+// Cloud KMS is consulted.
+func (b *InMemoryBackend) withEncryptionInfo(out *databasepb.Database) *databasepb.Database {
 	if out.GetEncryptionConfig() != nil {
-		out.EncryptionInfo = encryptionInfo(b.keys, out.GetEncryptionConfig())
+		out.EncryptionInfo = encryptionInfo(b.keyChecker(), out.GetEncryptionConfig())
 	}
 
 	return out

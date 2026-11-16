@@ -93,15 +93,35 @@ func (t *tableRec) validateMutation(m *btpb.Mutation) error {
 		return t.checkFamily(mt.DeleteFromFamily.GetFamilyName())
 	case *btpb.Mutation_DeleteFromRow_:
 		return nil
-	case *btpb.Mutation_AddToCell_, *btpb.Mutation_MergeToCell_:
-		return errUnimplemented("Aggregate mutations are not supported by this emulator.")
+	case *btpb.Mutation_AddToCell_:
+		a := mt.AddToCell
+		_, err := t.validateAggregateMutation(
+			a.GetFamilyName(),
+			a.GetColumnQualifier(),
+			a.GetTimestamp(),
+			a.GetInput(),
+			false,
+		)
+
+		return err
+	case *btpb.Mutation_MergeToCell_:
+		a := mt.MergeToCell
+		_, err := t.validateAggregateMutation(
+			a.GetFamilyName(),
+			a.GetColumnQualifier(),
+			a.GetTimestamp(),
+			a.GetInput(),
+			true,
+		)
+
+		return err
 	default:
 		return errInvalid("Mutation has no operation set.")
 	}
 }
 
 func (t *tableRec) validateSetCell(sc *btpb.Mutation_SetCell) error {
-	if err := t.checkFamily(sc.GetFamilyName()); err != nil {
+	if err := t.checkPlainFamily(sc.GetFamilyName()); err != nil {
 		return err
 	}
 
@@ -156,6 +176,26 @@ func (b *InMemoryBackend) applyMutations(t *tableRec, key string, muts []*btpb.M
 
 			t.row(key).
 				set(sc.GetFamilyName(), string(sc.GetColumnQualifier()), ts, append([]byte(nil), sc.GetValue()...))
+		case *btpb.Mutation_AddToCell_:
+			a := mt.AddToCell
+			am, _ := t.validateAggregateMutation(
+				a.GetFamilyName(),
+				a.GetColumnQualifier(),
+				a.GetTimestamp(),
+				a.GetInput(),
+				false,
+			)
+			t.row(key).add(am)
+		case *btpb.Mutation_MergeToCell_:
+			a := mt.MergeToCell
+			am, _ := t.validateAggregateMutation(
+				a.GetFamilyName(),
+				a.GetColumnQualifier(),
+				a.GetTimestamp(),
+				a.GetInput(),
+				true,
+			)
+			t.row(key).add(am)
 		case *btpb.Mutation_DeleteFromColumn_:
 			dc := mt.DeleteFromColumn
 			if r, ok := t.rows[key]; ok {
