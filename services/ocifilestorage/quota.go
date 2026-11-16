@@ -1,7 +1,9 @@
 package ocifilestorage
 
 import (
+	"maps"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -43,7 +45,7 @@ func quotaView(w *QuotaRule) map[string]any {
 
 func quotaListView(w *QuotaRule) map[string]any {
 	m := quotaView(w)
-	m["usageInBytes"] = 0
+	m["usageInBytes"] = w.usage
 
 	return m
 }
@@ -156,25 +158,88 @@ func (b *InMemoryBackend) GetQuotaRule(fsID, id string) (map[string]any, string,
 	return quotaView(e.W), e.Etag, nil
 }
 
-// ListQuotaRules lists the quota rules of a file system.
+// ListQuotaRules lists the usage and quota rule of each principal of a file system. Usage comes from the owner
+// of each file on the data plane, so principals appear only once they own data; without a data plane usage is 0.
 func (b *InMemoryBackend) ListQuotaRules(fsID string, f QuotaFilter, o ListOpts) (page.Page[map[string]any], error) {
 	b.mu.RLock("ListQuotaRules")
-	defer b.mu.RUnlock()
 
-	if _, aerr := b.fss.usable(fsID); aerr != nil {
+	_, aerr := b.fss.usable(fsID)
+	dp, unit := b.dp, b.quotaBytes()
+
+	var rules []*entry[*QuotaRule]
+
+	for _, e := range b.quotas {
+		if e.W.FileSystemID == fsID && (f.Type == "" || e.W.PrincipalType == f.Type) {
+			rules = append(rules, &entry[*QuotaRule]{W: new(*e.W), Etag: e.Etag, Seq: e.Seq})
+		}
+	}
+
+	b.mu.RUnlock()
+
+	if aerr != nil {
 		return page.Page[map[string]any]{}, aerr
 	}
 
-	keep := func(e *entry[*QuotaRule]) bool {
-		w := e.W
-
-		return w.FileSystemID == fsID && (f.Type == "" || w.PrincipalType == f.Type) &&
-			(f.PrincipalID == nil || deref(w.PrincipalID, -1) == *f.PrincipalID) && !f.Violators
+	var usage QuotaUsage
+	if dp != nil {
+		usage = dp.QuotaUsage(fsID)
 	}
 
-	return listOf(b.quotas, keep, ListOpts{Page: o.Page, Limit: o.Limit, Order: o.Order},
+	rows := table[*QuotaRule]{}
+
+	for _, r := range rules {
+		for i, row := range quotaRows(r, usage) {
+			if f.PrincipalID != nil && deref(row.W.PrincipalID, -1) != *f.PrincipalID {
+				continue
+			}
+
+			if f.Violators && row.W.usage <= int64(row.W.QuotaLimitGB)*unit {
+				continue
+			}
+
+			rows[row.W.ID+"/"+strconv.Itoa(i)] = row
+		}
+	}
+
+	return listOf(rows, func(*entry[*QuotaRule]) bool { return true },
+		ListOpts{Page: o.Page, Limit: o.Limit, Order: o.Order},
 		func(w *QuotaRule) string { return w.DisplayName },
 		func(e *entry[*QuotaRule]) map[string]any { return quotaListView(e.W) }), nil
+}
+
+// quotaRows expands a rule into the per-principal rows that carry usage.
+func quotaRows(r *entry[*QuotaRule], usage QuotaUsage) []*entry[*QuotaRule] {
+	row := func(id *int, used int64) *entry[*QuotaRule] {
+		c := new(*r.W)
+		c.PrincipalID, c.usage = id, used
+
+		return &entry[*QuotaRule]{W: c, Etag: r.Etag, Seq: r.Seq}
+	}
+
+	switch r.W.PrincipalType {
+	case qFileSystemLevel:
+		return []*entry[*QuotaRule]{row(nil, usage.Total)}
+	case qIndividualUser:
+		return []*entry[*QuotaRule]{row(r.W.PrincipalID, usage.Users[deref(r.W.PrincipalID, -1)])}
+	case qIndividualGroup:
+		return []*entry[*QuotaRule]{row(r.W.PrincipalID, usage.Groups[deref(r.W.PrincipalID, -1)])}
+	}
+
+	byID := usage.Users
+	if r.W.PrincipalType == qDefaultGroup {
+		byID = usage.Groups
+	}
+
+	out := make([]*entry[*QuotaRule], 0, len(byID))
+	for _, id := range slices.Sorted(maps.Keys(byID)) {
+		out = append(out, row(new(id), byID[id]))
+	}
+
+	if len(out) == 0 {
+		out = append(out, row(nil, 0))
+	}
+
+	return out
 }
 
 // UpdateQuotaRule changes a quota rule's name and limit.
@@ -230,4 +295,46 @@ func (b *InMemoryBackend) DeleteQuotaRule(fsID, id, ifMatch string) error {
 	delete(b.quotas, id)
 
 	return nil
+}
+
+// SetQuotaUnit overrides the number of bytes in one quota gigabyte.
+func (b *InMemoryBackend) SetQuotaUnit(bytes int64) {
+	b.mu.Lock("SetQuotaUnit")
+	b.quotaUnit = bytes
+	b.mu.Unlock()
+}
+
+// quotaBytes is the size of the quota unit; quota limits are given in gigabytes.
+func (b *InMemoryBackend) quotaBytes() int64 {
+	if b.quotaUnit > 0 {
+		return b.quotaUnit
+	}
+
+	return bytesPerGB
+}
+
+// quotaSource returns the rules in force on a file system, read live each time a write needs them.
+func (b *InMemoryBackend) quotaSource(fsID string) func() []QuotaLimit {
+	return func() []QuotaLimit {
+		b.mu.RLock("quotaSource")
+		defer b.mu.RUnlock()
+
+		fs, ok := b.fss[fsID]
+		if !ok || !fs.W.AreQuotaRulesEnabled {
+			return nil
+		}
+
+		var out []QuotaLimit
+
+		for _, e := range b.quotas {
+			if e.W.FileSystemID == fsID {
+				out = append(out, QuotaLimit{
+					Type: e.W.PrincipalType, PrincipalID: e.W.PrincipalID,
+					LimitBytes: int64(e.W.QuotaLimitGB) * b.quotaBytes(), Hard: e.W.IsHardQuota,
+				})
+			}
+		}
+
+		return out
+	}
 }

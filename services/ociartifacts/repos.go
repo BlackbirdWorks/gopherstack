@@ -2,6 +2,7 @@ package ociartifacts
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
@@ -162,6 +163,16 @@ func (b *InMemoryBackend) repo(id string) (*Repo, *APIError) {
 	return r, nil
 }
 
+func (b *InMemoryBackend) repoLimit() *APIError {
+	if len(b.repos) >= b.maxRepos {
+		return errLimit(
+			"The region already holds the maximum of " + strconv.Itoa(b.maxRepos) + " container repositories",
+		)
+	}
+
+	return nil
+}
+
 func (b *InMemoryBackend) newRepo(name, compartment, createdBy string) *Repo {
 	r := &Repo{
 		ID: newOCID("containerrepo"), Name: name, CompartmentID: compartment, CreatedBy: createdBy,
@@ -202,6 +213,10 @@ func (b *InMemoryBackend) CreateContainerRepository(in createRepoIn, createdBy s
 
 	if b.repoByName(in.DisplayName) != nil {
 		return repoWire{}, "", errExists("A container repository named " + in.DisplayName + " already exists")
+	}
+
+	if err := b.repoLimit(); err != nil {
+		return repoWire{}, "", err
 	}
 
 	r := b.newRepo(in.DisplayName, in.CompartmentID, createdBy)

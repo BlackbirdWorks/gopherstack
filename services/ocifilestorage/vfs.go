@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/go-git/go-billy/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 const (
@@ -23,6 +25,7 @@ type vfs struct {
 	live  billy.Filesystem
 	snaps billy.Filesystem
 	root  *os.Root
+	gate  *lockmetrics.RWMutex
 	fsID  string
 	stat  ExportMount
 	ro    bool
@@ -65,9 +68,18 @@ func (v *vfs) OpenFile(name string, flag int, perm os.FileMode) (billy.File, err
 		return nil, denied("open", name)
 	}
 
+	if !snap {
+		v.gate.RLock("open")
+		defer v.gate.RUnlock()
+	}
+
 	f, err := fs.OpenFile(rel, flag, perm)
 	if err != nil {
 		return nil, err
+	}
+
+	if !snap {
+		f = &guardedFile{File: f, v: v, rel: rel}
 	}
 
 	return &namedFile{File: f, name: name}, nil
@@ -126,6 +138,9 @@ func (v *vfs) Rename(from, to string) error {
 		return err
 	}
 
+	v.gate.RLock("rename")
+	defer v.gate.RUnlock()
+
 	return v.live.Rename(relPath(from), relPath(to))
 }
 
@@ -133,6 +148,9 @@ func (v *vfs) Remove(name string) error {
 	if err := v.writable("remove", name); err != nil {
 		return err
 	}
+
+	v.gate.RLock("remove")
+	defer v.gate.RUnlock()
 
 	return v.live.Remove(relPath(name))
 }
@@ -142,6 +160,9 @@ func (v *vfs) MkdirAll(name string, perm os.FileMode) error {
 		return err
 	}
 
+	v.gate.RLock("mkdirall")
+	defer v.gate.RUnlock()
+
 	return v.live.MkdirAll(relPath(name), perm)
 }
 
@@ -150,6 +171,9 @@ func (v *vfs) Symlink(target, link string) error {
 		return err
 	}
 
+	v.gate.RLock("symlink")
+	defer v.gate.RUnlock()
+
 	return v.live.Symlink(target, relPath(link))
 }
 
@@ -157,6 +181,9 @@ func (v *vfs) TempFile(dir, prefix string) (billy.File, error) {
 	if err := v.writable("tempfile", dir); err != nil {
 		return nil, err
 	}
+
+	v.gate.RLock("tempfile")
+	defer v.gate.RUnlock()
 
 	return v.live.TempFile(relPath(dir), prefix)
 }
@@ -181,6 +208,9 @@ func (v *vfs) Chmod(name string, mode os.FileMode) error {
 		return err
 	}
 
+	v.gate.RLock("change")
+	defer v.gate.RUnlock()
+
 	return v.root.Chmod(rel, mode)
 }
 
@@ -189,6 +219,9 @@ func (v *vfs) Lchown(name string, uid, gid int) error {
 	if err != nil {
 		return err
 	}
+
+	v.gate.RLock("change")
+	defer v.gate.RUnlock()
 
 	return v.root.Lchown(rel, uid, gid)
 }
@@ -199,6 +232,9 @@ func (v *vfs) Chown(name string, uid, gid int) error {
 		return err
 	}
 
+	v.gate.RLock("change")
+	defer v.gate.RUnlock()
+
 	return v.root.Chown(rel, uid, gid)
 }
 
@@ -207,6 +243,9 @@ func (v *vfs) Chtimes(name string, atime, mtime time.Time) error {
 	if err != nil {
 		return err
 	}
+
+	v.gate.RLock("change")
+	defer v.gate.RUnlock()
 
 	return v.root.Chtimes(rel, atime, mtime)
 }

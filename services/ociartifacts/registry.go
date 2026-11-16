@@ -2,9 +2,7 @@ package ociartifacts
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json/v2"
 	"io"
 	"net/http"
@@ -243,9 +241,12 @@ func (h *Handler) admit(w http.ResponseWriter, display, action string, who princ
 	}
 
 	if ae := h.Backend.EnsureRepo(display, who.user); ae != nil {
-		if ae.Code == "InvalidParameter" {
+		switch ae.Code {
+		case "InvalidParameter":
 			writeRegError(w, http.StatusBadRequest, "NAME_INVALID", ae.Message)
-		} else {
+		case "LimitExceeded":
+			writeRegError(w, http.StatusForbidden, "DENIED", ae.Message)
+		default:
 			writeRegError(w, ae.Status, ae.Code, ae.Message)
 		}
 
@@ -255,22 +256,19 @@ func (h *Handler) admit(w http.ResponseWriter, display, action string, who princ
 	return true
 }
 
-func manifestDigest(r *http.Request) string {
+func manifestBody(r *http.Request) []byte {
 	if r.Method != http.MethodPut || r.Body == nil {
-		return ""
+		return nil
 	}
 
 	raw, err := io.ReadAll(io.LimitReader(r.Body, maxManifest+1))
-	if err != nil || len(raw) > maxManifest {
-		r.Body = io.NopCloser(bytes.NewReader(raw))
+	r.Body = io.NopCloser(bytes.NewReader(raw))
 
-		return ""
+	if err != nil || len(raw) > maxManifest {
+		return nil
 	}
 
-	r.Body = io.NopCloser(bytes.NewReader(raw))
-	sum := sha256.Sum256(raw)
-
-	return "sha256:" + hex.EncodeToString(sum[:])
+	return raw
 }
 
 func (h *Handler) observer(app http.Handler, r *http.Request, display, user string) ociregistry.Observer {
@@ -282,14 +280,23 @@ func (h *Handler) observer(app http.Handler, r *http.Request, display, user stri
 
 	return ociregistry.Observer{
 		Permit: func(w http.ResponseWriter, _, ref, op string) bool {
+			var body []byte
+
 			digest := ""
-			if op == ociregistry.OpWrite && !ociregistry.IsDigest(ref) {
-				digest = manifestDigest(r)
+
+			if op == ociregistry.OpWrite {
+				if body = manifestBody(r); body != nil {
+					digest = manifestSum(body)
+				}
 			}
 
-			switch h.Backend.PermitManifest(display, ref, op, digest, r.Method == http.MethodGet) {
+			switch h.Backend.PermitManifest(display, ref, op, digest, body) {
 			case permitUnknown:
 				writeRegError(w, http.StatusNotFound, "MANIFEST_UNKNOWN", "manifest unknown")
+
+				return false
+			case permitLimit:
+				writeRegError(w, http.StatusForbidden, "DENIED", "The repository or region storage limit is reached")
 
 				return false
 			case permitTagExists:
@@ -311,6 +318,7 @@ func (h *Handler) observer(app http.Handler, r *http.Request, display, user stri
 			h.Backend.RecordPush(regName(repo), ref, digest, user, body)
 		},
 		Delete: func(repo, ref string) { h.Backend.RecordDelete(regName(repo), ref) },
+		Pulled: func(repo, ref string) { h.Backend.RecordPull(regName(repo), ref) },
 	}
 }
 

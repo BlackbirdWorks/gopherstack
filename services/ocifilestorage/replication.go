@@ -551,7 +551,7 @@ func (b *InMemoryBackend) applyReplicated(e *entry[*Replication], latest *entry[
 	r := e.W
 
 	if b.dp != nil {
-		if err := b.dp.ReplicateSnapshot(r.SourceID, latest.W.Name, r.TargetID); err != nil {
+		if _, err := b.dp.ReplicateSnapshot(r.SourceID, latest.W.Name, r.TargetID); err != nil {
 			r.LifecycleDetails = "data copy failed: " + err.Error()
 			next := now.Add(minutes(r.ReplicationInterval))
 			r.Int.NextCycle = &next

@@ -70,6 +70,8 @@ type Credential struct {
 	ID          string    `json:"id"`
 	Text        string    `json:"text"`
 	Username    string    `json:"username,omitempty"`
+	Salt        string    `json:"salt,omitempty"`
+	Digest      string    `json:"digest,omitempty"`
 }
 
 // User is a stored IAM user with its credentials.

@@ -99,25 +99,6 @@ func copyFile(from, to *os.Root, p string) (err error) {
 	return to.Chtimes(p, info.ModTime(), info.ModTime())
 }
 
-// treeSize sums the sizes of the regular files below dir.
-func treeSize(dir string) int64 {
-	var total int64
-
-	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
-		if err != nil || !d.Type().IsRegular() {
-			return nil //nolint:nilerr // best-effort metering
-		}
-
-		if info, ierr := d.Info(); ierr == nil {
-			total += info.Size()
-		}
-
-		return nil
-	})
-
-	return total
-}
-
 // emptyDir removes everything below dir but keeps dir.
 func emptyDir(dir string) error {
 	ents, err := os.ReadDir(dir)
@@ -127,6 +108,142 @@ func emptyDir(dir string) error {
 
 	for _, e := range ents {
 		if err = os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// syncTree makes dst match src, copying only the files whose size or modification time differ and removing
+// what src no longer holds. It returns the number of bytes copied.
+func syncTree(src, dst string) (int64, error) {
+	if err := os.MkdirAll(dst, dirPerm); err != nil {
+		return 0, err
+	}
+
+	from, err := os.OpenRoot(src)
+	if err != nil {
+		return 0, err
+	}
+
+	defer from.Close()
+
+	to, err := os.OpenRoot(dst)
+	if err != nil {
+		return 0, err
+	}
+
+	defer to.Close()
+
+	keep := map[string]struct{}{}
+
+	var copied int64
+
+	err = fs.WalkDir(from.FS(), ".", func(p string, d fs.DirEntry, werr error) error {
+		if werr != nil || p == "." {
+			return werr
+		}
+
+		keep[p] = struct{}{}
+
+		n, serr := syncEntry(from, to, p, d)
+		copied += n
+
+		return serr
+	})
+	if err != nil {
+		return copied, err
+	}
+
+	return copied, prune(to, keep)
+}
+
+func syncEntry(from, to *os.Root, p string, d fs.DirEntry) (int64, error) {
+	cur, lerr := to.Lstat(p)
+	exists := lerr == nil
+
+	switch {
+	case d.IsDir():
+		return 0, syncDir(to, p, d, cur, exists)
+	case d.Type()&fs.ModeSymlink != 0:
+		return 0, syncLink(from, to, p, exists)
+	case d.Type().IsRegular():
+		return syncFile(from, to, p, d, cur, exists)
+	}
+
+	return 0, nil
+}
+
+func syncDir(to *os.Root, p string, d fs.DirEntry, cur fs.FileInfo, exists bool) error {
+	if exists && !cur.IsDir() {
+		if err := to.RemoveAll(p); err != nil {
+			return err
+		}
+	}
+
+	return copyDir(to, p, d)
+}
+
+func syncLink(from, to *os.Root, p string, exists bool) error {
+	link, err := fs.ReadLink(from.FS(), p)
+	if err != nil {
+		return err
+	}
+
+	if exists {
+		if err = to.RemoveAll(p); err != nil {
+			return err
+		}
+	}
+
+	return to.Symlink(link, p)
+}
+
+func syncFile(from, to *os.Root, p string, d fs.DirEntry, cur fs.FileInfo, exists bool) (int64, error) {
+	info, err := d.Info()
+	if err != nil {
+		return 0, err
+	}
+
+	if exists && cur.Mode().IsRegular() && cur.Size() == info.Size() && cur.ModTime().Equal(info.ModTime()) {
+		return 0, nil
+	}
+
+	if exists && !cur.Mode().IsRegular() {
+		if err = to.RemoveAll(p); err != nil {
+			return 0, err
+		}
+	}
+
+	return info.Size(), copyFile(from, to, p)
+}
+
+// prune removes everything below root that keep does not list.
+func prune(root *os.Root, keep map[string]struct{}) error {
+	var drop []string
+
+	err := fs.WalkDir(root.FS(), ".", func(p string, d fs.DirEntry, werr error) error {
+		if werr != nil || p == "." {
+			return werr
+		}
+
+		if _, ok := keep[p]; !ok {
+			drop = append(drop, p)
+
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, p := range drop {
+		if err = root.RemoveAll(p); err != nil {
 			return err
 		}
 	}

@@ -276,6 +276,7 @@ type QuotaRule struct {
 	DisplayName   string    `json:"displayName"`
 	PrincipalType string    `json:"principalType"`
 	base
+	usage        int64
 	QuotaLimitGB int  `json:"quotaLimitInGigabytes"`
 	IsHardQuota  bool `json:"isHardQuota"`
 }

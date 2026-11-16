@@ -91,7 +91,10 @@ type Backup struct {
 	State         string     `json:"state"`
 	Details       string     `json:"details,omitempty"`
 	DBVersion     string     `json:"dbVersion"`
+	DumpSHA256    string     `json:"dumpSha256,omitempty"`
 	SizeTBs       float64    `json:"sizeInTBs"`
+	DumpBytes     int64      `json:"dumpBytes,omitempty"`
+	SCN           int64      `json:"scn,omitempty"`
 	Seq           int64      `json:"seq"`
 	RetentionDays int        `json:"retentionDays"`
 	IsAutomatic   bool       `json:"isAutomatic"`

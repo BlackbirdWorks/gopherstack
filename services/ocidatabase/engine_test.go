@@ -115,6 +115,7 @@ func (i *echoInstance) Close(context.Context) {
 type echoLauncher struct {
 	passwords    atomic.Pointer[[2]string]
 	specs        atomic.Pointer[svc.LaunchSpec]
+	arch         fakeArchive
 	failLaunch   atomic.Bool
 	failPassword atomic.Bool
 	launches     atomic.Int32

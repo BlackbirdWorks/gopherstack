@@ -199,3 +199,75 @@ func TestDockerAutonomousDatabase(t *testing.T) {
 
 	assert.Empty(t, dockerOut(t, "ps", "-aq", "--filter", filter), "terminate removes the container")
 }
+
+func TestDockerBackupAndRestore(t *testing.T) {
+	t.Parallel()
+
+	e := newDockerEnv(t)
+
+	resp := e.mustCreate(t, createOpts{mutate: func(d *database.CreateAutonomousDatabaseDetails) {
+		d.AdminPassword, d.DbName = new(dockerPw), new("backupdb")
+	}})
+	got := e.awaitDocker(t, resp.Id, database.AutonomousDatabaseLifecycleStateAvailable)
+
+	files, err := e.wallet(t, resp.Id, walletPassword)
+	require.NoError(t, err)
+
+	cfg := clientTLS(t, files)
+	cfg.Certificates = nil
+
+	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Minute)
+	defer cancel()
+
+	conn := connect(t, got, dockerPw, cfg)
+
+	for _, stmt := range []string{
+		"CREATE TABLE notes (id NUMBER, body VARCHAR2(50))",
+		"INSERT INTO notes VALUES (1, 'before the backup')",
+		"COMMIT",
+	} {
+		_, err = conn.ExecContext(ctx, stmt)
+		require.NoError(t, err)
+	}
+
+	bk, err := e.client.CreateAutonomousDatabaseBackup(t.Context(), database.CreateAutonomousDatabaseBackupRequest{
+		AutonomousDatabaseId: resp.Id, DisplayName: new("data-backup"),
+	})
+	require.NoError(t, err)
+	e.awaitDocker(t, resp.Id, database.AutonomousDatabaseLifecycleStateAvailable)
+
+	state := func() database.AutonomousDatabaseBackupLifecycleStateEnum {
+		g, gerr := e.client.GetAutonomousDatabaseBackup(t.Context(),
+			database.GetAutonomousDatabaseBackupRequest{AutonomousDatabaseBackupId: bk.Id})
+		require.NoError(t, gerr)
+
+		return g.LifecycleState
+	}
+	require.Equal(t, database.AutonomousDatabaseBackupLifecycleStateActive, state())
+
+	for _, stmt := range []string{
+		"INSERT INTO notes VALUES (2, 'after the backup')",
+		"CREATE TABLE later (id NUMBER)",
+		"COMMIT",
+	} {
+		_, err = conn.ExecContext(ctx, stmt)
+		require.NoError(t, err)
+	}
+
+	_, err = e.client.RestoreAutonomousDatabase(t.Context(), database.RestoreAutonomousDatabaseRequest{
+		AutonomousDatabaseId: resp.Id,
+		Latest:               new(true),
+	})
+	require.NoError(t, err)
+	got = e.awaitDocker(t, resp.Id, database.AutonomousDatabaseLifecycleStateAvailable)
+
+	restored := connect(t, got, dockerPw, cfg)
+
+	var rows int
+
+	require.NoError(t, restored.QueryRowContext(ctx, "SELECT COUNT(*) FROM notes").Scan(&rows))
+	assert.Equal(t, 1, rows, "the row written after the backup is gone")
+
+	_, err = restored.ExecContext(ctx, "SELECT 1 FROM later")
+	require.Error(t, err, "the table created after the backup is gone")
+}

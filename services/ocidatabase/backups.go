@@ -9,6 +9,7 @@ import (
 
 const (
 	longTermMinDays = 90
+	longTermMaxDays = 3650
 	hoursPerDay     = 24
 )
 
@@ -53,15 +54,18 @@ func (b *InMemoryBackend) addAutomaticBackup(db *ADB) {
 	b.backups[bk.ID] = bk
 }
 
-// CreateBackup starts a manual backup. Only the lifecycle is emulated: the backup holds no data.
+// CreateBackup starts a manual backup. A running docker database is dumped (Data Pump export of the ADMIN
+// schema) into the backup; otherwise the backup holds no data.
 func (b *InMemoryBackend) CreateBackup(in backupIn) (BackupWire, string, string, error) {
 	if in.DBID == nil || *in.DBID == "" {
 		return BackupWire{}, "", "", errMissing("autonomousDatabaseId is required")
 	}
 
 	long := deref(in.LongTerm, false)
-	if long && (in.RetentionDays == nil || *in.RetentionDays < longTermMinDays) {
-		return BackupWire{}, "", "", errParam("retentionPeriodInDays of at least 90 is required for a long-term backup")
+	if long && (in.RetentionDays == nil || *in.RetentionDays < longTermMinDays || *in.RetentionDays > longTermMaxDays) {
+		return BackupWire{}, "", "", errParam(
+			"retentionPeriodInDays between 90 and 3650 (three months to ten years) is required for a long-term backup",
+		)
 	}
 
 	b.mu.Lock("CreateBackup")
@@ -77,14 +81,20 @@ func (b *InMemoryBackend) CreateBackup(in backupIn) (BackupWire, string, string,
 	}
 
 	bk := b.newBackup(db, in, long)
-
-	wr := b.begin(db, step{
+	s := step{
 		typ: "CREATE_AUTONOMOUS_DATABASE_BACKUP", action: "CREATED", state: stateBackingUp, target: stateAvailable,
-	})
+	}
+
+	_, withData := b.archiverOf(db.ID)
+	if withData {
+		s.work = b.backupWork(db.ID, bk.ID)
+	}
+
+	wr := b.begin(db, s)
 	wr.ResourceID, wr.ResourceType = bk.ID, "autonomousdatabasebackup"
 	bk.TransitionAt = db.TransitionAt
 
-	if bk.TransitionAt == nil {
+	if bk.TransitionAt == nil && !withData {
 		now := b.nowUTC()
 		bk.State, bk.Ended = backupActive, &now
 	}

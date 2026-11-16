@@ -81,6 +81,10 @@ func (b *InMemoryBackend) snapView(e *entry[*Snapshot]) Snapshot {
 	v := *e.W
 	v.base = cloneBase(e.W.base)
 
+	if b.dp != nil {
+		v.ExclusiveBytes = b.dp.SnapshotExclusiveBytes(v.FileSystemID, v.Name)
+	}
+
 	return v
 }
 

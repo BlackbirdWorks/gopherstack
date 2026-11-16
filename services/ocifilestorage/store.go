@@ -131,6 +131,7 @@ type InMemoryBackend struct {
 	dp          dataPlane
 	onClose     func()
 	transition  time.Duration
+	quotaUnit   int64
 	seq         int64
 }
 
