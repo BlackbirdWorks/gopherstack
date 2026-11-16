@@ -59,6 +59,8 @@ func customNameProperty(resourceType string) string {
 		return "RoleName"
 	case resTypeLogGroup:
 		return "LogGroupName"
+	case resTypeELBv2LB:
+		return "Name"
 	}
 
 	return ""

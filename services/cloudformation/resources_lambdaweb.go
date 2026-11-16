@@ -544,6 +544,10 @@ func extraRecreation(resType, propName string) string {
 		return v
 	}
 
+	if resType == resTypeELBv2LB {
+		return alwaysIfOneOf(propName, "Name", "Type", "Scheme")
+	}
+
 	return globalAcceleratorRecreation(resType, propName)
 }
 

@@ -87,7 +87,7 @@ func (b *InMemoryBackend) CreateSubnetWithOptions(p CreateSubnetParams) (*Subnet
 		return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, p.VPCID)
 	}
 
-	az, err := b.resolveSubnetAZLocked(p.AvailabilityZone, p.AvailabilityZoneID)
+	az, err := b.resolveSubnetAZLocked(p.VPCID, p.AvailabilityZone, p.AvailabilityZoneID)
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +205,7 @@ func validateIPv6Request(p CreateSubnetParams) error {
 	return nil
 }
 
-func (b *InMemoryBackend) resolveSubnetAZLocked(az, azID string) (string, error) {
+func (b *InMemoryBackend) resolveSubnetAZLocked(vpcID, az, azID string) (string, error) {
 	if azID != "" {
 		for _, name := range b.DescribeAvailabilityZones(b.Region) {
 			if availabilityZoneID(name) == azID {
@@ -217,7 +217,7 @@ func (b *InMemoryBackend) resolveSubnetAZLocked(az, azID string) (string, error)
 	}
 
 	if az == "" {
-		return b.Region + "a", nil
+		return b.leastUsedZoneLocked(vpcID), nil
 	}
 
 	if err := b.validateZoneName(az); err != nil {
@@ -225,6 +225,29 @@ func (b *InMemoryBackend) resolveSubnetAZLocked(az, azID string) (string, error)
 	}
 
 	return az, nil
+}
+
+// leastUsedZoneLocked picks the zone holding the fewest of the VPC's subnets, ties by zone name.
+// The API reference leaves the choice open ("AWS selects one for you").
+func (b *InMemoryBackend) leastUsedZoneLocked(vpcID string) string {
+	counts := make(map[string]int)
+
+	for id := range b.subnetIDsByVPC[vpcID] {
+		if s, ok := b.subnets.Get(id); ok {
+			counts[s.AvailabilityZone]++
+		}
+	}
+
+	zones := b.DescribeAvailabilityZones(b.Region)
+	best := zones[0]
+
+	for _, z := range zones[1:] {
+		if counts[z] < counts[best] {
+			best = z
+		}
+	}
+
+	return best
 }
 
 func (b *InMemoryBackend) subnetIPv4CIDRLocked(vpc *VPC, p CreateSubnetParams) (string, *IpamPoolAllocation, error) {
