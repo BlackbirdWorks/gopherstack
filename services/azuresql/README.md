@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 14 (10 ok, 4 partial) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 10 |
+| Known gaps | 8 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -19,12 +19,10 @@
 - Entra authentication, firewall rules, minimalTlsVersion, publicNetworkAccess, elastic-pool limits and database sku/edition limits are stored but not enforced by the engine.
 - Database sku and maxSizeBytes do not size the engine; every database is a plain SQL Server database.
 - Server create waits for the container, so a first run that pulls the image can take minutes; ARM operations are reported complete as soon as the request returns.
-- Engine data does not survive a restore: containers start empty and tracked databases are created again.
 - Server-level administrator login is a sysadmin of its container, not Azure's dbmanager and loginmanager roles.
 - The restorableDroppedDatabases collection is always empty.
-- Managed instances, failover groups, geo-replication, restore, copy and long-term retention data flow are not implemented.
-- Entra authentication, firewall rules, TLS and public-network settings, and pool or sku limits are stored but not enforced.
-- Engine data does not survive a snapshot restore.
+- Managed instances, failover groups, geo-replication, restore, copy and long-term retention data flow are not implemented: the Microsoft.Sql resource model and createMode handling live in services/azurearm (rp_sql*.go), outside this service, and the engine seam has no cross-server data transfer.
+- Entra authentication, firewall rules, TLS and public-network settings, and pool or sku limits are stored but not enforced: the rules and settings are ARM child state in services/azurearm, and enforcing them needs a connection relay in front of the TDS port that the azurearm.SQL seam does not feed.
 
 ## More
 

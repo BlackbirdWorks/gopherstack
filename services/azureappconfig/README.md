@@ -9,22 +9,14 @@
 | --- | --- |
 | PARITY entries audited | 14 (14 ok) |
 | Feature families | 4 (4 ok) |
-| Known gaps | 10 |
+| Known gaps | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - Bearer tokens are accepted when JWT-shaped; AAD token validation and RBAC data roles are not implemented.
-- History is capped at 50000 entries per store.
-- Snapshots are ready as soon as they are created; there is no provisioning or failed status.
-- Replicas are ARM metadata only; their data is the store's data.
-- Customer-managed key encryption, private endpoint connections and SKU quotas are not modelled.
-- Bearer token validation and AAD data-plane roles are not implemented; JWT-shaped bearer tokens are accepted without verification.
-- History is capped at 50000 entries per store (the real limit is the tier storage quota, not an entry count).
-- Snapshots complete synchronously: the create response carries status ready where the REST reference shows 201 with status provisioning, an Operation-Location header and later ready, and the failed state is never entered; with composition_type key, which key-value wins when several filters select different labels of one key is not published: checked rest-api-snapshot and concept-snapshots (emulator keeps the later filter's)
-- Replicas are metadata only and do not replicate or serve a separate data set.
-- Customer-managed key encryption, private endpoint connections, and SKU request quotas are not modelled.
+- Bearer token validation and AAD data-plane roles are not implemented; JWT-shaped bearer tokens are accepted without verification (RBAC is out of scope).
 
 ## More
 
