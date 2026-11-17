@@ -395,3 +395,48 @@ func TestDeltaTokensDoNotSurviveRestore(t *testing.T) {
 	require.NoError(t, fresh.h.Restore(t.Context(), e.h.Snapshot(t.Context())))
 	assertErr(t, fresh.req(t, http.MethodGet, link, nil), http.StatusGone, "syncStateNotFound")
 }
+
+func TestGroupsDeltaPagingUnderInterleavedWrites(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+
+	want := make([]string, 0, 120)
+	for i := range 120 {
+		want = append(want, str(newGroup(t, e, fmt.Sprintf("iw%03d", i)), "id"))
+	}
+
+	p1 := e.req(t, http.MethodGet, "/v1.0/groups/delta", nil)
+	require.Equal(t, http.StatusOK, p1.status, p1.raw)
+
+	added := str(newGroup(t, e, "iw-late"), "id")
+	gone := ids(p1)[0]
+	require.Equal(t, http.StatusNoContent, e.req(t, http.MethodDelete, "/v1.0/groups/"+gone, nil).status)
+
+	p2 := e.req(t, http.MethodGet, linkPath(t, p1, "@odata.nextLink"), nil)
+	require.Equal(t, http.StatusOK, p2.status, p2.raw)
+
+	got := slices.Concat(ids(p1), ids(p2))
+	assert.ElementsMatch(t, want, got, "the round lists the objects as of its first request, none twice or skipped")
+
+	next := e.req(t, http.MethodGet, linkPath(t, p2, "@odata.deltaLink"), nil)
+	require.Equal(t, http.StatusOK, next.status, next.raw)
+	assert.Contains(t, ids(next), added, "an object created mid-round shows up in the next round")
+	assert.Equal(t, "deleted", removedReason(next, gone), "an object deleted mid-round is reported removed next round")
+	assert.Len(t, ids(next), 2)
+}
+
+func TestDeltaQueryOptionBounds(t *testing.T) {
+	t.Parallel()
+
+	long := strings.Repeat("a", 5000)
+
+	for _, opt := range []string{"$filter", "$skiptoken"} {
+		t.Run(opt, func(t *testing.T) {
+			t.Parallel()
+
+			r := newEnv(t).req(t, http.MethodGet, "/v1.0/users/delta?"+opt+"="+long, nil)
+			assertErr(t, r, http.StatusBadRequest, "Request_BadRequest")
+		})
+	}
+}

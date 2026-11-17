@@ -433,6 +433,10 @@ func (b *Backend) deltaNextPage(q deltaQuery) (DeltaPage, error) {
 
 func parseDeltaQuery(r *http.Request, kind string) (deltaQuery, error) {
 	vals := parseQueryValues(r.URL.RawQuery)
+	if err := checkQueryBounds(vals); err != nil {
+		return deltaQuery{}, err
+	}
+
 	q := deltaQuery{
 		kind: kind, skipToken: vals.Get(paramSkipToken), deltaToken: vals.Get(paramDeltaToken),
 		minimal: strings.Contains(strings.ToLower(strings.Join(r.Header.Values("Prefer"), ",")), "return=minimal"),

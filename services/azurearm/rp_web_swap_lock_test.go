@@ -11,6 +11,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 )
 
+const swapTestDeadline = 20 * time.Second
+
 type warmRecorder struct {
 	azurearm.FunctionApps
 
@@ -121,11 +123,35 @@ func TestSwapWarmUpDoesNotHoldTheProviderLock(t *testing.T) {
 
 			go func() { done <- wp.SwapSlots(ctx, slot, map[string]any{"targetSlot": "production"}) }()
 
-			require.Equal(t, "app1/stage", <-rec.entered)
-			tt.during(t, h, wp, site, slot)
+			select {
+			case name := <-rec.entered:
+				require.Equal(t, "app1/stage", name)
+			case <-time.After(swapTestDeadline):
+				require.FailNow(t, "the warm-up never started")
+			}
+
+			duringDone := make(chan struct{})
+
+			go func() {
+				defer close(duringDone)
+
+				tt.during(t, h, wp, site, slot)
+			}()
+
+			select {
+			case <-duringDone:
+			case <-time.After(swapTestDeadline):
+				close(rec.release)
+				require.FailNow(t, "the provider lock is held while the swap warms up")
+			}
+
 			close(rec.release)
 
-			err = <-done
+			select {
+			case err = <-done:
+			case <-time.After(swapTestDeadline):
+				require.FailNow(t, "the swap never finished")
+			}
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)

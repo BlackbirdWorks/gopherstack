@@ -10,14 +10,19 @@ import (
 	"strings"
 )
 
-const maxScanBytes = 8 << 20
+const (
+	maxScanBytes = 8 << 20
+	extDLL       = ".dll"
+)
 
 // Node v4 (app.<trigger>(...)) and Python v2 (@app.<trigger>(...)) registrations of non-HTTP triggers; the
 // names are the registration methods of @azure/functions v4 and azure.functions FunctionApp.
 var codeFirstTriggerRE = regexp.MustCompile(
 	`\b\w+\.(timer|storageQueue|storageBlob|serviceBusQueue|serviceBusTopic|eventHub|cosmosDB|eventGrid|` +
 		`timer_trigger|queue_trigger|blob_trigger|service_bus_queue_trigger|service_bus_topic_trigger|` +
-		`event_hub_message_trigger|cosmos_db_trigger|event_grid_trigger)\s*\(`)
+		`event_hub_message_trigger|cosmos_db_trigger|event_grid_trigger|schedule|kafka_trigger|rabbitmq_trigger|` +
+		`sql_trigger|mysql_trigger|orchestration_trigger|activity_trigger|entity_trigger|generic_trigger)\s*\(|` +
+		`\bapp\.(orchestration|activity|entity|generic|kafka|rabbitMQ|sql|mySql|signalR)\s*\(`)
 
 // compiledTriggerMarkers are attribute type names that appear in .NET assemblies built for the isolated worker.
 func compiledTriggerMarkers() [][]byte {
@@ -25,6 +30,9 @@ func compiledTriggerMarkers() [][]byte {
 		[]byte("TimerTriggerAttribute"), []byte("QueueTriggerAttribute"), []byte("BlobTriggerAttribute"),
 		[]byte("ServiceBusTriggerAttribute"), []byte("EventHubTriggerAttribute"),
 		[]byte("CosmosDBTriggerAttribute"), []byte("EventGridTriggerAttribute"),
+		[]byte("KafkaTriggerAttribute"), []byte("RabbitMQTriggerAttribute"), []byte("SqlTriggerAttribute"),
+		[]byte("SignalRTriggerAttribute"), []byte("OrchestrationTriggerAttribute"),
+		[]byte("ActivityTriggerAttribute"), []byte("EntityTriggerAttribute"),
 	}
 }
 
@@ -46,7 +54,7 @@ func fileHasCodeFirstTrigger(f *zip.File) bool {
 	}
 
 	switch ext {
-	case ".js", ".mjs", ".cjs", ".py", ".dll":
+	case ".js", ".mjs", ".cjs", ".py", extDLL:
 	default:
 		return false
 	}
@@ -62,7 +70,7 @@ func fileHasCodeFirstTrigger(f *zip.File) bool {
 		return false
 	}
 
-	if ext == ".dll" {
+	if ext == extDLL {
 		for _, m := range compiledTriggerMarkers() {
 			if bytes.Contains(raw, m) {
 				return true

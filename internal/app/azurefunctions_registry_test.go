@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/pem"
 	"net"
 	"net/http"
@@ -132,7 +133,12 @@ func TestRegistryExchangerOverTLS(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := newRegistryExchanger(port, tt.cert)(t.Context(), tt.host, "t1", "secret-access-token")
+			lookup := func(context.Context, string) ([]net.IPAddr, error) {
+				return []net.IPAddr{{IP: net.IPv4(127, 0, 0, 1)}}, nil
+			}
+
+			got, err := newRegistryExchangerWith(port, tt.cert, lookup)(
+				t.Context(), tt.host, "t1", "secret-access-token")
 			if tt.wantErr {
 				require.Error(t, err)
 
@@ -143,4 +149,70 @@ func TestRegistryExchangerOverTLS(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestRegistryExchangerRefusesForeignHosts(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"refresh_token":"rt"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	port := strconv.Itoa(portOf(t, srv.Listener.Addr()))
+
+	public := func(context.Context, string) ([]net.IPAddr, error) {
+		return []net.IPAddr{{IP: net.IPv4(93, 184, 216, 34)}}, nil
+	}
+	mixed := func(context.Context, string) ([]net.IPAddr, error) {
+		return []net.IPAddr{{IP: net.IPv4(127, 0, 0, 1)}, {IP: net.IPv4(10, 0, 0, 1)}}, nil
+	}
+	failing := func(context.Context, string) ([]net.IPAddr, error) { return nil, errRegistryExchange }
+
+	tests := []struct {
+		lookup hostLookup
+		name   string
+		host   string
+		want   bool
+	}{
+		{public, "foreign dns name", "evil.example", false},
+		{mixed, "name with a public address", "rebind.example", false},
+		{failing, "unresolvable name", "gone.example", false},
+		{public, "foreign ip", "93.184.216.34", false},
+		{public, "localhost", "localhost", true},
+		{public, "azurecr localhost", "reg.azurecr.localhost", true},
+		{public, "loopback ip", "127.0.0.1", true},
+		{public, "ipv6 loopback", "::1", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			host := net.JoinHostPort(tt.host, port)
+			_, err := newRegistryExchangerWith(portOf(t, srv.Listener.Addr()), "", tt.lookup)(
+				t.Context(), host, "t1", "secret-access-token")
+
+			if tt.want {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorIs(t, err, errRegistryNotEmulated)
+		})
+	}
+}
+
+func TestRegistryClientIgnoresProxyEnvironment(t *testing.T) {
+	t.Setenv("HTTPS_PROXY", "http://proxy.invalid:3128")
+	t.Setenv("HTTP_PROXY", "http://proxy.invalid:3128")
+
+	client, _, err := registryClient("", "reg.azurecr.localhost")
+	require.NoError(t, err)
+
+	tr, ok := client.Transport.(*http.Transport)
+	require.True(t, ok)
+	assert.Nil(t, tr.Proxy)
+	assert.Equal(t, http.ErrUseLastResponse, client.CheckRedirect(nil, nil))
 }

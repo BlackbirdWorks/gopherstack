@@ -96,6 +96,10 @@ func (b *Backend) patchedKey(cur []KeyCredential, k KeyCredential) (KeyCredentia
 		return kept, "", nil
 	}
 
+	if i < 0 && k.KeyID != "" && b.keyIDTaken(k.KeyID) {
+		return KeyCredential{}, "", badRequest("The keyId '%s' is already used by another credential.", k.KeyID)
+	}
+
 	cred, err := b.newKeyCredential(k)
 	if err != nil {
 		return KeyCredential{}, "", err
@@ -110,4 +114,38 @@ func (b *Backend) patchedKey(cur []KeyCredential, k KeyCredential) (KeyCredentia
 	}
 
 	return cred, *k.Key, nil
+}
+
+// keyIDTaken reports whether any application, service principal or soft-deleted holder already uses keyID; key
+// material is keyed by it, so a reused ID would replace another holder's certificate.
+func (b *Backend) keyIDTaken(keyID string) bool {
+	id := lc(keyID)
+	if _, ok := b.keyMaterial[id]; ok {
+		return true
+	}
+
+	has := func(keys []KeyCredential) bool {
+		return slices.ContainsFunc(keys, func(k KeyCredential) bool { return lc(k.KeyID) == id })
+	}
+
+	for _, a := range b.apps.all() {
+		if has(a.KeyCredentials) {
+			return true
+		}
+	}
+
+	for _, sp := range b.sps.all() {
+		if has(sp.KeyCredentials) {
+			return true
+		}
+	}
+
+	for _, d := range b.deleted.all() {
+		if _, ok := d.KeyMaterial[id]; ok || d.Application != nil && has(d.Application.KeyCredentials) ||
+			d.ServicePrincipal != nil && has(d.ServicePrincipal.KeyCredentials) {
+			return true
+		}
+	}
+
+	return false
 }

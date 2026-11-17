@@ -1,7 +1,11 @@
 package azurefunctions_test
 
 import (
+	"bytes"
+	"context"
+	"maps"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -10,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/services/azurefunctions"
 )
 
@@ -276,4 +281,155 @@ func TestReaperGoroutineStopsOnShutdown(t *testing.T) {
 	require.NoError(t, h.StartWorker(t.Context()))
 
 	h.Shutdown(t.Context())
+}
+
+func TestAdminListHoldsTheHostAgainstReaping(t *testing.T) {
+	t.Parallel()
+
+	e, clock := idleEnv(t, azurefunctions.AppConfig{Hosting: azurefunctions.HostingConsumption}, helloZip(t))
+	entered, release := make(chan struct{}), make(chan struct{})
+	e.rt.onAdmin = func() {
+		close(entered)
+		<-release
+	}
+
+	e.hit(t)
+	clock.advance(time.Hour)
+
+	done := make(chan error, 1)
+
+	go func() {
+		_, err := e.backend.Functions(t.Context(), "idle")
+		done <- err
+	}()
+
+	<-entered
+	assert.Zero(t, e.backend.ReapIdle(), "the host answering an admin call is not unloaded")
+	close(release)
+	require.NoError(t, <-done)
+}
+
+func TestUnknownTriggersKeepTheHost(t *testing.T) {
+	t.Parallel()
+
+	httpFn := `{"bindings":[{"authLevel":"anonymous","type":"httpTrigger","direction":"in","name":"req","route":"greet"}]}`
+
+	tests := []struct {
+		files map[string]string
+		name  string
+		reap  int
+	}{
+		{map[string]string{"hello/function.json": httpFn}, "http only", 1},
+		{
+			map[string]string{"hello/function.json": httpFn, "broken/function.json": `{"bindings":[`},
+			"unparsable function json", 0,
+		},
+		{map[string]string{"hello/function.json": httpFn, "big.js": strings.Repeat("a", 9<<20)}, "oversized script", 0},
+		{
+			map[string]string{"hello/function.json": httpFn, "app.js": `df.app.orchestration('o', function*(){})`},
+			"durable orchestration", 0,
+		},
+		{map[string]string{"hello/function.json": httpFn, "f.py": "@app.kafka_trigger(topic='t')"}, "python kafka", 0},
+		{
+			map[string]string{"hello/function.json": httpFn, "a.dll": "xxRabbitMQTriggerAttributexx"},
+			"dotnet rabbitmq", 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			files := map[string]string{"host.json": `{"version":"2.0"}`}
+			maps.Copy(files, tt.files)
+
+			cfg := azurefunctions.AppConfig{Hosting: azurefunctions.HostingConsumption}
+			e, clock := idleEnv(t, cfg, zipOf(t, files))
+			e.hit(t)
+
+			clock.advance(time.Hour)
+			assert.Equal(t, tt.reap, e.backend.ReapIdle())
+		})
+	}
+}
+
+func TestServedRequestHoldsTheHostWhileItRuns(t *testing.T) {
+	t.Parallel()
+
+	e, clock := idleEnv(t, azurefunctions.AppConfig{Hosting: azurefunctions.HostingConsumption}, helloZip(t))
+	entered, release := make(chan struct{}), make(chan struct{})
+
+	var once sync.Once
+
+	e.rt.onEcho = func() {
+		once.Do(func() { close(entered) })
+		<-release
+	}
+
+	status := make(chan int, 1)
+
+	go func() {
+		status <- e.statusOf(http.MethodGet, "idle."+testDomain, "/api/greet", nil, "")
+	}()
+
+	<-entered
+	clock.advance(time.Hour)
+	assert.Zero(t, e.backend.ReapIdle(), "a request running on the host keeps it")
+	close(release)
+	assert.Equal(t, http.StatusOK, <-status, "the request is not cut off")
+
+	assert.Zero(t, e.backend.ReapIdle(), "finishing counts as activity")
+	clock.advance(5 * time.Minute)
+	assert.Equal(t, 1, e.backend.ReapIdle())
+}
+
+func TestKuduRequestHoldsTheHostButNotItsClock(t *testing.T) {
+	t.Parallel()
+
+	e, clock := idleEnv(t, azurefunctions.AppConfig{Hosting: azurefunctions.HostingConsumption}, helloZip(t))
+	entered, release := make(chan struct{}), make(chan struct{})
+	e.rt.onExec = func(container.Spec, []string) container.ExecResult {
+		close(entered)
+		<-release
+
+		return container.ExecResult{}
+	}
+
+	status := make(chan int, 1)
+	auth := e.kuduAuth(t, "idle")["basic"]
+
+	go func() {
+		status <- e.statusOf(http.MethodPost, "idle.scm."+testDomain, "/api/command", []byte(`{"command":"ls"}`), auth)
+	}()
+
+	<-entered
+	clock.advance(time.Hour)
+	assert.Zero(t, e.backend.ReapIdle(), "a Kudu call in flight keeps the host")
+	close(release)
+	assert.Equal(t, http.StatusOK, <-status)
+
+	assert.Equal(t, 1, e.backend.ReapIdle(), "Kudu traffic does not restart the idle clock")
+}
+
+// statusOf sends a request without asserting, so it can run off the test goroutine; -1 means it failed.
+func (e *env) statusOf(method, host, path string, body []byte, basic string) int {
+	req, err := http.NewRequestWithContext(context.Background(), method, e.srv.URL+path, bytes.NewReader(body))
+	if err != nil {
+		return -1
+	}
+
+	req.Host = host
+
+	if u, p, ok := strings.Cut(basic, ":"); ok {
+		req.SetBasicAuth(u, p)
+	}
+
+	resp, err := e.client.Do(req)
+	if err != nil {
+		return -1
+	}
+
+	_ = resp.Body.Close()
+
+	return resp.StatusCode
 }

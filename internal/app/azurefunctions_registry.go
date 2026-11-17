@@ -45,12 +45,45 @@ func wireAzureFunctionsRegistry(backend *azurefunctions.InMemoryBackend, byName 
 }
 
 // newRegistryExchanger calls /oauth2/exchange on the emulated registry's own listener, never on another host: the
-// image host must carry the listener's port, the dial is loopback only and redirects are not followed. When the
-// listener serves HTTPS with an operator certificate, that certificate is the only trust anchor.
+// image host must carry the listener's port and resolve to loopback only, the dial is loopback only and
+// redirects are not followed. When the listener serves HTTPS with an operator certificate, that certificate is
+// the only trust anchor.
 func newRegistryExchanger(port int, certFile string) azurefunctions.RegistryExchanger {
+	return newRegistryExchangerWith(port, certFile, net.DefaultResolver.LookupIPAddr)
+}
+
+type hostLookup func(ctx context.Context, host string) ([]net.IPAddr, error)
+
+// emulatedRegistryName reports whether name can only reach this machine: a loopback address, localhost or a
+// *.localhost name, or a name whose every address is loopback. The image reference is user input, and the
+// refresh token is handed to the container runtime for that host.
+func emulatedRegistryName(ctx context.Context, name string, lookup hostLookup) bool {
+	if ip := net.ParseIP(name); ip != nil {
+		return ip.IsLoopback()
+	}
+
+	if lower := strings.ToLower(name); lower == "localhost" || strings.HasSuffix(lower, ".localhost") {
+		return true
+	}
+
+	addrs, err := lookup(ctx, name)
+	if err != nil || len(addrs) == 0 {
+		return false
+	}
+
+	for _, a := range addrs {
+		if !a.IP.IsLoopback() {
+			return false
+		}
+	}
+
+	return true
+}
+
+func newRegistryExchangerWith(port int, certFile string, lookup hostLookup) azurefunctions.RegistryExchanger {
 	return func(ctx context.Context, registryHost, tenant, accessToken string) (string, error) {
 		name, p, err := net.SplitHostPort(registryHost)
-		if err != nil || p != strconv.Itoa(port) {
+		if err != nil || p != strconv.Itoa(port) || !emulatedRegistryName(ctx, name, lookup) {
 			return "", errRegistryNotEmulated
 		}
 

@@ -180,3 +180,28 @@ func TestPatchKeyCredentialsConcurrent(t *testing.T) {
 
 	assert.Equal(t, 1, live, "exactly the winning PATCH's certificate stays usable")
 }
+
+func TestPatchKeyCredentialsCannotTakeAnotherHoldersKeyID(t *testing.T) {
+	t.Parallel()
+
+	e, victim, _ := assertionEnv(t)
+	attacker := newApp(t, e, "Attacker")
+	good, evil := clockCert(t), clockCert(t)
+
+	victimPath := "/v1.0/applications/" + str(victim, "id")
+	attackerPath := "/v1.0/applications/" + str(attacker, "id")
+	require.Equal(t, http.StatusNoContent,
+		e.req(t, http.MethodPatch, victimPath, map[string]any{"keyCredentials": []any{good.keyBody()}}).status)
+
+	keyID := str(keyList(t, e, victimPath)[0].(map[string]any), "keyId") //nolint:forcetypeassert // test data
+
+	stolen := evil.keyBody()
+	stolen["keyId"] = keyID
+
+	r := e.req(t, http.MethodPatch, attackerPath, map[string]any{"keyCredentials": []any{stolen}})
+	assertErr(t, r, http.StatusBadRequest, "Request_BadRequest")
+
+	assert.True(t, good.authenticates(t, e, str(victim, "appId")), "the victim's certificate is untouched")
+	assert.False(t, evil.authenticates(t, e, str(victim, "appId")), "the attacker's certificate does not authenticate")
+	assert.Empty(t, keyList(t, e, attackerPath))
+}

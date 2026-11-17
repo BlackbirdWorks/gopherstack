@@ -95,7 +95,7 @@ func (a *app) needsHostAlive() bool {
 		}
 	}
 
-	return !a.isWeb() && hasBackgroundTrigger(a.Zip)
+	return !a.isWeb() && (triggersUnknown(a.Zip) || hasBackgroundTrigger(a.Zip))
 }
 
 // ReapIdle unloads the host of every app that has gone idle past its plan's limit and returns how many it took
