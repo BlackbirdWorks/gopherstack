@@ -18,7 +18,7 @@ import (
 func TestExportArtifact(t *testing.T) {
 	t.Parallel()
 
-	store := memStore{}
+	store := newMemStore(nil)
 	e, version, _ := attachEnv(t, func(b *gcpartifactregistry.InMemoryBackend) { b.SetObjectStore(store) })
 	ctx := t.Context()
 	content := []byte(`{"bomFormat":"CycloneDX"}`)
@@ -117,7 +117,7 @@ func TestExportArtifact(t *testing.T) {
 			require.Len(t, meta.GetExportedFiles(), 1)
 			assert.Equal(t, tt.obj, meta.GetExportedFiles()[0].GetGcsObjectPath())
 			assert.Equal(t, sha256Of(content), "sha256:"+hexOf(meta.GetExportedFiles()[0].GetHashes()[0].GetValue()))
-			assert.Equal(t, content, store[tt.obj])
+			assert.Equal(t, content, store.get(tt.obj))
 		})
 	}
 }
@@ -143,14 +143,14 @@ func TestExportArtifactByTagAndFailures(t *testing.T) {
 	_, err := e.client.ExportArtifact(t.Context(), req)
 	assert.Equal(t, codes.FailedPrecondition, status.Code(err), "no Cloud Storage emulator wired")
 
-	store := memStore{}
+	store := newMemStore(nil)
 	e.handler.Backend.SetObjectStore(store)
 
 	op, err := e.client.ExportArtifact(t.Context(), req)
 	require.NoError(t, err)
 	_, err = op.Wait(t.Context())
 	require.NoError(t, err)
-	assert.Equal(t, spec, store["bkt-t/pipeline_spec.yaml"])
+	assert.Equal(t, spec, store.get("bkt-t/pipeline_spec.yaml"))
 
 	req.Destination = &artifactregistrypb.ExportArtifactRequest_GcsPath{GcsPath: "missing-bucket"}
 	op, err = e.client.ExportArtifact(t.Context(), req)
@@ -164,7 +164,7 @@ func TestCancelledExportWritesNothing(t *testing.T) {
 	t.Parallel()
 
 	clock := newFakeClock(epochTime())
-	store := memStore{}
+	store := newMemStore(nil)
 	e, version, _ := attachEnv(t, func(b *gcpartifactregistry.InMemoryBackend) {
 		b.SetObjectStore(store)
 		b.SetClock(clock.now)
@@ -179,7 +179,7 @@ func TestCancelledExportWritesNothing(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.False(t, op.Done())
-	assert.Empty(t, store, "nothing is written while the operation is pending")
+	assert.Zero(t, store.size(), "nothing is written while the operation is pending")
 
 	require.NoError(t, e.client.LROClient.CancelOperation(ctx, &longrunningpb.CancelOperationRequest{Name: op.Name()}))
 	clock.advance(time.Hour)
@@ -187,13 +187,13 @@ func TestCancelledExportWritesNothing(t *testing.T) {
 	got, err := e.client.LROClient.GetOperation(ctx, &longrunningpb.GetOperationRequest{Name: op.Name()})
 	require.NoError(t, err)
 	assert.EqualValues(t, codes.Canceled, got.GetError().GetCode())
-	assert.Empty(t, store)
+	assert.Zero(t, store.size())
 }
 
 func TestExportDockerArtifact(t *testing.T) {
 	t.Parallel()
 
-	store := memStore{}
+	store := newMemStore(nil)
 	e := newEnvWith(t, "", func(b *gcpartifactregistry.InMemoryBackend) { b.SetObjectStore(store) })
 	e.createRepo(t, "dock", dockerRepo())
 
@@ -219,7 +219,7 @@ func TestExportDockerArtifact(t *testing.T) {
 		meta, err := op.Metadata()
 		require.NoError(t, err)
 		assert.Len(t, meta.GetExportedFiles(), 3, "manifest, config and layer")
-		assert.Equal(t, img.Body, store["bkt-docker/"+name+"/"+img.Digest], name)
-		assert.Equal(t, img.Layer, store["bkt-docker/"+name+"/"+ocitest.Digest(img.Layer)], name)
+		assert.Equal(t, img.Body, store.get("bkt-docker/"+name+"/"+img.Digest), name)
+		assert.Equal(t, img.Layer, store.get("bkt-docker/"+name+"/"+ocitest.Digest(img.Layer)), name)
 	}
 }

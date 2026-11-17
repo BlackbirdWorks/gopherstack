@@ -3,12 +3,14 @@ package gcpartifactregistry_test
 import (
 	"bytes"
 	"errors"
+	"maps"
 	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
@@ -18,32 +20,65 @@ import (
 	"google.golang.org/api/googleapi"
 )
 
-type memStore map[string][]byte
+type memStore struct {
+	m  map[string][]byte
+	mu sync.Mutex
+}
+
+func newMemStore(entries map[string][]byte) *memStore {
+	m := make(map[string][]byte, len(entries))
+	maps.Copy(m, entries)
+
+	return &memStore{m: m}
+}
 
 var errNoObject = errors.New("no such object")
 
-func (m memStore) ReadObject(bucket, object string) ([]byte, error) {
-	if d, ok := m[bucket+"/"+object]; ok {
+func (s *memStore) get(key string) []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.m[key]
+}
+
+func (s *memStore) size() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return len(s.m)
+}
+
+func (s *memStore) ReadObject(bucket, object string) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if d, ok := s.m[bucket+"/"+object]; ok {
 		return d, nil
 	}
 
 	return nil, errNoObject
 }
 
-func (m memStore) WriteObject(bucket, object string, data []byte, _ string) error {
+func (s *memStore) WriteObject(bucket, object string, data []byte, _ string) error {
 	if !strings.HasPrefix(bucket, "bkt") {
 		return errNoObject
 	}
 
-	m[bucket+"/"+object] = data
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.m[bucket+"/"+object] = data
 
 	return nil
 }
 
-func (m memStore) ListObjects(bucket, prefix string) ([]string, error) {
+func (s *memStore) ListObjects(bucket, prefix string) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	var out []string
 
-	for k := range m {
+	for k := range s.m {
 		if o, ok := strings.CutPrefix(k, bucket+"/"); ok && strings.HasPrefix(o, prefix) {
 			out = append(out, o)
 		}
@@ -179,12 +214,12 @@ func TestImportAptAndYumFromStorage(t *testing.T) {
 	e.createRepo(t, "apt-imp", &artifactregistrypb.Repository{Format: artifactregistrypb.Repository_APT})
 	e.createRepo(t, "yum-imp", &artifactregistrypb.Repository{Format: artifactregistrypb.Repository_YUM})
 
-	store := memStore{
+	store := newMemStore(map[string][]byte{
 		"bkt/debs/a_1.0_amd64.deb": makeDeb(t, "a", "1.0", "amd64"),
 		"bkt/debs/b_2.0_amd64.deb": makeDeb(t, "b", "2.0", "amd64"),
 		"bkt/debs/junk.deb":        []byte("junk"),
 		"bkt/rpms/c.rpm":           makeRPM(t, "c", "3.0", "1", "noarch"),
-	}
+	})
 	e.handler.Backend.SetObjectStore(store)
 
 	ctx := t.Context()
