@@ -1,7 +1,9 @@
 package ocistreaming
 
 import (
+	"net"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -71,7 +73,7 @@ type poolSummaryWire struct {
 	IsPrivate      bool                      `json:"isPrivate"`
 }
 
-func poolView(p *Pool, host string) poolWire {
+func (b *InMemoryBackend) poolView(p *Pool, host string) poolWire {
 	key := keyWire{KeyState: "NONE"}
 	if p.KMSKeyID != "" {
 		key = keyWire{KmsKeyID: &p.KMSKeyID, KeyState: "ACTIVE"}
@@ -84,6 +86,15 @@ func poolView(p *Pool, host string) poolWire {
 	}
 	if host != "" {
 		w.EndpointFqdn = &host
+	}
+
+	if b.kafkaPort > 0 && host != "" {
+		h := host
+		if hh, _, err := net.SplitHostPort(host); err == nil {
+			h = hh
+		}
+
+		w.Kafka.BootstrapServers = new(net.JoinHostPort(h, strconv.Itoa(b.kafkaPort)))
 	}
 
 	return w
@@ -187,7 +198,7 @@ func (b *InMemoryBackend) CreatePool(in CreatePoolIn, host string) (poolWire, st
 			return poolWire{}, "", "", errInvalidatedToken()
 		}
 
-		return poolView(p, host), p.Etag, wr, nil
+		return b.poolView(p, host), p.Etag, wr, nil
 	}
 
 	if aerr = b.checkTags(in.Tags); aerr != nil {
@@ -218,7 +229,7 @@ func (b *InMemoryBackend) CreatePool(in CreatePoolIn, host string) (poolWire, st
 
 	b.retry.Remember("CreateStreamPool", in.RetryToken, ociretry.Join(p.ID, wr), b.nowUTC())
 
-	return poolView(p, host), p.Etag, wr, nil
+	return b.poolView(p, host), p.Etag, wr, nil
 }
 
 // GetPool returns one pool.
@@ -231,7 +242,7 @@ func (b *InMemoryBackend) GetPool(id, host string) (poolWire, string, error) {
 		return poolWire{}, "", errNotFound(id)
 	}
 
-	return poolView(p, host), p.Etag, nil
+	return b.poolView(p, host), p.Etag, nil
 }
 
 // ListPools lists the pools of a compartment.
@@ -296,7 +307,7 @@ func (b *InMemoryBackend) UpdatePool(id, ifMatch, host string, in UpdatePoolIn) 
 	wr := b.newWR("UPDATE_STREAM_POOL", p.CompartmentID, "streampool", p.ID, "UPDATED",
 		"/streampools/"+p.ID, *p.TransitionAt)
 
-	return poolView(p, host), p.Etag, wr, nil
+	return b.poolView(p, host), p.Etag, wr, nil
 }
 
 func (b *InMemoryBackend) applyPoolUpdate(p *Pool, in UpdatePoolIn) *APIError {

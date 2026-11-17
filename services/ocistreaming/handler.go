@@ -50,10 +50,12 @@ type Handler struct {
 	Backend     *InMemoryBackend
 	srvMu       *lockmetrics.RWMutex
 	srv         *http.Server
+	kafka       *kafkaServer
 	stop        chan struct{}
 	ops         map[string]opFunc
 	wg          sync.WaitGroup
 	Port        int
+	KafkaPort   int
 	EnforceAuth bool
 }
 
@@ -319,6 +321,12 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 
 	log.InfoContext(workerCtx, "ocistreaming: starting dedicated listener", "port", h.Port)
 
+	if err = h.startKafka(ctx); err != nil {
+		_ = listener.Close()
+
+		return err
+	}
+
 	h.wg.Go(func() {
 		if serveErr := srv.Serve(listener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 			log.ErrorContext(workerCtx, "ocistreaming: listener stopped", "error", serveErr)
@@ -346,6 +354,8 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 
 // Shutdown stops the listener and the sweeper.
 func (h *Handler) Shutdown(ctx context.Context) {
+	h.stopKafka()
+
 	h.srvMu.Lock("Shutdown")
 	srv, stop := h.srv, h.stop
 	h.srv, h.stop = nil, nil

@@ -36,6 +36,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	handler := NewHandler(NewInMemoryBackend())
 	handler.Port = settings.Port
+	handler.Backend.SetPartitionLimit(settings.PartitionLimit)
+	handler.KafkaPort = settings.KafkaPort
 	handler.EnforceAuth = settings.EnforceAuth
 
 	return handler, nil

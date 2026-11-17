@@ -257,13 +257,11 @@ func (e *Engine) prepare(r *run) error {
 func (e *Engine) spec(r *run, c *Container) container.Spec {
 	sp := container.Spec{
 		Image: c.ImageURL, WorkingDir: c.WorkingDir, Cmd: c.Args, Mounts: r.scratch.binds(c.Mounts),
-		User: securityUser(c.Security),
 		Name: "gopherstack-oci-ci-" + e.nonce + "-" + strconv.FormatUint(e.seq.Add(1), 10),
 	}
 
-	if sp.User == "" {
-		sp.User = securityUser(r.inst.Security)
-	}
+	applySecurity(&sp, r.inst.Security, c.Security)
+	sp.StopTimeoutSecs = graceFor(r.inst)
 
 	if len(c.Command) > 0 {
 		sp.Entrypoint = c.Command
@@ -528,7 +526,7 @@ func findCtr(in *Instance, id string) *Container {
 }
 
 func (e *Engine) removeContainer(r *run, c *Container, id string) {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.ctx), teardownTimeout)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.ctx), teardownFor(r.inst))
 	defer cancel()
 
 	logs, _ := r.rt.Logs(ctx, id)
@@ -569,7 +567,7 @@ func (e *Engine) halt(instID string) {
 	r.cancel()
 	r.wg.Wait()
 
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.ctx), teardownTimeout)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.ctx), teardownFor(r.inst))
 	defer cancel()
 
 	e.mu.Lock("halt")

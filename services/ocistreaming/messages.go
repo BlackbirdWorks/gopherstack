@@ -159,7 +159,10 @@ func (b *InMemoryBackend) PutMessages(streamID string, in putMessagesIn) (putRes
 		}
 	}
 
-	return appendEntries(s, in.Messages, targets, now), nil
+	res := appendEntries(s, in.Messages, targets, now)
+	b.signalLocked()
+
+	return res, nil
 }
 
 func (p *Partition) used(now time.Time) int {

@@ -44,12 +44,9 @@ families:
   consumer_groups: {status: ok, note: "Group offsets, reservations, balancing, heartbeats and timeouts persist with the snapshot and follow the injectable clock."}
   routing_isolation: {status: ok, note: "Own http.Server bound in StartWorker to --oci-streaming-port / OCI_STREAMING_PORT (default 8152); never on the shared AWS router; cli.go reserves the port in the shared pool."}
   vault_integration: {status: ok, note: "When OCI Vault runs in the same process, customEncryptionKey references are checked against its keys (must exist and be ENABLED); standalone, any ocid1.key. OCID is accepted."}
+  kafka_api: {status: ok, note: "--oci-streaming-kafka-port (0 disables) serves Kafka over TLS 1.2+ with a self-signed certificate. SASL PLAIN user <tenancy>/<domain>/<user>/<streamPoolOCID> (the last segment binds the connection to that pool, the one before it is the user name), password an OCI Identity auth token when Identity is wired; --oci-streaming-enforce-auth without Identity rejects every login. Topics are the streams of the bound pool. Served: ApiVersions, SaslHandshake/Authenticate, Metadata (auto-create when the pool's autoCreateTopicsEnable is true), Produce (v3-8, magic 2, none/gzip, CRC checked, 4 MiB inflate budget per request), Fetch (v4-11, long poll woken by appends), ListOffsets, FindCoordinator, JoinGroup/SyncGroup/Heartbeat/LeaveGroup (membership in memory, session timeouts on the backend clock, 1000 groups and 100 members caps), OffsetCommit/OffsetFetch (stored in the stream's consumer group, shared with the REST API and the snapshot), CreateTopics and DeleteTopics (create and delete streams). Pre-auth frames are capped at 16 KiB, post-auth at 8 MiB, 500 connections. Idempotent and transactional producers, compaction and record headers are not supported (Oracle lists idempotent production and transactions as not implemented)."}
   observability: {status: ok, note: "telemetry.WrapEchoHandler feeds ExtractOperation/ExtractResource; one lockmetrics.RWMutex guards all state."}
 items_still_open:
-  - "The Kafka compatibility API (bootstrap servers, SASL and the Kafka wire protocol) is not implemented; kafkaSettings are stored and returned and bootstrapServers is whatever the caller set."
-  - "The documented tenancy partition allowance (default 200 on Monthly Universal Credits, 50 on Pay-as-You-Go or Promo) is not enforced and the status for exceeding it is undocumented; the 1 to 1000 partitions per stream range, stream counts per tenancy and the error code strings of failed PutMessages entries have no documentation."
-  - "Private stream pools only store their subnet and NSG settings; endpoints are not network-isolated and endpointFqdn is the addressed host."
-  - "Messages and consumer group state are held in memory and in snapshots, so large retained volumes grow the snapshot."
   - "IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
 ---
 
@@ -64,3 +61,14 @@ items_still_open:
 ## Emulator choices where the vendor is silent
 
 - Per-operation error mapping for a duplicate stream name (409 Conflict), deleting a non-empty pool (409 IncorrectState) and an unusable customEncryptionKey (400 InvalidParameter) is undocumented; the common errors page lists the codes but not which operation returns them.
+- Kafka record headers are dropped on produce: stream messages are key and value only (REST API shape).
+- Kafka group membership (JoinGroup state) is held in memory and not persisted; committed offsets persist as stream consumer group state.
+- Kafka JoinGroup is served to v1-5 and a new group completes its first join immediately, without the broker's initial rebalance delay.
+- Stream pool private endpoints are not network-isolated: subnet, NSGs and private endpoint IP are stored and echoed, the listener is the one emulator port (see External effects).
+- Partitions allowance: default 200 across the emulator (single tenancy), `--oci-streaming-partition-limit` (0 disables); Oracle documents 200 on Monthly Universal Credits and 50 on Pay-as-You-Go or Promo (https://docs.oracle.com/en-us/iaas/Content/Streaming/Concepts/streamingoverview_topic-Limits_on_Streaming_Resources.htm). Exceeding it answers 400 LimitExceeded, the generic common-errors code for tenancy limits (https://docs.oracle.com/en-us/iaas/Content/API/References/apierrors.htm); Oracle does not document which operation returns it for streams. Stream counts per tenancy, the 1 to 1000 partitions per stream range and the error code strings of failed PutMessages entries are not documented by Oracle.
+- Messages and consumer group state live in memory and in snapshots. Oracle bounds data only by retention (24 to 168 hours) and 1 MiB per second per partition ingest; the emulator adds no retained-bytes cap, so a long run at the ingest limit grows the snapshot.
+- bootstrapServers in kafkaSettings is service-assigned: when the Kafka listener runs it is the addressed host with the Kafka port, otherwise whatever the caller set.
+
+## External effects that are recorded, not performed
+
+- Stream pool private endpoints (privateEndpointDetails subnet, NSG ids and IP) are stored and returned; no VNIC or network isolation is created, because the emulator exposes streams only on its own listeners.

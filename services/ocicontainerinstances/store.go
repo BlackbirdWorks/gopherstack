@@ -11,6 +11,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ocitags"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
@@ -40,6 +41,8 @@ type InMemoryBackend struct {
 	compartment func(string) bool
 	subnet      func(string) bool
 	secrets     SecretReader
+	network     *Network
+	tagLookup   ocitags.Lookup
 	engine      *Engine
 	transition  time.Duration
 	seq         int64

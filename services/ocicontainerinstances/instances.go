@@ -52,6 +52,11 @@ func (b *InMemoryBackend) CreateInstance(in createIn, token string) (instanceWir
 		return instanceWire{}, "", "", aerr
 	}
 
+	allocs, err := b.allocateVnics(in)
+	if err != nil {
+		return instanceWire{}, "", "", err
+	}
+
 	b.mu.Lock("CreateInstance")
 
 	if token != "" {
@@ -59,15 +64,17 @@ func (b *InMemoryBackend) CreateInstance(in createIn, token string) (instanceWir
 			if ex.RetryToken == token {
 				w, etag, wr := instanceView(ex), ex.Etag, b.wrFor(ex.ID, wrCreate)
 				b.mu.Unlock()
+				b.releaseVnics(allocIDs(allocs))
 
 				return w, wr, etag, nil
 			}
 		}
 	}
 
-	inst, aerr := b.buildInstance(in)
+	inst, aerr := b.buildInstance(in, allocs)
 	if aerr != nil {
 		b.mu.Unlock()
+		b.releaseVnics(allocIDs(allocs))
 
 		return instanceWire{}, "", "", aerr
 	}
@@ -285,6 +292,10 @@ func (b *InMemoryBackend) UpdateInstance(id, ifMatch string, u updateIn) (string
 		in.DisplayName = *u.DisplayName
 	}
 
+	if aerr = b.checkTags(u.Freeform, u.Defined); aerr != nil {
+		return "", aerr
+	}
+
 	applyTags(&in.Freeform, &in.Defined, u)
 
 	now := b.nowUTC()
@@ -408,6 +419,15 @@ func (b *InMemoryBackend) transitionInstance(id, ifMatch string, t transition) (
 	eng := b.engine
 	b.setState(in, t.mid, "")
 	in.Etag = newEtag()
+
+	var freed []string
+	if t.typ == wrDelete {
+		for _, v := range in.Vnics {
+			freed = append(freed, v.VnicID)
+		}
+	}
+
+	defer b.releaseVnics(freed)
 
 	if eng == nil {
 		in.Target, in.TransitionAt = t.target, b.finishAt()
@@ -543,6 +563,10 @@ func (b *InMemoryBackend) UpdateContainer(id, ifMatch string, u updateIn) (strin
 		}
 
 		c.DisplayName = *u.DisplayName
+	}
+
+	if aerr := b.checkTags(u.Freeform, u.Defined); aerr != nil {
+		return "", aerr
 	}
 
 	applyTags(&c.Freeform, &c.Defined, u)

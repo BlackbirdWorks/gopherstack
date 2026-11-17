@@ -137,8 +137,10 @@ type DNSConfig struct {
 
 // Vnic is a container instance VNIC.
 type Vnic struct {
-	VnicID   string `json:"vnicId"`
-	SubnetID string `json:"subnetId"`
+	VnicID    string   `json:"vnicId"`
+	SubnetID  string   `json:"subnetId"`
+	PrivateIP string   `json:"privateIp,omitempty"`
+	PublicIPs []string `json:"publicIps,omitempty"`
 }
 
 // ShapeConfig is the compute size of an instance.

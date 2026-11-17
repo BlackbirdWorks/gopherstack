@@ -189,7 +189,7 @@ func (e *Engine) kill(r *run, c *Container) {
 	r.killed[c.ID] = true
 	e.mu.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.ctx), teardownTimeout)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.ctx), teardownFor(r.inst))
 	defer cancel()
 
 	if err := r.rt.Kill(ctx, id); err != nil {

@@ -140,7 +140,7 @@ func (b *InMemoryBackend) httpBackend(
 
 	appendQuery(u, rv.query.Encode())
 
-	ctx, _, cancel := withBackendTimeouts(ctx, be)
+	ctx, timers, cancel := withBackendTimeouts(ctx, be)
 
 	out, err := http.NewRequestWithContext(ctx, r.Method, u.String(), bytes.NewReader(body))
 	if err != nil {
@@ -163,11 +163,11 @@ func (b *InMemoryBackend) httpBackend(
 
 	lg.exec(levelInfo, "httpBackend.responseReceived", "Response received from the HTTP backend.")
 
-	return wrapResponse(resp, cancel)
+	return wrapResponse(resp, cancel, timers)
 }
 
 // wrapResponse hands the body to the caller; cancelBody.Close closes it and cancels the request context.
-func wrapResponse(resp *http.Response, cancel context.CancelFunc) backendResponse {
+func wrapResponse(resp *http.Response, cancel context.CancelFunc, timers *phaseTimers) backendResponse {
 	h := http.Header{}
 
 	for k, vs := range resp.Header {
@@ -179,7 +179,7 @@ func wrapResponse(resp *http.Response, cancel context.CancelFunc) backendRespons
 	return backendResponse{
 		status: resp.StatusCode,
 		header: h,
-		body:   &cancelBody{ReadCloser: resp.Body, cancel: cancel},
+		body:   &cancelBody{ReadCloser: &idleBody{ReadCloser: resp.Body, timers: timers}, cancel: cancel},
 	}
 }
 

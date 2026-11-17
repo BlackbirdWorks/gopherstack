@@ -20,7 +20,7 @@ import (
 
 const (
 	dockerWait  = 2 * time.Minute
-	testImage   = "alpine:latest"
+	testImage   = "alpine:3.21"
 	registryNS  = "gopherstack"
 	registryTok = "r3gistry-t0ken"
 )
@@ -360,4 +360,28 @@ func TestDockerPullsFromEmulatorRegistry(t *testing.T) {
 	assert.Contains(t, *failed.LifecycleDetails, "pull image")
 	assert.NotContains(t, *failed.LifecycleDetails, registryTok)
 	assert.Equal(t, ci.OperationStatusFailed, e.wr(t, bad.OpcWorkRequestId).Status)
+}
+
+func TestDockerSecurityContextEnforced(t *testing.T) {
+	t.Parallel()
+
+	e := newRealEnv(t)
+	resp := e.mustCreate(t, createOpts{mutate: func(d *ci.CreateContainerInstanceDetails) {
+		shell(`touch /blocked 2>&1; echo cap-$(grep CapEff /proc/self/status | cut -f2); id -G`)(d)
+		d.ContainerRestartPolicy = ci.ContainerInstanceContainerRestartPolicyNever
+		d.SecurityContext = ci.CreateLinuxContainerInstanceSecurityContextDetails{FsGroup: new(4242)}
+		d.Containers[0].SecurityContext = ci.CreateLinuxSecurityContextDetails{
+			IsRootFileSystemReadonly: new(true),
+			Capabilities: &ci.ContainerCapabilities{
+				DropCapabilities: []ci.ContainerCapabilityTypeEnum{ci.ContainerCapabilityTypeAll},
+			},
+		}
+	}})
+
+	e.awaitState(t, resp.Id, ci.ContainerInstanceLifecycleStateInactive)
+
+	logs := e.logsOf(t, e.firstContainer(t, resp.Id).Id)
+	assert.Contains(t, logs, "Read-only file system")
+	assert.Contains(t, logs, "cap-0000000000000000")
+	assert.Contains(t, logs, "4242")
 }

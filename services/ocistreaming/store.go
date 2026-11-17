@@ -23,7 +23,10 @@ const (
 	ocidTailLen      = 52
 
 	defaultTransition = 2 * time.Second
-	maxName           = 255
+
+	// DefaultPartitionLimit is the documented tenancy partition allowance on Monthly Universal Credits.
+	DefaultPartitionLimit = 200
+	maxName               = 255
 )
 
 // KeyChecker reports the lifecycle state of a KMS key OCID and whether it exists.
@@ -31,25 +34,34 @@ type KeyChecker func(keyID string) (state string, found bool)
 
 // InMemoryBackend holds every pool, stream, harness, group and work request under one lock.
 type InMemoryBackend struct {
-	mu         *lockmetrics.RWMutex
-	now        func() time.Time
-	pools      map[string]*Pool
-	streams    map[string]*Stream
-	harnesses  map[string]*Harness
-	groups     map[string]*Group
-	workReqs   map[string]*WorkRequest
-	getWindows map[string]*getWindow
-	retry      *ociretry.Store
-	Auth       *ociauth.Registry
-	keyChecker KeyChecker
-	tagLookup  ocitags.Lookup
-	transition time.Duration
-	seq        int64
+	mu            *lockmetrics.RWMutex
+	now           func() time.Time
+	pools         map[string]*Pool
+	streams       map[string]*Stream
+	harnesses     map[string]*Harness
+	groups        map[string]*Group
+	workReqs      map[string]*WorkRequest
+	getWindows    map[string]*getWindow
+	retry         *ociretry.Store
+	sig           chan struct{}
+	tokenVerifier func(user, token string) bool
+	Auth          *ociauth.Registry
+	keyChecker    KeyChecker
+	tagLookup     ocitags.Lookup
+	transition    time.Duration
+	seq           int64
+	kafkaPort     int
+	partLimit     int
 }
 
 // NewInMemoryBackend creates an empty backend.
 func NewInMemoryBackend() *InMemoryBackend {
-	b := &InMemoryBackend{mu: lockmetrics.New("ocistreaming"), now: time.Now, transition: defaultTransition}
+	b := &InMemoryBackend{
+		mu:         lockmetrics.New("ocistreaming"),
+		now:        time.Now,
+		transition: defaultTransition,
+		partLimit:  DefaultPartitionLimit,
+	}
 	b.resetMaps()
 	b.Auth = ociauth.NewRegistry()
 
@@ -61,12 +73,25 @@ func (b *InMemoryBackend) resetMaps() {
 	b.groups, b.workReqs = map[string]*Group{}, map[string]*WorkRequest{}
 	b.getWindows = map[string]*getWindow{}
 	b.retry = ociretry.New()
+
+	if b.sig != nil {
+		close(b.sig)
+	}
+
+	b.sig = make(chan struct{})
 }
 
 // SetClock injects the time source used for lifecycle transitions, retention and reservations.
 func (b *InMemoryBackend) SetClock(now func() time.Time) {
 	b.mu.Lock("SetClock")
 	b.now = now
+	b.mu.Unlock()
+}
+
+// SetPartitionLimit sets the tenancy partition allowance; 0 or less disables it.
+func (b *InMemoryBackend) SetPartitionLimit(n int) {
+	b.mu.Lock("SetPartitionLimit")
+	b.partLimit = n
 	b.mu.Unlock()
 }
 
