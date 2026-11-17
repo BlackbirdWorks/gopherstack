@@ -21,18 +21,27 @@ func (p *FlexDBProvider) snapshot() *flexSnapshot {
 // restore replaces the provider's state; nil clears it. The engine is not touched.
 func (p *FlexDBProvider) restore(snap *flexSnapshot) {
 	p.mu.Lock("restore")
-	defer p.mu.Unlock()
 
 	p.res = map[string]*flexServer{}
 
-	if snap == nil {
-		return
+	if snap != nil {
+		for k, r := range snap.Servers {
+			if r != nil {
+				p.res[k] = r
+			}
+		}
 	}
 
-	for k, r := range snap.Servers {
-		if r != nil {
-			p.res[k] = r
-		}
+	keep := map[string]bool{}
+	for _, f := range p.allBackupFiles() {
+		keep[f] = true
+	}
+
+	eng := p.engine
+	p.mu.Unlock()
+
+	if eng != nil {
+		p.dumpStore().sweep(p.flavor.kind, keep)
 	}
 }
 

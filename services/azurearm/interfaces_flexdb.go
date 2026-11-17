@@ -2,6 +2,7 @@ package azurearm
 
 import (
 	"context"
+	"io"
 	"net/netip"
 	"strings"
 )
@@ -20,6 +21,15 @@ type FlexEndpoint struct {
 	Port int
 }
 
+// FlexParam is one server parameter change for the running engine. Reset restores the engine default; Static
+// parameters only take effect after the next restart.
+type FlexParam struct {
+	Name   string
+	Value  string
+	Reset  bool
+	Static bool
+}
+
 // FlexEngine is the seam the flexible server providers use to run real database servers. id is the lower-cased
 // ARM resource ID of the server. Primitive types only.
 type FlexEngine interface {
@@ -32,6 +42,18 @@ type FlexEngine interface {
 	CreateDatabase(ctx context.Context, id, name, charset, collation string) error
 	DropDatabase(ctx context.Context, id, name string) error
 	Delete(ctx context.Context, id string) error
+	// ApplyParameters persists the parameters in the running engine and reloads it; static ones wait for a restart.
+	ApplyParameters(ctx context.Context, id string, params []FlexParam) error
+	// Dump streams a logical dump of the named user databases (and the engine's default database where it has
+	// one) to w.
+	Dump(ctx context.Context, id string, dbs []string, w io.Writer) error
+	// Restore loads a Dump stream into the server and stops at the first error.
+	Restore(ctx context.Context, id string, r io.Reader) error
+	// CopyAdmin gives the server dst the administrator login and password of the server src, which stay inside
+	// the engine.
+	CopyAdmin(ctx context.Context, src, dst string) error
+	// SetReadOnly makes the server refuse writes (replicas) or accept them again (promotion).
+	SetReadOnly(ctx context.Context, id string, on bool) error
 }
 
 // subnetDelegatedTo reports whether the subnet exists and carries a delegation to service.

@@ -277,21 +277,168 @@ func (p *FlexDBProvider) writeConfig(id ResourceID, body map[string]any) (flexRe
 		}
 	}
 
+	key := p.key(id)
+
 	p.mu.Lock("writeConfig")
-	defer p.mu.Unlock()
 
 	rec, err := p.server(id)
 	if err != nil {
+		p.mu.Unlock()
+
 		return flexResult{}, err
 	}
 
+	eng := p.engine
+
+	if err = p.checkConfigTarget(rec, eng); err != nil {
+		p.mu.Unlock()
+
+		return flexResult{}, err
+	}
+
+	prev := captureConfig(rec, []flexConfigDef{c})
+
 	if err = p.applyConfigLocked(rec, c, value, reset); err != nil {
+		p.mu.Unlock()
+
 		return flexResult{}, err
 	}
 
 	id.Names = []string{id.Names[0], c.name}
+	out := p.configEnvelope(id, rec, c)
+	p.mu.Unlock()
 
-	return flexResult{body: p.configEnvelope(id, rec, c), opID: p.newOp(id.ARMID(), true, "", nil)}, nil
+	if err = p.pushConfig(eng, key, []flexConfigDef{c}, prev); err != nil {
+		return flexResult{}, err
+	}
+
+	return flexResult{body: out, opID: p.newOp(id.ARMID(), true, "", nil)}, nil
+}
+
+// checkConfigTarget refuses a parameter change on a server whose engine cannot take it now.
+func (p *FlexDBProvider) checkConfigTarget(rec *flexServer, eng FlexEngine) error {
+	if eng == nil {
+		return nil
+	}
+
+	if p.opPending(rec.OpID) {
+		return p.busy(rec.Name, "Update")
+	}
+
+	if p.stateOf(rec) != flexStateReady {
+		return p.notReady(rec, "Update server parameter")
+	}
+
+	return nil
+}
+
+type flexConfigPrev struct {
+	value   string
+	set     bool
+	pending bool
+}
+
+func captureConfig(rec *flexServer, defs []flexConfigDef) map[string]flexConfigPrev {
+	out := make(map[string]flexConfigPrev, len(defs))
+
+	for _, d := range defs {
+		v, set := rec.Config[d.name]
+		out[d.name] = flexConfigPrev{value: v, set: set, pending: rec.Pending[d.name]}
+	}
+
+	return out
+}
+
+// currentParams reads what the engine has to apply for defs: the stored override, or the documented default after
+// a reset.
+func (p *FlexDBProvider) currentParams(key string, defs []flexConfigDef) []FlexParam {
+	p.mu.RLock("currentParams")
+	defer p.mu.RUnlock()
+
+	rec, ok := p.res[key]
+	if !ok {
+		return nil
+	}
+
+	var out []FlexParam
+
+	for _, d := range defs {
+		if d.engineless || d.readOnly {
+			continue
+		}
+
+		v, set := rec.Config[d.name]
+		if !set {
+			v = p.configDefault(rec, d)
+		}
+
+		out = append(out, FlexParam{Name: d.name, Value: v, Reset: v == "", Static: d.static})
+	}
+
+	return out
+}
+
+// pushConfig applies the stored values of defs to the running engine. Pushes to one server are serialised and each
+// reads the stored value when it runs, so the engine ends on the last stored state. A refused change is rolled
+// back to prev where nothing newer replaced it.
+func (p *FlexDBProvider) pushConfig(
+	eng FlexEngine,
+	key string,
+	defs []flexConfigDef,
+	prev map[string]flexConfigPrev,
+) error {
+	if eng == nil {
+		return nil
+	}
+
+	release, err := p.gate.acquire(p.ctx, flexCfgPrefix+key)
+	if err != nil {
+		return flexEngineError()
+	}
+	defer release()
+
+	params := p.currentParams(key, defs)
+	if len(params) == 0 {
+		return nil
+	}
+
+	if err = eng.ApplyParameters(p.ctx, key, params); err != nil {
+		p.revertConfig(key, params, prev)
+
+		return flexEngineError()
+	}
+
+	return nil
+}
+
+func (p *FlexDBProvider) revertConfig(key string, params []FlexParam, prev map[string]flexConfigPrev) {
+	p.mu.Lock("revertConfig")
+	defer p.mu.Unlock()
+
+	rec, ok := p.res[key]
+	if !ok {
+		return
+	}
+
+	for _, q := range params {
+		old := prev[q.Name]
+
+		if old.set {
+			rec.Config[q.Name] = old.value
+		} else {
+			delete(rec.Config, q.Name)
+		}
+
+		if old.pending {
+			if rec.Pending == nil {
+				rec.Pending = map[string]bool{}
+			}
+
+			rec.Pending[q.Name] = true
+		} else {
+			delete(rec.Pending, q.Name)
+		}
+	}
 }
 
 const flexSourceDefault = "system-default"
@@ -383,20 +530,73 @@ func (p *FlexDBProvider) BatchUpdateConfigs(id ResourceID, body map[string]any) 
 		return nil, flexInvalid("At least one server parameter or resetAllToDefault is required.")
 	}
 
+	key := p.key(id)
+
 	p.mu.Lock("BatchUpdateConfigs")
-	defer p.mu.Unlock()
 
 	rec, err := p.server(id)
 	if err != nil {
+		p.mu.Unlock()
+
 		return nil, err
 	}
 
 	for _, ch := range changes {
 		if err = p.checkConnRange(rec, ch.c, ch.value, ch.reset); err != nil {
+			p.mu.Unlock()
+
 			return nil, err
 		}
 	}
 
+	eng := p.engine
+
+	if err = p.checkConfigTarget(rec, eng); err != nil {
+		p.mu.Unlock()
+
+		return nil, err
+	}
+
+	defs := p.batchDefs(changes, resetAll)
+	prev := captureConfig(rec, defs)
+
+	out, err := p.applyBatchLocked(id, rec, changes, resetAll)
+	p.mu.Unlock()
+
+	if err != nil {
+		return nil, err
+	}
+
+	if err = p.pushConfig(eng, key, defs, prev); err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}
+
+func (p *FlexDBProvider) batchDefs(changes []flexConfigChange, resetAll bool) []flexConfigDef {
+	var defs []flexConfigDef
+
+	if resetAll {
+		for _, c := range p.flavor.configs {
+			if !c.readOnly {
+				defs = append(defs, c)
+			}
+		}
+
+		return defs
+	}
+
+	for _, ch := range changes {
+		defs = append(defs, ch.c)
+	}
+
+	return defs
+}
+
+func (p *FlexDBProvider) applyBatchLocked(
+	id ResourceID, rec *flexServer, changes []flexConfigChange, resetAll bool,
+) ([]map[string]any, error) {
 	if resetAll {
 		for _, c := range p.flavor.configs {
 			if !c.readOnly {
@@ -408,7 +608,7 @@ func (p *FlexDBProvider) BatchUpdateConfigs(id ResourceID, body map[string]any) 
 	out := make([]map[string]any, 0, len(changes))
 
 	for _, ch := range changes {
-		if err = p.applyConfigLocked(rec, ch.c, ch.value, ch.reset); err != nil {
+		if err := p.applyConfigLocked(rec, ch.c, ch.value, ch.reset); err != nil {
 			return nil, err
 		}
 

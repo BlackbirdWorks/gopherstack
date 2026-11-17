@@ -19,9 +19,14 @@ var flexBackupNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
 // flexBackup is one restore point of a server: the first automatic backup is taken when the server is created
 // (Learn: postgresql backup-restore and mysql concepts-backup-restore), MySQL adds on-demand ones.
 type flexBackup struct {
-	CompletedAt time.Time `json:"completedAt"`
-	Name        string    `json:"name"`
-	Source      string    `json:"source"`
+	CompletedAt time.Time               `json:"completedAt"`
+	Databases   map[string]flexDatabase `json:"databases,omitempty"`
+	Config      map[string]string       `json:"config,omitempty"`
+	Name        string                  `json:"name"`
+	Source      string                  `json:"source"`
+	File        string                  `json:"file,omitempty"`
+	SHA256      string                  `json:"sha256,omitempty"`
+	Bytes       int64                   `json:"bytes,omitempty"`
 }
 
 func flexAutoBackup(at time.Time) flexBackup {
@@ -82,7 +87,44 @@ func (p *FlexDBProvider) writeBackup(id ResourceID) (flexResult, error) {
 		return flexResult{}, flexInvalid("The backup name '%s' is not valid.", name)
 	}
 
-	p.mu.Lock("writeBackup")
+	p.mu.RLock("writeBackup")
+
+	rec, err := p.server(id)
+	if err != nil {
+		p.mu.RUnlock()
+
+		return flexResult{}, err
+	}
+
+	if p.stateOf(rec) != flexStateReady {
+		err = p.notReady(rec, "backup")
+		p.mu.RUnlock()
+
+		return flexResult{}, err
+	}
+
+	_, dup := rec.Backups[strings.ToLower(name)]
+	eng := p.engine
+	p.mu.RUnlock()
+
+	if dup {
+		return flexResult{}, flexConflict(flexCodeConflict, "The backup '"+name+"' already exists.")
+	}
+
+	if eng != nil {
+		b, berr := p.takeBackup(p.ctx, p.key(id), name, flexBackupOnDmd)
+		if berr != nil {
+			return flexResult{}, berr
+		}
+
+		return flexResult{body: p.backupItemBody(id, b, false)}, nil
+	}
+
+	return p.recordMetadataBackup(id, name)
+}
+
+func (p *FlexDBProvider) recordMetadataBackup(id ResourceID, name string) (flexResult, error) {
+	p.mu.Lock("recordMetadataBackup")
 	defer p.mu.Unlock()
 
 	rec, err := p.server(id)
@@ -90,12 +132,12 @@ func (p *FlexDBProvider) writeBackup(id ResourceID) (flexResult, error) {
 		return flexResult{}, err
 	}
 
-	if p.stateOf(rec) != flexStateReady {
-		return flexResult{}, p.notReady(rec, "backup")
-	}
-
 	if _, dup := rec.Backups[strings.ToLower(name)]; dup {
 		return flexResult{}, flexConflict(flexCodeConflict, "The backup '"+name+"' already exists.")
+	}
+
+	if len(rec.Backups) >= flexMaxBackups {
+		return flexResult{}, flexInvalid("The server already has the maximum of %d backups.", flexMaxBackups)
 	}
 
 	b := flexBackup{Name: name, Source: flexBackupOnDmd, CompletedAt: p.now().UTC()}

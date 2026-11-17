@@ -1,6 +1,7 @@
 package azurearm
 
 import (
+	"context"
 	"encoding/json/v2"
 	"testing"
 	"time"
@@ -239,4 +240,23 @@ func (h *Handler) PutLegacyGeneric(path string, body map[string]any) error {
 	_, _, err = h.Backend.putGenericResource(id, body)
 
 	return err
+}
+
+// TestGate exposes the keyed gate used to serialise topology changes.
+type TestGate struct{ g *flexGate }
+
+// NewTestGate returns an empty gate.
+func NewTestGate() *TestGate { return &TestGate{g: newFlexGate()} }
+
+// Acquire waits for key and returns its release function.
+func (g *TestGate) Acquire(ctx context.Context, key string) (func(), error) {
+	return g.g.acquire(ctx, key)
+}
+
+// Held reports how many keys are held.
+func (g *TestGate) Held() int {
+	g.g.mu.RLock("Held")
+	defer g.g.mu.RUnlock()
+
+	return len(g.g.held)
 }

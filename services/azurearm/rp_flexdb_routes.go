@@ -341,7 +341,12 @@ func (h *Handler) handleFlexAction(c *echo.Context, segs []string) error {
 		return h.detachFlexVNet(c, p, id)
 	}
 
-	opID, err := p.Action(id, strings.ToLower(segs[len(segs)-1]))
+	body, derr := decodeJSONBody(c.Request())
+	if derr != nil {
+		return h.writeAPIError(c, derr)
+	}
+
+	opID, err := p.ActionWithBody(id, strings.ToLower(segs[len(segs)-1]), body)
 	if err != nil {
 		return h.writeAPIError(c, err)
 	}

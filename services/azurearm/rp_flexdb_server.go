@@ -120,7 +120,10 @@ func (p *FlexDBProvider) writeServer(id ResourceID, body map[string]any, patch b
 
 	cur, exists := p.res[key]
 
-	var rec *flexServer
+	var (
+		rec         *flexServer
+		promoteFrom string
+	)
 
 	switch {
 	case exists:
@@ -151,11 +154,13 @@ func (p *FlexDBProvider) writeServer(id ResourceID, body map[string]any, patch b
 		return flexResult{}, err
 	}
 
+	promoteFrom = promotedFrom(cur, rec)
+
 	if !exists && rec.CreateMode == flexModeDefault && pw == "" {
 		return flexResult{}, flexInvalid("Invalid value given for parameter administratorLoginPassword.")
 	}
 
-	run := p.serverJob(key, rec, pw, exists)
+	run := p.serverJob(key, rec, pw, exists, promoteFrom)
 
 	rec.Transition, rec.State = "Starting", flexStateReady
 	if exists {
@@ -168,30 +173,41 @@ func (p *FlexDBProvider) writeServer(id ResourceID, body map[string]any, patch b
 	return flexResult{body: p.serverBody(id, rec), opID: rec.OpID}, nil
 }
 
-// serverJob returns the engine work for a create or update, or nil when there is none.
-func (p *FlexDBProvider) serverJob(key string, rec *flexServer, pw string, exists bool) func(context.Context) error {
+// serverJob returns the engine work for a create or update, or nil when there is none. promoteFrom names the source
+// of a replica this update promotes.
+func (p *FlexDBProvider) serverJob(
+	key string, rec *flexServer, pw string, exists bool, promoteFrom string,
+) func(context.Context) error {
 	eng := p.engine
 	if eng == nil {
 		return nil
 	}
 
-	spec := FlexSpec{Version: rec.Version, AdminLogin: rec.Login, AdminPassword: pw}
-	dbs := p.userDatabases(rec)
-
-	switch {
-	case !exists:
-		return func(ctx context.Context) error {
-			if _, err := eng.Ensure(ctx, key, spec); err != nil {
-				return err //nolint:wrapcheck // engine errors are reduced to a fixed message by the operation
-			}
-
-			return p.createEngineDatabases(ctx, eng, key, dbs)
+	if !exists {
+		spec := FlexSpec{Version: rec.Version, AdminLogin: rec.Login, AdminPassword: pw}
+		if rec.Seed != nil {
+			spec.AdminPassword = ""
 		}
-	case pw != "":
-		return func(ctx context.Context) error { return eng.SetPassword(ctx, key, rec.Login, pw) }
+
+		return p.createJob(eng, key, spec, rec, pw)
 	}
 
-	return nil
+	var steps []func(context.Context) error
+
+	if pw != "" {
+		login := rec.Login
+		steps = append(steps, func(ctx context.Context) error { return eng.SetPassword(ctx, key, login, pw) })
+	}
+
+	if promoteFrom != "" {
+		steps = append(steps, p.promoteJob(eng, key, promoteFrom))
+	}
+
+	if len(steps) == 0 {
+		return nil
+	}
+
+	return chain(steps...)
 }
 
 func (p *FlexDBProvider) userDatabases(rec *flexServer) []flexDatabase {
@@ -284,11 +300,6 @@ func (p *FlexDBProvider) applyCreateMode(rec *flexServer, mode string, props map
 		)
 	}
 
-	if p.engine != nil {
-		return flexInvalid("createMode '%s' is not supported by the docker database engine: a replica or restored "+
-			"server would start without the source's data.", mode)
-	}
-
 	srcID, _ := flexStr(props, "sourceServerResourceId")
 
 	srcKey, src, err := p.sourceServer(srcID)
@@ -335,6 +346,10 @@ func (p *FlexDBProvider) inheritFrom(rec, src *flexServer, props map[string]any)
 			return err
 		}
 
+		if p.engine != nil && (p.opPending(src.OpID) || p.stateOf(src) != flexStateReady) {
+			return p.notReady(src, "Create replica")
+		}
+
 		if len(p.replicasOf(rec.SourceID)) >= p.flavor.maxReplicas {
 			return flexInvalid("The source server already has the maximum of %d replicas.", p.flavor.maxReplicas)
 		}
@@ -352,6 +367,43 @@ func (p *FlexDBProvider) inheritFrom(rec, src *flexServer, props map[string]any)
 		rec.Databases, rec.Config = maps.Clone(src.Databases), cloneStrMap(src.Config)
 	} else {
 		rec.Databases = maps.Clone(src.Databases)
+	}
+
+	return p.seedFrom(rec, src)
+}
+
+// seedFrom records where the engine gets the new server's data. A restore uses the newest stored backup of the
+// source taken at or before the restore point (the emulator has no write-ahead log to replay past it); a replica
+// is seeded from a fresh dump of the source.
+func (p *FlexDBProvider) seedFrom(rec, src *flexServer) error {
+	if p.engine == nil {
+		return nil
+	}
+
+	srcKey := rec.SourceID
+	seed := &flexSeed{srcKey: srcKey, mode: rec.CreateMode}
+
+	if rec.CreateMode == flexModeReplica {
+		rec.Seed = seed
+
+		return nil
+	}
+
+	b, ok := p.chooseBackup(src, rec.PointInTime)
+	if !ok {
+		return flexInvalid("The source server has no backup with data at or before the restore point.")
+	}
+
+	seed.backup = b
+	rec.Seed = seed
+	rec.PointInTime = rec.PointInTime.UTC()
+
+	if b.Databases != nil {
+		rec.Databases = maps.Clone(b.Databases)
+	}
+
+	if b.Config != nil {
+		rec.Config = maps.Clone(b.Config)
 	}
 
 	return nil
@@ -876,32 +928,98 @@ func (p *FlexDBProvider) applyRoleChange(rec *flexServer, props map[string]any) 
 	return nil
 }
 
+// promotedFrom names the source a replica was detached from by this update, or "".
+func promotedFrom(before, after *flexServer) string {
+	if before != nil && before.CreateMode == flexModeReplica && after.SourceID == "" {
+		return before.SourceID
+	}
+
+	return ""
+}
+
 func (p *FlexDBProvider) deleteServer(id ResourceID) (string, error) {
 	key := p.key(id)
 
 	p.mu.Lock("deleteServer")
 	defer p.mu.Unlock()
 
-	if _, ok := p.res[key]; !ok {
+	rec, ok := p.res[key]
+	if !ok {
 		return "", p.notFound(id, "")
 	}
 
+	files := backupFiles(rec.Backups)
+
 	delete(p.res, key)
 
-	for _, r := range p.replicasOf(key) {
-		r.SourceID = ""
+	var orphans []string
+
+	for rk, r := range p.res {
+		if r.CreateMode == flexModeReplica && r.SourceID == key {
+			r.SourceID = ""
+			orphans = append(orphans, rk)
+		}
 	}
 
 	var run func(context.Context) error
 	if eng := p.engine; eng != nil {
-		run = func(ctx context.Context) error { return eng.Delete(ctx, key) }
+		run = p.deleteJob(eng, key, files, orphans)
 	}
 
 	return p.newOp(flexServerID(p.flavor.ns, id).ARMID(), false, key, run), nil
 }
 
+// deleteJob removes the server's engine and dumps, then makes the replicas it leaves behind writable.
+func (p *FlexDBProvider) deleteJob(eng FlexEngine, key string, files, orphans []string) func(context.Context) error {
+	return func(ctx context.Context) error {
+		err := eng.Delete(ctx, key)
+
+		p.dropFiles(files)
+
+		for _, o := range slices.Sorted(slices.Values(orphans)) {
+			if rerr := p.promoteJob(eng, o, key)(ctx); rerr != nil && err == nil {
+				err = rerr
+			}
+		}
+
+		return err //nolint:wrapcheck // reduced to a fixed message by the operation
+	}
+}
+
 // Action runs start, stop or restart and returns the operation it started.
 func (p *FlexDBProvider) Action(id ResourceID, action string) (string, error) {
+	return p.ActionWithBody(id, action, nil)
+}
+
+func flexFailoverModes() []string {
+	return []string{"PlannedFailover", "ForcedFailover", "PlannedSwitchover", "ForcedSwitchover"}
+}
+
+// restartFailover reads the RestartParameter of the PostgreSQL restart action (restartWithFailover bool,
+// failoverMode) and of the MySQL one (restartWithFailover Enabled or Disabled, maxFailoverSeconds).
+func restartFailover(body map[string]any) (bool, error) {
+	var want bool
+
+	switch v := body["restartWithFailover"].(type) {
+	case bool:
+		want = v
+	case string:
+		want = strings.EqualFold(v, flexEnabled)
+	}
+
+	if mode, ok := flexStr(body, "failoverMode"); ok && mode != "" && !slices.Contains(flexFailoverModes(), mode) {
+		return false, flexInvalid("failoverMode must be one of %s.", strings.Join(flexFailoverModes(), ", "))
+	}
+
+	if n, ok := flexInt(body, "maxFailoverSeconds"); ok && n < 0 {
+		return false, flexInvalid("maxFailoverSeconds must not be negative.")
+	}
+
+	return want, nil
+}
+
+// ActionWithBody is Action with the request body of the restart action.
+func (p *FlexDBProvider) ActionWithBody(id ResourceID, action string, body map[string]any) (string, error) {
 	key := p.key(id)
 
 	p.mu.Lock("Action")
@@ -915,9 +1033,7 @@ func (p *FlexDBProvider) Action(id ResourceID, action string) (string, error) {
 	state := p.stateOf(rec)
 	next := *rec
 
-	var run func(context.Context) error
-
-	eng := p.engine
+	var op string
 
 	switch action {
 	case aksActionStop:
@@ -929,48 +1045,72 @@ func (p *FlexDBProvider) Action(id ResourceID, action string) (string, error) {
 			return p.newOp(id.ARMID(), false, key, nil), nil
 		}
 
-		next.State, next.Transition = flexStateStopped, "Stopping"
-		next.Pending = nil
-
-		if eng != nil {
-			run = func(ctx context.Context) error { return eng.Stop(ctx, key) }
-		}
+		next.State, next.Transition, next.Pending, op = flexStateStopped, "Stopping", nil, aksActionStop
 	case aksActionStart:
 		if state == flexStateReady {
 			return p.newOp(id.ARMID(), false, key, nil), nil
 		}
 
-		next.State, next.Transition = flexStateReady, "Starting"
-		next.Pending = nil
-
-		if eng != nil {
-			run = func(ctx context.Context) error { return eng.Start(ctx, key) }
-		}
+		next.State, next.Transition, next.Pending, op = flexStateReady, "Starting", nil, aksActionStart
 	case flexAdminFailover:
 		if err = p.failover(rec, &next); err != nil {
 			return "", err
 		}
 
-		if eng != nil {
-			run = func(ctx context.Context) error { return eng.Restart(ctx, key) }
-		}
+		op = flexActionRestart
 	default:
 		if state != flexStateReady {
 			return "", p.notReady(rec, "Restart or Stop")
 		}
 
-		next.Transition = flexTransitionUpdating
-		next.Pending = nil
-
-		if eng != nil {
-			run = func(ctx context.Context) error { return eng.Restart(ctx, key) }
+		if err = p.planRestart(rec, &next, body); err != nil {
+			return "", err
 		}
+
+		op = flexActionRestart
 	}
+
+	run := engineAction(p.engine, key, op)
 
 	next.OpID = p.newOp(id.ARMID(), false, key, run)
 	*rec = next
 
 	return next.OpID, nil
+}
+
+const flexActionRestart = "restart"
+
+func engineAction(eng FlexEngine, key, op string) func(context.Context) error {
+	if eng == nil {
+		return nil
+	}
+
+	switch op {
+	case aksActionStop:
+		return func(ctx context.Context) error { return eng.Stop(ctx, key) }
+	case aksActionStart:
+		return func(ctx context.Context) error { return eng.Start(ctx, key) }
+	}
+
+	return func(ctx context.Context) error { return eng.Restart(ctx, key) }
+}
+
+func (p *FlexDBProvider) planRestart(rec, next *flexServer, body map[string]any) error {
+	withFailover, err := restartFailover(body)
+	if err != nil {
+		return err
+	}
+
+	if withFailover {
+		if err = p.failover(rec, next); err != nil {
+			return err
+		}
+	}
+
+	next.Transition = flexTransitionUpdating
+	next.Pending = nil
+
+	return nil
 }
 
 func (p *FlexDBProvider) idleServer(id ResourceID, action string) (*flexServer, error) {
