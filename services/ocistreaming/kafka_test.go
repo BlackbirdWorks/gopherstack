@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/binary"
+	"errors"
 	"io"
 	"net"
 	"slices"
@@ -289,8 +290,78 @@ func TestKafkaFrameLimits(t *testing.T) {
 			buf := make([]byte, 1)
 			_, err := c.Read(buf)
 			require.Error(t, err)
+
+			if ne, ok := errors.AsType[net.Error](err); ok {
+				assert.False(t, ne.Timeout(), "the server must close the connection, not wait for the body")
+			}
 		})
 	}
+}
+
+func TestKafkaPostAuthFrameLimit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		size   uint32
+		closed bool
+	}{
+		{name: "above pre-auth cap is allowed", size: 20 << 10},
+		{name: "over frame cap", size: 8<<20 + 1, closed: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			k := newKafkaEnv(t, nil)
+			s := k.mkStream(t, "t", 1)
+
+			c, code := rawAuth(t, k, testTenancy+"/alice/"+*s.StreamPoolId, "tok")
+			require.Equal(t, int16(0), code)
+
+			require.NoError(t, binary.Write(c, binary.BigEndian, tt.size))
+			require.NoError(t, c.SetReadDeadline(time.Now().Add(2*time.Second)))
+
+			_, err := c.Read(make([]byte, 1))
+			require.Error(t, err)
+
+			ne, ok := errors.AsType[net.Error](err)
+			isTimeout := ok && ne.Timeout()
+			assert.Equal(t, !tt.closed, isTimeout)
+		})
+	}
+}
+
+func TestKafkaCreateTopicPoolDefaults(t *testing.T) {
+	t.Parallel()
+
+	k := newKafkaEnv(t, nil)
+	pool := k.mkPool(t, "defaults", func(d *streaming.CreateStreamPoolDetails) {
+		d.KafkaSettings = &streaming.KafkaSettings{NumPartitions: new(3), LogRetentionHours: new(72)}
+	})
+
+	c, code := rawAuth(t, k, testTenancy+"/alice/"+*pool.Id, "tok")
+	require.Equal(t, int16(0), code)
+
+	req := kmsg.NewPtrCreateTopicsRequest()
+	req.Version = 2
+	topic := kmsg.NewCreateTopicsRequestTopic()
+	topic.Topic, topic.NumPartitions, topic.ReplicationFactor = "fromdefaults", -1, -1
+	req.Topics = []kmsg.CreateTopicsRequestTopic{topic}
+
+	got := rawCall(t, c, 1, req, kmsg.NewPtrCreateTopicsResponse())
+	require.Equal(t, int16(0), got.Topics[0].ErrorCode)
+	k.settle()
+
+	list, err := k.admin.ListStreams(t.Context(), streamingListReq(*pool.Id))
+	require.NoError(t, err)
+	require.Len(t, list.Items, 1)
+
+	st, err := k.admin.GetStream(t.Context(), streaming.GetStreamRequest{StreamId: list.Items[0].Id})
+	require.NoError(t, err)
+	assert.Equal(t, 3, *st.Partitions)
+	assert.Equal(t, 72, *st.RetentionInHours)
 }
 
 func TestKafkaRequiresSASLBeforeData(t *testing.T) {

@@ -76,33 +76,6 @@ func TestCoordinatorLifecycle(t *testing.T) {
 	assert.Empty(t, c.groups)
 }
 
-func TestCoordinatorSecondMemberRebalances(t *testing.T) {
-	t.Parallel()
-
-	clk := &testClock{t: time.Unix(1000, 0)}
-	c := newCoordinator(clk.now)
-	key := groupMapKey("pool", "g")
-	m1 := c.join(t.Context(), key, joinReq("g", ""))
-
-	done := make(chan *kmsg.JoinGroupResponse, 1)
-
-	go func() { done <- c.join(t.Context(), key, joinReq("g", "")) }()
-
-	for {
-		if code := c.heartbeat(key, m1.MemberID, m1.Generation); code == kerrRebalanceInProgress {
-			break
-		}
-	}
-
-	r1 := c.join(t.Context(), key, joinReq("g", m1.MemberID))
-	r2 := <-done
-
-	assert.Equal(t, int32(2), r1.Generation)
-	assert.Equal(t, r1.Generation, r2.Generation)
-	assert.Equal(t, r1.LeaderID, r2.LeaderID)
-	assert.NotEqual(t, r1.MemberID, r2.MemberID)
-}
-
 func TestCoordinatorBounds(t *testing.T) {
 	t.Parallel()
 

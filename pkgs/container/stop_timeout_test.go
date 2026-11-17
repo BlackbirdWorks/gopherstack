@@ -2,6 +2,7 @@ package container_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -41,4 +42,21 @@ func TestDockerRuntime_SpecStopTimeoutAndReadOnlyRootfs(t *testing.T) {
 			assert.Equal(t, tt.wantTimeout, *api.gotTimeout)
 		})
 	}
+}
+
+func TestDockerRuntime_StopAndRemoveWithinForgetsGrace(t *testing.T) {
+	t.Parallel()
+
+	api := &graceAPI{}
+	rt := newRuntime(api)
+
+	id, err := rt.CreateAndStart(t.Context(), container.Spec{Image: "alpine", StopTimeoutSecs: new(45)})
+	require.NoError(t, err)
+
+	_, err = rt.StopAndRemoveWithin(t.Context(), id, time.Second)
+	require.NoError(t, err)
+
+	require.NoError(t, rt.StopContainer(t.Context(), id))
+	require.NotNil(t, api.gotTimeout)
+	assert.Equal(t, 10, *api.gotTimeout, "the removed container's remembered grace period is dropped")
 }

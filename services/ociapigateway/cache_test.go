@@ -1,6 +1,7 @@
 package ociapigateway_test
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -299,4 +300,35 @@ func TestResponseCacheClientReleasedWithGateway(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool { return mr.CurrentConnectionCount() == 0 }, 5*time.Second, 10*time.Millisecond)
+}
+
+func TestResponseCacheSkipsTruncatedBody(t *testing.T) {
+	t.Parallel()
+
+	var hits atomic.Int32
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if hits.Add(1) == 1 {
+			w.Header().Set("Content-Length", "20")
+			_, _ = w.Write([]byte("partial"))
+
+			return
+		}
+
+		_, _ = w.Write([]byte("complete"))
+	}))
+	t.Cleanup(backend.Close)
+
+	e := newEnv(t, envOpts{})
+	mr := e.startCacheServer(t)
+	gw := e.mkCachedGateway(t, "cached-trunc", mr)
+	e.mkDeployment(t, *gw.Id, "/k", cachedSpec(backend.URL, ""))
+
+	if resp, err := e.tryStream(t, *gw.Id, "/k/c"); err == nil {
+		_, _ = io.ReadAll(resp.Body)
+	}
+
+	second := e.call(t, *gw.Id, http.MethodGet, "/k/c", nil, "")
+	assert.Equal(t, "MISS", second.header.Get("X-Cache-Status"), "a truncated back end body is never cached")
+	assert.Equal(t, "complete", second.body)
 }

@@ -103,7 +103,7 @@ func decodeBatch(raw []byte, budget *int64) ([]putEntryIn, error) {
 			val = []byte{}
 		}
 
-		out = append(out, putEntryIn{Key: rec.Key, Value: val})
+		out = append(out, putEntryIn{Key: bytes.Clone(rec.Key), Value: bytes.Clone(val)})
 	}
 
 	if len(records) != 0 {

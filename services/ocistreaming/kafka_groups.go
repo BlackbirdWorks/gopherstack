@@ -100,6 +100,8 @@ func (c *coordinator) completeJoin(key string, g *kgroup) {
 	g.protocol = commonProtocol(g.members)
 
 	if _, ok := g.members[g.leader]; !ok {
+		g.leader = ""
+
 		for id := range g.members {
 			if g.leader == "" || id < g.leader {
 				g.leader = id

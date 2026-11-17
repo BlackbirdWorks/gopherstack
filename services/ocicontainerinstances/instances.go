@@ -46,10 +46,36 @@ func (b *InMemoryBackend) liveInstance(id string) (*Instance, *APIError) {
 	return in, nil
 }
 
+// replayCreate answers a repeated retry token with the instance it created, before any VNIC is allocated.
+func (b *InMemoryBackend) replayCreate(token string) (instanceWire, string, string, bool) {
+	if token == "" {
+		return instanceWire{}, "", "", false
+	}
+
+	b.mu.RLock("replayCreate")
+	defer b.mu.RUnlock()
+
+	for _, ex := range b.instances {
+		if ex.RetryToken == token {
+			return instanceView(ex), b.wrFor(ex.ID, wrCreate), ex.Etag, true
+		}
+	}
+
+	return instanceWire{}, "", "", false
+}
+
 // CreateInstance registers a container instance and starts its work request.
 func (b *InMemoryBackend) CreateInstance(in createIn, token string) (instanceWire, string, string, error) {
 	if aerr := b.checkVaultSecrets(in.Secrets); aerr != nil {
 		return instanceWire{}, "", "", aerr
+	}
+
+	if aerr := b.checkTags(in.Freeform, in.Defined); aerr != nil {
+		return instanceWire{}, "", "", aerr
+	}
+
+	if w, wr, etag, ok := b.replayCreate(token); ok {
+		return w, wr, etag, nil
 	}
 
 	allocs, err := b.allocateVnics(in)
@@ -272,6 +298,10 @@ func (b *InMemoryBackend) ListInstances(f InstanceFilter, o ListOpts) (page.Page
 
 // UpdateInstance changes the display name and tags.
 func (b *InMemoryBackend) UpdateInstance(id, ifMatch string, u updateIn) (string, error) {
+	if aerr := b.checkTags(u.Freeform, u.Defined); aerr != nil {
+		return "", aerr
+	}
+
 	b.mu.Lock("UpdateInstance")
 	defer b.mu.Unlock()
 
@@ -290,10 +320,6 @@ func (b *InMemoryBackend) UpdateInstance(id, ifMatch string, u updateIn) (string
 
 	if u.DisplayName != nil {
 		in.DisplayName = *u.DisplayName
-	}
-
-	if aerr = b.checkTags(u.Freeform, u.Defined); aerr != nil {
-		return "", aerr
 	}
 
 	applyTags(&in.Freeform, &in.Defined, u)
@@ -539,6 +565,10 @@ func (b *InMemoryBackend) ListContainers(f ContainerFilter, o ListOpts) (page.Pa
 
 // UpdateContainer changes a container's display name and tags.
 func (b *InMemoryBackend) UpdateContainer(id, ifMatch string, u updateIn) (string, error) {
+	if aerr := b.checkTags(u.Freeform, u.Defined); aerr != nil {
+		return "", aerr
+	}
+
 	b.mu.Lock("UpdateContainer")
 	defer b.mu.Unlock()
 
@@ -563,10 +593,6 @@ func (b *InMemoryBackend) UpdateContainer(id, ifMatch string, u updateIn) (strin
 		}
 
 		c.DisplayName = *u.DisplayName
-	}
-
-	if aerr := b.checkTags(u.Freeform, u.Defined); aerr != nil {
-		return "", aerr
 	}
 
 	applyTags(&c.Freeform, &c.Defined, u)

@@ -139,6 +139,7 @@ func TestGracefulShutdownReachesRuntime(t *testing.T) {
 
 type fakeNet struct {
 	failWith  error
+	inUse     map[string]bool
 	allocated []svc.VnicRequest
 	released  []string
 	mu        sync.Mutex
@@ -154,6 +155,17 @@ func (f *fakeNet) network() svc.Network {
 				return svc.VnicAllocation{}, f.failWith
 			}
 
+			if r.PrivateIP != "" && f.inUse[r.PrivateIP] {
+				return svc.VnicAllocation{}, &svc.APIError{
+					Status: http.StatusConflict, Code: "Conflict", Message: "ip in use",
+				}
+			}
+
+			if f.inUse == nil {
+				f.inUse = map[string]bool{}
+			}
+
+			f.inUse[r.PrivateIP] = true
 			f.allocated = append(f.allocated, r)
 
 			return svc.VnicAllocation{
@@ -239,21 +251,22 @@ func TestVnicAllocationFailureSurfaces(t *testing.T) {
 	assert.NotErrorIs(t, err, fn.failWith)
 }
 
-func TestVnicRetryTokenReplayReleasesDuplicate(t *testing.T) {
+func TestVnicRetryTokenReplayAllocatesNothing(t *testing.T) {
 	t.Parallel()
 
 	fn := &fakeNet{}
 	e := newEnv(t, envOpts{configure: func(b *svc.InMemoryBackend) { b.SetNetwork(fn.network()) }})
 
-	first := e.mustCreate(t, createOpts{token: "tok"})
-	second := e.mustCreate(t, createOpts{token: "tok"})
-	assert.Equal(t, *first.Id, *second.Id)
+	mutate := func(d *ci.CreateContainerInstanceDetails) { d.Vnics[0].PrivateIp = new("10.0.0.9") }
+	first := e.mustCreate(t, createOpts{token: "tok", mutate: mutate})
+	second := e.mustCreate(t, createOpts{token: "tok", mutate: mutate})
+	assert.Equal(t, *first.Id, *second.Id, "a replay with a fixed private IP returns the original instance")
 
 	fn.mu.Lock()
 	defer fn.mu.Unlock()
 
-	assert.Len(t, fn.allocated, 2)
-	assert.Len(t, fn.released, 1, "the replayed request's VNIC is freed")
+	assert.Len(t, fn.allocated, 1)
+	assert.Empty(t, fn.released)
 }
 
 func TestPlacementValidated(t *testing.T) {
@@ -329,4 +342,73 @@ func TestDefinedTagNamespaceChecked(t *testing.T) {
 			assert.Equal(t, tt.wantCode, svcErr(t, err).GetHTTPStatusCode())
 		})
 	}
+}
+
+func TestInvalidTagsLeaveUpdateUntouched(t *testing.T) {
+	t.Parallel()
+
+	ghost := map[string]map[string]any{"ghost": {"k": "v"}}
+	tests := []struct {
+		update func(t *testing.T, e *env, inst ci.ContainerInstance) error
+		name   string
+	}{
+		{name: "instance", update: func(t *testing.T, e *env, inst ci.ContainerInstance) error {
+			t.Helper()
+
+			req := ci.UpdateContainerInstanceRequest{ContainerInstanceId: inst.Id}
+			req.DisplayName, req.DefinedTags = new("renamed"), ghost
+			_, err := e.client.UpdateContainerInstance(t.Context(), req)
+
+			return err
+		}},
+		{name: "container", update: func(t *testing.T, e *env, inst ci.ContainerInstance) error {
+			t.Helper()
+
+			req := ci.UpdateContainerRequest{ContainerId: e.firstContainer(t, inst.Id).Id}
+			req.DisplayName, req.DefinedTags = new("renamed"), ghost
+			_, err := e.client.UpdateContainer(t.Context(), req)
+
+			return err
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, envOpts{configure: func(b *svc.InMemoryBackend) {
+				b.SetTagLookup(func(string, string) (ocitags.Def, bool) { return ocitags.Def{}, false })
+			}})
+			resp := e.mustCreate(t, createOpts{})
+			e.settle()
+
+			before := e.get(t, resp.Id)
+			require.Error(t, tt.update(t, e, before))
+
+			after := e.get(t, resp.Id)
+			assert.Equal(t, *before.DisplayName, *after.DisplayName, "a rejected update changes nothing")
+			assert.Equal(t, *before.Containers[0].DisplayName, *e.get(t, resp.Id).Containers[0].DisplayName)
+		})
+	}
+}
+
+func TestTagLookupRunsOutsideBackendLock(t *testing.T) {
+	t.Parallel()
+
+	var be *svc.InMemoryBackend
+
+	e := newEnv(t, envOpts{configure: func(b *svc.InMemoryBackend) {
+		be = b
+		b.SetTagLookup(func(string, string) (ocitags.Def, bool) {
+			b.SetTagLookup(nil)
+
+			return ocitags.Def{}, true
+		})
+	}})
+	require.NotNil(t, be)
+
+	_, err := e.create(t, createOpts{mutate: func(d *ci.CreateContainerInstanceDetails) {
+		d.DefinedTags = map[string]map[string]any{"ops": {"owner": "me"}}
+	}})
+	require.NoError(t, err, "a lookup that re-enters the backend would deadlock under its lock")
 }

@@ -112,5 +112,7 @@ func (r *DockerRuntime) StopAndRemoveWithin(
 		return killed, fmt.Errorf("container remove %q: %w", containerID, err)
 	}
 
+	r.forgetStop(containerID)
+
 	return killed, nil
 }

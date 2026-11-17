@@ -18,6 +18,7 @@ func (b *InMemoryBackend) SetTagLookup(fn ocitags.Lookup) {
 	b.mu.Unlock()
 }
 
+// checkTags validates tags against the tag namespace source; callers must not hold the backend lock.
 func (b *InMemoryBackend) checkTags(free map[string]string, defined map[string]any) *APIError {
 	conv := make(map[string]map[string]any, len(defined))
 
@@ -30,7 +31,11 @@ func (b *InMemoryBackend) checkTags(free map[string]string, defined map[string]a
 		conv[ns] = m
 	}
 
-	if err := ocitags.Validate(free, conv, b.tagLookup); err != nil {
+	b.mu.RLock("checkTags")
+	lookup := b.tagLookup
+	b.mu.RUnlock()
+
+	if err := ocitags.Validate(free, conv, lookup); err != nil {
 		return &APIError{Status: err.Status, Code: err.Code, Message: err.Message}
 	}
 

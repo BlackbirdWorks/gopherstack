@@ -36,10 +36,6 @@ func (b *InMemoryBackend) buildInstance(in createIn, vnics []VnicAllocation) (*I
 		return nil, aerr
 	}
 
-	if aerr := b.checkTags(in.Freeform, in.Defined); aerr != nil {
-		return nil, aerr
-	}
-
 	sc, aerr := buildShapeConfig(in)
 	if aerr != nil {
 		return nil, aerr

@@ -1,6 +1,7 @@
 package ocistreaming
 
 import (
+	"slices"
 	"strconv"
 	"time"
 )
@@ -34,6 +35,8 @@ const (
 	kerrGroupMaxSize        int16 = 81
 	kerrInvalidCommitOffset int16 = 28
 
+	minUserParts       = 3
+	maxUserParts       = 4
 	kafkaMaxGroupName  = 255
 	kafkaFetchMaxBytes = 4 << 20
 )
@@ -94,10 +97,11 @@ func (b *InMemoryBackend) kafkaStreamLocked(poolID, topic string) (*Stream, int1
 	return nil, kerrUnknownTopic
 }
 
-// kafkaAuth checks the SASL PLAIN credentials and returns the pool ID the connection is bound to.
+// kafkaAuth checks the SASL PLAIN credentials and returns the pool ID the connection is bound to. The user is
+// tenancy/[domain/]user/streamPoolOCID; the token is verified for every well-formed user, pool or not.
 func (b *InMemoryBackend) kafkaAuth(user, token string, enforce bool) (string, bool) {
 	parts := splitUser(user)
-	if len(parts) < 3 || token == "" {
+	if len(parts) < minUserParts || len(parts) > maxUserParts || token == "" || slices.Contains(parts, "") {
 		return "", false
 	}
 
@@ -109,7 +113,12 @@ func (b *InMemoryBackend) kafkaAuth(user, token string, enforce bool) (string, b
 	live := ok && p.State != stateDeleted && p.State != stateDeleting
 	b.mu.RUnlock()
 
-	if !live || (verify == nil && enforce) || (verify != nil && !verify(name, token)) {
+	valid := verify != nil && verify(name, token)
+	if verify == nil && !enforce {
+		valid = true
+	}
+
+	if !live || !valid {
 		return "", false
 	}
 

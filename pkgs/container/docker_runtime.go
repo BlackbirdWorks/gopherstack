@@ -593,11 +593,15 @@ func (r *DockerRuntime) StopAndRemove(ctx context.Context, containerID string) e
 		return fmt.Errorf("container remove %q: %w", containerID, err)
 	}
 
-	r.mu.Lock("forgetStop")
-	delete(r.stops, containerID)
-	r.mu.Unlock()
+	r.forgetStop(containerID)
 
 	return nil
+}
+
+func (r *DockerRuntime) forgetStop(id string) {
+	r.mu.Lock("forgetStop")
+	delete(r.stops, id)
+	r.mu.Unlock()
 }
 
 // StopContainer stops a container without removing it, keeping its published ports and data.

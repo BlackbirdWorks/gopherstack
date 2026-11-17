@@ -145,3 +145,74 @@ func TestHTTPBackendResponseCap(t *testing.T) {
 		})
 	}
 }
+
+func TestHTTPBackendHopHeadersDropped(t *testing.T) {
+	t.Parallel()
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		h := w.Header()
+		h.Set("Keep-Alive", "timeout=5")
+		h.Set("Proxy-Authenticate", "Basic")
+		h.Set("Upgrade", "h2c")
+		h.Set("X-Kept", "yes")
+		_, _ = w.Write([]byte("ok"))
+	}))
+	t.Cleanup(backend.Close)
+
+	e := newEnv(t, envOpts{})
+	gw := e.mkGateway(t, "hop")
+	e.mkDeployment(t, *gw.Id, "/s", httpRoute(backend.URL, ""))
+
+	resp := e.openStream(t, *gw.Id, "/s/x")
+	assert.Equal(t, "yes", resp.Header.Get("X-Kept"))
+
+	for _, h := range []string{"Keep-Alive", "Proxy-Authenticate", "Upgrade"} {
+		assert.Empty(t, resp.Header.Get(h), h)
+	}
+}
+
+func TestHTTPBackendBodylessStatuses(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		method string
+		status int
+	}{
+		{name: "no content", method: http.MethodGet, status: http.StatusNoContent},
+		{name: "not modified", method: http.MethodGet, status: http.StatusNotModified},
+		{name: "head", method: http.MethodHead, status: http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tt.status)
+			}))
+			t.Cleanup(backend.Close)
+
+			e := newEnv(t, envOpts{})
+			gw := e.mkGateway(t, "nobody")
+			spec := `{"routes":[{"path":"/x","methods":["GET","HEAD"],"backend":{"type":"HTTP_BACKEND","url":"` +
+				backend.URL + `"}}]}`
+			e.mkDeployment(t, *gw.Id, "/s", spec)
+
+			req, err := http.NewRequestWithContext(
+				t.Context(), tt.method, e.base+"/_apigw/"+*gw.Id+"/s/x", nil,
+			)
+			require.NoError(t, err)
+
+			resp, err := testclient.New(t).Do(req)
+			require.NoError(t, err)
+
+			defer resp.Body.Close()
+
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			assert.Equal(t, tt.status, resp.StatusCode)
+			assert.Empty(t, body)
+		})
+	}
+}

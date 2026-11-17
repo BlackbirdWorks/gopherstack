@@ -364,8 +364,10 @@ func (b *InMemoryBackend) respond(w http.ResponseWriter, r *http.Request, res ba
 
 	storable := o.cache.active && !o.cache.bypass && cachedStatus(res.status)
 	if storable {
-		captured, _ = io.ReadAll(io.LimitReader(res.body, cacheMaxBody+1))
-		storable = len(captured) <= cacheMaxBody
+		var rerr error
+
+		captured, rerr = io.ReadAll(io.LimitReader(res.body, cacheMaxBody+1))
+		storable = rerr == nil && len(captured) <= cacheMaxBody
 
 		res.body = io.NopCloser(io.MultiReader(bytes.NewReader(captured), res.body))
 	}

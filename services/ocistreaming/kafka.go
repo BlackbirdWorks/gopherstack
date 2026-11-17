@@ -1,6 +1,7 @@
 package ocistreaming
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/binary"
@@ -277,12 +278,13 @@ func readKafkaFrame(r io.Reader, limit uint32) ([]byte, error) {
 		return nil, errKafkaFrame
 	}
 
-	buf := make([]byte, n)
-	if _, err := io.ReadFull(r, buf); err != nil {
+	var buf bytes.Buffer
+
+	if _, err := io.CopyN(&buf, r, int64(n)); err != nil {
 		return nil, fmt.Errorf("kafka frame body: %w", err)
 	}
 
-	return buf, nil
+	return buf.Bytes(), nil
 }
 
 func parseHeader(frame []byte) (reqHeader, []byte, error) {
@@ -317,21 +319,14 @@ func (c *kconn) step(frame []byte) bool {
 		return false
 	}
 
-	rng, known := kafkaAPIs()[hdr.key]
-	if !known || hdr.version < rng.min || hdr.version > rng.max {
-		if hdr.key == apiVersions {
-			hdr.version = 0
-
-			return c.write(
-				hdr,
-				&kmsg.ApiVersionsResponse{ErrorCode: kerrUnsupportedVersion, ApiKeys: kafkaVersionList()},
-			)
-		}
-
-		return false
+	if !supportedVersion(hdr) {
+		return hdr.key == apiVersions && c.write(
+			reqHeader{key: hdr.key, corr: hdr.corr},
+			&kmsg.ApiVersionsResponse{ErrorCode: kerrUnsupportedVersion, ApiKeys: kafkaVersionList()},
+		)
 	}
 
-	if !c.authed && hdr.key != apiVersions && hdr.key != apiSaslHandshake && hdr.key != apiSaslAuthenticate {
+	if !c.authed && !preAuthAPI(hdr.key) {
 		return false
 	}
 
@@ -351,7 +346,21 @@ func (c *kconn) step(frame []byte) bool {
 		return false
 	}
 
+	if pr, ok := req.(*kmsg.ProduceRequest); ok && pr.Acks == 0 {
+		return true
+	}
+
 	return c.write(hdr, resp) && !c.closeAfter
+}
+
+func supportedVersion(hdr reqHeader) bool {
+	rng, known := kafkaAPIs()[hdr.key]
+
+	return known && hdr.version >= rng.min && hdr.version <= rng.max
+}
+
+func preAuthAPI(key int16) bool {
+	return key == apiVersions || key == apiSaslHandshake || key == apiSaslAuthenticate
 }
 
 func (c *kconn) write(hdr reqHeader, resp kmsg.Response) bool {
