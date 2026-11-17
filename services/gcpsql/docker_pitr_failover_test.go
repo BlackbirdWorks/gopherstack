@@ -2,6 +2,8 @@ package gcpsql_test
 
 import (
 	"context"
+	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -91,4 +93,17 @@ func runPITRFailoverFlow(ctx context.Context, t *testing.T, e *env) {
 		assert.Equal(t, tt.want, scalar(t, clone, itemCount), tt.clone)
 		assert.Equal(t, "0", scalar(t, clone, "SELECT count(*) FROM items WHERE id = "+tt.gone), tt.clone)
 	}
+
+	for _, tt := range tests {
+		op, err = e.svc.Instances.Delete(project, tt.clone).Context(ctx).Do()
+		e.mustWait(t, op, err)
+	}
+
+	op, err = e.svc.Instances.Delete(project, name).Context(ctx).Do()
+	e.mustWait(t, op, err)
+
+	out, err := exec.CommandContext(ctx, "docker", "volume", "ls", "-q", "--filter",
+		"name=gopherstack-gcpsql-pitr-"+project+"-"+name).Output()
+	require.NoError(t, err)
+	assert.Empty(t, strings.TrimSpace(string(out)), "deleting the failed-over instance removes its log archive")
 }

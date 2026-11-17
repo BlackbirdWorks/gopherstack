@@ -13,7 +13,7 @@ const (
 	pitrReplayWait = 6 * time.Minute
 	pitrPoll       = 250 * time.Millisecond
 	pgArchiveCmd   = "if test -f " + pitrMount + "/wal/%f; then cmp -s %p " + pitrMount + "/wal/%f; else cp %p " +
-		pitrMount + "/wal/%f; fi"
+		pitrMount + "/wal/%f.part && mv " + pitrMount + "/wal/%f.part " + pitrMount + "/wal/%f; fi"
 	pitrBaseTime   = "base-time"
 	stmtReloadConf = "SELECT pg_reload_conf()"
 )

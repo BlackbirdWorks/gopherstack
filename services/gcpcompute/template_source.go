@@ -27,8 +27,9 @@ var instantiateModes = []string{ //nolint:gochecknoglobals // read-only lookup t
 }
 
 const (
-	imageStemLen  = 24
-	deviceStemLen = 16
+	imageStemLen      = 24
+	deviceStemLen     = 16
+	maxImageNameTries = 16
 )
 
 var nonNameRE = regexp.MustCompile(`[^a-z0-9-]+`)
@@ -272,10 +273,6 @@ func templateScratchDisk(
 func (b *InMemoryBackend) customImageFor(
 	dst tmplDest, device string, d *computeapi.Disk, imgs *[]pendingImage,
 ) string {
-	var suffix [2]byte
-
-	_, _ = rand.Read(suffix[:])
-
 	stem := strings.Trim(nonNameRE.ReplaceAllString(strings.ToLower(dst.name), "-"), "-")
 	if len(stem) > imageStemLen {
 		stem = strings.TrimRight(stem[:imageStemLen], "-")
@@ -286,7 +283,15 @@ func (b *InMemoryBackend) customImageFor(
 		dev = strings.TrimRight(dev[:deviceStemLen], "-")
 	}
 
-	name := strings.Trim(stem+"-"+dev, "-") + "-" + hex.EncodeToString(suffix[:]) + strconv.Itoa(len(*imgs))
+	taken := func(n string) bool {
+		if _, ok := b.images[key(dst.project, n)]; ok {
+			return true
+		}
+
+		return slices.ContainsFunc(*imgs, func(p pendingImage) bool { return p.img.Name == n })
+	}
+
+	name := freeImageName(strings.Trim(stem+"-"+dev, "-"), taken, randomSuffix)
 
 	img := &computeapi.Image{
 		Kind: kindImage, Id: newID(), CreationTimestamp: b.stamp(), Name: name, Status: statusReady,
@@ -300,4 +305,23 @@ func (b *InMemoryBackend) customImageFor(
 	*imgs = append(*imgs, pendingImage{img: img})
 
 	return "projects/" + dst.project + "/global/images/" + name
+}
+
+func randomSuffix() string {
+	var suffix [3]byte
+
+	_, _ = rand.Read(suffix[:])
+
+	return hex.EncodeToString(suffix[:])
+}
+
+// freeImageName appends a suffix to base until no existing image has the name, so a template never replaces an image.
+func freeImageName(base string, taken func(string) bool, suffix func() string) string {
+	for range maxImageNameTries {
+		if name := base + "-" + suffix(); !taken(name) {
+			return name
+		}
+	}
+
+	return base + "-" + suffix() + strconv.Itoa(maxImageNameTries)
 }

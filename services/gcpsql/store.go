@@ -79,6 +79,7 @@ type InMemoryBackend struct {
 	instances      map[string]*instRec
 	projBackups    map[string]*projBackup
 	ops            map[string]*Operation
+	snapshotHook   func()
 	quotaWG        sync.WaitGroup
 	quotaEvery     time.Duration
 	schedEvery     time.Duration

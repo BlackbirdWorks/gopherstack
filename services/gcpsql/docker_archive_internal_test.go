@@ -2,6 +2,10 @@ package gcpsql
 
 import (
 	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -117,4 +121,49 @@ func TestArchiveCommandAcceptsIdenticalSegment(t *testing.T) {
 
 	assert.Contains(t, pgArchiveCmd, "cmp -s", "a promoted standby re-offers segments the old writer archived")
 	assert.NotContains(t, pgArchiveCmd, "'", "the command is embedded in a quoted SQL literal")
+}
+
+func TestArchiveCommandNeverOverwrites(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		existing *string
+		name     string
+		segment  string
+		wantFile string
+		wantOK   bool
+	}{
+		{name: "new segment", segment: "A", wantOK: true, wantFile: "A"},
+		{name: "same content", existing: new("A"), segment: "A", wantOK: true, wantFile: "A"},
+		{name: "different content", existing: new("A"), segment: "B", wantOK: false, wantFile: "A"},
+		{name: "stale partial", existing: nil, segment: "A", wantOK: true, wantFile: "A"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			wal := filepath.Join(root, "wal")
+			require.NoError(t, os.MkdirAll(wal, 0o750))
+
+			src := filepath.Join(root, "seg")
+			require.NoError(t, os.WriteFile(src, []byte(tt.segment), 0o600))
+
+			if tt.existing != nil {
+				require.NoError(t, os.WriteFile(filepath.Join(wal, "000001"), []byte(*tt.existing), 0o600))
+			} else {
+				require.NoError(t, os.WriteFile(filepath.Join(wal, "000001.part"), []byte("torn"), 0o600))
+			}
+
+			cmd := strings.NewReplacer(pitrMount, root, "%f", "000001", "%p", src).Replace(pgArchiveCmd)
+			err := exec.CommandContext(t.Context(), "sh", "-c", cmd).Run()
+			assert.Equal(t, tt.wantOK, err == nil)
+
+			got, rerr := os.ReadFile(filepath.Join(wal, "000001"))
+			require.NoError(t, rerr)
+			assert.Equal(t, tt.wantFile, string(got))
+			assert.NoFileExists(t, filepath.Join(wal, "000001.part"))
+		})
+	}
 }

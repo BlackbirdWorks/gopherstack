@@ -29,6 +29,7 @@ const (
 	maxProjectBytes     = 512 << 20
 	defaultBackupsPage  = 500
 	maxBackupsPage      = 2000
+	maxBackupFilterLen  = 2048
 	hoursPerDay         = 24
 	backupNamePrefix    = "projects/"
 	backupNameSegments  = 4
@@ -151,7 +152,8 @@ func (p *projBackup) expired(now time.Time) bool {
 	return err == nil && !now.Before(at)
 }
 
-// resolveExpiry validates ttlDays or expiryTime (not both) against the 365 day ceiling counted from created.
+// resolveExpiry validates ttlDays (counted from now) or expiryTime, not both, against the 365 day ceiling counted
+// from created (sqladmin Backup.TtlDays).
 func resolveExpiry(now, created time.Time, ttlDays int64, expiry string) (string, error) {
 	if ttlDays != 0 && expiry != "" {
 		return "", errInvalid("Specify either ttlDays or expiryTime, not both.")
@@ -163,7 +165,12 @@ func resolveExpiry(now, created time.Time, ttlDays int64, expiry string) (string
 	case ttlDays < 0 || ttlDays > maxBackupTTLDays:
 		return "", errInvalid("ttlDays must be between 1 and %d.", maxBackupTTLDays)
 	case ttlDays > 0:
-		return stamp(created.Add(time.Duration(ttlDays) * hoursPerDay * time.Hour)), nil
+		at := now.Add(time.Duration(ttlDays) * hoursPerDay * time.Hour)
+		if at.After(ceiling) {
+			return "", errInvalid("The expiry cannot exceed %d days after the backup is created.", maxBackupTTLDays)
+		}
+
+		return stamp(at), nil
 	case expiry == "":
 		return "", nil
 	}
@@ -345,6 +352,10 @@ type backupFilter struct {
 
 func parseBackupFilter(expr string) (backupFilter, error) {
 	var f backupFilter
+
+	if len(expr) > maxBackupFilterLen {
+		return f, errInvalid("The filter is longer than %d characters.", maxBackupFilterLen)
+	}
 
 	for tok := range strings.FieldsSeq(expr) {
 		if tok == "AND" {
@@ -649,6 +660,11 @@ func (b *InMemoryBackend) takeFinalBackup(ctx context.Context, rec *instRec, req
 
 	b.mu.Lock("takeFinalBackup")
 	defer b.mu.Unlock()
+
+	if n, _ := b.projectBackupsLocked(rec.Inst.Project); derr == nil && n >= b.backupLimitLocked() {
+		return newErr(http.StatusTooManyRequests, "quotaExceeded",
+			"The project already holds %d backups; delete one first.", b.backupLimitLocked())
+	}
 
 	now := b.now()
 	expiry, _ := resolveExpiry(now, now, req.TTLDays, req.ExpiryTime)

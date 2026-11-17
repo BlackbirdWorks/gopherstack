@@ -1,6 +1,7 @@
 package gcpsql_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -31,25 +32,47 @@ func TestDatabaseFlagsAreValidated(t *testing.T) {
 		{name: "known pg flag", version: "POSTGRES_16", flags: dbFlags("work_mem", "4096"), status: 200},
 		{name: "known mysql flag", version: "MYSQL_8_4", flags: dbFlags("wait_timeout", "600"), status: 200},
 		{name: "bool on", version: "POSTGRES_16", flags: dbFlags("log_connections", "on"), status: 200},
-		{name: "unknown flag", version: "POSTGRES_16", flags: dbFlags("not_a_flag", "1"), status: 400},
+		{name: "unknown flag", version: "POSTGRES_16", flags: dbFlags("not_a_flag", "1"), status: 200},
 		{
-			name:    "mysql flag on pg",
-			version: "POSTGRES_16",
-			flags:   dbFlags("innodb_buffer_pool_size", "5242880"),
-			status:  400,
+			name: "cloudsql iam", version: "POSTGRES_16", status: 200,
+			flags: dbFlags("cloudsql.iam_authentication", "on"),
 		},
-		{name: "pg flag on mysql", version: "MYSQL_8_4", flags: dbFlags("work_mem", "4096"), status: 400},
+		{
+			name: "cloudsql pgaudit", version: "POSTGRES_17", status: 200,
+			flags: dbFlags("cloudsql.enable_pgaudit", "on", "pgaudit.log", "ddl"),
+		},
+		{
+			name: "cloudsql logical decoding", version: "POSTGRES_15", status: 200,
+			flags: dbFlags("cloudsql.logical_decoding", "on"),
+		},
+		{name: "mixed case name", version: "POSTGRES_16", flags: dbFlags("TimeZone", "UTC"), status: 200},
+		{name: "mysql iam", version: "MYSQL_8_0", flags: dbFlags("cloudsql_iam_authentication", "on"), status: 200},
+		{name: "mysql default tz", version: "MYSQL_8_4", flags: dbFlags("default_time_zone", "+00:00"), status: 200},
+		{
+			name: "mysql sql_mode list", version: "MYSQL_8_4", status: 200,
+			flags: dbFlags("sql_mode", "STRICT_TRANS_TABLES,NO_ZERO_DATE"),
+		},
+		{
+			name: "mysql flag on pg", version: "POSTGRES_16", status: 200,
+			flags: dbFlags("innodb_buffer_pool_size", "5242880"),
+		},
+		{name: "pg flag on mysql", version: "MYSQL_8_4", flags: dbFlags("work_mem", "4096"), status: 200},
+		{name: "nul in name", version: "POSTGRES_16", flags: dbFlags("a\x00b", "1"), status: 400},
+		{name: "empty name", version: "POSTGRES_16", flags: dbFlags("", "4096"), status: 400},
+		{name: "huge name", version: "POSTGRES_16", flags: dbFlags(strings.Repeat("a", 200), "1"), status: 400},
+		{name: "duplicate unknown", version: "POSTGRES_16", flags: dbFlags("zz", "1", "zz", "2"), status: 400},
 		{name: "below minimum", version: "POSTGRES_16", flags: dbFlags("max_connections", "13"), status: 400},
 		{name: "above maximum", version: "POSTGRES_16", flags: dbFlags("max_connections", "262143"), status: 400},
 		{name: "not an integer", version: "POSTGRES_16", flags: dbFlags("work_mem", "lots"), status: 400},
-		{name: "bool true", version: "POSTGRES_16", flags: dbFlags("log_connections", "true"), status: 400},
+		{name: "bool true", version: "POSTGRES_16", flags: dbFlags("log_connections", "true"), status: 200},
+		{name: "bool junk", version: "POSTGRES_16", flags: dbFlags("log_connections", "maybe"), status: 400},
 		{name: "enum value", version: "POSTGRES_16", flags: dbFlags("log_statement", "bogus"), status: 400},
 		{name: "enum ok", version: "POSTGRES_16", flags: dbFlags("log_statement", "ddl"), status: 200},
 		{name: "float", version: "POSTGRES_16", flags: dbFlags("random_page_cost", "1.1"), status: 200},
 		{name: "float nan", version: "POSTGRES_16", flags: dbFlags("random_page_cost", "NaN"), status: 400},
 		{name: "empty value", version: "POSTGRES_16", flags: dbFlags("work_mem", ""), status: 400},
 		{name: "duplicate", version: "POSTGRES_16", flags: dbFlags("work_mem", "100", "work_mem", "200"), status: 400},
-		{name: "injection in name", version: "POSTGRES_16", flags: dbFlags("work_mem; DROP TABLE x", "1"), status: 400},
+		{name: "injection in name", version: "POSTGRES_16", flags: dbFlags("work_mem; DROP TABLE x", "1"), status: 200},
 		{
 			name:    "injection in value",
 			version: "POSTGRES_16",

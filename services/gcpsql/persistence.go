@@ -2,9 +2,13 @@ package gcpsql
 
 import (
 	"context"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"slices"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
@@ -20,15 +24,45 @@ type backendSnapshot struct {
 	Version   int                    `json:"version"`
 }
 
-// Snapshot serialises the backend state. Engine data is not part of it.
+// Snapshot serialises the backend state. Engine data is not part of it. Backup dumps are immutable once stored, so
+// they are encoded after the backend lock is released.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
 
-	return persistence.MarshalSnapshot(ctx, "gcpsql",
-		backendSnapshot{
-			Version: snapshotVersion, Instances: b.instances, Backups: b.projBackups, Ops: b.ops, Seq: b.seq,
-		})
+	instances, ierr := json.Marshal(b.instances, jsonx.V1())
+	ops, oerr := json.Marshal(b.ops, jsonx.V1())
+	seq := b.seq
+	backups := make(map[string]projBackup, len(b.projBackups))
+
+	for k, p := range b.projBackups {
+		backups[k] = *p
+	}
+
+	hook := b.snapshotHook
+	b.mu.RUnlock()
+
+	if hook != nil {
+		hook()
+	}
+
+	rawBackups, berr := json.Marshal(backups, jsonx.V1())
+	if err := errors.Join(ierr, oerr, berr); err != nil {
+		logger.Load(ctx).WarnContext(ctx, "gcpsql: snapshot marshal failed", "error", err)
+
+		return nil
+	}
+
+	return persistence.MarshalSnapshot(ctx, "gcpsql", encodedSnapshot{
+		Instances: instances, Backups: rawBackups, Ops: ops, Seq: seq, Version: snapshotVersion,
+	})
+}
+
+type encodedSnapshot struct {
+	Instances jsontext.Value `json:"instances"`
+	Backups   jsontext.Value `json:"projectBackups,omitempty"`
+	Ops       jsontext.Value `json:"ops"`
+	Seq       int64          `json:"seq"`
+	Version   int            `json:"version"`
 }
 
 // Restore loads backend state from a snapshot and relaunches the engines of its instances.

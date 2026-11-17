@@ -19,6 +19,9 @@ const (
 	maxDom       = 31
 	maxMonth     = 12
 	maxDow       = 7
+	maxCronLen   = 256
+	repeatWindow = 3 * time.Hour
+	wallLayout   = "2006-01-02T15:04"
 )
 
 // cronSpec is a parsed five-field unix-cron expression: minute, hour, day of month, month, day of week.
@@ -34,6 +37,10 @@ func monthNames() []string {
 func dowNames() []string { return []string{"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"} }
 
 func parseCron(expr string) (cronSpec, error) {
+	if len(expr) > maxCronLen {
+		return cronSpec{}, fmt.Errorf("%w: longer than %d characters", errCron, maxCronLen)
+	}
+
 	f := splitFields(expr)
 	if len(f) != cronFields {
 		return cronSpec{}, fmt.Errorf("%w: five fields required", errCron)
@@ -114,7 +121,7 @@ func parseCronPart(part string, lo, hi int, names []string, nameBase int) (uint6
 			return 0, fmt.Errorf("%w: bad step %q", errCron, stepS)
 		}
 
-		step = n
+		step = min(n, hi+1)
 	}
 
 	from, to := lo, hi
@@ -187,7 +194,7 @@ func (c cronSpec) latestFire(loc *time.Location, after, upTo time.Time) (time.Ti
 			return time.Time{}, false
 		}
 
-		if c.matches(t.In(loc)) {
+		if c.matches(t.In(loc)) && !repeatedWallClock(loc, t) {
 			return t, true
 		}
 
@@ -203,19 +210,43 @@ func (c cronSpec) nextFire(loc *time.Location, from time.Time) (time.Time, bool)
 	limit := t.AddDate(maxNextYears, 0, 0)
 
 	for t.Before(limit) {
+		var next time.Time
+
 		switch {
 		case c.mon&(1<<uint(t.Month())) == 0:
-			t = time.Date(t.Year(), t.Month()+1, 1, 0, 0, 0, 0, loc)
+			next = time.Date(t.Year(), t.Month()+1, 1, 0, 0, 0, 0, loc)
 		case !c.dayMatches(t):
-			t = time.Date(t.Year(), t.Month(), t.Day()+1, 0, 0, 0, 0, loc)
+			next = time.Date(t.Year(), t.Month(), t.Day()+1, 0, 0, 0, 0, loc)
 		case c.hour&(1<<uint(t.Hour())) == 0:
-			t = time.Date(t.Year(), t.Month(), t.Day(), t.Hour()+1, 0, 0, 0, loc)
+			next = time.Date(t.Year(), t.Month(), t.Day(), t.Hour()+1, 0, 0, 0, loc)
 		case c.min&(1<<uint(t.Minute())) == 0:
-			t = t.Add(time.Minute)
+			next = t.Add(time.Minute)
 		default:
 			return t.UTC(), true
 		}
+
+		if !next.After(t) {
+			next = t.Add(time.Minute)
+		}
+
+		t = next
 	}
 
 	return time.Time{}, false
+}
+
+// repeatedWallClock reports whether t is the second pass over a local time a backward clock change repeats, so a
+// schedule fires once rather than twice.
+func repeatedWallClock(loc *time.Location, t time.Time) bool {
+	_, now := t.In(loc).Zone()
+	_, before := t.Add(-repeatWindow).In(loc).Zone()
+
+	if before <= now {
+		return false
+	}
+
+	earlier := t.Add(time.Duration(now-before) * time.Second)
+	_, off := earlier.In(loc).Zone()
+
+	return off == before && earlier.In(loc).Format(wallLayout) == t.In(loc).Format(wallLayout)
 }

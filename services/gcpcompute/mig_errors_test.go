@@ -342,3 +342,18 @@ func TestConcurrentTicksKeepErrorLogBounded(t *testing.T) {
 	wg.Wait()
 	assert.LessOrEqual(t, len(e.migErrors(t)), 100)
 }
+
+func TestMIGFailingMembersAreBounded(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	tmpl := e.template(t, "tpl")
+
+	e.mig(t, "web", tmpl, 100000)
+	e.backend.TickGroups(t.Context())
+	e.clock.Advance(time.Hour)
+	e.backend.TickGroups(t.Context())
+
+	assert.LessOrEqual(t, len(e.managed(t)), 100, "a creation that can never succeed does not grow the group")
+	assert.LessOrEqual(t, len(e.migErrors(t)), 100, "the error log is capped")
+}

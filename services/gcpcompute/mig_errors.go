@@ -10,19 +10,20 @@ import (
 )
 
 const (
-	maxMIGErrors     = 100
-	errDedupeWindow  = time.Minute
-	retryBase        = 10 * time.Second
-	retryCap         = 5 * time.Minute
-	retryMaxShift    = 5
-	codeCondition    = "CONDITION_NOT_MET"
-	codeNotFound     = "RESOURCE_NOT_FOUND"
-	codeExists       = "RESOURCE_ALREADY_EXISTS"
-	codeQuota        = "QUOTA_EXCEEDED"
-	codeIPExhausted  = "IP_SPACE_EXHAUSTED"
-	flexibleMaxRank  = 1000
-	flexiblePlatform = 256
-	flexField        = "resource.instanceFlexibilityPolicy"
+	maxMIGErrors      = 100
+	maxFailingMembers = 100
+	errDedupeWindow   = time.Minute
+	retryBase         = 10 * time.Second
+	retryCap          = 5 * time.Minute
+	retryMaxShift     = 5
+	codeCondition     = "CONDITION_NOT_MET"
+	codeNotFound      = "RESOURCE_NOT_FOUND"
+	codeExists        = "RESOURCE_ALREADY_EXISTS"
+	codeQuota         = "QUOTA_EXCEEDED"
+	codeIPExhausted   = "IP_SPACE_EXHAUSTED"
+	flexibleMaxRank   = 1000
+	flexiblePlatform  = 256
+	flexField         = "resource.instanceFlexibilityPolicy"
 )
 
 // migError is one entry of instanceGroupManagers.listErrors.

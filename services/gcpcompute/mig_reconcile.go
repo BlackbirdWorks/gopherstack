@@ -256,19 +256,42 @@ func (b *InMemoryBackend) growLocked(project string, rec *migRec, n int) *APIErr
 	return nil
 }
 
+func failingMembers(rec *migRec) int {
+	n := 0
+
+	for _, m := range rec.Members {
+		if m.Attempts > 0 {
+			n++
+		}
+	}
+
+	return n
+}
+
 // growLenientLocked adds n members. A member whose instance cannot be created stays in the group with its error
-// logged, and is retried with a growing delay, as a managed instance group does.
+// logged and is retried with a growing delay, as a managed instance group does; growth stops once
+// maxFailingMembers members are failing so a creation that never succeeds cannot grow the state without bound.
 func (b *InMemoryBackend) growLenientLocked(project string, rec *migRec, n int) {
 	live := activeMembers(rec)
 	tc, zc := templateCounts(live), zoneCounts(rec)
 
+	failing := failingMembers(rec)
+
 	for range n {
+		if failing >= maxFailingMembers {
+			return
+		}
+
 		tmpl := b.pickVersion(rec, tc)
 		zone := b.pickZoneLocked(rec, zc)
 		name := b.newMemberNameLocked(project, rec, zone)
 
 		m := &memberRec{Name: name, Zone: zone, Template: tmpl}
 		b.noteAttemptLocked(m, b.tryCreateLocked(project, rec, actCreating, zone, name, tmpl))
+
+		if m.Attempts > 0 {
+			failing++
+		}
 
 		rec.Members = append(rec.Members, m)
 		tc[tmpl]++

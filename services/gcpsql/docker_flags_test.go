@@ -91,3 +91,32 @@ func runFlagReloadFlow(ctx context.Context, t *testing.T, e *env, version string
 
 	patchFlags(ctx, t, e, name, []*sqladmin.DatabaseFlags{})
 }
+
+func TestDockerUserFlagsCannotOverrideEmulatorSettings(t *testing.T) {
+	t.Parallel()
+	assertNoContainers(t, "dfo-pg")
+
+	e := dockerEnv(t)
+	ctx, cancel := context.WithTimeout(t.Context(), dockerWait)
+	defer cancel()
+
+	seedInstance(ctx, t, e, "dfo-pg", pgVersion, true)
+
+	db := openDB(t, pgVersion, e.endpoint(t, "dfo-pg"), "alice", "alice-pw")
+	wantCmd := scalar(t, db, "SHOW archive_command")
+
+	patchFlags(ctx, t, e, "dfo-pg", dbFlags(
+		"archive_command", "false", "archive_mode", "off", "default_transaction_read_only", "on",
+		"cloudsql.iam_authentication", "on", "TimeZone", "UTC", "work_mem", "8192"))
+
+	db = openDB(t, pgVersion, e.endpoint(t, "dfo-pg"), "alice", "alice-pw")
+	assert.Equal(t, wantCmd, scalar(t, db, "SHOW archive_command"), "a user flag cannot replace archive_command")
+	assert.Equal(t, "on", scalar(t, db, "SHOW archive_mode"))
+	assert.Equal(t, "off", scalar(t, db, "SHOW default_transaction_read_only"))
+	assert.Equal(t, "8192", scalar(t, db, "SELECT setting FROM pg_settings WHERE name='work_mem'"))
+
+	patchFlags(ctx, t, e, "dfo-pg", []*sqladmin.DatabaseFlags{})
+
+	db = openDB(t, pgVersion, e.endpoint(t, "dfo-pg"), "alice", "alice-pw")
+	assert.Equal(t, wantCmd, scalar(t, db, "SHOW archive_command"), "removing flags keeps archive_command")
+}

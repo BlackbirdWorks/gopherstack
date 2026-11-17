@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/dbrepl"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/mysqlengine"
 )
 
@@ -197,6 +198,12 @@ func (e *mysqlEngine) Restart(ctx context.Context, flags []Flag) error {
 	_ = e.exec(ctx, "RESET PERSIST")
 
 	for _, f := range flags {
+		if !appliedFlag(false, f.Name) {
+			logger.Load(ctx).InfoContext(ctx, "gcpsql: database flag stored, not applied to the engine", "flag", f.Name)
+
+			continue
+		}
+
 		if !flagNameRe.MatchString(f.Name) {
 			return errInvalid("flag name %q is invalid", f.Name)
 		}
@@ -228,7 +235,7 @@ func (e *mysqlEngine) ReloadFlags(ctx context.Context, old, next []Flag) error {
 	}
 
 	for _, f := range old {
-		if kept[f.Name] || !flagNameRe.MatchString(f.Name) {
+		if kept[f.Name] || !appliedFlag(false, f.Name) || !flagNameRe.MatchString(f.Name) {
 			continue
 		}
 
@@ -243,6 +250,10 @@ func (e *mysqlEngine) ReloadFlags(ctx context.Context, old, next []Flag) error {
 	}
 
 	for _, f := range next {
+		if !appliedFlag(false, f.Name) {
+			continue
+		}
+
 		if !flagNameRe.MatchString(f.Name) {
 			return errInvalid("flag name %q is invalid", f.Name)
 		}

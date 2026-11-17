@@ -17,11 +17,7 @@ func (h *Handler) registerInstanceOps() {
 	h.ops[opListInstances] = h.listInstances
 	h.ops[opPatchInstance] = func(c *echo.Context, rt route) error { return h.updateInstance(c, rt, false) }
 	h.ops[opUpdateInstance] = func(c *echo.Context, rt route) error { return h.updateInstance(c, rt, true) }
-	h.ops[opDeleteInstance] = func(c *echo.Context, rt route) error {
-		v, err := h.Backend.DeleteInstance(rt.project, rt.instance, finalBackupParams(c))
-
-		return h.reply(c, v, err)
-	}
+	h.ops[opDeleteInstance] = h.deleteInstance
 	h.ops[opRestartInstance] = func(c *echo.Context, rt route) error {
 		v, err := h.Backend.RestartInstance(rt.project, rt.instance)
 
@@ -180,14 +176,41 @@ func (h *Handler) restoreBackup(c *echo.Context, rt route) error {
 	return h.reply(c, op, err)
 }
 
-func finalBackupParams(c *echo.Context) FinalBackupRequest {
-	enabled, _ := strconv.ParseBool(c.QueryParam("enableFinalBackup"))
-	ttl, _ := strconv.ParseInt(c.QueryParam("finalBackupTtlDays"), 10, 64)
-
-	return FinalBackupRequest{
-		Enabled: enabled, Description: c.QueryParam("finalBackupDescription"),
-		ExpiryTime: c.QueryParam("finalBackupExpiryTime"), TTLDays: ttl,
+func (h *Handler) deleteInstance(c *echo.Context, rt route) error {
+	fb, err := finalBackupParams(c)
+	if err != nil {
+		return err
 	}
+
+	v, err := h.Backend.DeleteInstance(rt.project, rt.instance, fb)
+
+	return h.reply(c, v, err)
+}
+
+func finalBackupParams(c *echo.Context) (FinalBackupRequest, error) {
+	var req FinalBackupRequest
+
+	if v := c.QueryParam("enableFinalBackup"); v != "" {
+		on, err := strconv.ParseBool(v)
+		if err != nil {
+			return req, errInvalid("Invalid enableFinalBackup %q.", v)
+		}
+
+		req.Enabled = on
+	}
+
+	if v := c.QueryParam("finalBackupTtlDays"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return req, errInvalid("Invalid finalBackupTtlDays %q.", v)
+		}
+
+		req.TTLDays = n
+	}
+
+	req.Description, req.ExpiryTime = c.QueryParam("finalBackupDescription"), c.QueryParam("finalBackupExpiryTime")
+
+	return req, nil
 }
 
 func (h *Handler) registerProjectBackupOps() {

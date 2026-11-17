@@ -12,6 +12,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const connectTimeout = 5 * time.Second
@@ -282,7 +284,7 @@ func (e *dockerEngine) resetUserFlags(ctx context.Context, conn *sql.DB) error {
 	}
 
 	for name := range strings.FieldsSeq(out) {
-		if emulatorManaged(name) || !flagNameRe.MatchString(name) {
+		if !appliedFlag(true, name) || !flagNameRe.MatchString(name) {
 			continue
 		}
 
@@ -311,6 +313,12 @@ func (e *dockerEngine) applyPGFlags(ctx context.Context, flags []Flag) error {
 	}
 
 	for _, f := range flags {
+		if !appliedFlag(true, f.Name) {
+			logger.Load(ctx).InfoContext(ctx, "gcpsql: database flag stored, not applied to the engine", "flag", f.Name)
+
+			continue
+		}
+
 		if !flagNameRe.MatchString(f.Name) {
 			return errInvalid("flag name %q is invalid", f.Name)
 		}
