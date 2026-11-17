@@ -322,6 +322,8 @@ type StackInstance struct {
 	// OrganizationalUnitID is set only for SERVICE_MANAGED instances created
 	// via a DeploymentTargets OU expansion (types.go:1836+ OrganizationalUnitId).
 	OrganizationalUnitID string `xml:"OrganizationalUnitId,omitempty" json:"organizationalUnitID,omitempty"`
+	// ParameterOverrides override the stack set's parameters for this instance only.
+	ParameterOverrides []Parameter `xml:"-" json:"parameterOverrides,omitempty"`
 }
 
 // GeneratedTemplate holds a CloudFormation generated template.
@@ -385,6 +387,8 @@ type StackSetOperation struct {
 	// Status is QUEUED / RUNNING / STOPPING / STOPPED / SUCCEEDED / FAILED.
 	Status       string
 	StatusReason string `json:"statusReason,omitempty"`
+	// RequestKey fingerprints the admitting request so an OperationId replay is recognised.
+	RequestKey   string `json:"requestKey,omitempty"`
 	RetainStacks bool   `json:"retainStacks,omitempty"`
 	FailedCount  int    `json:"failedCount,omitempty"`
 }

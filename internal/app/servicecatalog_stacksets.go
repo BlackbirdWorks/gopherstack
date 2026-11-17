@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	servicecatalogbackend "github.com/blackbirdworks/gopherstack/services/servicecatalog"
@@ -100,6 +101,84 @@ func (s *serviceCatalogStacks) CreateStackSet(
 	res.Reason = scFailureReason(res)
 
 	return res, err
+}
+
+type stackSetPreviewer interface {
+	PreviewStackSetChanges(name, templateBody string, params []cfnbackend.Parameter) ([]cfnbackend.Change, error)
+}
+
+func (s *serviceCatalogStacks) UpdateStackSet(
+	ctx context.Context,
+	req servicecatalogbackend.StackSetUpdateRequest,
+) (servicecatalogbackend.StackSetResult, error) {
+	bk, err := s.backend(ctx)
+	if err != nil {
+		return servicecatalogbackend.StackSetResult{}, err
+	}
+
+	ss, err := bk.DescribeStackSet(req.Name)
+	if err != nil {
+		return servicecatalogbackend.StackSetResult{}, err
+	}
+
+	res := servicecatalogbackend.StackSetResult{ID: ss.StackSetID}
+
+	opts := []cfnbackend.StackSetOpOption{
+		cfnbackend.WithOperationPreferences(scOperationPreferences(req.Preferences)),
+	}
+	if len(req.Accounts) > 0 && len(req.Regions) > 0 {
+		opts = append(opts, cfnbackend.WithInstanceTargets(req.Accounts, nil, req.Regions, ""))
+	}
+
+	_, opID, err := bk.UpdateStackSet(req.Name, "", req.Template, cfnbackend.StackSetOptions{
+		AdministrationRoleARN: req.AdminRole, ExecutionRoleName: req.ExecutionRole,
+		Capabilities: scCapabilities(), Parameters: cfnParams(req.Parameters), Tags: cfnTags(req.Tags),
+	}, opts...)
+	if err != nil {
+		return res, err
+	}
+
+	op, err := awaitStackSetOp(bk, req.Name, opID)
+	if err != nil {
+		return res, err
+	}
+
+	res.Status, res.Reason = op.Status, op.StatusReason
+
+	res.Instances, err = scInstances(bk, req.Name)
+	res.Reason = scFailureReason(res)
+
+	return res, err
+}
+
+func (s *serviceCatalogStacks) PreviewStackSet(
+	ctx context.Context, name, template string, params map[string]string,
+) ([]servicecatalogbackend.PlanChange, error) {
+	bk, err := s.backend(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	p, ok := bk.(stackSetPreviewer)
+	if !ok {
+		return nil, fmt.Errorf("%w: backend cannot preview stack set changes", errStackSetOpFailed)
+	}
+
+	changes, err := p.PreviewStackSetChanges(name, template, cfnParams(params))
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]servicecatalogbackend.PlanChange, 0, len(changes))
+	for _, c := range changes {
+		out = append(out, servicecatalogbackend.PlanChange{
+			Action: strings.ToUpper(c.ResourceChange.Action), LogicalResourceID: c.ResourceChange.LogicalID,
+			PhysicalID: c.ResourceChange.PhysicalID, ResourceType: c.ResourceChange.ResourceType,
+			Replacement: strings.ToUpper(c.ResourceChange.Replacement),
+		})
+	}
+
+	return out, nil
 }
 
 // scFailureReason is the operation's reason, or the first failed instance's when it has none.

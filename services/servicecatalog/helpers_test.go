@@ -5,6 +5,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -56,6 +57,7 @@ type fakeEngine struct {
 	csReq     map[string]servicecatalog.StackRequest
 	requests  []servicecatalog.StackRequest
 	extra     []servicecatalog.StackResource
+	deletedCS []string
 	mu        sync.Mutex
 }
 
@@ -300,8 +302,16 @@ func (f *fakeEngine) DeleteChangeSet(_ context.Context, stack, csName string) er
 
 	delete(f.changeSet, stack+"/"+csName)
 	delete(f.csReq, stack+"/"+csName)
+	f.deletedCS = append(f.deletedCS, stack+"/"+csName)
 
 	return nil
+}
+
+func (f *fakeEngine) deletedChangeSets() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return slices.Clone(f.deletedCS)
 }
 
 func (f *fakeEngine) lastRequest(t *testing.T) servicecatalog.StackRequest {

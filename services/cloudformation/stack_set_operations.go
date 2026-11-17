@@ -2,6 +2,8 @@ package cloudformation
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -30,6 +32,7 @@ const (
 
 	statusInoperable = "INOPERABLE"
 	statusOutdated   = "OUTDATED"
+	statusCurrent    = "CURRENT"
 )
 
 var (
@@ -38,13 +41,31 @@ var (
 	ErrInvalidOperationPreferences = errors.New("invalid operation preferences")
 	// ErrOperationInProgress is returned when a StackSet still has queued or running operations.
 	ErrOperationInProgress = errors.New("another operation is in progress for this stack set")
+	// ErrOperationIDAlreadyExists is returned when an OperationId is reused by a different operation.
+	ErrOperationIDAlreadyExists = errors.New("the specified operation ID already exists")
+	// ErrInvalidParameterOverrides is returned for ParameterOverrides the stack set cannot take.
+	ErrInvalidParameterOverrides = errors.New("invalid parameter overrides")
+	// ErrInvalidOperation is returned for a request that is not valid for the stack set's state.
+	ErrInvalidOperation = errors.New("invalid stack set operation")
 )
 
 // StackSetOpOption customises a StackSet operation at admission.
 type StackSetOpOption func(*stackSetOpSettings)
 
 type stackSetOpSettings struct {
-	prefs *OperationPreferences
+	prefs       *OperationPreferences
+	overrides   *[]Parameter
+	targets     *stackSetTargetSpec
+	operationID string
+	salt        string
+}
+
+// stackSetTargetSpec is the optional Accounts/DeploymentTargets/Regions narrowing of UpdateStackSet.
+type stackSetTargetSpec struct {
+	filterType string
+	accounts   []string
+	ouIDs      []string
+	regions    []string
 }
 
 // WithOperationPreferences attaches StackSetOperationPreferences to an operation.
@@ -52,21 +73,42 @@ func WithOperationPreferences(p *OperationPreferences) StackSetOpOption {
 	return func(s *stackSetOpSettings) { s.prefs = p }
 }
 
-func resolveOpPreferences(opts []StackSetOpOption) (*OperationPreferences, error) {
+// WithOperationID sets the caller-supplied OperationId, which doubles as an idempotency token.
+func WithOperationID(id string) StackSetOpOption {
+	return func(s *stackSetOpSettings) { s.operationID = id }
+}
+
+// WithParameterOverrides sets the per-instance ParameterOverrides; a non-nil empty list clears them.
+func WithParameterOverrides(p []Parameter) StackSetOpOption {
+	return func(s *stackSetOpSettings) {
+		if p == nil {
+			p = []Parameter{}
+		}
+
+		s.overrides = &p
+	}
+}
+
+// WithInstanceTargets narrows UpdateStackSet to the listed accounts/OUs and Regions.
+func WithInstanceTargets(accounts, ouIDs, regions []string, filterType string) StackSetOpOption {
+	return func(s *stackSetOpSettings) {
+		s.targets = &stackSetTargetSpec{accounts: accounts, ouIDs: ouIDs, regions: regions, filterType: filterType}
+	}
+}
+
+func resolveOpSettings(opts []StackSetOpOption) (stackSetOpSettings, error) {
 	var s stackSetOpSettings
 	for _, o := range opts {
 		o(&s)
 	}
 
-	if s.prefs == nil {
-		return nil, nil //nolint:nilnil // nil means "no preferences"
+	if s.prefs != nil {
+		if err := s.prefs.validate(); err != nil {
+			return stackSetOpSettings{}, err
+		}
 	}
 
-	if err := s.prefs.validate(); err != nil {
-		return nil, err
-	}
-
-	return s.prefs, nil
+	return s, nil
 }
 
 func (p *OperationPreferences) validate() error {
@@ -196,16 +238,100 @@ func (b *InMemoryBackend) WaitForStackSetOperations() {
 }
 
 // admitStackSetOp records a QUEUED operation, seeds PENDING results and hands it to the stack
-// set's worker. Caller must hold b.mu.Lock.
+// set's worker. A repeated OperationId of an identical request returns that operation; one without
+// ManagedExecution is rejected while another operation is active. Caller must hold b.mu.Lock.
 func (b *InMemoryBackend) admitStackSetOp(
 	ctx context.Context,
 	stackSetName, action string,
-	prefs *OperationPreferences,
+	s stackSetOpSettings,
 	retainStacks bool,
 	units []stackSetUnit,
 	apply stackSetApplyFunc,
-) string {
-	opID := uuid.New().String()
+) (string, error) {
+	key := opRequestKey(action, retainStacks, units, s)
+
+	if replay, err := b.preadmitStackSetOp(stackSetName, action, s.operationID, key); replay != "" || err != nil {
+		return replay, err
+	}
+
+	opID := s.operationID
+	if opID == "" {
+		opID = uuid.New().String()
+	}
+
+	b.recordStackSetOp(ctx, stackSetName, opID, action, key, s, retainStacks, units, apply)
+
+	return opID, nil
+}
+
+// preadmitStackSetOp runs the checks that must precede any state change of the operation: it returns
+// the existing operation id for an identical replay, or an error.
+func (b *InMemoryBackend) preadmitStackSetOp(stackSetName, action, opID, key string) (string, error) {
+	if opID != "" {
+		if op := b.stackSetOp(stackSetName, opID); op != nil {
+			if op.Action == action && op.RequestKey == key {
+				return opID, nil
+			}
+
+			return "", ErrOperationIDAlreadyExists
+		}
+	}
+
+	if b.stackSetHasActiveOps(stackSetName) && !b.managedExecutionActive(stackSetName) {
+		return "", ErrOperationInProgress
+	}
+
+	return "", nil
+}
+
+func (b *InMemoryBackend) managedExecutionActive(stackSetName string) bool {
+	ss, ok := b.stackSets.Get(stackSetName)
+
+	return ok && ss.ManagedExecution != nil && ss.ManagedExecution.Active
+}
+
+// opRequestKey fingerprints a request so an OperationId replay can tell a retry from a reuse.
+func opRequestKey(action string, retain bool, units []stackSetUnit, s stackSetOpSettings) string {
+	h := sha256.New()
+	fmt.Fprintf(h, "%q|%t|%q|%s|", action, retain, s.salt, prefsKey(s.prefs))
+
+	for _, u := range units {
+		fmt.Fprintf(h, "%d:%s,%d:%s;", len(u.account), u.account, len(u.region), u.region)
+	}
+
+	if s.overrides != nil {
+		fmt.Fprintf(h, "o%v", *s.overrides)
+	}
+
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func prefsKey(p *OperationPreferences) string {
+	if p == nil {
+		return ""
+	}
+
+	deref := func(v *int32) int32 {
+		if v == nil {
+			return -1
+		}
+
+		return *v
+	}
+
+	return fmt.Sprintf("%d/%d/%d/%d/%s/%s/%q", deref(p.FailureToleranceCount), deref(p.FailureTolerancePercentage),
+		deref(p.MaxConcurrentCount), deref(p.MaxConcurrentPercentage), p.ConcurrencyMode,
+		p.RegionConcurrencyType, p.RegionOrder)
+}
+
+func (b *InMemoryBackend) recordStackSetOp(
+	ctx context.Context,
+	stackSetName, opID, action, key string,
+	s stackSetOpSettings,
+	retainStacks bool,
+	units []stackSetUnit,
+	apply stackSetApplyFunc,
+) {
 	if b.stackSetOperations[stackSetName] == nil {
 		b.stackSetOperations[stackSetName] = make(map[string]*StackSetOperation)
 	}
@@ -216,8 +342,9 @@ func (b *InMemoryBackend) admitStackSetOp(
 		Action:       action,
 		Status:       opStatusQueued,
 		CreatedAt:    time.Now(),
-		Preferences:  prefs,
+		Preferences:  s.prefs,
 		RetainStacks: retainStacks,
+		RequestKey:   key,
 	}
 
 	if b.stackSetOpResults[stackSetName] == nil {
@@ -241,12 +368,10 @@ func (b *InMemoryBackend) admitStackSetOp(
 		stackSetName: stackSetName,
 		opID:         opID,
 		units:        units,
-		prefs:        prefs,
+		prefs:        s.prefs,
 		apply:        apply,
 		delay:        b.stackSetBatchDelay,
 	})
-
-	return opID
 }
 
 func (b *InMemoryBackend) enqueueStackSetOp(plan *stackSetOpPlan) {

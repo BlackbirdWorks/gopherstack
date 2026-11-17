@@ -226,6 +226,13 @@ func TestStackInstances_AccountFilterType_UpdateUnion(t *testing.T) {
 	require.NoError(t, err)
 	require.ElementsMatch(t, f.ouAccounts, f.listInstanceAccounts(t))
 
+	_, err = f.client.CreateStackInstances(ctx, &cfnsdk.CreateStackInstancesInput{
+		StackSetName: aws.String(f.stackSetName),
+		Regions:      []string{"us-east-1"},
+		Accounts:     []string{f.outsideAccount},
+	})
+	require.NoError(t, err)
+
 	updOut, err := f.client.UpdateStackInstances(ctx, &cfnsdk.UpdateStackInstancesInput{
 		StackSetName: aws.String(f.stackSetName),
 		Regions:      []string{"us-east-1"},

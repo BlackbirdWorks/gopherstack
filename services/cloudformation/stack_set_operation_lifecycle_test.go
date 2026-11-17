@@ -282,7 +282,9 @@ func TestStackSetOperation_QueuesPerStackSet(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		b := cloudformation.NewInMemoryBackend()
 		b.SetStackSetBatchDelay(time.Minute)
-		_, err := b.CreateStackSet("q-ss", "", emptyStackSetTemplate, cloudformation.StackSetOptions{})
+		_, err := b.CreateStackSet("q-ss", "", simpleTemplate, cloudformation.StackSetOptions{
+			ManagedExecution: &cloudformation.ManagedExecution{Active: true},
+		})
 		require.NoError(t, err)
 
 		first, err := b.CreateStackInstances(

@@ -212,3 +212,6 @@ func EmbeddedPropertySchemasForTest() map[string]map[string]string {
 func AccessAnalyzerFilterForTest(v any) map[string]accessanalyzerbackend.FilterCriterion {
 	return accessAnalyzerFilter(v, nil, nil)
 }
+
+// StackInstancesErrorCode exposes stackInstancesErrorCode to the external tests.
+func StackInstancesErrorCode(err error) string { return stackInstancesErrorCode(err) }

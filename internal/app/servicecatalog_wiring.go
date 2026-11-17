@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -285,9 +286,9 @@ func (s *serviceCatalogStacks) CreateChangeSet(
 
 	for _, c := range cs.Changes {
 		info.Changes = append(info.Changes, servicecatalogbackend.PlanChange{
-			Action: c.ResourceChange.Action, LogicalResourceID: c.ResourceChange.LogicalID,
+			Action: strings.ToUpper(c.ResourceChange.Action), LogicalResourceID: c.ResourceChange.LogicalID,
 			PhysicalID: c.ResourceChange.PhysicalID, ResourceType: c.ResourceChange.ResourceType,
-			Replacement: c.ResourceChange.Replacement,
+			Replacement: strings.ToUpper(c.ResourceChange.Replacement),
 		})
 	}
 

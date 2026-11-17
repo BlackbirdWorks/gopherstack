@@ -79,6 +79,7 @@ func TestStackInstance_NoDuplicates(t *testing.T) {
 
 	_, err = b.CreateStackInstances(t.Context(), "dedup-ss", []string{"111111111111"}, nil, []string{"us-east-1"}, "")
 	require.NoError(t, err)
+	b.WaitForStackSetOperations()
 
 	// Creating the same instance again should not duplicate it.
 	_, err = b.CreateStackInstances(t.Context(), "dedup-ss", []string{"111111111111"}, nil, []string{"us-east-1"}, "")
@@ -240,8 +241,10 @@ func TestListStackSetOperations_SortedByCreationTime(t *testing.T) {
 		"",
 	)
 	require.NoError(t, err)
+	b.WaitForStackSetOperations()
 	_, err = b.UpdateStackInstances("sort-ops-ss", []string{"111111111111"}, nil, []string{"us-east-1"}, "")
 	require.NoError(t, err)
+	b.WaitForStackSetOperations()
 	_, _, err = b.UpdateStackSet("sort-ops-ss", "", simpleTemplate, cloudformation.StackSetOptions{})
 	require.NoError(t, err)
 
@@ -299,6 +302,7 @@ func TestDeleteStackInstances_Selective(t *testing.T) {
 
 			_, err = b.CreateStackInstances(t.Context(), "del-sel-ss", tc.createAccounts, nil, tc.createRegions, "")
 			require.NoError(t, err)
+			b.WaitForStackSetOperations()
 
 			_, err = b.DeleteStackInstances(
 				t.Context(),

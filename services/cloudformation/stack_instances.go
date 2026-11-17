@@ -152,7 +152,7 @@ func (b *InMemoryBackend) CreateStackInstances(
 	filterType string,
 	opOpts ...StackSetOpOption,
 ) (string, error) {
-	prefs, err := resolveOpPreferences(opOpts)
+	settings, err := resolveOpSettings(opOpts)
 	if err != nil {
 		return "", err
 	}
@@ -170,6 +170,14 @@ func (b *InMemoryBackend) CreateStackInstances(
 		return "", err
 	}
 
+	var overrides []Parameter
+	if settings.overrides != nil {
+		overrides = mergeOverrides(nil, *settings.overrides)
+		if err = validateOverrides(ss, *settings.overrides); err != nil {
+			return "", err
+		}
+	}
+
 	apply := func(ctx context.Context, opID string, u stackSetUnit) string {
 		cur, ok := b.stackSets.Get(stackSetName)
 		if !ok {
@@ -181,7 +189,7 @@ func (b *InMemoryBackend) CreateStackInstances(
 			return ""
 		}
 
-		inst := b.provisionStackInstance(ctx, cur, u.account, u.region, opID)
+		inst := b.provisionStackInstance(ctx, cur, u.account, u.region, opID, overrides)
 		inst.OrganizationalUnitID = u.ouID
 
 		if i >= 0 {
@@ -197,7 +205,7 @@ func (b *InMemoryBackend) CreateStackInstances(
 		return ""
 	}
 
-	return b.admitStackSetOp(ctx, stackSetName, "CREATE", prefs, false, targetUnits(targets, regions), apply), nil
+	return b.admitStackSetOp(ctx, stackSetName, "CREATE", settings, false, targetUnits(targets, regions), apply)
 }
 
 // targetUnits expands resolved targets across regions, account-major.
@@ -222,15 +230,16 @@ func (b *InMemoryBackend) provisionStackInstance(
 	ctx context.Context,
 	ss *StackSet,
 	acct, region, opID string,
+	overrides []Parameter,
 ) StackInstance {
-	status := "CURRENT"
+	status := statusCurrent
 	statusReason := ""
 	childName := fmt.Sprintf("StackSet-%s-%s", ss.StackSetName, uuid.New().String())
 
 	var instanceStackID string
 	if ss.TemplateBody != "" {
 		child, err := b.createStackLocked(
-			ctx, childName, ss.TemplateBody, ss.Parameters,
+			ctx, childName, ss.TemplateBody, effectiveParameters(ss.Parameters, overrides),
 			StackOptions{Capabilities: ss.Capabilities, Tags: ss.Tags}, "",
 		)
 		switch {
@@ -260,6 +269,8 @@ func (b *InMemoryBackend) provisionStackInstance(
 		StatusReason:    statusReason,
 		DriftStatus:     driftStatusNotChecked,
 		LastOperationID: opID,
+
+		ParameterOverrides: overrides,
 	}
 }
 
@@ -331,7 +342,7 @@ func (b *InMemoryBackend) DeleteStackInstances(
 	filterType string,
 	opOpts ...StackSetOpOption,
 ) (string, error) {
-	prefs, err := resolveOpPreferences(opOpts)
+	settings, err := resolveOpSettings(opOpts)
 	if err != nil {
 		return "", err
 	}
@@ -363,41 +374,11 @@ func (b *InMemoryBackend) DeleteStackInstances(
 		ctx,
 		stackSetName,
 		"DELETE",
-		prefs,
+		settings,
 		retainStacks,
 		targetUnits(targets, regions),
 		apply,
-	), nil
-}
-
-func (b *InMemoryBackend) UpdateStackInstances(
-	stackSetName string,
-	accounts, ouIDs, regions []string,
-	filterType string,
-	opOpts ...StackSetOpOption,
-) (string, error) {
-	prefs, err := resolveOpPreferences(opOpts)
-	if err != nil {
-		return "", err
-	}
-
-	b.mu.Lock("UpdateStackInstances")
-	defer b.mu.Unlock()
-	ss, ok := b.stackSets.Get(stackSetName)
-	if !ok {
-		return "", ErrStackSetNotFound
-	}
-
-	targets, err := b.resolveInstanceTargets(ss, accounts, ouIDs, filterType)
-	if err != nil {
-		return "", err
-	}
-
-	apply := func(context.Context, string, stackSetUnit) string { return "" }
-
-	return b.admitStackSetOp(
-		context.Background(), stackSetName, "UPDATE", prefs, false, targetUnits(targets, regions), apply,
-	), nil
+	)
 }
 
 // ListStackInstancesFilter holds ListStackInstancesInput's optional

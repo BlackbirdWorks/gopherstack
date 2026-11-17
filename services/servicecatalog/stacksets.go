@@ -31,6 +31,20 @@ type StackSetRequest struct {
 	Regions       []string
 }
 
+// StackSetUpdateRequest describes an update of the StackSet behind a STACKSET provisioned product.
+// Accounts and Regions narrow the instances updated; both empty updates every instance.
+type StackSetUpdateRequest struct {
+	Preferences   StackSetPreferences
+	Parameters    map[string]string
+	Tags          map[string]string
+	Name          string
+	Template      string
+	AdminRole     string
+	ExecutionRole string
+	Accounts      []string
+	Regions       []string
+}
+
 // StackSetInstance is the engine's view of a stack instance.
 type StackSetInstance struct {
 	Account string
@@ -50,6 +64,8 @@ type StackSetResult struct {
 // StackSetEngine provisions CloudFormation StackSets for STACKSET products.
 type StackSetEngine interface {
 	CreateStackSet(ctx context.Context, req StackSetRequest) (StackSetResult, error)
+	UpdateStackSet(ctx context.Context, req StackSetUpdateRequest) (StackSetResult, error)
+	PreviewStackSet(ctx context.Context, name, template string, params map[string]string) ([]PlanChange, error)
 	DeleteStackSet(ctx context.Context, name string) error
 	StackSetInstances(ctx context.Context, name string) ([]StackSetInstance, error)
 }
@@ -180,6 +196,43 @@ func (r StackSetResult) stackInfo() StackInfo {
 	}
 
 	return StackInfo{ID: r.ID, Status: st, Reason: r.Reason}
+}
+
+func (r StackSetResult) updateInfo() StackInfo {
+	st := "UPDATE_COMPLETE"
+	if r.Status != stackSetSucceeded {
+		st = "UPDATE_FAILED"
+	}
+
+	return StackInfo{ID: r.ID, Status: st, Reason: r.Reason}
+}
+
+// updateTargets are the accounts and Regions an update is narrowed to; none given means every instance.
+func (c *stackSetConfig) updateTargets(p *ProvisioningPreferences) ([]string, []string, error) {
+	if p == nil || (len(p.StackSetAccounts) == 0 && len(p.StackSetRegions) == 0) {
+		return nil, nil, nil
+	}
+
+	return c.targets(p)
+}
+
+// updateStackSet applies a new template, parameters and tags to the StackSet of a provisioned product.
+func (b *InMemoryBackend) updateStackSet(
+	ctx context.Context, lp *launchPlan, name, template string, params, tags map[string]string,
+	prefs *ProvisioningPreferences,
+) (StackInfo, error) {
+	accounts, regions, err := lp.stackSet.updateTargets(prefs)
+	if err != nil {
+		return StackInfo{}, err
+	}
+
+	res, err := b.stackSetEngine().UpdateStackSet(ctx, StackSetUpdateRequest{
+		Name: name, Template: template, Parameters: params, Tags: tags,
+		AdminRole: lp.stackSet.AdminRole, ExecutionRole: lp.stackSet.ExecutionRole,
+		Accounts: accounts, Regions: regions, Preferences: prefs.operation(),
+	})
+
+	return res.updateInfo(), err
 }
 
 func (b *InMemoryBackend) stackSetEngine() StackSetEngine {
