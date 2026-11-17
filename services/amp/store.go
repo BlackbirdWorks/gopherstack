@@ -49,10 +49,13 @@ type InMemoryBackend struct {
 	ams           map[string]*alertManager
 	groups        map[string]*groupRuntime
 	parsed        map[string]*parsedNamespace
+	restoredLog   map[string][]nflogRecord
+	buckets       map[string]*tokenBucket
 	accountID     string
 	region        string
 	logQueue      []logEvent
 	dwellOverride time.Duration
+	quotas        IngestionQuotas
 }
 
 // NewInMemoryBackend creates an empty backend.
@@ -186,6 +189,7 @@ func (b *InMemoryBackend) purgeLocked() {
 
 func (b *InMemoryBackend) dropWorkspaceLocked(id string) {
 	b.workspaces.Delete(id)
+	delete(b.buckets, id)
 
 	for _, n := range slices.Clone(b.namespaces.All()) {
 		if n.WorkspaceID == id {

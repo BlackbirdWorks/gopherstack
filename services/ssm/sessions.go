@@ -326,6 +326,8 @@ func (b *InMemoryBackend) StartSession(
 
 // ContainerSessionInput describes a Session Manager session that runs Command in a docker container.
 type ContainerSessionInput struct {
+	// OnEnd, when set, receives the bounded session output once the data channel closes.
+	OnEnd       TranscriptSink
 	Target      string
 	ContainerID string
 	Command     string
@@ -364,6 +366,7 @@ func (b *InMemoryBackend) StartContainerSession(
 	}
 
 	b.sessionsStore(region).Put(&sess)
+	b.addTranscriptSink(sessionID, in.OnEnd)
 
 	return &StartSessionOutput{SessionID: sessionID, StreamURL: sess.StreamURL, TokenValue: sess.TokenValue}, nil
 }
@@ -388,6 +391,7 @@ func (b *InMemoryBackend) TerminateSession(
 	sess.EndDate = UnixTimeFloat(timeNow())
 	sessions.Put(&sess)
 	b.closeChannel(input.SessionID)
+	b.dropTranscriptSink(input.SessionID)
 
 	// Bound retained terminated (history) sessions so the store cannot grow
 	// without limit under repeated Start/Terminate cycles.

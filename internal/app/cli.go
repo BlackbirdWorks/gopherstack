@@ -722,6 +722,7 @@ type CLI struct {
 	OCILogging                    ocilogging.Settings                 `embed:"" prefix:"oci-logging-"`
 	OCINotifications              ocinotificationsbackend.Settings    `embed:"" prefix:"oci-notifications-"`
 	OCIQueue                      ociqueuebackend.Settings            `embed:"" prefix:"oci-queue-"`
+	AMP                           ampbackend.Settings                 `embed:"" prefix:"amp-"`
 	OCICore                       ocicorebackend.Settings             `embed:"" prefix:"oci-core-"`
 	XRay                          xraybackend.Settings                `embed:"" prefix:"xray-"`
 	GCPAPIGateway                 gcpapigatewaybackend.Settings       `embed:"" prefix:"gcp-apigateway-"`
@@ -996,6 +997,11 @@ func (c *CLI) GetOCIFunctionsSettings() ocifunctionsbackend.Settings {
 // GetOCIStreamingSettings returns OCI Streaming settings (ocistreaming.ConfigProvider).
 func (c *CLI) GetOCIStreamingSettings() ocistreamingbackend.Settings {
 	return c.OCIStreaming
+}
+
+// GetAMPSettings returns AMP settings (amp.ConfigProvider).
+func (c *CLI) GetAMPSettings() ampbackend.Settings {
+	return c.AMP
 }
 
 // GetOCIQueueSettings returns OCI Queue settings (ociqueue.ConfigProvider).

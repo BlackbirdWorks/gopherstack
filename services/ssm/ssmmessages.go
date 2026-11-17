@@ -159,3 +159,54 @@ func requestScheme(r *http.Request) string {
 
 	return "http"
 }
+
+const (
+	maxTranscriptBytes = 1 << 20
+	maxTranscriptSinks = 1024
+)
+
+// TranscriptSink receives a session's output after its data channel closes.
+type TranscriptSink func(sessionID string, transcript []byte)
+
+func (b *InMemoryBackend) addTranscriptSink(sessionID string, sink TranscriptSink) {
+	if sink == nil {
+		return
+	}
+
+	b.execMu.Lock()
+	defer b.execMu.Unlock()
+
+	if b.transcriptSinks == nil {
+		b.transcriptSinks = make(map[string]TranscriptSink)
+	}
+
+	if len(b.transcriptSinks) < maxTranscriptSinks {
+		b.transcriptSinks[sessionID] = sink
+	}
+}
+
+func (b *InMemoryBackend) dropTranscriptSink(sessionID string) {
+	b.execMu.Lock()
+	defer b.execMu.Unlock()
+
+	delete(b.transcriptSinks, sessionID)
+}
+
+func (b *InMemoryBackend) takeTranscriptSink(sessionID string) TranscriptSink {
+	b.execMu.Lock()
+	defer b.execMu.Unlock()
+
+	sink := b.transcriptSinks[sessionID]
+	delete(b.transcriptSinks, sessionID)
+
+	return sink
+}
+
+// transcriptBuffer keeps the first maxTranscriptBytes of a session's output.
+type transcriptBuffer struct{ data []byte }
+
+func (t *transcriptBuffer) add(p []byte) {
+	if room := maxTranscriptBytes - len(t.data); room > 0 {
+		t.data = append(t.data, p[:min(room, len(p))]...)
+	}
+}

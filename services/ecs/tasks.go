@@ -1235,8 +1235,8 @@ func validateRunTaskSize(td *TaskDefinition, input RunTaskInput, launchType stri
 		}
 	}
 
-	if ov.Memory != "" {
-		if err := validateContainerMemoryWithinTask(memory, td.ContainerDefinitions, ErrInvalidParameter); err != nil {
+	if ov.Memory != "" || ov.CPU != "" {
+		if err := validateContainersWithinTask(cpu, memory, td.ContainerDefinitions, ErrInvalidParameter); err != nil {
 			return err
 		}
 	}

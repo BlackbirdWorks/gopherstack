@@ -27,7 +27,9 @@ const (
 	stateReady       = "Ready"
 	spanResponseLat  = "responseLatency"
 	spanResponseDur  = "responseDuration"
+	spanOverhead     = "runtimeOverhead"
 	memProbeTimeout  = 2 * time.Second
+	runtimeDoneSpans = 3
 	logsMinRuntimeEv = schemaLogs20210318
 )
 
@@ -43,8 +45,10 @@ type invocationTrack struct {
 	started   time.Time
 	finished  time.Time
 	tracing   *telTracing
+	readStart time.Time
 	status    string
 	errorType string
+	produced  int
 }
 
 // phaseTracker records init and per-invocation timing so platform events carry real durations.
@@ -222,19 +226,10 @@ func (h *telemetryHub) finishRuntime(
 	}
 
 	tr.finished, tr.status, tr.errorType = readEnd, status, errType
+	tr.readStart, tr.produced = readStart, produced
 	h.ph.reportQueue = append(h.ph.reportQueue, reqID)
-	started, tracing := tr.started, tr.tracing
 
 	h.ph.mu.Unlock()
-
-	rec := recRuntimeDone{
-		RequestID: reqID, Status: status, ErrorType: errType, Tracing: tracing,
-		Metrics: &recRuntimeDoneMetrics{DurationMs: roundMs(readEnd.Sub(started)), ProducedBytes: produced},
-		Spans: []telSpan{
-			{Name: spanResponseLat, Start: eventTime(started), DurationMs: roundMs(readStart.Sub(started))},
-			{Name: spanResponseDur, Start: eventTime(readStart), DurationMs: roundMs(readEnd.Sub(readStart))},
-		},
-	}
 
 	logsStatus := status
 	if status == statusError {
@@ -243,7 +238,6 @@ func (h *telemetryHub) finishRuntime(
 
 	h.publish(hubEvent{
 		at: readEnd, category: typePlatform,
-		telType: "platform.runtimeDone", telRec: rec,
 		logsType: "platform.runtimeDone", logsRec: recLogsRuntimeDone{RequestID: reqID, Status: logsStatus},
 		logsMinSchema: logsMinRuntimeEv,
 	})
@@ -253,14 +247,51 @@ func (h *telemetryHub) finishRuntime(
 	})
 }
 
+// telemetryRuntimeDone builds the Telemetry API platform.runtimeDone record. The runtimeOverhead span covers the
+// time from the response to the runtime's next call (telemetry-schema-reference, Span); it is omitted when the
+// runtime never called next.
+func telemetryRuntimeDone(reqID string, tr *invocationTrack, nextAt time.Time) recRuntimeDone {
+	latency := telSpan{
+		Name:       spanResponseLat,
+		Start:      eventTime(tr.started),
+		DurationMs: roundMs(tr.readStart.Sub(tr.started)),
+	}
+	duration := telSpan{
+		Name: spanResponseDur, Start: eventTime(tr.readStart), DurationMs: roundMs(tr.finished.Sub(tr.readStart)),
+	}
+	spans := append(make([]telSpan, 0, runtimeDoneSpans), latency, duration)
+
+	if !nextAt.IsZero() {
+		spans = append(spans, telSpan{
+			Name: spanOverhead, Start: eventTime(tr.finished), DurationMs: roundMs(nextAt.Sub(tr.finished)),
+		})
+	}
+
+	return recRuntimeDone{
+		RequestID: reqID, Status: tr.status, ErrorType: tr.errorType, Tracing: tr.tracing,
+		Metrics: &recRuntimeDoneMetrics{DurationMs: roundMs(tr.finished.Sub(tr.started)), ProducedBytes: tr.produced},
+		Spans:   spans,
+	}
+}
+
 // timedOut publishes runtimeDone and report for an invocation that exceeded its deadline.
 func (h *telemetryHub) timedOut(ctx context.Context, reqID string, now time.Time) {
 	h.finishRuntime(reqID, statusTimeout, "", 0, now, now)
 	h.invokePhaseEnded(ctx, now)
 }
 
-// invokePhaseEnded publishes platform.report for invocations whose runtime and extensions are done.
+// invokePhaseEnded publishes platform.runtimeDone and platform.report for invocations whose runtime and
+// extensions are done, without a runtimeOverhead span.
 func (h *telemetryHub) invokePhaseEnded(ctx context.Context, now time.Time) {
+	h.endInvokePhase(ctx, now, false)
+}
+
+// runtimeNext is invokePhaseEnded for the runtime's next call, which closes each runtimeOverhead span.
+func (h *telemetryHub) runtimeNext(ctx context.Context, now time.Time) {
+	h.endInvokePhase(ctx, now, true)
+}
+
+func (h *telemetryHub) endInvokePhase(ctx context.Context, now time.Time, nextCalled bool) {
 	h.ph.mu.Lock("invokePhaseEnded")
 
 	queue := h.ph.reportQueue
@@ -271,8 +302,8 @@ func (h *telemetryHub) invokePhaseEnded(ctx context.Context, now time.Time) {
 
 	type item struct {
 		cold *float64
-		tr   invocationTrack
 		id   string
+		tr   invocationTrack
 	}
 
 	items := make([]item, 0, len(queue))
@@ -301,7 +332,9 @@ func (h *telemetryHub) invokePhaseEnded(ctx context.Context, now time.Time) {
 
 	var usedMB int
 
-	if probe != nil && h.hasPlatformSubscribers() {
+	subscribed := h.hasPlatformSubscribers()
+
+	if probe != nil && subscribed {
 		pctx, cancel := context.WithTimeout(ctx, memProbeTimeout)
 		if b, ok := probe(pctx); ok {
 			usedMB = int(math.Ceil(float64(b) / bytesPerMB))
@@ -310,8 +343,22 @@ func (h *telemetryHub) invokePhaseEnded(ctx context.Context, now time.Time) {
 		cancel()
 	}
 
-	for _, it := range items {
+	for i := range items {
+		it := items[i]
 		dur := it.tr.finished.Sub(it.tr.started)
+
+		if subscribed {
+			var nextAt time.Time
+			if nextCalled {
+				nextAt = now
+			}
+
+			h.publish(hubEvent{
+				at: now, category: typePlatform,
+				telType: "platform.runtimeDone", telRec: telemetryRuntimeDone(it.id, &it.tr, nextAt),
+			})
+		}
+
 		metrics := recReportMetrics{
 			DurationMs: roundMs(dur), BilledDuration: int64(math.Ceil(float64(dur) / float64(time.Millisecond))),
 			MemorySizeMB: memMB, MaxMemoryUsedMB: usedMB, InitDurationMs: it.cold,

@@ -600,6 +600,8 @@ func (r IngestResult) refusal() string {
 			r.OutOfOrder)
 	case r.TooOld > 0:
 		return fmt.Sprintf("sample too old: %d samples are older than 1 hour", r.TooOld)
+	case r.SeriesLimitExceeded > 0:
+		return r.seriesLimit
 	case r.LimitExceeded > 0:
 		return fmt.Sprintf("per-labelset series limit exceeded for %d series", r.LimitExceeded)
 	default:

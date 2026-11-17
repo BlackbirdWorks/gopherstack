@@ -98,3 +98,73 @@ func TestContainerSession(t *testing.T) {
 		})
 	}
 }
+
+func exitSession(_ *testing.T, c *dcClient, _ *ssm.InMemoryBackend, _ string) {
+	c.input(ssm.PayloadOutput, []byte("exit\n"))
+}
+
+func terminateSession(t *testing.T, _ *dcClient, bk *ssm.InMemoryBackend, sid string) {
+	t.Helper()
+
+	_, err := bk.TerminateSession(t.Context(), &ssm.TerminateSessionInput{SessionID: sid})
+	assert.NoError(t, err)
+}
+
+type transcript struct {
+	id   string
+	body []byte
+}
+
+func TestContainerSessionTranscript(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		end  func(t *testing.T, c *dcClient, bk *ssm.InMemoryBackend, sid string)
+		want string
+	}{
+		{name: "exit delivers output", want: "ok\n", end: exitSession},
+		{name: "terminate delivers output", want: "ok\n", end: terminateSession},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, bk := newTestHandler(t)
+			e := echo.New()
+			e.Any("/*", h.Handler())
+
+			srv := httptest.NewServer(e)
+			t.Cleanup(srv.Close)
+			bk.SetShellOpener(&commandOpener{})
+
+			done := make(chan transcript, 1)
+			in := ssm.ContainerSessionInput{
+				Target: "ecs:c_t_r", ContainerID: "cid-1", Command: "x",
+				StreamBase: "ws://" + strings.TrimPrefix(srv.URL, "http://"),
+			}
+
+			in.OnEnd = func(id string, body []byte) { done <- transcript{id: id, body: body} }
+
+			out, err := bk.StartContainerSession(t.Context(), in)
+			require.NoError(t, err)
+
+			ws, _, err := websocket.DefaultDialer.DialContext(t.Context(), out.StreamURL, nil)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = ws.Close() })
+
+			c := &dcClient{t: t, ws: ws}
+			c.open(out.TokenValue)
+			c.handshake(map[int64]bool{})
+			c.input(ssm.PayloadOutput, []byte("echo ok\n"))
+			assert.Equal(t, "ok\n", string(c.nextNonAck(map[int64]bool{}).Payload))
+			tt.end(t, c, bk, out.SessionID)
+			assert.Equal(t, ssm.MsgChannelClosed, c.nextNonAck(map[int64]bool{}).MessageType)
+
+			got := <-done
+			assert.Equal(t, out.SessionID, got.id)
+			assert.Equal(t, tt.want, string(got.body))
+		})
+	}
+}

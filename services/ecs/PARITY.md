@@ -75,9 +75,9 @@ families:
 gaps: []
 items_still_open:
   - "Docker runtime container definition: firelensConfiguration and awsfirelens log routing (a task using either fails with TaskFailedToStart instead of starting the log router) and resourceRequirements (GPU) are stored but not applied; ephemeralStorage is validated (21 to 200 GiB) and reported on the task but not enforced on disk."
-  - "Docker runtime: Task-level cpu/memory bound every container (a container without a hard memory limit gets the task memory as its ceiling, NanoCPUs is the task vCPUs) but Docker has no task cgroup, so the sum across containers is not enforced. host and none network-mode containers cannot join the link-local credentials relay, and awsvpc tasks (pause container plus task network) are never adopted after an emulator restart. Managed EBS volumes: filesystemType is not applied (the Docker volume uses the local driver), volumeInitializationRate is echo only, and StartTask and ServiceRevision do not carry volumeConfigurations."
+  - "Docker runtime: Task-level cpu/memory bound every container (a container without a hard memory limit gets the task memory as its ceiling, NanoCPUs is the task vCPUs) but Docker has no task cgroup, so the sum across containers is not enforced at run time (registration rejects sums above the task values). host and none network-mode containers cannot join the link-local credentials relay, and awsvpc tasks (pause container plus task network) are never adopted after an emulator restart. Managed EBS volumes: filesystemType is not applied (the Docker volume uses the local driver), volumeInitializationRate is echo only, and StartTask and ServiceRevision do not carry volumeConfigurations."
   - "Docker runtime: PROVISIONING tasks in a restored snapshot are not resumed."
-  - "ECS Exec: sessions exist only on the docker and kubernetes runtimes with the SSM service enabled (otherwise TargetNotConnectedException); the command runs as `sh -c <command>` through docker exec or pods/exec, and executeCommandConfiguration logging/KMS encryption and the ssmmessages IAM checks are not applied."
+  - "ECS Exec: sessions exist only on the docker and kubernetes runtimes with the SSM service enabled (otherwise TargetNotConnectedException); the command runs as `sh -c <command>` through docker exec or pods/exec, and the ssmmessages IAM checks are not applied. executeCommandConfiguration logging is delivered when the session ends (CloudWatch Logs stream `ecs-execute-command-<sessionId>`, S3 key `<prefix>/ecs-execute-command-<sessionId>.log`; naming from memory, unverified); KMS encryption is recorded, not performed (see External effects)."
   - "Kubernetes runtime (CONTAINER_RUNTIME=kubernetes, docs/kubernetes.md): one Pod per task. Refused with TaskFailedToStart: host-path/EFS/configuredAtLaunch/shared-docker volumes, networkMode host/none, pidMode/ipcMode host, privileged, devices, container restartPolicy, repositoryCredentials, FireLens, dependsOn COMPLETE/HEALTHY; ulimits/ephemeralStorage ignored; dependsOn START is not ordered; a never-ready health check stays UNKNOWN; no security-group enforcement; tasks are not adopted after a restart."
 structural_gaps:
   - "Service Connect: ServiceConnectConfiguration is stored and echoed, and ListServicesByNamespace matches on it, but Service Connect proxies and its Cloud Map instance registration are not modeled."
@@ -1355,3 +1355,12 @@ awslogs-create-group (default false) is enforced on the docker runtime: a missin
 - ecs: task lifecycle states PROVISIONING, ACTIVATING and others per task-lifecycle-explanation.html.
 - Docker runtime dependsOn: the stoppedReason text for a failed dependency is not published (stopped-task-errors.html, task-lifecycle-explanation.html and API_ContainerDependency.html name none); the task moves to STOPPED per ContainerDefinition.startTimeout
 - Docker runtime: pullStartedAt/pullStoppedAt bracket the whole launch because the Docker API gives no per-image pull timing for a combined launch
+
+## External effects that are recorded, not performed
+
+- ECS Exec: `executeCommandConfiguration.kmsKeyId` and the CloudWatch/S3 encryption flags are persisted with the cluster configuration; the session stream and delivered transcript are not encrypted, and the would-be encryption is logged at delivery
+
+## Emulator choices where the vendor is silent
+
+- RegisterTaskDefinition/RunTask: container `memory` hard limits and `cpu` reservations whose sum exceeds the task-level value are rejected (task_definition_parameters.html: totals "must be lower than" the task value; equal is accepted); the message text is not published
+- ECS Exec: transcripts are capped at 1 MiB (first bytes kept), 10,000 lines and 8 KiB per line

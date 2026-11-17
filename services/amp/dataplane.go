@@ -17,9 +17,10 @@ var labelNameRe = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 // IngestResult counts what a remote-write request stored.
 type IngestResult struct {
-	Samples   int
-	Duplicate int
-	Dropped   int
+	seriesLimit string
+	Samples     int
+	Duplicate   int
+	Dropped     int
 	// Expired counts samples older than the workspace retention period.
 	Expired int
 	// OutOfOrder counts samples older than the workspace's newest sample by more than the out-of-order window.
@@ -31,6 +32,10 @@ type IngestResult struct {
 	ExemplarsDropped int
 	// LimitExceeded counts series refused by a limitsPerLabelSet entry.
 	LimitExceeded int
+	// SeriesLimitExceeded counts new series refused by the active series quota.
+	SeriesLimitExceeded int
+
+	activeSeries int
 }
 
 func (b *InMemoryBackend) dataWorkspaceLocked(sc scope, id string) error {
@@ -57,7 +62,7 @@ func validateWriteSeries(ws writeSeries) error {
 		}
 	}
 
-	return nil
+	return validateLabelLimits(ws.Labels)
 }
 
 // Ingest stores remote-write samples. Non-finite values (including stale markers) are dropped.
@@ -79,9 +84,20 @@ func (b *InMemoryBackend) Ingest(ctx context.Context, wsID string, series []writ
 		return IngestResult{}, err
 	}
 
+	now := b.now()
+
+	if b.quotas.Enforce && !b.takeLocked(wsID, sampleCount(series), now) {
+		return IngestResult{}, b.quotas.errRateLimited(sampleCount(series))
+	}
+
 	var res IngestResult
 
 	w, _ := b.workspaces.Get(wsID)
+	res.activeSeries = -1
+	if b.quotas.Enforce {
+		res.activeSeries = b.activeSeriesLocked(wsID, now)
+	}
+
 	cutoff := b.retentionCutoffMs(w)
 	ageCutoff := b.now().Add(-maxSampleAge).UnixMilli()
 
@@ -101,6 +117,17 @@ func (b *InMemoryBackend) ingestSeriesLocked(w *Workspace, cutoff, ageCutoff int
 			res.LimitExceeded++
 
 			return
+		}
+
+		if res.activeSeries >= 0 {
+			if res.activeSeries >= b.quotas.ActiveSeries {
+				res.SeriesLimitExceeded++
+				res.seriesLimit = b.quotas.seriesLimitMessage()
+
+				return
+			}
+
+			res.activeSeries++
 		}
 
 		rec = &SeriesRecord{Key: key, WorkspaceID: w.ID, Labels: ws.Labels}
