@@ -177,8 +177,6 @@ type overrideStep struct {
 
 func envOf(e1, e2 string) map[string]string { return map[string]string{updAcct1: e1, updAcct2: e2} }
 
-func overridesOf(p ...cloudformation.Parameter) *[]cloudformation.Parameter { return &p }
-
 func TestUpdateStackInstances_ParameterOverrides(t *testing.T) {
 	t.Parallel()
 
@@ -194,40 +192,60 @@ func TestUpdateStackInstances_ParameterOverrides(t *testing.T) {
 		steps []overrideStep
 	}{
 		{name: "set_override", steps: []overrideStep{
-			{overrides: overridesOf(y), wantEnv: envOf("y", "x"), wantOverrides: []cloudformation.Parameter{y}},
+			{
+				overrides:     new([]cloudformation.Parameter{y}),
+				wantEnv:       envOf("y", "x"),
+				wantOverrides: []cloudformation.Parameter{y},
+			},
 		}},
 		{name: "empty_list_reverts", steps: []overrideStep{
-			{overrides: overridesOf(y), wantEnv: envOf("y", "x"), wantOverrides: []cloudformation.Parameter{y}},
-			{overrides: overridesOf(), wantEnv: envOf("x", "x")},
+			{
+				overrides:     new([]cloudformation.Parameter{y}),
+				wantEnv:       envOf("y", "x"),
+				wantOverrides: []cloudformation.Parameter{y},
+			},
+			{overrides: new([]cloudformation.Parameter{}), wantEnv: envOf("x", "x")},
 		}},
 		{name: "unspecified_keeps", steps: []overrideStep{
-			{overrides: overridesOf(y), wantEnv: envOf("y", "x"), wantOverrides: []cloudformation.Parameter{y}},
+			{
+				overrides:     new([]cloudformation.Parameter{y}),
+				wantEnv:       envOf("y", "x"),
+				wantOverrides: []cloudformation.Parameter{y},
+			},
 			{wantEnv: envOf("y", "x"), wantOverrides: []cloudformation.Parameter{y}},
 		}},
 		{name: "use_previous_value", steps: []overrideStep{
-			{overrides: overridesOf(y), wantEnv: envOf("y", "x"), wantOverrides: []cloudformation.Parameter{y}},
 			{
-				overrides:     overridesOf(cloudformation.Parameter{ParameterKey: "Env", UsePreviousValue: true}),
+				overrides:     new([]cloudformation.Parameter{y}),
+				wantEnv:       envOf("y", "x"),
+				wantOverrides: []cloudformation.Parameter{y},
+			},
+			{
+				overrides:     new([]cloudformation.Parameter{{ParameterKey: "Env", UsePreviousValue: true}}),
 				wantEnv:       envOf("y", "x"),
 				wantOverrides: []cloudformation.Parameter{y},
 			},
 		}},
 		{name: "set_update_keeps_override", steps: []overrideStep{
-			{overrides: overridesOf(y), wantEnv: envOf("y", "x"), wantOverrides: []cloudformation.Parameter{y}},
+			{
+				overrides:     new([]cloudformation.Parameter{y}),
+				wantEnv:       envOf("y", "x"),
+				wantOverrides: []cloudformation.Parameter{y},
+			},
 			{setParams: envParam("z"), wantEnv: envOf("y", "z"), wantOverrides: []cloudformation.Parameter{y}},
 		}},
 		{name: "unknown_parameter", steps: []overrideStep{
 			{
-				overrides: overridesOf(cloudformation.Parameter{ParameterKey: "Nope", ParameterValue: "1"}),
+				overrides: new([]cloudformation.Parameter{{ParameterKey: "Nope", ParameterValue: "1"}}),
 				wantErr:   cloudformation.ErrInvalidParameterOverrides,
 				wantEnv:   envOf("x", "x"),
 			},
 		}},
 		{name: "value_and_use_previous", steps: []overrideStep{
 			{
-				overrides: overridesOf(
-					cloudformation.Parameter{ParameterKey: "Env", ParameterValue: "y", UsePreviousValue: true},
-				),
+				overrides: new([]cloudformation.Parameter{
+					{ParameterKey: "Env", ParameterValue: "y", UsePreviousValue: true},
+				}),
 				wantErr: cloudformation.ErrInvalidParameterOverrides,
 				wantEnv: envOf("x", "x"),
 			},
