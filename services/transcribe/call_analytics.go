@@ -329,6 +329,9 @@ func viewCallAnalytics(j *CallAnalyticsJob) jobView {
 		MediaURI: j.Media.MediaFileURI, MediaFormat: j.MediaFormat, SampleRate: j.MediaSampleRateHertz,
 		OutBucket: bucket, OutKey: key, Channels: j.ChannelDefinitions, Redaction: redaction,
 	}
+	if j.Settings != nil {
+		spec.FilterName, spec.FilterMethod = j.Settings.VocabularyFilterName, j.Settings.VocabularyFilterMethod
+	}
 
 	return jobView{
 		spec: spec, created: j.CreationTime, status: &j.CallAnalyticsJobStatus, failure: &j.FailureReason,

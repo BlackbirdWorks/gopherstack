@@ -73,6 +73,7 @@ type transcriptItem struct {
 	Type         string                  `json:"type"`
 	Alternatives []transcriptAlternative `json:"alternatives"`
 	ID           int                     `json:"id"`
+	FilterMatch  bool                    `json:"vocabularyFilterMatch,omitempty"`
 }
 
 type transcriptAlternative struct {
@@ -120,6 +121,7 @@ func wordItems(words []Word, firstID int) []transcriptItem {
 			EndTime:      fmtSeconds(w.End),
 			Type:         itemPronunciation,
 			Alternatives: []transcriptAlternative{{Content: w.Text, Confidence: fmtConfidence(w.Confidence)}},
+			FilterMatch:  w.Filtered,
 		})
 	}
 

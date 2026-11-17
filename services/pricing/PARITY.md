@@ -18,8 +18,7 @@ items_still_open:
   - Catalog: ten services (EC2, S3, Lambda, DynamoDB, RDS, SQS, SNS, CloudFront, ElastiCache, ECS/Fargate) and 14 regions; DescribeServices does not list the other ~200 AWS service codes
   - Catalog: prices are illustrative, not the live AWS price feed; there is a single published version (20261001000000)
   - "Reserved: EC2/RDS carry the 12 standard/convertible x 1yr/3yr x No/Partial/All Upfront terms, but ratios are illustrative and the non-Standard-No-Upfront offer term codes are not published (checked reading-an-offer.html, which names the term attributes such as leaseContractLength but gives no codes)"
-  - Savings Plans: only ComputeSavingsPlans price lists (JSON only, EC2 Linux rates) are served through ListPriceLists/GetPriceListFileUrl; the file layout is recalled from the published format and unverified; other SP types, GetProducts and DescribeServices do not expose them
-  - AccessDeniedException, ThrottlingException, InternalErrorException, ExpiredNextTokenException: never raised
+  - "Savings Plans: only ComputeSavingsPlans price lists (JSON only, EC2 Linux rates) are served; the discounts are illustrative multipliers of the illustrative On Demand rates, and other Savings Plans types are absent because no checked-in, cited source of their rates exists in the repo (savingsplans.go spPlans)"
 structural_gaps: []
 deferred: []
 leaks: {status: clean, note: "stateless; the catalog is built once with sync.OnceValue"}
@@ -32,3 +31,8 @@ The file route is registered by internal/app/budgets_wiring.go (registerPricingE
 
 ## Primary-source checks (2026-11-13)
 - pricing: reading-an-offer.html documents the offer file term attributes (leaseContractLength).
+
+## Emulator choices where the vendor is silent
+- ExpiredNextTokenException and ThrottlingException are never raised: API_pricing_GetProducts.html gives no token lifetime and no quota figure ("too many requests exceeding service quotas"). Tokens are stateless offsets.
+- AccessDeniedException ("request wasn't signed correctly") is not raised: the emulator does not verify signatures. InternalErrorException is returned for any unclassified handler error.
+- The Savings Plans file envelope (version, publicationDate, regionCode, products, terms.savingsPlan[].leaseContractLength/rates) follows reading-service-price-list-file-for-savings-plans (aws billing docs, reading-an-offer.html); rates carry no non-documented keys.

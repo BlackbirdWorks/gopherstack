@@ -524,14 +524,11 @@ func TestValidateScheduleExpression(t *testing.T) {
 	}
 
 	for _, expr := range validExprs {
-		_, err := backend.CreateScheduledQuery(
+		sq, err := backend.CreateScheduledQuery(
 			t.Context(), "valid-"+expr[:4], "SELECT 1", expr, "arn", "", "", "", "", "", "", "", "", nil, nil,
 		)
 		require.NoError(t, err, "valid expr %q should be accepted", expr)
-		_ = backend.DeleteScheduledQuery(
-			t.Context(),
-			"arn:aws:timestream:us-east-1:123:scheduled-query/valid-"+expr[:4],
-		)
+		_ = backend.DeleteScheduledQuery(t.Context(), sq.Arn)
 	}
 
 	for _, expr := range invalidExprs {
@@ -1343,4 +1340,41 @@ func TestExecuteScheduledQuery_RunStatusIsManual(t *testing.T) {
 	item, ok := items[0].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "MANUAL_TRIGGER_SUCCESS", item["LastRunStatus"])
+}
+
+func TestScheduledQueryArnCarriesRandomSuffix(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{"daily"},
+		{"with-dash"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := timestreamquery.NewInMemoryBackend("123456789012", "us-east-1")
+			first, err := backend.CreateScheduledQuery(
+				t.Context(), tt.name, "SELECT 1", "rate(5 minutes)", "arn", "", "", "", "", "", "", "", "", nil, nil,
+			)
+			require.NoError(t, err)
+			assert.Regexp(t, `:scheduled-query/`+tt.name+`-[0-9a-f]{12}$`, first.Arn)
+
+			_, err = backend.CreateScheduledQuery(
+				t.Context(), tt.name, "SELECT 1", "rate(5 minutes)", "arn", "", "", "", "", "", "", "", "", nil, nil,
+			)
+			require.ErrorIs(t, err, timestreamquery.ErrAlreadyExists)
+
+			require.NoError(t, backend.DeleteScheduledQuery(t.Context(), first.Arn))
+
+			second, err := backend.CreateScheduledQuery(
+				t.Context(), tt.name, "SELECT 1", "rate(5 minutes)", "arn", "", "", "", "", "", "", "", "", nil, nil,
+			)
+			require.NoError(t, err)
+			assert.NotEqual(t, first.Arn, second.Arn)
+		})
+	}
 }

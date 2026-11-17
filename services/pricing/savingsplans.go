@@ -33,7 +33,6 @@ var spPlans = []spPlan{ //nolint:gochecknoglobals // immutable catalog input
 type spRate struct {
 	DiscountedRate        spPrice `json:"discountedRate"`
 	RateCode              string  `json:"rateCode"`
-	UnitPrice             string  `json:"unitPrice"`
 	DiscountedSKU         string  `json:"discountedSku"`
 	DiscountedUsageType   string  `json:"discountedUsageType"`
 	DiscountedOperation   string  `json:"discountedOperation"`
@@ -68,7 +67,8 @@ type spProduct struct {
 type spFile struct {
 	Terms       map[string][]spTerm `json:"terms"`
 	Version     string              `json:"version"`
-	PublishDate string              `json:"publishDate"`
+	PublishDate string              `json:"publicationDate"`
+	RegionCode  string              `json:"regionCode"`
 	Products    []spProduct         `json:"products"`
 }
 
@@ -118,7 +118,6 @@ func spRates(sku string, p spPlan, entries []*entry) []spRate {
 		out = append(out, spRate{
 			DiscountedRate:        spPrice{Price: rate, Currency: currency},
 			RateCode:              sku + "." + suffix,
-			UnitPrice:             rate,
 			DiscountedSKU:         e.item.Product.SKU,
 			DiscountedUsageType:   attrs[attrUsage],
 			DiscountedOperation:   attrs[attrOperation],
@@ -134,7 +133,10 @@ func spRates(sku string, p spPlan, entries []*entry) []spRate {
 // renderSavingsPlans returns the Compute Savings Plans price list file of a region.
 func renderSavingsPlans(region string) []byte {
 	entries := regionEntries(svcEC2, region)
-	f := spFile{Version: catalogVersion, PublishDate: publicationDate, Terms: map[string][]spTerm{"savingsPlan": {}}}
+	f := spFile{
+		Version: catalogVersion, PublishDate: publicationDate, RegionCode: region,
+		Terms: map[string][]spTerm{"savingsPlan": {}},
+	}
 
 	for _, p := range spPlans {
 		sku := spSKU(region, p)

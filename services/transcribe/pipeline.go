@@ -42,7 +42,11 @@ type jobSpec struct {
 	MediaFormat      string
 	OutBucket        string
 	OutKey           string
+	FilterName       string
+	FilterMethod     string
+	FilterURI        string
 	SubtitleFormats  []string
+	FilterWords      []string
 	Channels         []ChannelDefinition
 	SampleRate       int32
 	SubtitleStart    int32
@@ -222,6 +226,8 @@ func runPipeline(ctx context.Context, deps pipelineDeps, spec jobSpec) outcome {
 		if channels, bad = recognize(ctx, deps, spec, info, format); bad.failure != "" {
 			return bad
 		}
+
+		channels = applyVocabularyFilter(channels, spec.filterSet(ctx, deps), spec.FilterMethod)
 	}
 
 	return outcome{files: renderFiles(deps.accountID, spec, channels, duration)}
@@ -394,6 +400,8 @@ func (b *InMemoryBackend) settleLocked(v jobView) {
 
 		return
 	}
+
+	v.spec = b.withFilterLocked(v.spec)
 
 	if b.engine != nil && b.resolveMediaReader() != nil {
 		b.launchRunLocked(v)
