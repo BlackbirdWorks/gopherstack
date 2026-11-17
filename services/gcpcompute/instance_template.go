@@ -92,13 +92,15 @@ func (b *InMemoryBackend) insertTemplate(
 
 	props := in.Properties
 
+	var images []pendingImage
+
 	if in.SourceInstance != "" {
-		derived, err := b.propsFromInstanceLocked(project, in)
+		derived, imgs, err := b.propsFromInstanceLocked(project, in)
 		if err != nil {
 			return nil, err
 		}
 
-		props = derived
+		props, images = derived, imgs
 	} else if in.SourceInstanceParams != nil {
 		return nil, errInvalid("Invalid value for field 'resource.sourceInstanceParams': requires sourceInstance.")
 	}
@@ -121,6 +123,10 @@ func (b *InMemoryBackend) insertTemplate(
 	}
 
 	b.templates[k] = t
+
+	for _, p := range images {
+		b.images[key(project, p.img.Name)] = p.img
+	}
 
 	return b.newOpLocked("insert", templateTarget(project, region, t), b.timing.Done), nil
 }

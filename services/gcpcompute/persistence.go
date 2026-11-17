@@ -55,6 +55,7 @@ type backendSnapshot struct {
 	NEGEndpoints    map[string][]*computeapi.NetworkEndpoint    `json:"networkEndpoints"`
 	SecPolicies     map[string]*computeapi.SecurityPolicy       `json:"securityPolicies"`
 	ResPolicies     map[string]*computeapi.ResourcePolicy       `json:"resourcePolicies"`
+	SchedRuns       map[string]*schedRun                        `json:"scheduleRuns,omitempty"`
 	Ops             map[string]*opRec                           `json:"ops"`
 	Projects        map[string]*computeapi.Metadata             `json:"projects"`
 	Version         int                                         `json:"version"`
@@ -75,6 +76,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		HTTPProxies: b.httpProxies, HTTPSProxies: b.httpsProxies, TCPProxies: b.tcpProxies,
 		SSLProxies: b.sslProxies, SSLCerts: b.sslCerts, SSLPolicies: b.sslPolicies, FwdRules: b.fwdRules,
 		NEGs: b.negs, NEGEndpoints: b.negEndpoints, SecPolicies: b.secPolicies, ResPolicies: b.resPolicies,
+		SchedRuns:   b.schedRuns,
 		TargetPools: b.targetPools, TargetInstances: b.targetInstances, HTTPHealths: b.httpHealths,
 		HTTPSHealths: b.httpsHealths, VPNGateways: b.vpnGateways, TargetVPNs: b.targetVPNs,
 		VPNTunnels: b.vpnTunnels, ExternalVPNs: b.externalVPNs,
@@ -134,7 +136,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		copyNonNil(b.targetInstances, snap.TargetInstances), copyNonNil(b.httpHealths, snap.HTTPHealths),
 		copyNonNil(b.httpsHealths, snap.HTTPSHealths), copyNonNil(b.vpnGateways, snap.VPNGateways),
 		copyNonNil(b.targetVPNs, snap.TargetVPNs), copyNonNil(b.vpnTunnels, snap.VPNTunnels),
-		copyNonNil(b.externalVPNs, snap.ExternalVPNs),
+		copyNonNil(b.externalVPNs, snap.ExternalVPNs), copyNonNil(b.schedRuns, snap.SchedRuns),
 	} {
 		if err != nil {
 			b.resetMaps()

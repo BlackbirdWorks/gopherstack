@@ -18,7 +18,7 @@ func (h *Handler) registerInstanceOps() {
 	h.ops[opPatchInstance] = func(c *echo.Context, rt route) error { return h.updateInstance(c, rt, false) }
 	h.ops[opUpdateInstance] = func(c *echo.Context, rt route) error { return h.updateInstance(c, rt, true) }
 	h.ops[opDeleteInstance] = func(c *echo.Context, rt route) error {
-		v, err := h.Backend.DeleteInstance(rt.project, rt.instance)
+		v, err := h.Backend.DeleteInstance(rt.project, rt.instance, finalBackupParams(c))
 
 		return h.reply(c, v, err)
 	}
@@ -144,15 +144,92 @@ func (h *Handler) importInstance(c *echo.Context, rt route) error {
 	return h.reply(c, op, err)
 }
 
+type restoreBackupBody struct {
+	RestoreBackupContext *RestoreBackupInput `json:"restoreBackupContext"`
+	Backup               string              `json:"backup"`
+	BackupdrBackup       string              `json:"backupdrBackup"`
+}
+
 func (h *Handler) restoreBackup(c *echo.Context, rt route) error {
-	in, _, err := decodeContext[RestoreBackupInput](c, "restoreBackupContext")
+	in, err := decode[restoreBackupBody](c)
 	if err != nil {
 		return err
 	}
 
-	op, err := h.Backend.RestoreBackup(rt.project, rt.instance, in)
+	given := 0
+
+	for _, set := range []bool{in.RestoreBackupContext != nil, in.Backup != "", in.BackupdrBackup != ""} {
+		if set {
+			given++
+		}
+	}
+
+	switch {
+	case given != 1:
+		return errInvalid("Exactly one of restoreBackupContext, backup and backupdrBackup must be set.")
+	case in.BackupdrBackup != "":
+		return errInvalid("Backup and DR vault backups are not emulated; use backup or restoreBackupContext.")
+	case in.Backup != "":
+		op, rerr := h.Backend.RestoreProjectBackup(rt.project, rt.instance, in.Backup)
+
+		return h.reply(c, op, rerr)
+	}
+
+	op, err := h.Backend.RestoreBackup(rt.project, rt.instance, *in.RestoreBackupContext)
 
 	return h.reply(c, op, err)
+}
+
+func finalBackupParams(c *echo.Context) FinalBackupRequest {
+	enabled, _ := strconv.ParseBool(c.QueryParam("enableFinalBackup"))
+	ttl, _ := strconv.ParseInt(c.QueryParam("finalBackupTtlDays"), 10, 64)
+
+	return FinalBackupRequest{
+		Enabled: enabled, Description: c.QueryParam("finalBackupDescription"),
+		ExpiryTime: c.QueryParam("finalBackupExpiryTime"), TTLDays: ttl,
+	}
+}
+
+func (h *Handler) registerProjectBackupOps() {
+	h.ops[opCreateBackup] = func(c *echo.Context, rt route) error {
+		in, err := decode[BackupInput](c)
+		if err != nil {
+			return err
+		}
+
+		op, err := h.Backend.CreateBackup(rt.project, in)
+
+		return h.reply(c, op, err)
+	}
+	h.ops[opGetBackup] = func(c *echo.Context, rt route) error {
+		v, err := h.Backend.GetBackup(rt.project, rt.name)
+
+		return h.reply(c, v, err)
+	}
+	h.ops[opListBackups] = func(c *echo.Context, rt route) error {
+		pg, err := h.Backend.ListBackups(rt.project, c.QueryParam("filter"), c.QueryParam("pageToken"),
+			queryInt(c, "pageSize"))
+		if err != nil {
+			return err
+		}
+
+		return c.JSON(http.StatusOK, listBodyKey("backups", pg.Data, len(pg.Data), pg.Next))
+	}
+	h.ops[opUpdateBackup] = func(c *echo.Context, rt route) error {
+		in, err := decode[BackupInput](c)
+		if err != nil {
+			return err
+		}
+
+		op, err := h.Backend.UpdateBackup(rt.project, rt.name, in, c.QueryParam("updateMask"))
+
+		return h.reply(c, op, err)
+	}
+	h.ops[opDeleteBackup] = func(c *echo.Context, rt route) error {
+		op, err := h.Backend.DeleteBackup(rt.project, rt.name)
+
+		return h.reply(c, op, err)
+	}
 }
 
 func (h *Handler) registerAccountOps() {
@@ -244,6 +321,9 @@ func (h *Handler) registerUserOps() {
 
 func (h *Handler) registerMiscOps() {
 	h.registerBackupOps()
+	h.registerProjectBackupOps()
+	h.ops[opDemote] = h.demote
+	h.ops[opDemoteMaster] = h.demote
 	h.registerCertOps()
 	h.ops[opListFlags] = func(c *echo.Context, _ route) error {
 		v := ListFlags(c.QueryParam("databaseVersion"))
@@ -434,4 +514,37 @@ func (h *Handler) executeSQL(c *echo.Context, rt route) error {
 	v, err := h.Backend.ExecuteSQL(c.Request().Context(), rt.project, rt.instance, in)
 
 	return h.reply(c, v, err)
+}
+
+type demoteBody struct {
+	DemoteContext *struct {
+		SourceRepresentativeInstanceName string `json:"sourceRepresentativeInstanceName"`
+	} `json:"demoteContext"`
+	DemoteMasterContext *struct {
+		MasterInstanceName   string `json:"masterInstanceName"`
+		SkipReplicationSetup bool   `json:"skipReplicationSetup"`
+	} `json:"demoteMasterContext"`
+}
+
+func (h *Handler) demote(c *echo.Context, rt route) error {
+	in, err := decode[demoteBody](c)
+	if err != nil {
+		return err
+	}
+
+	var req DemoteRequest
+
+	switch {
+	case in.DemoteContext != nil && in.DemoteMasterContext == nil:
+		req.Source = in.DemoteContext.SourceRepresentativeInstanceName
+	case in.DemoteMasterContext != nil && in.DemoteContext == nil:
+		ctx := in.DemoteMasterContext
+		req = DemoteRequest{Source: ctx.MasterInstanceName, SkipReplicationSetup: ctx.SkipReplicationSetup}
+	default:
+		return errInvalid("Exactly one of demoteContext (demote) and demoteMasterContext (demoteMaster) is required.")
+	}
+
+	op, err := h.Backend.DemoteInstance(rt.project, rt.instance, req)
+
+	return h.reply(c, op, err)
 }

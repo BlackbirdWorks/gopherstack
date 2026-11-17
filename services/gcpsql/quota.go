@@ -204,7 +204,7 @@ func (e *dockerEngine) SetReadOnly(ctx context.Context, on bool) error {
 		return err
 	}
 
-	_, err := e.psql(ctx, "SELECT pg_reload_conf()")
+	_, err := e.psql(ctx, stmtReloadConf)
 
 	return err
 }

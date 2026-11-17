@@ -12,8 +12,10 @@ const (
 	pitrWait       = 90 * time.Second
 	pitrReplayWait = 6 * time.Minute
 	pitrPoll       = 250 * time.Millisecond
-	pgArchiveCmd   = "test ! -f " + pitrMount + "/wal/%f && cp %p " + pitrMount + "/wal/%f"
+	pgArchiveCmd   = "if test -f " + pitrMount + "/wal/%f; then cmp -s %p " + pitrMount + "/wal/%f; else cp %p " +
+		pitrMount + "/wal/%f; fi"
 	pitrBaseTime   = "base-time"
+	stmtReloadConf = "SELECT pg_reload_conf()"
 )
 
 var (
@@ -78,7 +80,7 @@ func (e *dockerEngine) setArchiving(ctx context.Context, on bool) error {
 	}
 
 	if strings.TrimSpace(cur) == want {
-		return nil
+		return e.setArchiveCommand(ctx)
 	}
 
 	for _, stmt := range []string{
@@ -95,6 +97,25 @@ func (e *dockerEngine) setArchiving(ctx context.Context, on bool) error {
 	}
 
 	return e.Start(ctx)
+}
+
+// setArchiveCommand keeps archive_command current on an engine that already archives. The command succeeds for a
+// segment the archive holds byte for byte, which a promoted standby re-offers after a failover.
+func (e *dockerEngine) setArchiveCommand(ctx context.Context) error {
+	cur, err := e.psql(ctx, "SHOW archive_command")
+	if err != nil || strings.TrimSpace(cur) == pgArchiveCmd {
+		return err
+	}
+
+	for _, stmt := range []string{
+		"ALTER SYSTEM SET archive_command = '" + pgArchiveCmd + "'", stmtReloadConf,
+	} {
+		if _, err = e.psql(ctx, stmt); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (e *dockerEngine) pgBase(ctx context.Context) error {
@@ -199,7 +220,7 @@ func (e *dockerEngine) waitPromoted(ctx context.Context) error {
 		}
 	}
 
-	_, err := e.psql(ctx, "SELECT pg_reload_conf()")
+	_, err := e.psql(ctx, stmtReloadConf)
 
 	return err
 }

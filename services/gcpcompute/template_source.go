@@ -1,7 +1,12 @@
 package gcpcompute
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"regexp"
 	"slices"
+	"strconv"
+	"strings"
 
 	computeapi "google.golang.org/api/compute/v1"
 )
@@ -21,32 +26,47 @@ var instantiateModes = []string{ //nolint:gochecknoglobals // read-only lookup t
 	instFromReadOnly, instFromDoNotInclude,
 }
 
+const (
+	imageStemLen  = 24
+	deviceStemLen = 16
+)
+
+var nonNameRE = regexp.MustCompile(`[^a-z0-9-]+`)
+
+// pendingImage is a custom image a template will own; it is stored only once the template insert succeeds.
+type pendingImage struct {
+	img *computeapi.Image
+}
+
 // propsFromInstanceLocked derives template properties from the source instance, honouring the per-disk
-// sourceInstanceParams.diskConfigs.
+// sourceInstanceParams.diskConfigs. Images the DEFAULT instantiation creates are returned unstored.
 func (b *InMemoryBackend) propsFromInstanceLocked(
 	project string, in *computeapi.InstanceTemplate,
-) (*computeapi.InstanceProperties, *APIError) {
+) (*computeapi.InstanceProperties, []pendingImage, *APIError) {
 	if in.Properties != nil {
-		return nil, errInvalid(
+		return nil, nil, errInvalid(
 			"Invalid value for field 'resource.properties': it cannot be combined with sourceInstance.",
 		)
 	}
 
 	r, ok := parseRef(in.SourceInstance, "instances", project, "")
 	if !ok || r.scope != scopeZone || r.loc == "" {
-		return nil, errField("resource.sourceInstance", in.SourceInstance, "The URL is malformed.")
+		return nil, nil, errField("resource.sourceInstance", in.SourceInstance, "The URL is malformed.")
 	}
 
 	rec, err := b.getInstLocked(r.project, r.loc, r.name)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	i := clone(rec.Inst)
 
-	disks, derr := b.templateDisksLocked(r.project, r.loc, i, in.SourceInstanceParams)
+	var imgs []pendingImage
+
+	disks, derr := b.templateDisksLocked(tmplDest{project: project, name: in.Name}, r.project, r.loc, i,
+		in.SourceInstanceParams, &imgs)
 	if derr != nil {
-		return nil, derr
+		return nil, nil, derr
 	}
 
 	return &computeapi.InstanceProperties{
@@ -64,11 +84,18 @@ func (b *InMemoryBackend) propsFromInstanceLocked(
 		ServiceAccounts:        i.ServiceAccounts,
 		ShieldedInstanceConfig: i.ShieldedInstanceConfig,
 		Tags:                   i.Tags,
-	}, nil
+	}, imgs, nil
+}
+
+// tmplDest is the project and name of the template being built; images created for it live in its project.
+type tmplDest struct {
+	project string
+	name    string
 }
 
 func (b *InMemoryBackend) templateDisksLocked(
-	project, zone string, inst *computeapi.Instance, params *computeapi.SourceInstanceParams,
+	dst tmplDest, project, zone string, inst *computeapi.Instance, params *computeapi.SourceInstanceParams,
+	imgs *[]pendingImage,
 ) ([]*computeapi.AttachedDisk, *APIError) {
 	configs := map[string]*computeapi.DiskInstantiationConfig{}
 
@@ -98,7 +125,7 @@ func (b *InMemoryBackend) templateDisksLocked(
 			cfg = &computeapi.DiskInstantiationConfig{InstantiateFrom: instFromDefault, AutoDelete: ad.AutoDelete}
 		}
 
-		built, err := b.templateDiskLocked(project, zone, ad, cfg)
+		built, err := b.templateDiskLocked(dst, project, zone, ad, cfg, imgs)
 		if err != nil {
 			return nil, err
 		}
@@ -118,8 +145,13 @@ func (b *InMemoryBackend) templateDisksLocked(
 }
 
 func (b *InMemoryBackend) templateDiskLocked(
-	project, zone string, ad *computeapi.AttachedDisk, cfg *computeapi.DiskInstantiationConfig,
+	dst tmplDest, project, zone string, ad *computeapi.AttachedDisk, cfg *computeapi.DiskInstantiationConfig,
+	imgs *[]pendingImage,
 ) (*computeapi.AttachedDisk, *APIError) {
+	if ad.Type == diskScratch {
+		return templateScratchDisk(ad, cfg)
+	}
+
 	d := b.disks[diskKeyFor(project, zone, ad.Source)]
 	if d == nil {
 		return nil, errNotFound(trimURL(ad.Source))
@@ -127,11 +159,9 @@ func (b *InMemoryBackend) templateDiskLocked(
 
 	from := cfg.InstantiateFrom
 	if from == "" || from == instFromDefault {
-		from = instFromSourceImage
+		from = instFromDefault
 		if ad.Mode == modeReadOnly {
 			from = instFromReadOnly
-		} else if d.SourceImage == "" {
-			from = instFromBlank
 		}
 	}
 
@@ -159,8 +189,14 @@ func (b *InMemoryBackend) templateDiskLocked(
 		return out, nil
 	}
 
-	image, err := b.templateImageLocked(project, from, ad.DeviceName, d, cfg)
-	if err != nil {
+	var (
+		image string
+		err   *APIError
+	)
+
+	if from == instFromDefault {
+		image = b.customImageFor(dst, ad.DeviceName, d, imgs)
+	} else if image, err = b.templateImageLocked(project, from, ad.DeviceName, d, cfg); err != nil {
 		return nil, err
 	}
 
@@ -212,4 +248,56 @@ func lastProject(selfLink string) string {
 	}
 
 	return r.project
+}
+
+// templateScratchDisk carries a Local SSD into the template as a blank scratch disk.
+func templateScratchDisk(
+	ad *computeapi.AttachedDisk, cfg *computeapi.DiskInstantiationConfig,
+) (*computeapi.AttachedDisk, *APIError) {
+	switch cfg.InstantiateFrom {
+	case instFromDoNotInclude:
+		return nil, nil
+	case "", instFromDefault, instFromBlank:
+		return &computeapi.AttachedDisk{
+			Kind: kindAttachedDisk, Type: diskScratch, Mode: modeReadWrite, DeviceName: ad.DeviceName,
+			Interface: ad.Interface, AutoDelete: true,
+			InitializeParams: &computeapi.AttachedDiskInitializeParams{DiskType: localSSDTypeTag},
+		}, nil
+	}
+
+	return nil, errDiskConfig("a Local SSD (disk '%s') can be created blank or left out.", ad.DeviceName)
+}
+
+// customImageFor plans the custom image a DEFAULT-instantiated disk gets and returns its project-relative name.
+func (b *InMemoryBackend) customImageFor(
+	dst tmplDest, device string, d *computeapi.Disk, imgs *[]pendingImage,
+) string {
+	var suffix [2]byte
+
+	_, _ = rand.Read(suffix[:])
+
+	stem := strings.Trim(nonNameRE.ReplaceAllString(strings.ToLower(dst.name), "-"), "-")
+	if len(stem) > imageStemLen {
+		stem = strings.TrimRight(stem[:imageStemLen], "-")
+	}
+
+	dev := strings.Trim(nonNameRE.ReplaceAllString(strings.ToLower(device), "-"), "-")
+	if len(dev) > deviceStemLen {
+		dev = strings.TrimRight(dev[:deviceStemLen], "-")
+	}
+
+	name := strings.Trim(stem+"-"+dev, "-") + "-" + hex.EncodeToString(suffix[:]) + strconv.Itoa(len(*imgs))
+
+	img := &computeapi.Image{
+		Kind: kindImage, Id: newID(), CreationTimestamp: b.stamp(), Name: name, Status: statusReady,
+		Description: "Image of disk " + d.Name + " for instance template " + dst.name, SourceType: imageSourceRaw,
+		SelfLink: globalLink(dst.project, "images", name), Architecture: d.Architecture,
+		SourceDisk: d.SelfLink, SourceDiskId: strconv.FormatUint(d.Id, 10), DiskSizeGb: d.SizeGb,
+		Licenses: d.Licenses, GuestOsFeatures: d.GuestOsFeatures,
+		StorageLocations: []string{storageLocationFor(lastSegment(d.Zone))},
+		LabelFingerprint: emptyLabelsFP,
+	}
+	*imgs = append(*imgs, pendingImage{img: img})
+
+	return "projects/" + dst.project + "/global/images/" + name
 }

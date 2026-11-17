@@ -49,25 +49,28 @@ type routerRec struct {
 }
 
 type memberRec struct {
-	LastProbe    time.Time         `json:"lastProbe,omitzero"`
-	RunUntil     time.Time         `json:"runUntil,omitzero"`
-	DeleteAt     time.Time         `json:"deleteAt"`
-	KeptExt      map[string]string `json:"keptExternal,omitempty"`
-	KeptInt      map[string]string `json:"keptInternal,omitempty"`
-	LastError    string            `json:"lastError,omitempty"`
-	Template     string            `json:"template"`
-	Health       string            `json:"health,omitempty"`
-	Name         string            `json:"name"`
-	Zone         string            `json:"zone"`
-	Request      string            `json:"request,omitempty"`
-	Parked       string            `json:"parked,omitempty"`
-	Startup      string            `json:"startup,omitempty"`
-	HealthyRun   int               `json:"healthyRun,omitempty"`
-	UnhealthyRun int               `json:"unhealthyRun,omitempty"`
-	InstanceID   uint64            `json:"instanceId,omitempty"`
-	Recreating   bool              `json:"recreating"`
-	Deleting     bool              `json:"deleting"`
-	Verified     bool              `json:"verified,omitempty"`
+	RetryAt       time.Time         `json:"retryAt,omitzero"`
+	RunUntil      time.Time         `json:"runUntil,omitzero"`
+	DeleteAt      time.Time         `json:"deleteAt"`
+	LastProbe     time.Time         `json:"lastProbe,omitzero"`
+	KeptExt       map[string]string `json:"keptExternal,omitempty"`
+	KeptInt       map[string]string `json:"keptInternal,omitempty"`
+	Health        string            `json:"health,omitempty"`
+	Request       string            `json:"request,omitempty"`
+	Startup       string            `json:"startup,omitempty"`
+	Template      string            `json:"template"`
+	LastError     string            `json:"lastError,omitempty"`
+	Name          string            `json:"name"`
+	Zone          string            `json:"zone"`
+	LastErrorCode string            `json:"lastErrorCode,omitempty"`
+	Parked        string            `json:"parked,omitempty"`
+	Attempts      int               `json:"attempts,omitempty"`
+	HealthyRun    int               `json:"healthyRun,omitempty"`
+	UnhealthyRun  int               `json:"unhealthyRun,omitempty"`
+	InstanceID    uint64            `json:"instanceId,omitempty"`
+	Recreating    bool              `json:"recreating"`
+	Deleting      bool              `json:"deleting"`
+	Verified      bool              `json:"verified,omitempty"`
 }
 
 type migRec struct {
@@ -76,6 +79,7 @@ type migRec struct {
 	Members []*memberRec                     `json:"members"`
 	Configs []*picRec                        `json:"configs,omitempty"`
 	Resizes []*resizeRec                     `json:"resizes,omitempty"`
+	Errors  []*migError                      `json:"errors,omitempty"`
 }
 
 type groupRec struct {
@@ -137,6 +141,7 @@ type InMemoryBackend struct {
 	negEndpoints    map[string][]*computeapi.NetworkEndpoint
 	secPolicies     map[string]*computeapi.SecurityPolicy
 	resPolicies     map[string]*computeapi.ResourcePolicy
+	schedRuns       map[string]*schedRun
 	ops             map[string]*opRec
 	projects        map[string]*computeapi.Metadata
 	timing          Timing
@@ -225,6 +230,7 @@ func (b *InMemoryBackend) resetMaps() {
 	b.negEndpoints = map[string][]*computeapi.NetworkEndpoint{}
 	b.secPolicies = map[string]*computeapi.SecurityPolicy{}
 	b.resPolicies = map[string]*computeapi.ResourcePolicy{}
+	b.schedRuns = map[string]*schedRun{}
 	b.ops = map[string]*opRec{}
 	b.projects = map[string]*computeapi.Metadata{}
 }

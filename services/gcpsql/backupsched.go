@@ -95,6 +95,8 @@ func (b *InMemoryBackend) RunScheduledBackups(now time.Time) int {
 
 	started := 0
 
+	b.sweepBackupsLocked(now)
+
 	for _, rec := range b.instances {
 		if rec.gone || rec.Inst.State != stateRunnable || rec.Inst.MasterInstanceName != "" {
 			continue

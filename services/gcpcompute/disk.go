@@ -462,6 +462,13 @@ func (b *InMemoryBackend) createSnapshot(
 		return nil, derr
 	}
 
+	return b.snapshotDiskLocked(project, zone, d, in, false)
+}
+
+// snapshotDiskLocked stores a snapshot of d named in.Name; the caller holds b.mu.
+func (b *InMemoryBackend) snapshotDiskLocked(
+	project, zone string, d *computeapi.Disk, in *computeapi.Snapshot, auto bool,
+) (*computeapi.Operation, error) {
 	if err := validName("name", in.Name); err != nil {
 		return nil, err
 	}
@@ -484,7 +491,7 @@ func (b *InMemoryBackend) createSnapshot(
 		Status: statusReady, DiskSizeGb: d.SizeGb, SourceDisk: d.SelfLink, SourceDiskId: strconv.FormatUint(d.Id, 10),
 		SelfLink: globalLink(project, "snapshots", in.Name), Labels: in.Labels, LabelFingerprint: labelFP(in.Labels),
 		StorageLocations: locs, SnapshotType: tierStandard, Architecture: d.Architecture,
-		Licenses: d.Licenses, GuestOsFeatures: d.GuestOsFeatures,
+		Licenses: d.Licenses, GuestOsFeatures: d.GuestOsFeatures, AutoCreated: auto,
 	}
 	b.snapshots[key(project, in.Name)] = s
 

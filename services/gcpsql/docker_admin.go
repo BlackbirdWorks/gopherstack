@@ -249,20 +249,66 @@ func (e *dockerEngine) Restart(ctx context.Context, flags []Flag) error {
 	return e.Start(ctx)
 }
 
+// ReloadFlags implements FlagReloader.
+func (e *dockerEngine) ReloadFlags(ctx context.Context, _, next []Flag) error {
+	if err := e.applyPGFlags(ctx, next); err != nil {
+		return err
+	}
+
+	_, err := e.psql(ctx, stmtReloadConf)
+
+	return err
+}
+
 func (e *dockerEngine) applyFlags(ctx context.Context, flags []Flag) error {
 	return e.applyPGFlags(ctx, flags)
 }
 
-func (e *dockerEngine) applyPGFlags(ctx context.Context, flags []Flag) error {
-	if err := e.exec(ctx, pgAdminUser, "ALTER SYSTEM RESET ALL"); err != nil {
+// emulatorManaged reports settings the emulator itself writes to postgresql.auto.conf (log archiving, disk-full
+// and demotion read-only mode); they must survive a change of the user's database flags.
+func emulatorManaged(name string) bool {
+	switch name {
+	case "archive_mode", "archive_command", "default_transaction_read_only":
+		return true
+	}
+
+	return false
+}
+
+func (e *dockerEngine) resetUserFlags(ctx context.Context, conn *sql.DB) error {
+	out, err := e.psql(ctx, "SELECT DISTINCT name FROM pg_file_settings WHERE sourcefile LIKE '%postgresql.auto.conf'")
+	if err != nil {
 		return err
 	}
 
+	for name := range strings.FieldsSeq(out) {
+		if emulatorManaged(name) || !flagNameRe.MatchString(name) {
+			continue
+		}
+
+		quoted, qerr := e.quoteDotted(ctx, conn, name)
+		if qerr != nil {
+			return qerr
+		}
+
+		if err = e.exec(ctx, pgAdminUser, "ALTER SYSTEM RESET "+quoted); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (e *dockerEngine) applyPGFlags(ctx context.Context, flags []Flag) error {
 	conn, err := e.open(pgAdminUser)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
+
+	if err = e.resetUserFlags(ctx, conn); err != nil {
+		return err
+	}
 
 	for _, f := range flags {
 		if !flagNameRe.MatchString(f.Name) {

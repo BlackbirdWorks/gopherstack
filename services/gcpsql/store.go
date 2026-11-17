@@ -42,6 +42,7 @@ type instRec struct {
 	front         *frontDoor
 	quotaStop     context.CancelFunc
 	recovery      *Recovery
+	Demoted       *demotion             `json:"demoted,omitempty"`
 	Databases     map[string]*Database  `json:"databases"`
 	Backups       map[string]*backupRec `json:"backups"`
 	Certs         map[string]*certRec   `json:"certs"`
@@ -67,22 +68,25 @@ type instRec struct {
 
 // InMemoryBackend holds all Cloud SQL state under one lock.
 type InMemoryBackend struct {
-	now        func() time.Time
-	mu         *lockmetrics.RWMutex
-	runCtx     context.Context //nolint:containedctx // workload lifetime, cancelled on Close/Reset
-	cancel     context.CancelFunc
-	launcher   Launcher
-	objects    ObjectStore
-	secrets    SecretReader
-	wg         *sync.WaitGroup
-	instances  map[string]*instRec
-	ops        map[string]*Operation
-	quotaWG    sync.WaitGroup
-	quotaEvery time.Duration
-	schedEvery time.Duration
-	startup    time.Duration
-	seq        int64
-	swept      bool
+	now            func() time.Time
+	mu             *lockmetrics.RWMutex
+	runCtx         context.Context //nolint:containedctx // workload lifetime, cancelled on Close/Reset
+	cancel         context.CancelFunc
+	launcher       Launcher
+	objects        ObjectStore
+	secrets        SecretReader
+	wg             *sync.WaitGroup
+	instances      map[string]*instRec
+	projBackups    map[string]*projBackup
+	ops            map[string]*Operation
+	quotaWG        sync.WaitGroup
+	quotaEvery     time.Duration
+	schedEvery     time.Duration
+	startup        time.Duration
+	maxBackupBytes int64
+	seq            int64
+	maxBackups     int
+	swept          bool
 }
 
 // NewInMemoryBackend creates an empty backend without a database launcher (state-only instances).
@@ -99,6 +103,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 func (b *InMemoryBackend) resetMaps() {
 	b.instances = map[string]*instRec{}
+	b.projBackups = map[string]*projBackup{}
 	b.ops = map[string]*Operation{}
 	b.seq = 0
 }

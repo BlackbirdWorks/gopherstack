@@ -25,7 +25,7 @@ func TestTemplateFromSourceInstance(t *testing.T) {
 		{
 			name:    "defaults",
 			tmpl:    &computepb.InstanceTemplate{Name: s("t"), SourceInstance: s(src)},
-			wantImg: "/images/debian-",
+			wantImg: "/images/t-persistent-disk-",
 			wantLen: 2,
 		},
 		{
@@ -65,7 +65,7 @@ func TestTemplateFromSourceInstance(t *testing.T) {
 		{
 			name:    "exclude data disk",
 			wantLen: 1,
-			wantImg: "/images/debian-",
+			wantImg: "/images/t-persistent-disk-",
 			tmpl: &computepb.InstanceTemplate{
 				Name:           s("t"),
 				SourceInstance: s(src),

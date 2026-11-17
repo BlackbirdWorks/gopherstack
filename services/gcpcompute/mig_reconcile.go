@@ -94,9 +94,37 @@ func (b *InMemoryBackend) createInstanceForLocked(project string, rec *migRec, z
 		return err
 	}
 
-	_, err := b.insertInstanceLocked(project, zone, in)
+	cands := flexCandidates(rec.Mgr.InstanceFlexibilityPolicy)
+	if len(cands) == 0 {
+		_, err := b.insertInstanceLocked(project, zone, in)
 
-	return err
+		return err
+	}
+
+	var last *APIError
+
+	for _, c := range cands {
+		attempt := clone(in)
+		attempt.MachineType = zoneLink(project, zone, "machineTypes", c.machine)
+
+		if c.selection.MinCpuPlatform != "" {
+			attempt.MinCpuPlatform = c.selection.MinCpuPlatform
+		}
+
+		if len(c.selection.Disks) > 0 {
+			attempt.Disks = clone(&computeapi.Instance{Disks: c.selection.Disks}).Disks
+		}
+
+		if _, err := b.insertInstanceLocked(project, zone, attempt); err != nil {
+			last = err
+
+			continue
+		}
+
+		return nil
+	}
+
+	return last
 }
 
 func (b *InMemoryBackend) removeMemberInstanceLocked(project string, rec *migRec, m *memberRec, permanent bool) {
@@ -209,7 +237,7 @@ func (b *InMemoryBackend) growLocked(project string, rec *migRec, n int) *APIErr
 		zone := b.pickZoneLocked(rec, zc)
 		name := b.newMemberNameLocked(project, rec, zone)
 
-		if err := b.createInstanceForLocked(project, rec, zone, name, tmpl); err != nil {
+		if err := b.tryCreateLocked(project, rec, actCreating, zone, name, tmpl); err != nil {
 			for _, m := range added {
 				b.removeMemberInstanceLocked(project, rec, m, true)
 				rec.Members = dropMember(rec.Members, m)
@@ -226,6 +254,26 @@ func (b *InMemoryBackend) growLocked(project string, rec *migRec, n int) *APIErr
 	}
 
 	return nil
+}
+
+// growLenientLocked adds n members. A member whose instance cannot be created stays in the group with its error
+// logged, and is retried with a growing delay, as a managed instance group does.
+func (b *InMemoryBackend) growLenientLocked(project string, rec *migRec, n int) {
+	live := activeMembers(rec)
+	tc, zc := templateCounts(live), zoneCounts(rec)
+
+	for range n {
+		tmpl := b.pickVersion(rec, tc)
+		zone := b.pickZoneLocked(rec, zc)
+		name := b.newMemberNameLocked(project, rec, zone)
+
+		m := &memberRec{Name: name, Zone: zone, Template: tmpl}
+		b.noteAttemptLocked(m, b.tryCreateLocked(project, rec, actCreating, zone, name, tmpl))
+
+		rec.Members = append(rec.Members, m)
+		tc[tmpl]++
+		zc[zone]++
+	}
 }
 
 func dropMember(ms []*memberRec, drop *memberRec) []*memberRec {
@@ -302,9 +350,11 @@ func (b *InMemoryBackend) healVanishedLocked(project string, rec *migRec) {
 			continue
 		}
 
-		if err := b.createInstanceForLocked(project, rec, m.Zone, m.Name, m.Template); err != nil {
-			rec.Members = dropMember(rec.Members, m)
+		if b.now().UTC().Before(m.RetryAt) {
+			continue
 		}
+
+		b.noteAttemptLocked(m, b.tryCreateLocked(project, rec, actCreating, m.Zone, m.Name, m.Template))
 	}
 }
 
@@ -319,7 +369,7 @@ func (b *InMemoryBackend) reconcileLocked(rec *migRec) *APIError {
 	case live > want:
 		b.shrinkLocked(project, rec, live-want)
 	case live < want:
-		return b.growLocked(project, rec, want-live)
+		b.growLenientLocked(project, rec, want-live)
 	}
 
 	return nil
@@ -355,13 +405,8 @@ func (b *InMemoryBackend) recreateMemberLocked(project string, rec *migRec, m *m
 	tmpl := b.pickVersion(rec, templateCounts(others))
 	b.removeMemberInstanceLocked(project, rec, m, false)
 
-	if err := b.createInstanceForLocked(project, rec, m.Zone, m.Name, tmpl); err != nil {
-		rec.Members = dropMember(rec.Members, m)
-
-		return err
-	}
-
 	m.Template, m.Recreating, m.Startup, m.Parked = tmpl, true, "", ""
+	b.noteAttemptLocked(m, b.tryCreateLocked(project, rec, actRecreating, m.Zone, m.Name, tmpl))
 
 	return nil
 }
@@ -515,7 +560,7 @@ func (b *InMemoryBackend) managedInstancesLocked(rec *migRec) []*computeapi.Mana
 			mi.LastAttempt = &computeapi.ManagedInstanceLastAttempt{
 				Errors: &computeapi.ManagedInstanceLastAttemptErrors{
 					Errors: []*computeapi.ManagedInstanceLastAttemptErrorsErrors{
-						{Code: "CONDITION_NOT_MET", Message: m.LastError},
+						{Code: cmpOr(m.LastErrorCode, codeCondition), Message: m.LastError},
 					},
 				},
 			}

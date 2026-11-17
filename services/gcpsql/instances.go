@@ -62,6 +62,10 @@ func validateInstance(in *InstanceInput) error {
 		return err
 	}
 
+	if err := validateFlags(in.DatabaseVersion, in.Settings); err != nil {
+		return err
+	}
+
 	return validatePasswordPolicy(in.Settings)
 }
 
@@ -269,6 +273,10 @@ func nextSettings(rec *instRec, in InstanceInput, replace bool) (map[string]any,
 		return nil, err
 	}
 
+	if err := validateFlags(rec.Inst.DatabaseVersion, next); err != nil {
+		return nil, err
+	}
+
 	if err := validatePasswordPolicy(next); err != nil {
 		return nil, err
 	}
@@ -286,7 +294,7 @@ func bumpVersion(v string) string {
 func (b *InMemoryBackend) settingsTask(rec *instRec, old, next map[string]any) func(context.Context) error {
 	oldPolicy, newPolicy := settingString(old, "activationPolicy"), settingString(next, "activationPolicy")
 	flagsChanged := flagsSig(flagsOf(old)) != flagsSig(flagsOf(next))
-	newFlags := flagsOf(next)
+	oldFlags, newFlags := flagsOf(old), flagsOf(next)
 	version := rec.Inst.DatabaseVersion
 	pitrChanged := pitrOn(version, old) != pitrOn(version, next)
 	tierChanged := settingString(old, "tier") != settingString(next, "tier")
@@ -307,15 +315,15 @@ func (b *InMemoryBackend) settingsTask(rec *instRec, old, next map[string]any) f
 			}
 		}
 
-		return b.applyEngineChanges(ctx, rec, flagsChanged, pitrChanged, newFlags, tierChanged)
+		return b.applyEngineChanges(ctx, rec, flagsChanged, pitrChanged, [2][]Flag{oldFlags, newFlags}, tierChanged)
 	}
 }
 
 func (b *InMemoryBackend) applyEngineChanges(
-	ctx context.Context, rec *instRec, flagsChanged, pitrChanged bool, flags []Flag, tierChanged bool,
+	ctx context.Context, rec *instRec, flagsChanged, pitrChanged bool, flags [2][]Flag, tierChanged bool,
 ) error {
 	if flagsChanged {
-		if err := b.restartEngine(ctx, rec, flags); err != nil {
+		if err := b.applyFlags(ctx, rec, flags[0], flags[1]); err != nil {
 			return err
 		}
 	}
@@ -380,7 +388,7 @@ func (b *InMemoryBackend) RestartInstance(project, name string) (*Operation, err
 }
 
 // DeleteInstance removes an instance and its engine.
-func (b *InMemoryBackend) DeleteInstance(project, name string) (*Operation, error) {
+func (b *InMemoryBackend) DeleteInstance(project, name string, fb FinalBackupRequest) (*Operation, error) {
 	b.mu.Lock("DeleteInstance")
 	defer b.mu.Unlock()
 
@@ -403,11 +411,35 @@ func (b *InMemoryBackend) DeleteInstance(project, name string) (*Operation, erro
 		)
 	}
 
+	final, err := resolveFinalBackup(rec.Inst.Settings, fb, b.now())
+	if err != nil {
+		return nil, err
+	}
+
+	if final.Enabled && rec.Inst.MasterInstanceName != "" {
+		return nil, errInvalid("A final backup cannot be taken of a read replica.")
+	}
+
+	if n, _ := b.projectBackupsLocked(project); final.Enabled && n >= b.backupLimitLocked() {
+		return nil, newErr(http.StatusTooManyRequests, "quotaExceeded",
+			"The project already holds %d backups; delete one first.", b.backupLimitLocked())
+	}
+
+	prev := rec.Inst.State
+
 	b.unlinkReplicaLocked(rec)
 	rec.Inst.State = stateDeleting
 	b.touchLocked(rec)
 
 	return b.submitLocked(rec, project, "DELETE", opMeta{}, func(ctx context.Context) error {
+		if final.Enabled {
+			if ferr := b.takeFinalBackup(ctx, rec, final); ferr != nil {
+				b.setState(rec, prev)
+
+				return ferr
+			}
+		}
+
 		b.mu.Lock("DeleteInstance.task")
 		eng, sb, front, quota := rec.eng, rec.standby, rec.front, rec.quotaStop
 		rec.eng, rec.standby, rec.front, rec.quotaStop, rec.gone = nil, nil, nil, nil, true
@@ -493,7 +525,7 @@ func (b *InMemoryBackend) launchSpec(ctx context.Context, rec *instRec) (LaunchS
 		ServerID: rec.ServerID, Persist: true, Recovery: rec.recovery, Fresh: rec.fresh, Slot: rec.Slot,
 	}
 	tier := settingString(rec.Inst.Settings, "tier")
-	replica := b.isReplica(rec)
+	replica := b.isReplica(rec) && rec.Demoted == nil
 	b.mu.RUnlock()
 
 	spec.NanoCPUs, spec.MemoryBytes = tierLimits(tier)
@@ -576,7 +608,11 @@ func (b *InMemoryBackend) bringUp(ctx context.Context, rec *instRec) error {
 	}
 
 	if eng != nil {
-		if err = b.finishEngine(ctx, rec, eng, spec, src); err != nil {
+		if err = b.finishEngine(ctx, rec, eng, spec, src); err == nil {
+			err = b.holdDemoted(ctx, rec, eng)
+		}
+
+		if err != nil {
 			purgeAfterFailure(ctx, eng, spec)
 			b.setState(rec, stateFailed)
 

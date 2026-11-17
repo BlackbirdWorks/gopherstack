@@ -221,6 +221,19 @@ func listBody(kind string, items any, count int, next string) map[string]any {
 	return out
 }
 
+func listBodyKey(key string, items any, count int, next string) map[string]any {
+	out := map[string]any{}
+	if count > 0 {
+		out[key] = items
+	}
+
+	if next != "" {
+		out["nextPageToken"] = next
+	}
+
+	return out
+}
+
 // StartWorker binds the dedicated listener synchronously so a port conflict is returned to the caller.
 func (h *Handler) StartWorker(ctx context.Context) error {
 	var listenConfig net.ListenConfig
