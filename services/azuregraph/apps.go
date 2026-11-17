@@ -168,6 +168,8 @@ func (b *Backend) UpdateApplication(r Ref, body map[string]jsontext.Value) error
 		return err
 	}
 
+	body, keys, patchKeys := splitKeyPatch(body)
+
 	next, err := applyBody(cur, body, appReadOnly()...)
 	if err != nil {
 		return err
@@ -175,6 +177,12 @@ func (b *Backend) UpdateApplication(r Ref, body map[string]jsontext.Value) error
 
 	if err = b.validateApp(next, cur.ID); err != nil {
 		return err
+	}
+
+	if patchKeys {
+		if next.KeyCredentials, err = b.patchKeyCredentials(cur.KeyCredentials, keys); err != nil {
+			return err
+		}
 	}
 
 	b.apps.put(cur.ID, next)
@@ -247,6 +255,7 @@ func (b *Backend) removeObject(id string) {
 	delete(b.members, id)
 	b.dropAdminUnitRefs(id)
 	b.dropManagerRefs(id)
+	b.dropDeviceRefs(id)
 
 	for k, v := range b.owners {
 		b.owners[k] = without(v, id)

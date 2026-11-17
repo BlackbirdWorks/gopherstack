@@ -82,6 +82,8 @@ func (b *InMemoryBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if t.scm {
+		defer b.hold(t.name, false)()
+
 		b.serveKudu(w, r, t.name)
 
 		return
@@ -131,6 +133,8 @@ func (b *InMemoryBackend) serveInvoke(w http.ResponseWriter, r *http.Request, na
 
 	ctx, cancel := context.WithTimeout(r.Context(), invokeTimeout)
 	defer cancel()
+
+	defer b.beginRequest(name)()
 
 	port, err := b.ensureStarted(ctx, name)
 	if err != nil {

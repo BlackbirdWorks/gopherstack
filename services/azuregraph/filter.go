@@ -127,7 +127,7 @@ func compileFilter(expr, resource string, fields map[string]bool) (*compiledFilt
 	toks, ok := lexFilter(expr)
 	bad := unsupported("Unsupported or invalid query filter clause specified for resource '%s'.", resource)
 
-	if !ok {
+	if !ok || !checkFilterShape(toks) {
 		return nil, bad
 	}
 

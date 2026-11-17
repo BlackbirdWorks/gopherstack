@@ -441,7 +441,7 @@ func (b *InMemoryBackend) launchWeb(st *appState, host string) (box, error) {
 	}
 
 	if rt.custom {
-		if err = b.pullPrivateImage(rt.image, st.Settings); err != nil {
+		if err = b.pullPrivateImage(rt.image, st); err != nil {
 			b.teardown(x)
 
 			return box{}, err

@@ -2,6 +2,7 @@ package azurearm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
@@ -24,6 +25,9 @@ const (
 	webSlotCombinedMax = 59
 	webTypeSlotsDiff   = "Microsoft.Web/sites/slotsdiffs"
 	webTierStandard    = "standard"
+	webTierDynamic     = "dynamic"
+	webTierFlex        = "flexconsumption"
+	webTierElastic     = "elasticpremium"
 	webLimitElastic    = 2
 	webLimitStandard   = 5
 	webLimitPremium    = 20
@@ -41,6 +45,7 @@ type pendingSwap struct {
 	Settings    map[string]string `json:"settings"`
 	ConnStrings map[string]any    `json:"connStrings,omitempty"`
 	Target      string            `json:"target"`
+	warming     bool
 }
 
 type swapStatus struct {
@@ -169,11 +174,11 @@ func slotLimit(kind string, sku map[string]any) int {
 
 	if isFunctionAppKind(kind) {
 		switch {
-		case tier == "dynamic" || strings.EqualFold(name, webPlanSKUDefault):
+		case tier == webTierDynamic || strings.EqualFold(name, webPlanSKUDefault):
 			return 1
-		case tier == "elasticpremium" || strings.HasPrefix(strings.ToLower(name), "ep"):
+		case tier == webTierElastic || strings.HasPrefix(strings.ToLower(name), "ep"):
 			return webLimitElastic
-		case tier == "flexconsumption" || strings.EqualFold(name, "FC1"):
+		case tier == webTierFlex || strings.EqualFold(name, "FC1"):
 			return 0
 		}
 	}
@@ -285,7 +290,9 @@ func (p *WebProvider) putSlot(ctx context.Context, id ResourceID, body map[strin
 		return nil, err
 	}
 
-	info, err := p.dataPlane.PutApp(rec.dpName(), siteAppConfig(rec.Kind, rec.Configs[webConfigWeb], nil))
+	cfg := siteAppConfig(rec.Kind, p.hostingOf(rec), rec.Configs[webConfigWeb], nil)
+
+	info, err := p.dataPlane.PutApp(rec.dpName(), cfg)
 	if err != nil {
 		return nil, badWebRequest(err)
 	}
@@ -587,7 +594,7 @@ func (p *WebProvider) prepareSwap(ctx context.Context, sd *slotSides) error {
 	}
 
 	if sd.source.Pending != nil {
-		if sd.source.Pending.Target == sd.targetLabel {
+		if sd.source.Pending.Target == sd.targetLabel && !sd.source.Pending.warming {
 			return nil
 		}
 
@@ -617,16 +624,64 @@ func (p *WebProvider) prepareSwap(ctx context.Context, sd *slotSides) error {
 	}
 
 	if err == nil {
-		err = p.dataPlane.WarmUp(ctx, sd.source.dpName())
+		err = p.warmSource(ctx, sd)
 	}
 
 	if err != nil {
-		_ = p.revertSource(sd.source)
+		if !errors.Is(err, ErrWebSwapFailed) && !errors.Is(err, ErrWebSiteNotFound) {
+			_ = p.revertSource(sd.source)
+			err = fmt.Errorf("%w: %w", ErrWebSwapFailed, err)
+		}
 
-		return fmt.Errorf("%w: %w", ErrWebSwapFailed, err)
+		return err
 	}
 
 	return nil
+}
+
+// warmSource starts the prepared source slot and waits for it without holding the provider lock; while it waits
+// the source is marked warming, so every other change to it (or a second swap) is refused. The caller holds p.mu
+// on entry and on return; the sides are re-resolved because the sites may have changed in between.
+func (p *WebProvider) warmSource(ctx context.Context, sd *slotSides) error {
+	pend, name := sd.source.Pending, sd.source.dpName()
+	pend.warming = true
+
+	p.mu.Unlock()
+
+	err := p.dataPlane.WarmUp(ctx, name)
+
+	p.mu.Lock("warmSource")
+
+	switch {
+	case !p.sidesLive(sd):
+		return ErrWebSiteNotFound
+	case sd.source.Pending != pend:
+		return fmt.Errorf("%w: the swap was cancelled", ErrWebSwapFailed)
+	}
+
+	pend.warming = false
+
+	if err != nil {
+		return err
+	}
+
+	fresh := newSlotSides(sd.parent, sd.source, sd.target)
+	sd.appSticky, sd.connSticky = fresh.appSticky, fresh.connSticky
+
+	return nil
+}
+
+// sidesLive reports whether the swap's sites are still the ones registered.
+func (p *WebProvider) sidesLive(sd *slotSides) bool {
+	parent, ok := p.site(sd.parent.ResourceGroup, sd.parent.Name)
+	if !ok || parent != sd.parent {
+		return false
+	}
+
+	src, srcOK := slotRecord(parent, sd.sourceLabel)
+	tgt, tgtOK := slotRecord(parent, sd.targetLabel)
+
+	return srcOK && tgtOK && src == sd.source && tgt == sd.target
 }
 
 // revertSource restores the source slot's own settings and clears its pending swap.
@@ -738,9 +793,12 @@ func (p *WebProvider) completeSwap(sd *slotSides) error {
 	}{{tgt, tgtWeb, tgtState.web}, {src, srcWeb, srcState.web}}
 
 	for i, st := range steps {
-		if _, err = p.dataPlane.PutApp(st.rec.dpName(), siteAppConfig(st.rec.Kind, st.cfg, nil)); err != nil {
+		cfg := siteAppConfig(st.rec.Kind, p.hostingOf(st.rec), st.cfg, nil)
+
+		if _, err = p.dataPlane.PutApp(st.rec.dpName(), cfg); err != nil {
 			for _, done := range steps[:i] {
-				_, _ = p.dataPlane.PutApp(done.rec.dpName(), siteAppConfig(done.rec.Kind, done.old, nil))
+				back := siteAppConfig(done.rec.Kind, p.hostingOf(done.rec), done.old, nil)
+				_, _ = p.dataPlane.PutApp(done.rec.dpName(), back)
 			}
 
 			_ = p.revertSource(src)

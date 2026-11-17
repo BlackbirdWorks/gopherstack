@@ -21,31 +21,37 @@ const devClientSPID = "5d7f0000-0000-4000-8000-000000000001"
 
 // Backend is the in-memory directory shared by the Graph listener and the ARM token endpoint.
 type Backend struct {
-	mu          *lockmetrics.RWMutex
-	now         func() time.Time
-	issuerKeys  KeyResolver
-	owners      map[string][]string
-	members     map[string][]string
-	managers    map[string]string
-	dirRoles    map[string]string
-	secrets     map[string]string
-	signIns     map[string]*signInState
-	hooks       signInHooks
-	keyMaterial map[string]string
-	fics        map[string][]FederatedCredential
-	apps        store[Application]
-	sps         store[ServicePrincipal]
-	users       store[User]
-	groups      store[Group]
-	assigns     store[AppRoleAssignment]
-	grants      store[OAuth2PermissionGrant]
-	deleted     store[deletedItem]
-	roleAssigns store[RoleAssignment]
-	adminUnits  store[AdministrativeUnit]
-	auMembers   map[string][]string
-	auRoles     map[string][]ScopedRoleMembership
-	domains     []domain
-	cfg         Settings
+	mu            *lockmetrics.RWMutex
+	now           func() time.Time
+	issuerKeys    KeyResolver
+	owners        map[string][]string
+	members       map[string][]string
+	managers      map[string]string
+	dirRoles      map[string]string
+	secrets       map[string]string
+	signIns       map[string]*signInState
+	hooks         signInHooks
+	keyMaterial   map[string]string
+	fics          map[string][]FederatedCredential
+	apps          store[Application]
+	sps           store[ServicePrincipal]
+	users         store[User]
+	groups        store[Group]
+	assigns       store[AppRoleAssignment]
+	grants        store[OAuth2PermissionGrant]
+	deleted       store[deletedItem]
+	roleAssigns   store[RoleAssignment]
+	roleDefs      store[RoleDefinition]
+	devices       store[Device]
+	devOwners     map[string][]string
+	devUsers      map[string][]string
+	deltaSessions map[string]*deltaSession
+	deltaOrder    []string
+	adminUnits    store[AdministrativeUnit]
+	auMembers     map[string][]string
+	auRoles       map[string][]ScopedRoleMembership
+	domains       []domain
+	cfg           Settings
 }
 
 // Option customises a Backend.
@@ -97,6 +103,9 @@ func (b *Backend) reset() {
 	b.keyMaterial, b.fics = map[string]string{}, map[string][]FederatedCredential{}
 	b.adminUnits, b.auMembers = newStore[AdministrativeUnit](), map[string][]string{}
 	b.auRoles = map[string][]ScopedRoleMembership{}
+	b.roleDefs = newStore[RoleDefinition]()
+	b.deltaSessions, b.deltaOrder = map[string]*deltaSession{}, nil
+	b.devices, b.devOwners, b.devUsers = newStore[Device](), map[string][]string{}, map[string][]string{}
 	b.seed()
 }
 

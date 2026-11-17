@@ -96,7 +96,9 @@ func (h *Handler) ExtractResource(c *echo.Context) string { return c.Request().U
 func (h *Handler) GetSupportedOperations() []string {
 	ops := []string{"GetMe", "GetOrganization", "ListDomains", "GetDomain", "GetByIds", "GetDirectoryObject"}
 
-	collections := []string{collApplications, collServicePrincipals, collUsers, collGroups, "oauth2PermissionGrants"}
+	collections := []string{
+		collApplications, collServicePrincipals, collUsers, collGroups, "oauth2PermissionGrants", collDevices,
+	}
 
 	for _, name := range collections {
 		for _, verb := range []string{"List", "Create", verbGet, "Update", verbDelete, "Count"} {
@@ -105,7 +107,9 @@ func (h *Handler) GetSupportedOperations() []string {
 	}
 
 	ops = append(ops, "Batch", "ListDeletedItems", "GetDeletedItem", "RestoreDeletedItem", "PermanentDeleteDeletedItem",
-		"ListRoleDefinitions", "GetRoleDefinition", "ListRoleAssignments", "CreateRoleAssignment", "GetRoleAssignment",
+		"ListRoleDefinitions", "GetRoleDefinition", "CreateRoleDefinition", "UpdateRoleDefinition",
+		"DeleteRoleDefinition", "GetDeletedRoleDefinition", "PermanentDeleteRoleDefinition", "RestoreRoleDefinition",
+		"ListUsersDelta", "ListGroupsDelta", "ListRoleAssignments", "CreateRoleAssignment", "GetRoleAssignment",
 		"DeleteRoleAssignment", "ListFederatedIdentityCredentials", "CreateFederatedIdentityCredential",
 		"GetFederatedIdentityCredential", "UpdateFederatedIdentityCredential", "DeleteFederatedIdentityCredential")
 
@@ -149,7 +153,7 @@ func operationFor(method string, segs []string) string {
 		return "GetDirectoryObject"
 	case len(segs) == 1 && key.Field == "":
 		return map[string]string{http.MethodGet: "List", http.MethodPost: "Create"}[method] + name
-	case len(segs) == 2 && segs[1] == "$count":
+	case len(segs) == 2 && segs[1] == paramCount:
 		return "Count" + name
 	case len(segs) == 2 || (len(segs) == 1 && key.Field != ""):
 		return verbs[method] + name

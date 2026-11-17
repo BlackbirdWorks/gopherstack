@@ -19,6 +19,10 @@ type backendSnapshot struct {
 	Federated      map[string][]FederatedCredential  `json:"federatedIdentityCredentials"`
 	Deleted        []deletedItem                     `json:"deletedItems"`
 	RoleAssigns    []RoleAssignment                  `json:"roleAssignments"`
+	RoleDefs       []RoleDefinition                  `json:"roleDefinitions,omitempty"`
+	Devices        []Device                          `json:"devices,omitempty"`
+	DeviceOwners   map[string][]string               `json:"deviceRegisteredOwners,omitempty"`
+	DeviceUsers    map[string][]string               `json:"deviceRegisteredUsers,omitempty"`
 	Applications   []Application                     `json:"applications"`
 	Principals     []ServicePrincipal                `json:"servicePrincipals"`
 	Users          []User                            `json:"users"`
@@ -40,6 +44,7 @@ func (b *Backend) Snapshot(ctx context.Context) []byte {
 		Version: snapshotVersion, Owners: b.owners, Members: b.members, Managers: b.managers,
 		DirectoryRoles: b.dirRoles, Secrets: b.secrets,
 		KeyMaterial: b.keyMaterial, Federated: b.fics, Deleted: b.deleted.slice(), RoleAssigns: b.roleAssigns.slice(),
+		RoleDefs: b.roleDefs.slice(), Devices: b.devices.slice(), DeviceOwners: b.devOwners, DeviceUsers: b.devUsers,
 		Applications: b.apps.slice(), Principals: b.sps.slice(), Users: b.users.slice(), Groups: b.groups.slice(),
 		AdminUnits: b.adminUnits.slice(), AUMembers: b.auMembers, AURoles: b.auRoles,
 		Assignments: b.assigns.slice(), Grants: b.grants.slice(),
@@ -73,6 +78,7 @@ func (b *Backend) Restore(ctx context.Context, data []byte) error {
 		return nil
 	}
 
+	b.deltaSessions, b.deltaOrder = map[string]*deltaSession{}, nil
 	fill(&b.apps, snap.Applications, func(a *Application) string { return a.ID })
 	fill(&b.sps, snap.Principals, func(a *ServicePrincipal) string { return a.ID })
 	fill(&b.users, snap.Users, func(a *User) string { return a.ID })
@@ -83,6 +89,9 @@ func (b *Backend) Restore(ctx context.Context, data []byte) error {
 	fill(&b.grants, snap.Grants, func(a *OAuth2PermissionGrant) string { return a.ID })
 
 	fill(&b.deleted, snap.Deleted, func(d *deletedItem) string { return d.id() })
+	fill(&b.roleDefs, snap.RoleDefs, func(a *RoleDefinition) string { return a.ID })
+	fill(&b.devices, snap.Devices, func(a *Device) string { return a.ID })
+	b.devOwners, b.devUsers = orEmpty(snap.DeviceOwners), orEmpty(snap.DeviceUsers)
 	fill(&b.roleAssigns, snap.RoleAssigns, func(a *RoleAssignment) string { return a.ID })
 
 	b.owners, b.members, b.secrets = orEmpty(snap.Owners), orEmpty(snap.Members), orEmpty(snap.Secrets)

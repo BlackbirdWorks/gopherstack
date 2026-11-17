@@ -28,6 +28,7 @@ func wireAzureFunctions(byName map[string]service.Registerable) {
 	}
 
 	h.Backend.SetNetwork(azureFunctionsNetwork(byName))
+	wireAzureFunctionsRegistry(h.Backend, byName)
 
 	if armH, ok := byName["AzureARM"].(*azurearm.Handler); ok {
 		armH.Registry.SetFunctionApps(&azureFunctionAppsAdapter{backend: h.Backend})
@@ -149,7 +150,8 @@ func (a *azureFunctionAppsAdapter) PutApp(
 ) (azurearm.FunctionAppInfo, error) {
 	appCfg := azurefunctions.AppConfig{
 		Kind: cfg.Kind, LinuxFx: cfg.LinuxFx, AppCommandLine: cfg.AppCommandLine, HealthCheckPath: cfg.HealthCheckPath,
-		Flex: cfg.Flex,
+		Flex: cfg.Flex, Hosting: azurefunctions.Hosting(cfg.Hosting), AlwaysOn: cfg.AlwaysOn,
+		AlwaysReady: cfg.AlwaysReady, ACRManagedID: cfg.ACRManagedID, ACRIdentityID: cfg.ACRIdentityID,
 	}
 
 	if err := azurefunctions.ValidateConfig(appCfg); err != nil && (!isSlotName(name) || cfg.LinuxFx != "") {

@@ -1,6 +1,7 @@
 package azuregraph
 
 const (
+	paramCount            = "$count"
 	propAppID             = "appId"
 	propCreatedDateTime   = "createdDateTime"
 	propValue             = "value"

@@ -17,7 +17,15 @@ type FunctionAppConfig struct {
 	LinuxFx         string
 	AppCommandLine  string
 	HealthCheckPath string
-	Flex            bool
+	// Hosting is the plan family: Consumption, Flex, Premium or Dedicated; empty when unknown.
+	Hosting string
+	// ACRIdentityID is the client ID of the user-assigned identity that pulls the container image (empty: the
+	// system-assigned identity); it applies when ACRManagedID is set.
+	ACRIdentityID string
+	Flex          bool
+	AlwaysOn      bool
+	AlwaysReady   bool
+	ACRManagedID  bool
 }
 
 // FunctionAppInfo is the data plane's view of a function app.

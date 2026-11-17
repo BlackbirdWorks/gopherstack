@@ -3,7 +3,6 @@ package azuregraph
 import (
 	"encoding/json/jsontext"
 	"net/http"
-	"slices"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -70,25 +69,6 @@ func builtinRoles() []builtinRole {
 	}
 }
 
-func roleDefinitionMaps() []map[string]any {
-	roles := builtinRoles()
-	out := make([]map[string]any, 0, len(roles))
-
-	for _, r := range roles {
-		out = append(out, map[string]any{
-			"id": r.id, "templateId": r.id, propDisplayName: r.name, propDescription: r.description,
-			"isBuiltIn": true, "isEnabled": true, "resourceScopes": []string{"/"}, "version": "1",
-			"rolePermissions": []map[string]any{{"allowedResourceActions": r.actions}},
-		})
-	}
-
-	return out
-}
-
-func roleDefinitionExists(id string) bool {
-	return slices.ContainsFunc(builtinRoles(), func(r builtinRole) bool { return strings.EqualFold(r.id, id) })
-}
-
 func roleAssignReadOnly() []string { return []string{"id"} }
 
 // CreateRoleAssignment assigns a built-in directory role to a user, role-assignable group or service principal.
@@ -116,14 +96,17 @@ func (b *Backend) CreateRoleAssignment(body map[string]jsontext.Value) (RoleAssi
 
 	a.PrincipalID, a.RoleDefinitionID = lc(a.PrincipalID), lc(a.RoleDefinitionID)
 	b.roleAssigns.put(lc(a.ID), a)
-	b.activateRole(a.RoleDefinitionID)
+
+	if _, builtin := findTemplate(a.RoleDefinitionID); builtin {
+		b.activateRole(a.RoleDefinitionID)
+	}
 
 	return *a, nil
 }
 
 func (b *Backend) validateRoleAssignment(a *RoleAssignment) error {
-	if !roleDefinitionExists(a.RoleDefinitionID) {
-		return badRequest("The roleDefinitionId '%s' does not reference a valid role definition.", a.RoleDefinitionID)
+	if err := b.assignableRole(a.RoleDefinitionID); err != nil {
+		return err
 	}
 
 	p, ok := b.lookup(a.PrincipalID)
@@ -207,34 +190,13 @@ func (h *Handler) handleRoleManagement(c *echo.Context, segs []string) error {
 	switch strings.ToLower(segs[2]) {
 	case "roledefinitions":
 		return h.roleDefinitions(c, ctx, segs[3:])
+	case "deleteditems":
+		return h.deletedRoleDefinitions(c, segs[3:])
 	case "roleassignments":
 		return h.roleAssignments(c, ctx, segs[3:])
 	}
 
 	return h.writeErr(c, segmentErr(segs[2]))
-}
-
-func (h *Handler) roleDefinitions(c *echo.Context, ctx string, tail []string) error {
-	if c.Request().Method != http.MethodGet {
-		return h.methodNotAllowed(c)
-	}
-
-	defs := roleDefinitionMaps()
-
-	switch len(tail) {
-	case 0:
-		return h.list(c, ctx, "UnifiedRoleDefinition", nil, defs)
-	case 1:
-		for _, d := range defs {
-			if id, _ := d["id"].(string); strings.EqualFold(id, tail[0]) {
-				return h.entity(c, http.StatusOK, ctx, d)
-			}
-		}
-
-		return h.writeErr(c, notFound(tail[0]))
-	}
-
-	return h.writeErr(c, segmentErr(strings.Join(tail, "/")))
 }
 
 func (h *Handler) roleAssignments(c *echo.Context, ctx string, tail []string) error {

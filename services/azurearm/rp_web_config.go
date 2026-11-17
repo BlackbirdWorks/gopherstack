@@ -60,6 +60,7 @@ func webConfigDefaults(s *storedWebSite) map[string]any {
 		"use32BitWorkerProcess":                  false,
 		"webSocketsEnabled":                      false,
 		"alwaysOn":                               false,
+		webFieldACRManagedID:                     false,
 		"appCommandLine":                         "",
 		"managedPipelineMode":                    "Integrated",
 		"loadBalancing":                          "LeastRequests",
@@ -313,7 +314,9 @@ func (p *WebProvider) putWebConfig(s *storedWebSite, props map[string]any) error
 	}
 
 	flex := mapOf(s.Extra[webFieldFlexConfig])
-	oldCfg, newCfg := siteAppConfig(s.Kind, s.Configs[webConfigWeb], flex), siteAppConfig(s.Kind, cur, flex)
+	hosting := p.hostingOf(s)
+	oldCfg := siteAppConfig(s.Kind, hosting, s.Configs[webConfigWeb], flex)
+	newCfg := siteAppConfig(s.Kind, hosting, cur, flex)
 
 	if oldCfg != newCfg {
 		if _, err := p.dataPlane.PutApp(s.dpName(), newCfg); err != nil {

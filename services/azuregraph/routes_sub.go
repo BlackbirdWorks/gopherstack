@@ -86,6 +86,18 @@ func (h *Handler) subRoutes() map[string]subRoute {
 				return h.assignments(c, id, true, tail)
 			},
 		},
+		"registeredowners": {
+			kinds: []string{kindDevice},
+			serve: func(h *Handler, c *echo.Context, id string, tail []string) error {
+				return h.refs(c, id, tail, deviceRefOps(b, relDevOwners))
+			},
+		},
+		"registeredusers": {
+			kinds: []string{kindDevice},
+			serve: func(h *Handler, c *echo.Context, id string, tail []string) error {
+				return h.refs(c, id, tail, deviceRefOps(b, relDevUsers))
+			},
+		},
 		"federatedidentitycredentials": {kinds: []string{kindApplication}, serve: (*Handler).federatedCredentials},
 		"oauth2permissiongrants":       {kinds: []string{kindServicePrincipal}, serve: leaf((*Handler).clientGrants)},
 	}

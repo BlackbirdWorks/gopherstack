@@ -6,6 +6,7 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -131,9 +132,12 @@ func (h *Handler) handleCollection(
 	claims jwt.MapClaims,
 ) error {
 	switch {
+	case key.Field == "" && len(segs) == pathWithID && isDeltaSegment(segs[1]) &&
+		(coll.kind == kindUser || coll.kind == kindGroup):
+		return h.delta(c, coll.kind, coll.name)
 	case len(segs) == 1 && key.Field == "":
 		return h.collectionRoot(c, coll, claims)
-	case key.Field == "" && len(segs) == pathWithID && segs[1] == "$count":
+	case key.Field == "" && len(segs) == pathWithID && segs[1] == paramCount:
 		return h.count(c, coll)
 	}
 
@@ -226,7 +230,8 @@ func (h *Handler) createObject(c *echo.Context, coll *collection, claims jwt.Map
 		return h.entity(c, http.StatusCreated, coll.name, m)
 	}
 
-	if oid, _ := claims["oid"].(string); coll.kind != kindUser && coll.kind != kindAdministrativeUnit && oid != "" {
+	oid, _ := claims["oid"].(string)
+	if !slices.Contains([]string{kindUser, kindAdministrativeUnit, kindDevice}, coll.kind) && oid != "" {
 		if id, _ := m["id"].(string); id != "" {
 			_ = h.Backend.AddOwner(id, oid)
 		}
