@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
 	"github.com/blackbirdworks/gopherstack/services/amp/promql"
@@ -23,6 +24,8 @@ type IngestResult struct {
 	Expired int
 	// OutOfOrder counts samples older than the workspace's newest sample by more than the out-of-order window.
 	OutOfOrder int
+	// TooOld counts samples older than maxSampleAge; AMP refuses them.
+	TooOld int
 	// Exemplars counts stored exemplars; ExemplarsDropped those that were oversized or expired.
 	Exemplars        int
 	ExemplarsDropped int
@@ -80,15 +83,16 @@ func (b *InMemoryBackend) Ingest(ctx context.Context, wsID string, series []writ
 
 	w, _ := b.workspaces.Get(wsID)
 	cutoff := b.retentionCutoffMs(w)
+	ageCutoff := b.now().Add(-maxSampleAge).UnixMilli()
 
 	for _, ws := range series {
-		b.ingestSeriesLocked(w, cutoff, ws, &res)
+		b.ingestSeriesLocked(w, cutoff, ageCutoff, ws, &res)
 	}
 
 	return res, nil
 }
 
-func (b *InMemoryBackend) ingestSeriesLocked(w *Workspace, cutoff int64, ws writeSeries, res *IngestResult) {
+func (b *InMemoryBackend) ingestSeriesLocked(w *Workspace, cutoff, ageCutoff int64, ws writeSeries, res *IngestResult) {
 	key := seriesKey(w.ID, promql.Fingerprint(ws.Labels))
 
 	rec, ok := b.series.Get(key)
@@ -106,18 +110,7 @@ func (b *InMemoryBackend) ingestSeriesLocked(w *Workspace, cutoff int64, ws writ
 	window := int64(w.Config.OutOfOrderTimeWindowInSeconds) * msPerSecondInt
 
 	for _, s := range ws.Samples {
-		switch {
-		case s.H == nil && (math.IsNaN(s.V) || math.IsInf(s.V, 0)):
-			res.Dropped++
-		case s.T < cutoff:
-			res.Expired++
-		case tooOld(rec, s.T, window, func() int64 { return b.headMaxLocked(w.ID) }):
-			res.OutOfOrder++
-		case insertSample(rec, s):
-			res.Samples++
-		default:
-			res.Duplicate++
-		}
+		b.ingestSampleLocked(w, rec, cutoff, ageCutoff, window, s, res)
 	}
 
 	for _, ex := range ws.Exemplars {
@@ -130,6 +123,28 @@ func (b *InMemoryBackend) ingestSeriesLocked(w *Workspace, cutoff int64, ws writ
 		if addExemplar(rec, ex) {
 			res.Exemplars++
 		}
+	}
+}
+
+// maxSampleAge: "Metric samples older than 1 hour are refused" (AMP_quotas.html, Additional limits on ingested data).
+const maxSampleAge = time.Hour
+
+func (b *InMemoryBackend) ingestSampleLocked(
+	w *Workspace, rec *SeriesRecord, cutoff, ageCutoff, window int64, s promql.Sample, res *IngestResult,
+) {
+	switch {
+	case s.H == nil && (math.IsNaN(s.V) || math.IsInf(s.V, 0)):
+		res.Dropped++
+	case s.T < cutoff:
+		res.Expired++
+	case s.T < ageCutoff:
+		res.TooOld++
+	case tooOld(rec, s.T, window, func() int64 { return b.headMaxLocked(w.ID) }):
+		res.OutOfOrder++
+	case insertSample(rec, s):
+		res.Samples++
+	default:
+		res.Duplicate++
 	}
 }
 

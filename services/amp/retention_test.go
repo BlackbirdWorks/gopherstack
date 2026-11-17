@@ -48,9 +48,9 @@ func TestRetentionEnforcement(t *testing.T) {
 			t.Helper()
 
 			r := f.write(t, ws, amp.NewSeries(lbl,
-				sample(f.ago(200*day), 1), sample(f.ago(100*day), 2), sample(f.ago(time.Hour), 3)))
+				sample(f.ago(200*day), 1), sample(f.ago(time.Hour), 3)))
 			require.Equal(t, http.StatusOK, r.status)
-			assert.Equal(t, 2, f.backend.SampleCount(ws))
+			assert.Equal(t, 1, f.backend.SampleCount(ws))
 		}},
 		{name: "configured retention on ingest", run: func(t *testing.T, f *fixture, ws string) {
 			t.Helper()
@@ -59,8 +59,16 @@ func TestRetentionEnforcement(t *testing.T) {
 				WorkspaceId: aws.String(ws), RetentionPeriodInDays: aws.Int32(2),
 			})
 
-			r := f.write(t, ws, amp.NewSeries(lbl, sample(f.ago(3*day), 1), sample(f.ago(day), 2)))
+			r := f.write(t, ws, amp.NewSeries(lbl, sample(f.ago(3*day), 1), sample(f.ago(time.Hour), 2)))
 			require.Equal(t, http.StatusOK, r.status)
+			assert.Equal(t, 1, f.backend.SampleCount(ws))
+		}},
+		{name: "samples older than one hour are refused", run: func(t *testing.T, f *fixture, ws string) {
+			t.Helper()
+
+			r := f.write(t, ws, amp.NewSeries(lbl,
+				sample(f.ago(100*day), 1), sample(f.ago(time.Hour+time.Second), 2), sample(f.ago(time.Hour), 3)))
+			require.Equal(t, http.StatusBadRequest, r.status)
 			assert.Equal(t, 1, f.backend.SampleCount(ws))
 		}},
 		{name: "query hides expired before the janitor runs", run: func(t *testing.T, f *fixture, ws string) {
