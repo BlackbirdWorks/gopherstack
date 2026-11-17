@@ -201,3 +201,9 @@ func (f fakeControl) CompleteFederation(
 
 	return nil
 }
+
+func (f fakeControl) VerifyWorkloadJWT(
+	ctx context.Context, _ bedrockagentcore.Scope, _, token string,
+) (string, error) {
+	return f.VerifyUserJWT(ctx, token)
+}

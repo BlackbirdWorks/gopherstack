@@ -26,8 +26,9 @@ const (
 )
 
 var (
-	errSigningMethod = errors.New("unexpected JWT signing method")
-	errNoSigningKey  = errors.New("no signing key for token")
+	errSigningMethod   = errors.New("unexpected JWT signing method")
+	errNoSigningKey    = errors.New("no signing key for token")
+	errJWKSUnavailable = errors.New("issuer key set recently failed to load")
 )
 
 // JWKSProvider resolves RSA signing keys of issuers hosted by the emulator (Cognito user pools).
@@ -208,6 +209,15 @@ func (b *InMemoryBackend) verifyJWT(ctx context.Context, r *http.Request, cfg ma
 		return bearerFailure(http.StatusUnauthorized, "invalid_request", "Missing bearer token")
 	}
 
+	_, f := b.verifyBearerToken(ctx, token, cfg)
+
+	return f
+}
+
+// verifyBearerToken verifies the token against the authorizer cfg and returns its claims.
+func (b *InMemoryBackend) verifyBearerToken(
+	ctx context.Context, token string, cfg map[string]any,
+) (jwt.MapClaims, *authFailure) {
 	discovery := strOf(cfg, "discoveryUrl")
 	issuer := strings.TrimSuffix(strings.TrimSuffix(discovery, discoverySuffixOIDC), discoverySuffixOAuth)
 
@@ -227,14 +237,16 @@ func (b *InMemoryBackend) verifyJWT(ctx context.Context, r *http.Request, cfg ma
 
 	tok, err := jwt.ParseWithClaims(strings.TrimSpace(token), claims, keyfunc, jwt.WithExpirationRequired())
 	if err != nil || !tok.Valid {
-		return bearerFailure(http.StatusUnauthorized, "invalid_token", "Invalid or expired token")
+		return nil, bearerFailure(http.StatusUnauthorized, "invalid_token", "Invalid or expired token")
 	}
 
 	if iss, _ := claims["iss"].(string); iss != issuer {
-		return bearerFailure(http.StatusUnauthorized, "invalid_token", "Token issuer does not match the authorizer")
+		return nil, bearerFailure(
+			http.StatusUnauthorized, "invalid_token", "Token issuer does not match the authorizer",
+		)
 	}
 
-	return checkClaims(claims, cfg)
+	return claims, checkClaims(claims, cfg)
 }
 
 // signingKey resolves the verification key from an emulator-hosted issuer, else from the issuer's JWKS.

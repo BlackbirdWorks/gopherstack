@@ -10,12 +10,13 @@ import (
 )
 
 const (
-	jwksTTL        = 10 * time.Minute
-	jwksRefetchGap = 30 * time.Second
-	maxJWKSKeys    = 64
-	maxJWKSIssuers = 32
-	minRSABits     = 2048
-	maxRSAExponent = 1 << 31
+	jwksTTL         = 10 * time.Minute
+	jwksRefetchGap  = 30 * time.Second
+	jwksNegativeTTL = time.Minute
+	maxJWKSKeys     = 64
+	maxJWKSIssuers  = 32
+	minRSABits      = 2048
+	maxRSAExponent  = 1 << 31
 )
 
 type jwksEntry struct {
@@ -24,19 +25,47 @@ type jwksEntry struct {
 	issuer  string
 }
 
-func (b *InMemoryBackend) cachedJWKS(discovery string) (jwksEntry, bool) {
+func (b *InMemoryBackend) cachedJWKS(discovery string) (jwksEntry, bool, bool) {
 	b.mu.RLock("cachedJWKS")
 	defer b.mu.RUnlock()
 
 	e, ok := b.jwksCache[discovery]
+	until, failed := b.jwksNegative[discovery]
 
-	return e, ok
+	return e, ok, failed && b.now().Before(until)
+}
+
+func (b *InMemoryBackend) rememberJWKSFailure(discovery string) {
+	b.mu.Lock("rememberJWKSFailure")
+	defer b.mu.Unlock()
+
+	if b.jwksNegative == nil {
+		b.jwksNegative = map[string]time.Time{}
+	}
+
+	now := b.now()
+
+	for k, until := range b.jwksNegative {
+		if !now.Before(until) {
+			delete(b.jwksNegative, k)
+		}
+	}
+
+	if _, ok := b.jwksNegative[discovery]; !ok && len(b.jwksNegative) >= maxJWKSIssuers {
+		return
+	}
+
+	b.jwksNegative[discovery] = now.Add(jwksNegativeTTL)
 }
 
 // jwksKey returns the RSA key kid of the issuer whose discovery document is at discovery. Fetched sets are cached
 // for jwksTTL; an unknown kid refetches at most once per jwksRefetchGap.
 func (b *InMemoryBackend) jwksKey(ctx context.Context, discovery, kid string) (*rsa.PublicKey, string, error) {
-	e, ok := b.cachedJWKS(discovery)
+	e, ok, failed := b.cachedJWKS(discovery)
+	if failed && (!ok || b.now().Sub(e.fetched) >= jwksTTL) {
+		return nil, "", errJWKSUnavailable
+	}
+
 	age := b.now().Sub(e.fetched)
 
 	if ok && age < jwksTTL {
@@ -51,6 +80,8 @@ func (b *InMemoryBackend) jwksKey(ctx context.Context, discovery, kid string) (*
 
 	e, err := b.fetchJWKS(ctx, discovery)
 	if err != nil {
+		b.rememberJWKSFailure(discovery)
+
 		return nil, e.issuer, err
 	}
 

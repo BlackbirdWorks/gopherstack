@@ -83,7 +83,7 @@ func (b *InMemoryBackend) validateTargetInput(sc scope, in map[string]any) error
 	}
 
 	if kind == "mcp" {
-		if err := b.validateMCPTarget(sc, objOf(tc, "mcp")); err != nil {
+		if err := b.validateMCPTarget(objOf(tc, "mcp")); err != nil {
 			return err
 		}
 	}
@@ -91,7 +91,7 @@ func (b *InMemoryBackend) validateTargetInput(sc scope, in map[string]any) error
 	return b.validateCredentialConfigs(sc, listOf(in, "credentialProviderConfigurations"))
 }
 
-func (b *InMemoryBackend) validateMCPTarget(sc scope, mcp map[string]any) error {
+func (b *InMemoryBackend) validateMCPTarget(mcp map[string]any) error {
 	kind, ok := exactlyOne(mcp, mcpTargetTypes())
 	if !ok {
 		return invalid("targetConfiguration.mcp must set exactly one of %s", strings.Join(mcpTargetTypes(), ", "))
@@ -114,7 +114,7 @@ func (b *InMemoryBackend) validateMCPTarget(sc scope, mcp map[string]any) error 
 			return invalid("Lambda function %q does not exist", arn)
 		}
 	case targetAPIGateway:
-		return b.validateAPIGatewayTarget(sc, objOf(mcp, targetAPIGateway))
+		return b.validateAPIGatewayTarget(objOf(mcp, targetAPIGateway))
 	case "mcpServer":
 		if u := strOf(objOf(mcp, "mcpServer"), "endpoint"); !strings.HasPrefix(u, "https://") {
 			return invalid("mcpServer endpoint must be an https URL")
@@ -462,7 +462,12 @@ func elemKeys(op, key string) []string {
 	return nil
 }
 
-func (b *InMemoryBackend) validateAPIGatewayTarget(sc scope, cfg map[string]any) error {
+func apiGatewayShapeValid(cfg map[string]any) bool {
+	return strOf(cfg, "restApiId") != "" && strOf(cfg, "stage") != "" &&
+		len(listOf(objOf(cfg, "apiGatewayToolConfiguration"), "toolFilters")) > 0
+}
+
+func (b *InMemoryBackend) validateAPIGatewayTarget(cfg map[string]any) error {
 	if strOf(cfg, "restApiId") == "" || strOf(cfg, "stage") == "" {
 		return invalid("apiGateway targets require restApiId and stage")
 	}
@@ -471,11 +476,29 @@ func (b *InMemoryBackend) validateAPIGatewayTarget(sc scope, cfg map[string]any)
 		return invalid("apiGateway targets require at least one tool filter")
 	}
 
-	if host, ok := b.refs.(RestAPIHost); ok {
-		if _, err := host.RestAPIExport(sc.region, strOf(cfg, "restApiId"), strOf(cfg, "stage")); err != nil &&
-			!errors.Is(err, ErrRestAPIHostUnavailable) {
-			return notFound("REST API %q stage %q not found", strOf(cfg, "restApiId"), strOf(cfg, "stage"))
-		}
+	return nil
+}
+
+// preflightAPIGateway checks the target's REST API stage exists. It runs before the backend lock is taken because
+// the export crosses into the API Gateway backend.
+func (b *InMemoryBackend) preflightAPIGateway(sc scope, k *kindSpec, in map[string]any) error {
+	if k.Name != kindGatewayTarget {
+		return nil
+	}
+
+	cfg := objOf(objOf(objOf(in, "targetConfiguration"), "mcp"), targetAPIGateway)
+	if cfg == nil || !apiGatewayShapeValid(cfg) {
+		return nil
+	}
+
+	host, ok := b.restAPIHost()
+	if !ok {
+		return nil
+	}
+
+	if _, err := host.RestAPIExport(sc.region, strOf(cfg, "restApiId"), strOf(cfg, "stage")); err != nil &&
+		!errors.Is(err, ErrRestAPIHostUnavailable) {
+		return notFound("REST API %q stage %q not found", strOf(cfg, "restApiId"), strOf(cfg, "stage"))
 	}
 
 	return nil

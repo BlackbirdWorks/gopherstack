@@ -17,6 +17,9 @@ import (
 const (
 	flowM2M          = "M2M"
 	flowUserFed      = "USER_FEDERATION"
+	flowOBO          = "ON_BEHALF_OF_TOKEN_EXCHANGE"
+	grantExchange    = "urn:ietf:params:oauth:grant-type:token-exchange"
+	subjectTypeJWT   = "urn:ietf:params:oauth:token-type:jwt"
 	maxTokenResponse = 1 << 20
 )
 
@@ -40,8 +43,10 @@ func (b *InMemoryBackend) getResourceOAuth2Token(ctx context.Context, req *restr
 	case flowM2M:
 	case flowUserFed:
 		return b.userFederation(ctx, t, in)
+	case flowOBO:
+		return b.onBehalfOf(ctx, t, p, in)
 	default:
-		return nil, 0, invalid("oauth2Flow must be %s or %s", flowM2M, flowUserFed)
+		return nil, 0, invalid("oauth2Flow must be %s, %s or %s", flowM2M, flowUserFed, flowOBO)
 	}
 
 	token, err := b.clientCredentials(ctx, p, in)
@@ -52,7 +57,29 @@ func (b *InMemoryBackend) getResourceOAuth2Token(ctx context.Context, req *restr
 	return doc{"accessToken": token}, 0, nil
 }
 
+// onBehalfOf exchanges the user JWT the workload token was issued from for a provider token (RFC 8693).
+func (b *InMemoryBackend) onBehalfOf(ctx context.Context, t *AccessToken, p ProviderInfo, in doc) (any, int, error) {
+	if t.UserJWT == "" {
+		return nil, 0, invalid("the workload access token was not issued from a user JWT")
+	}
+
+	form := url.Values{
+		"grant_type": {grantExchange}, "subject_token": {t.UserJWT}, "subject_token_type": {subjectTypeJWT},
+	}
+
+	token, err := b.postTokenForm(ctx, p, form, in)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return doc{"accessToken": token}, 0, nil
+}
+
 func (b *InMemoryBackend) clientCredentials(ctx context.Context, p ProviderInfo, in doc) (string, error) {
+	return b.postTokenForm(ctx, p, url.Values{"grant_type": {"client_credentials"}}, in)
+}
+
+func (b *InMemoryBackend) postTokenForm(ctx context.Context, p ProviderInfo, form url.Values, in doc) (string, error) {
 	secret, ok := b.ctl().SecretValue(p.SecretARN, p.SecretJSONID)
 	if !ok {
 		return "", notFound("the client secret of provider %q is unavailable", p.Name)
@@ -63,7 +90,6 @@ func (b *InMemoryBackend) clientCredentials(ctx context.Context, p ProviderInfo,
 		return "", err
 	}
 
-	form := url.Values{"grant_type": {"client_credentials"}}
 	if scopes := strList(in, "scopes"); len(scopes) > 0 {
 		form.Set("scope", strings.Join(scopes, " "))
 	}

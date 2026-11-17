@@ -197,6 +197,31 @@ func (r agentCoreRefs) ReadObject(bucket, key string) ([]byte, bool) {
 	return data, true
 }
 
+// ReadObjectUpTo reads at most limit bytes and reports an object larger than that without buffering the rest.
+func (r agentCoreRefs) ReadObjectUpTo(bucket, key string, limit int64) ([]byte, bool, bool) {
+	if r.s3 == nil {
+		return nil, false, false
+	}
+
+	out, err := r.s3.Backend.GetObject(context.Background(), &awss3.GetObjectInput{Bucket: &bucket, Key: &key})
+	if err != nil || out == nil || out.Body == nil {
+		return nil, false, false
+	}
+
+	defer out.Body.Close()
+
+	data, err := io.ReadAll(io.LimitReader(out.Body, limit+1))
+	if err != nil {
+		return nil, false, false
+	}
+
+	if int64(len(data)) > limit {
+		return nil, true, true
+	}
+
+	return data, true, false
+}
+
 // wireAgentCore lets AgentCore validate ECR images, Lambda targets, secrets and dataset objects against the emulator.
 func wireAgentCore(byName map[string]service.Registerable) {
 	h, ok := byName["BedrockAgentCoreControl"].(*agentcorebackend.Handler)

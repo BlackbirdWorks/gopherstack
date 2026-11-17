@@ -23,7 +23,7 @@ const (
 	pathMCP           = "/mcp"
 	opGatewayMCP      = "InvokeGatewayMCP"
 	opGatewayMetadata = "GetGatewayProtectedResourceMetadata"
-	maxMCPBody        = 4 << 20
+	maxMCPBody        = 6 << 20
 	toolsPageSize     = 100
 	jsonRPCVersion    = "2.0"
 

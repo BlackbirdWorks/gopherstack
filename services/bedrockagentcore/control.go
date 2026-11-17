@@ -130,4 +130,5 @@ type Control interface {
 	FederatedToken(ctx context.Context, sc Scope, req FederationRequest) (FederationResult, error)
 	CompleteFederation(ctx context.Context, sc Scope, sessionURI string, user UserIdentifier) error
 	VerifyUserJWT(ctx context.Context, token string) (string, error)
+	VerifyWorkloadJWT(ctx context.Context, sc Scope, workload, token string) (string, error)
 }

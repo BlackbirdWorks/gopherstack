@@ -212,6 +212,10 @@ func tagsOf(in args) map[string]string {
 }
 
 func (b *InMemoryBackend) create(ctx context.Context, sc scope, k *kindSpec, op string, in args) (*reply, error) {
+	if err := b.preflightAPIGateway(sc, k, in); err != nil {
+		return nil, err
+	}
+
 	ctx = b.prepareAuth(ctx, sc, k, in)
 
 	b.mu.Lock("create")
@@ -351,6 +355,10 @@ func (b *InMemoryBackend) settleCreate(k *kindSpec, r *Resource) {
 }
 
 func (b *InMemoryBackend) update(ctx context.Context, sc scope, k *kindSpec, op string, in args) (*reply, error) {
+	if err := b.preflightAPIGateway(sc, k, in); err != nil {
+		return nil, err
+	}
+
 	ctx = b.prepareAuth(ctx, sc, k, in)
 
 	b.mu.Lock("update")

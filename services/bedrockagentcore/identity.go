@@ -15,7 +15,9 @@ const (
 	jwtSegments    = 3
 )
 
-func (b *InMemoryBackend) workloadToken(userFrom func(context.Context, doc) (string, error)) restroute.OpFunc {
+type userResolver func(context.Context, Scope, string, doc) (string, error)
+
+func (b *InMemoryBackend) workloadToken(userFrom userResolver) restroute.OpFunc {
 	return func(ctx context.Context, req *restroute.Request) (any, int, error) {
 		in, err := decodeDoc(req)
 		if err != nil {
@@ -27,25 +29,25 @@ func (b *InMemoryBackend) workloadToken(userFrom func(context.Context, doc) (str
 			return nil, 0, invalid("workloadName is required")
 		}
 
-		user, err := userFrom(ctx, in)
+		sc := b.scopeOf(ctx)
+
+		user, err := userFrom(ctx, sc, name, in)
 		if err != nil {
 			return nil, 0, err
 		}
-
-		sc := b.scopeOf(ctx)
 
 		c := b.ctl()
 		if c == nil || !c.WorkloadIdentity(sc, name) {
 			return nil, 0, notFound("workload identity %q not found", name)
 		}
 
-		tok := b.issueToken(sc, name, user)
+		tok := b.issueToken(sc, name, user, strOf(in, "userToken"))
 
 		return doc{"workloadAccessToken": tok}, 0, nil
 	}
 }
 
-func (b *InMemoryBackend) issueToken(sc Scope, workload, user string) string {
+func (b *InMemoryBackend) issueToken(sc Scope, workload, user, userJWT string) string {
 	b.mu.Lock("issueToken")
 	defer b.mu.Unlock()
 
@@ -59,16 +61,16 @@ func (b *InMemoryBackend) issueToken(sc Scope, workload, user string) string {
 
 	t := &AccessToken{
 		Token: awsid.NewN("wat-", accessTokenLen), Account: sc.Account, Region: sc.Region, Workload: workload,
-		UserID: user, Expires: now.Add(accessTokenTTL),
+		UserID: user, UserJWT: userJWT, Expires: now.Add(accessTokenTTL),
 	}
 	b.tokens.Put(t)
 
 	return t.Token
 }
 
-func noUser(context.Context, doc) (string, error) { return "", nil }
+func noUser(context.Context, Scope, string, doc) (string, error) { return "", nil }
 
-func userFromID(_ context.Context, in doc) (string, error) {
+func userFromID(_ context.Context, _ Scope, _ string, in doc) (string, error) {
 	id := strOf(in, "userId")
 	if id == "" {
 		return "", invalid("userId is required")
@@ -78,7 +80,7 @@ func userFromID(_ context.Context, in doc) (string, error) {
 }
 
 // userFromJWT verifies the signature of the caller's user token against its issuer's JWKS and returns the subject.
-func (b *InMemoryBackend) userFromJWT(ctx context.Context, in doc) (string, error) {
+func (b *InMemoryBackend) userFromJWT(ctx context.Context, sc Scope, workload string, in doc) (string, error) {
 	token := strOf(in, "userToken")
 	if len(strings.Split(token, ".")) != jwtSegments {
 		return "", invalid("userToken must be a JWT")
@@ -89,7 +91,7 @@ func (b *InMemoryBackend) userFromJWT(ctx context.Context, in doc) (string, erro
 		return "", internal("the control plane is not wired")
 	}
 
-	sub, err := c.VerifyUserJWT(ctx, token)
+	sub, err := c.VerifyWorkloadJWT(ctx, sc, workload, token)
 	if err != nil {
 		return "", invalid("userToken is not a valid signed token: %v", err)
 	}

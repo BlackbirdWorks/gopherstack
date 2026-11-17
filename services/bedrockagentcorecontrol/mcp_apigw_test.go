@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -204,4 +205,63 @@ func TestCreateAPIGatewayTargetValidation(t *testing.T) {
 			assert.Equal(t, tt.want, apiCode(err))
 		})
 	}
+}
+
+type lockProbeAPIs struct {
+	*fakeRestAPIs
+	backend *bedrockagentcorecontrol.InMemoryBackend
+	held    *atomic.Bool
+}
+
+func (p lockProbeAPIs) RestAPIExport(region, apiID, stage string) (map[string]any, error) {
+	if p.backend.WriteLocked() {
+		p.held.Store(true)
+	}
+
+	return p.fakeRestAPIs.RestAPIExport(region, apiID, stage)
+}
+
+func TestAPIGatewayTargetExportRunsOutsideBackendLock(t *testing.T) {
+	t.Parallel()
+
+	m := newMCPFixture(t)
+	held := &atomic.Bool{}
+	base := fakeRefs{functions: map[string]bool{lambdaARN: true}}
+	host := lockProbeAPIs{
+		fakeRestAPIs: &fakeRestAPIs{fakeInvoker: fakeInvoker{fakeRefs: base, calls: m.calls}},
+		backend:      m.backend, held: held,
+	}
+	m.backend.SetReferences(host)
+
+	gw := createGateway(t, m.client, "Lock-Gw")
+	filters := []types.ApiGatewayToolFilter{
+		{FilterPath: aws.String("/pets"), Methods: []types.RestApiMethod{types.RestApiMethodGet}},
+	}
+
+	tid := m.createTarget(t, aws.ToString(gw.GatewayId), "api", apiGatewayTarget(filters, nil))
+
+	_, err := m.client.UpdateGatewayTarget(t.Context(), &sdk.UpdateGatewayTargetInput{
+		GatewayIdentifier: gw.GatewayId, TargetId: aws.String(tid), Name: aws.String("api"),
+		TargetConfiguration: apiGatewayTarget(filters, nil),
+		CredentialProviderConfigurations: []types.CredentialProviderConfiguration{
+			{CredentialProviderType: types.CredentialProviderTypeGatewayIamRole},
+		},
+	})
+	require.NoError(t, err)
+	assert.False(t, held.Load(), "the REST API export must not run under the backend lock")
+
+	_, err = m.client.CreateGatewayTarget(t.Context(), &sdk.CreateGatewayTargetInput{
+		GatewayIdentifier: gw.GatewayId, Name: aws.String("missing"),
+		TargetConfiguration: &types.TargetConfigurationMemberMcp{Value: &types.McpTargetConfigurationMemberApiGateway{
+			Value: types.ApiGatewayTargetConfiguration{
+				RestApiId: aws.String("nope"), Stage: aws.String("prod"),
+				ApiGatewayToolConfiguration: &types.ApiGatewayToolConfiguration{ToolFilters: filters},
+			},
+		}},
+		CredentialProviderConfigurations: []types.CredentialProviderConfiguration{
+			{CredentialProviderType: types.CredentialProviderTypeGatewayIamRole},
+		},
+	})
+	require.Error(t, err)
+	assert.Equal(t, "ResourceNotFoundException", apiCode(err))
 }

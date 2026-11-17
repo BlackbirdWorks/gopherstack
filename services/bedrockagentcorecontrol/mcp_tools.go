@@ -209,7 +209,22 @@ func (b *InMemoryBackend) schemaPayload(cfg map[string]any, inlineKey string) ([
 		return nil, fmt.Errorf("%w: S3 is not available", errSchemaUnreadable)
 	}
 
-	data, ok := refs.ReadObject(u.Host, strings.TrimPrefix(u.Path, "/"))
+	var (
+		data []byte
+		ok   bool
+	)
+
+	if br, bounded := refs.(BoundedReader); bounded {
+		var tooLarge bool
+
+		data, ok, tooLarge = br.ReadObjectUpTo(u.Host, strings.TrimPrefix(u.Path, "/"), limitS3Schema)
+		if tooLarge {
+			return nil, fmt.Errorf("%w: S3 schema exceeds %d bytes", errSchemaUnreadable, limitS3Schema)
+		}
+	} else {
+		data, ok = refs.ReadObject(u.Host, strings.TrimPrefix(u.Path, "/"))
+	}
+
 	if !ok {
 		return nil, fmt.Errorf("%w: s3://%s%s does not exist", errSchemaUnreadable, u.Host, u.Path)
 	}

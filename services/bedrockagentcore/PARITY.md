@@ -18,7 +18,7 @@ ops:
   GetEvent: {wire: ok, errors: ok, state: ok, persist: ok, note: "events past the memory eventExpiryDuration read as not found"}
   GetMemoryRecord: {wire: ok, errors: ok, state: ok, persist: ok, note: "the namespace query narrows the match"}
   GetResourceApiKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "reads the key from the Secrets Manager secret the control plane stored"}
-  GetResourceOauth2Token: {wire: ok, errors: ok, state: ok, persist: ok, note: "M2M flow performs a real client_credentials request against the provider's token endpoint; USER_FEDERATION returns authorizationUrl, sessionUri and IN_PROGRESS until the user authorizes at the provider and CompleteResourceTokenAuth binds the user, then accessToken (refreshed with the stored refresh token); ON_BEHALF_OF_TOKEN_EXCHANGE is rejected"}
+  GetResourceOauth2Token: {wire: ok, errors: ok, state: ok, persist: ok, note: "M2M flow performs a real client_credentials request against the provider's token endpoint; USER_FEDERATION returns authorizationUrl, sessionUri and IN_PROGRESS until the user authorizes at the provider and CompleteResourceTokenAuth binds the user, then accessToken (refreshed with the stored refresh token); ON_BEHALF_OF_TOKEN_EXCHANGE posts an RFC 8693 token-exchange request (subject_token is the user JWT of GetWorkloadAccessTokenForJWT, held in memory only)"}
   GetWorkloadAccessToken: {wire: ok, errors: ok, state: ok, persist: ok, note: "opaque token, 1 hour, workload identity must exist"}
   GetWorkloadAccessTokenForJWT: {wire: ok, errors: ok, state: ok, persist: ok, note: "verifies the RS signature, exp and sub against the JWKS of the token issuer (control plane, loopback-only fetch unless external targets are enabled, cached)"}
   GetWorkloadAccessTokenForUserId: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -51,7 +51,7 @@ items_still_open:
   - Code interpreter: executeCode runs a fresh python process per call, so variables do not persist between calls; javascript, typescript and the async task tools are rejected
   - "Code interpreter: network mode, certificates and filesystem configurations are stored but not applied to the sandbox; a no-network mode would cut the sandbox off from the emulator endpoint (sandbox.go:119)"
   - Browser: no automation or live-view streams, no profiles, and no browser process behind a session
-  - Identity: ON_BEHALF_OF_TOKEN_EXCHANGE flows are rejected, and vendor providers without a discovery document have no reachable authorization or token endpoint
+  - Identity: vendor providers without a discovery document have no reachable authorization or token endpoint
 structural_gaps:
   - Semantic memory search: real retrieval embeds text with a model; the emulator has none, so ranking is lexical
   - Browser automation: a headless browser container with a CDP bridge is out of scope
@@ -83,6 +83,8 @@ Success statuses follow the Response Syntax of each operation in the AgentCore A
 - Memory extraction needs a model: events are stored and CreateEvent logs that extraction "would" run for memories with strategies; no memory records are produced, ExtractionMode and ExtractionConfig are ignored.
 
 ## Emulator choices where the vendor is silent
+
+- ON_BEHALF_OF_TOKEN_EXCHANGE uses grant_type urn:ietf:params:oauth:grant-type:token-exchange with subject_token_type urn:ietf:params:oauth:token-type:jwt (RFC 8693) and the provider's client credentials as basic auth; the pinned SDK has no input member for the subject token, so it is the user JWT the workload access token was issued from. The JWT is never persisted: after a restart the flow answers ValidationException until a new token is issued. The wire details of the AWS-side exchange were not read from AWS documentation in this pass.
 
 - Persistence: sessions come back TERMINATED after a restart, and warm runtime containers and sandbox files are not persisted (container filesystems cannot be snapshotted by the emulator).
 - InvokeAgentRuntimeCommand: output arrives as one contentDelta per stream after the command exits (the container runtime returns buffered output); a platform failure or timeout reports exitCode -1.
