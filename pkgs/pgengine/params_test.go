@@ -49,3 +49,23 @@ func TestDumpRefusesUnsafeDatabaseNames(t *testing.T) {
 		})
 	}
 }
+
+func TestSetParameterRefusesProtectedSettings(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{
+		"archive_command", "restore_command", "ssl_passphrase_command", "shared_preload_libraries",
+		"local_preload_libraries", "session_preload_libraries", "dynamic_library_path", "log_directory",
+		"log_filename", "data_directory", "hba_file", "listen_addresses", "port", "unix_socket_directories",
+		"standard_conforming_strings", "include_dir",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			for _, reset := range []bool{false, true} {
+				err := (&pgengine.Server{}).SetParameter(t.Context(), name, "x", reset)
+				require.ErrorIs(t, err, pgengine.ErrInvalidParameter)
+			}
+		})
+	}
+}

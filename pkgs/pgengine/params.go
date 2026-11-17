@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
 	"unicode"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
@@ -29,6 +30,51 @@ var (
 	dumpDBRE    = regexp.MustCompile(`^[A-Za-z0-9_$.][A-Za-z0-9_$.-]{0,62}$`)
 )
 
+// protectedParam reports a setting that points the server at files, programs or libraries, or that the emulator
+// itself relies on to reach and control the engine; SetParameter refuses it.
+func protectedParam(name string) bool {
+	return slices.Contains([]string{
+		"archive_command",
+		"archive_library",
+		"archive_cleanup_command",
+		"restore_command",
+		"recovery_end_command",
+		"ssl_passphrase_command",
+		"ssl_library",
+		"ssl",
+		"ssl_cert_file",
+		"ssl_key_file",
+		"ssl_ca_file",
+		"ssl_crl_file",
+		"ssl_crl_dir",
+		"ssl_dh_params_file",
+		"shared_preload_libraries",
+		"local_preload_libraries",
+		"session_preload_libraries",
+		"dynamic_library_path",
+		"log_directory",
+		"log_filename",
+		"logging_collector",
+		"data_directory",
+		"hba_file",
+		"ident_file",
+		"config_file",
+		"external_pid_file",
+		"listen_addresses",
+		"port",
+		"unix_socket_directories",
+		"unix_socket_group",
+		"unix_socket_permissions",
+		"standard_conforming_strings",
+		"primary_conninfo",
+		"primary_slot_name",
+		"krb_server_keyfile",
+		"include",
+		"include_dir",
+		"include_if_exists",
+	}, name)
+}
+
 func validParamValue(v string) bool {
 	for _, r := range v {
 		if !unicode.IsPrint(r) || r == '\\' {
@@ -37,6 +83,13 @@ func validParamValue(v string) bool {
 	}
 
 	return true
+}
+
+// CheckParameter reports whether SetParameter would accept the name and value, without touching a server.
+func CheckParameter(name, value string, reset bool) error {
+	_, err := parameterStmt(name, value, reset)
+
+	return err
 }
 
 // SetParameter persists a server parameter with ALTER SYSTEM; reset removes it. Dynamic parameters take effect
@@ -54,6 +107,10 @@ func (s *Server) SetParameter(ctx context.Context, name, value string, reset boo
 func parameterStmt(name, value string, reset bool) (string, error) {
 	if !paramNameRE.MatchString(name) {
 		return "", fmt.Errorf("%w: name", ErrInvalidParameter)
+	}
+
+	if protectedParam(name) {
+		return "", fmt.Errorf("%w: %s is managed by the emulator", ErrInvalidParameter, name)
 	}
 
 	if reset {

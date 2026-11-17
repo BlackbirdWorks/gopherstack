@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -25,16 +26,78 @@ var (
 	// ErrInvalidPassword is returned when the root password cannot be handed to a client tool on standard input.
 	ErrInvalidPassword = errors.New("mysqlengine: the root password cannot be passed to a client tool")
 
-	varNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
+	varNameRE         = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
+	canonicalNumberRE = regexp.MustCompile(`^-?(0|[1-9][0-9]*)(\.[0-9]+)?$`)
 )
+
+// protectedVariable reports a variable that points the server at files, programs or plugins, changes who can
+// reach it, or that the emulator itself relies on; SetVariable refuses it.
+func protectedVariable(name string) bool {
+	return strings.HasPrefix(name, "ssl_") || slices.Contains([]string{
+		"secure_file_priv",
+		"plugin_dir",
+		"init_file",
+		"general_log_file",
+		"slow_query_log_file",
+		"local_infile",
+		"port",
+		"bind_address",
+		"admin_address",
+		"log_bin",
+		"log_bin_basename",
+		"log_bin_index",
+		"log_error",
+		"datadir",
+		"basedir",
+		"socket",
+		"tmpdir",
+		"skip_grant_tables",
+		"skip_networking",
+		"read_only",
+		"super_read_only",
+		"server_id",
+		"gtid_mode",
+		"enforce_gtid_consistency",
+		"sql_log_bin",
+		"lower_case_table_names",
+		"early_plugin_load",
+		"plugin_load",
+		"plugin_load_add",
+		"lc_messages_dir",
+		"innodb_data_home_dir",
+		"innodb_log_group_home_dir",
+		"innodb_undo_directory",
+		"innodb_directories",
+		"innodb_force_recovery",
+		"named_pipe",
+		"shared_memory",
+		"secure_log_path",
+		"mysqlx_port",
+		"mysqlx_bind_address",
+		"mysqlx_socket",
+	}, name)
+}
+
+// CheckVariable reports whether SetVariable would accept the name, without touching a server.
+func CheckVariable(name string) error {
+	if !varNameRE.MatchString(name) {
+		return fmt.Errorf("%w: name", ErrInvalidVariable)
+	}
+
+	if protectedVariable(name) {
+		return fmt.Errorf("%w: %s is managed by the emulator", ErrInvalidVariable, name)
+	}
+
+	return nil
+}
 
 // SetVariable persists a global system variable (SET PERSIST). static variables use SET PERSIST_ONLY and take
 // effect after the next restart; reset restores the default. name is matched against an identifier pattern and
 // the value is bound as a parameter. MySQL 5.7 has no SET PERSIST, so it only supports dynamic variables, set for
 // the life of the server.
 func (s *Server) SetVariable(ctx context.Context, name, value string, reset, static bool) error {
-	if !varNameRE.MatchString(name) {
-		return fmt.Errorf("%w: name", ErrInvalidVariable)
+	if err := CheckVariable(name); err != nil {
+		return err
 	}
 
 	verb := "SET PERSIST "
@@ -42,7 +105,7 @@ func (s *Server) SetVariable(ctx context.Context, name, value string, reset, sta
 		verb = "SET PERSIST_ONLY "
 	}
 
-	if strings.HasSuffix(s.spec.Image, ":5.7") {
+	if s.noPersist() {
 		if static {
 			return ErrUnsupported
 		}
@@ -57,8 +120,16 @@ func (s *Server) SetVariable(ctx context.Context, name, value string, reset, sta
 	return s.exec(ctx, verb+name+" = ?", variableArg(value))
 }
 
-// variableArg binds numbers as numbers: SET rejects a quoted string for a numeric variable.
+// noPersist reports a MySQL 5.7 server, which has no SET PERSIST: its changes last until the server restarts.
+func (s *Server) noPersist() bool { return strings.HasSuffix(s.spec.Image, ":5.7") }
+
+// variableArg binds canonical decimal numbers as numbers (SET rejects a quoted string for a numeric variable) and
+// everything else, including "007", "1e3" and "+5", as the string it is.
 func variableArg(v string) any {
+	if !canonicalNumberRE.MatchString(v) {
+		return v
+	}
+
 	if n, err := strconv.ParseInt(v, 10, 64); err == nil {
 		return n
 	}
@@ -70,20 +141,28 @@ func variableArg(v string) any {
 	return v
 }
 
-// SetReadOnly turns super_read_only (and read_only) on or off, persisted across restarts.
+// SetReadOnly turns super_read_only (and read_only) on or off, persisted across restarts except on MySQL 5.7.
 func (s *Server) SetReadOnly(ctx context.Context, on bool) error {
-	v := "OFF"
-	if on {
-		v = "ON"
-	}
-
-	for _, name := range []string{"read_only", "super_read_only"} {
-		if err := s.exec(ctx, "SET PERSIST "+name+" = "+v); err != nil {
+	for _, stmt := range readOnlyStmts(on, s.noPersist()) {
+		if err := s.exec(ctx, stmt); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+func readOnlyStmts(on, noPersist bool) []string {
+	v, verb := "OFF", "SET PERSIST "
+	if on {
+		v = "ON"
+	}
+
+	if noPersist {
+		verb = "SET GLOBAL "
+	}
+
+	return []string{verb + "read_only = " + v, verb + "super_read_only = " + v}
 }
 
 type headBuf struct{ buf []byte }
