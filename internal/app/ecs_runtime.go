@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -109,6 +110,25 @@ func (a *ecsEnvFiles) ObjectBytes(ctx context.Context, bucket, key string) ([]by
 	return io.ReadAll(out.Body)
 }
 
+// PutObject stores an ECS Exec session transcript in S3.
+func (a *ecsEnvFiles) PutObject(ctx context.Context, bucket, key string, body []byte) error {
+	h, ok := a.byName["S3"].(*s3backend.S3Handler)
+	if !ok {
+		return errECSS3Unavailable
+	}
+
+	bk, ok := h.Backend.(*s3backend.InMemoryBackend)
+	if !ok {
+		return errECSS3Unavailable
+	}
+
+	_, err := bk.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: aws.String(bucket), Key: aws.String(key), Body: bytes.NewReader(body),
+	})
+
+	return err
+}
+
 // ecsEventPublisher puts ECS state-change events on the default bus. EventBridge
 // is resolved at call time, never captured in Provider.Init.
 type ecsEventPublisher struct {
@@ -194,6 +214,7 @@ func wireECSRuntime(cli *CLI, byName map[string]service.Registerable) {
 	bk.SetEFSResolver(&ecsEFS{byName: byName})
 	bk.SetEBSProvisioner(&ecsEBS{byName: byName})
 	bk.SetEnvFileStore(&ecsEnvFiles{byName: byName})
+	bk.SetExecTranscriptStore(&ecsEnvFiles{byName: byName})
 	bk.SetExecSessionStarter(&ecsExecSessions{byName: byName})
 
 	if cli != nil && cli.Port != "" {
@@ -246,6 +267,7 @@ func (a *ecsExecSessions) StartExecSession(
 
 	out, err := bk.StartContainerSession(ssmbackend.WithRegion(ctx, req.Region), ssmbackend.ContainerSessionInput{
 		Target: req.Target, ContainerID: req.ContainerID, Command: req.Command, StreamBase: req.StreamBase,
+		OnEnd: req.OnEnd,
 	})
 	if err != nil {
 		return ecsbackend.ExecSessionGrant{}, err

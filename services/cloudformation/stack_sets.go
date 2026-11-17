@@ -78,61 +78,6 @@ func (b *InMemoryBackend) CreateStackSet(
 	return ss, nil
 }
 
-func (b *InMemoryBackend) UpdateStackSet(
-	name, description, templateBody string,
-	opts StackSetOptions,
-	opOpts ...StackSetOpOption,
-) (*StackSet, string, error) {
-	prefs, err := resolveOpPreferences(opOpts)
-	if err != nil {
-		return nil, "", err
-	}
-
-	b.mu.Lock("UpdateStackSet")
-	defer b.mu.Unlock()
-	ss, ok := b.stackSets.Get(name)
-	if !ok {
-		return nil, "", ErrStackSetNotFound
-	}
-	if description != "" {
-		ss.Description = description
-	}
-	if templateBody != "" {
-		ss.TemplateBody = templateBody
-	}
-	if opts.AdministrationRoleARN != "" {
-		ss.AdministrationRoleARN = opts.AdministrationRoleARN
-	}
-	if opts.ExecutionRoleName != "" {
-		ss.ExecutionRoleName = opts.ExecutionRoleName
-	}
-	if opts.PermissionModel != "" {
-		ss.PermissionModel = opts.PermissionModel
-	}
-	if opts.Capabilities != nil {
-		ss.Capabilities = opts.Capabilities
-	}
-	if opts.Parameters != nil {
-		ss.Parameters = opts.Parameters
-	}
-	if opts.Tags != nil {
-		ss.Tags = opts.Tags
-	}
-	if opts.OrganizationalUnitIDs != nil {
-		ss.OrganizationalUnitIDs = opts.OrganizationalUnitIDs
-	}
-	if opts.AutoDeployment != nil {
-		ss.AutoDeployment = opts.AutoDeployment
-	}
-	if opts.ManagedExecution != nil {
-		ss.ManagedExecution = opts.ManagedExecution
-	}
-	noop := func(context.Context, string, stackSetUnit) string { return "" }
-	opID := b.admitStackSetOp(context.Background(), name, "UPDATE", prefs, false, nil, noop)
-
-	return ss, opID, nil
-}
-
 func (b *InMemoryBackend) DeleteStackSet(name string) error {
 	b.mu.Lock("DeleteStackSet")
 	defer b.mu.Unlock()
@@ -233,7 +178,7 @@ func (b *InMemoryBackend) ListStackSets(
 }
 
 func (b *InMemoryBackend) DetectStackSetDrift(stackSetName string, opOpts ...StackSetOpOption) (string, error) {
-	prefs, err := resolveOpPreferences(opOpts)
+	settings, err := resolveOpSettings(opOpts)
 	if err != nil {
 		return "", err
 	}
@@ -260,7 +205,7 @@ func (b *InMemoryBackend) DetectStackSetDrift(stackSetName string, opOpts ...Sta
 		return ""
 	}
 
-	return b.admitStackSetOp(context.Background(), stackSetName, "DETECT_DRIFT", prefs, false, units, apply), nil
+	return b.admitStackSetOp(context.Background(), stackSetName, "DETECT_DRIFT", settings, false, units, apply)
 }
 
 // detectInstanceDrift runs the same per-resource comparison DetectStackDrift uses against the
@@ -525,7 +470,7 @@ func (b *InMemoryBackend) stampImportOUs(ss *StackSet, stackIDs, ouIDs []string)
 func (b *InMemoryBackend) ImportStacksToStackSet(
 	stackSetName string, stackIDs, ouIDs []string, opOpts ...StackSetOpOption,
 ) (string, error) {
-	prefs, err := resolveOpPreferences(opOpts)
+	settings, err := resolveOpSettings(opOpts)
 	if err != nil {
 		return "", err
 	}
@@ -564,7 +509,7 @@ func (b *InMemoryBackend) ImportStacksToStackSet(
 			Account:              u.account,
 			Region:               u.region,
 			OrganizationalUnitID: u.ouID,
-			Status:               "CURRENT",
+			Status:               statusCurrent,
 			DriftStatus:          driftStatusNotChecked,
 			LastOperationID:      opID,
 		})
@@ -572,7 +517,7 @@ func (b *InMemoryBackend) ImportStacksToStackSet(
 		return ""
 	}
 
-	return b.admitStackSetOp(context.Background(), stackSetName, "IMPORT", prefs, false, units, apply), nil
+	return b.admitStackSetOp(context.Background(), stackSetName, "IMPORT", settings, false, units, apply)
 }
 
 func (b *InMemoryBackend) ActivateOrganizationsAccess() error {

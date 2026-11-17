@@ -298,6 +298,7 @@ type Plan struct {
 	NotificationArns       []string          `json:"notificationArns,omitempty"`
 	Changes                []PlanChange      `json:"changes,omitempty"`
 	IsUpdate               bool              `json:"isUpdate"`
+	StackSet               bool              `json:"stackSet,omitempty"`
 }
 
 // PlanChange is one resource change of a plan.

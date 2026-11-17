@@ -21,6 +21,8 @@ func WithStreamBase(ctx context.Context, base string) context.Context {
 
 // ExecSessionRequest asks a Session Manager data channel to run Command in a task container.
 type ExecSessionRequest struct {
+	// OnEnd, when set, receives the session transcript once the session ends.
+	OnEnd       func(sessionID string, transcript []byte)
 	Region      string
 	Target      string
 	ContainerID string
@@ -94,9 +96,16 @@ func (b *InMemoryBackend) ExecuteCommandContext(
 
 	base, _ := ctx.Value(streamBaseKey{}).(string)
 
-	grant, err := starter.StartExecSession(ctx, ExecSessionRequest{
+	req := ExecSessionRequest{
 		Region: b.region, Target: target.name, ContainerID: target.runtimeID, Command: command, StreamBase: base,
-	})
+	}
+
+	if plan := target.plan; !plan.empty() {
+		logCtx := context.WithoutCancel(ctx)
+		req.OnEnd = func(sessionID string, transcript []byte) { plan.deliver(logCtx, sessionID, transcript) }
+	}
+
+	grant, err := starter.StartExecSession(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrTargetNotConnected, err)
 	}
@@ -108,6 +117,7 @@ func (b *InMemoryBackend) ExecuteCommandContext(
 }
 
 type execTarget struct {
+	plan      *execLogPlan
 	name      string
 	runtimeID string
 }
@@ -159,7 +169,11 @@ func (b *InMemoryBackend) prepareExec(
 
 	name := fmt.Sprintf("ecs:%s_%s_%s", clusterName, taskIDFromARN(t.TaskArn), c.RuntimeID)
 
-	return execTarget{name: name, runtimeID: c.RuntimeID}, out, b.execSessions, nil
+	td, _ := b.findTaskDefinitionLocked(t.TaskDefinitionArn)
+
+	return execTarget{
+		name: name, runtimeID: c.RuntimeID, plan: b.execLogPlanLocked(clusterObj.Configuration, td, c.Name),
+	}, out, b.execSessions, nil
 }
 
 // execContainer picks the container to exec in: the named one, or the only one when the name is omitted.

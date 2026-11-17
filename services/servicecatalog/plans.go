@@ -119,11 +119,18 @@ func (b *InMemoryBackend) CreateProvisionedProductPlan(
 		return nil, err
 	}
 
-	if lp.stackSet != nil || isExternalProduct(lp.prod.Type) {
-		return nil, fail(
-			ErrOperationNotSupported,
-			"plans are only supported for CloudFormation products without STACKSET constraints",
-		)
+	if isExternalProduct(lp.prod.Type) {
+		return nil, fail(ErrOperationNotSupported, "plans are only supported for CloudFormation products")
+	}
+
+	if existing != nil {
+		if err = checkLaunchKind(lp, existing.Type); err != nil {
+			return nil, err
+		}
+	}
+
+	if lp.stackSet != nil && b.stackSetEngine() == nil {
+		return nil, fail(ErrOperationNotSupported, "%v", errStackEngineUnavailable)
 	}
 
 	return idemReplay(
@@ -171,27 +178,38 @@ func (b *InMemoryBackend) createPlan(
 		return nil, err
 	}
 
-	cs, serr := b.engineOrNil().CreateChangeSet(ctx, StackRequest{
-		Name:             pp.StackName,
-		Template:         body,
-		Parameters:       params,
-		Tags:             b.stackTagsFor(ctx, lp, pp, userTags),
-		RoleARN:          lp.roleARN,
-		ChangeSetName:    csName,
-		NotificationARNs: slices.Concat(in.NotificationArns, lp.notify),
-		Update:           existing != nil,
-	})
+	var (
+		cs   ChangeSetInfo
+		serr error
+	)
+
+	if lp.stackSet != nil {
+		csName = ""
+		cs.Changes, serr = b.previewStackSet(ctx, existing, pp.StackName, body, params)
+	} else {
+		cs, serr = b.engineOrNil().CreateChangeSet(ctx, StackRequest{
+			Name:             pp.StackName,
+			Template:         body,
+			Parameters:       params,
+			Tags:             b.stackTagsFor(ctx, lp, pp, userTags),
+			RoleARN:          lp.roleARN,
+			ChangeSetName:    csName,
+			NotificationARNs: slices.Concat(in.NotificationArns, lp.notify),
+			Update:           existing != nil,
+		})
+	}
 
 	b.mu.Lock("createPlan")
 	defer b.mu.Unlock()
 
 	now := b.now()
 	plan := &Plan{
-		ID: planID, AccountID: account, Region: region, Name: in.PlanName, Type: planTypeCFN, ProductID: lp.prod.ID,
-		ArtifactID: lp.art.ID, PathID: lp.path.ID, ProvisionedProductID: pp.ID, ProvisionedProductName: pp.Name,
+		ID: planID, AccountID: account, Region: region, Name: in.PlanName, Type: planTypeCFN,
+		ProductID: lp.prod.ID, ArtifactID: lp.art.ID, PathID: lp.path.ID,
+		ProvisionedProductID: pp.ID, ProvisionedProductName: pp.Name,
 		ChangeSetName: csName, StackName: pp.StackName, NotificationArns: in.NotificationArns, Parameters: params,
 		Tags: userTags, CreatedTime: now, UpdatedTime: now, IsUpdate: existing != nil, Changes: cs.Changes,
-		Status: planCreateOK,
+		StackSet: lp.stackSet != nil, Status: planCreateOK,
 	}
 
 	if serr != nil || cs.Status == recFailed {
@@ -205,6 +223,17 @@ func (b *InMemoryBackend) createPlan(
 		PlanID: plan.ID, PlanName: plan.Name, ProvisionProductID: pp.ID, ProvisionedProductName: pp.Name,
 		ProvisioningArtifactID: lp.art.ID,
 	}, nil
+}
+
+// previewStackSet lists the resource changes of moving a StackSet to a template; a new launch adds every resource.
+func (b *InMemoryBackend) previewStackSet(
+	ctx context.Context, existing *ProvisionedProduct, name, template string, params map[string]string,
+) ([]PlanChange, error) {
+	if existing == nil {
+		name = ""
+	}
+
+	return b.stackSetEngine().PreviewStackSet(ctx, name, template, params)
 }
 
 func errString(err error) string {
@@ -246,7 +275,7 @@ func (b *InMemoryBackend) planTarget(
 		AccountID:     account,
 		Region:        region,
 		Name:          in.ProvisionedProductName,
-		Type:          ppTypeCFNStack,
+		Type:          launchType(lp),
 		Status:        ppPlanInProgress,
 		ProductID:     lp.prod.ID,
 		ArtifactID:    lp.art.ID,
@@ -422,24 +451,17 @@ func (b *InMemoryBackend) ExecuteProvisionedProductPlan(
 			pp.LastProvisioningRecordID = rec.ID
 		}
 
-		stack, csName := p.StackName, p.ChangeSetName
+		plan, tags := *p, maps.Clone(rec.Tags)
 		b.mu.Unlock()
 
-		eng := b.engineOrNil()
-
-		var st StackInfo
-
-		serr := eng.ExecuteChangeSet(ctx, stack, csName)
-		if serr == nil {
-			st, serr = eng.DescribeStack(ctx, stack)
-		}
+		st, serr := b.runPlan(ctx, &plan, tags)
 
 		out := b.finish(pp.ID, rec.ID, st, serr, p.IsUpdate)
 
 		b.mu.Lock("ExecuteProvisionedProductPlan")
 		p.UpdatedTime, p.Status = b.now(), planExecOK
 
-		if out.RecordDetail.Status == recFailed {
+		if r, ok := b.records.Get(rec.ID); ok && r.FinalStatus == recFailed {
 			p.Status = planExecFailed
 		}
 
@@ -447,6 +469,57 @@ func (b *InMemoryBackend) ExecuteProvisionedProductPlan(
 
 		return out, nil
 	})
+}
+
+// runPlan applies a plan: a change set execution, or an update or creation of the StackSet.
+func (b *InMemoryBackend) runPlan(ctx context.Context, p *Plan, tags map[string]string) (StackInfo, error) {
+	if p.StackSet {
+		return b.runStackSetPlan(ctx, p, tags)
+	}
+
+	eng := b.engineOrNil()
+
+	if err := eng.ExecuteChangeSet(ctx, p.StackName, p.ChangeSetName); err != nil {
+		return StackInfo{}, err
+	}
+
+	return eng.DescribeStack(ctx, p.StackName)
+}
+
+func (b *InMemoryBackend) runStackSetPlan(ctx context.Context, p *Plan, tags map[string]string) (StackInfo, error) {
+	b.mu.RLock("runStackSetPlan")
+	lp, err := b.resolveLaunchLocked(ctx, p.AccountID, p.Region, p.ProductID, "", p.ArtifactID, "", p.PathID, "")
+	b.mu.RUnlock()
+
+	if err != nil {
+		return StackInfo{}, err
+	}
+
+	if lp.stackSet == nil {
+		return StackInfo{}, invalid("the path of plan %s no longer has a STACKSET constraint", p.ID)
+	}
+
+	template, _, err := b.templateInfoOf(ctx, lp.art)
+	if err != nil {
+		return StackInfo{}, err
+	}
+
+	if p.IsUpdate {
+		return b.updateStackSet(ctx, lp, p.StackName, template, p.Parameters, tags, nil)
+	}
+
+	accounts, regions, err := lp.stackSet.targets(nil)
+	if err != nil {
+		return StackInfo{}, err
+	}
+
+	res, err := b.stackSetEngine().CreateStackSet(ctx, StackSetRequest{
+		Name: p.StackName, Template: template, Parameters: p.Parameters, Tags: tags,
+		AdminRole: lp.stackSet.AdminRole, ExecutionRole: lp.stackSet.ExecutionRole,
+		Accounts: accounts, Regions: regions,
+	})
+
+	return res.stackInfo(), err
 }
 
 func (b *InMemoryBackend) planStackTagsLocked(pp *ProvisionedProduct, p *Plan) map[string]string {
@@ -483,7 +556,7 @@ func (b *InMemoryBackend) DeleteProvisionedProductPlan(
 	}
 
 	eng := b.engineOrNil()
-	if eng != nil && p.Status != planExecOK && p.Status != planExecFailed {
+	if eng != nil && !p.StackSet && p.Status != planExecOK && p.Status != planExecFailed {
 		if derr := eng.DeleteChangeSet(ctx, p.StackName, p.ChangeSetName); derr != nil && !in.IgnoreErrors {
 			return nil, invalid("the change set could not be deleted: %v", derr)
 		}

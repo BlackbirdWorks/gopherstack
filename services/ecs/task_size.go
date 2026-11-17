@@ -83,19 +83,43 @@ func validateEphemeralStorage(es *EphemeralStorage, kind error) error {
 	return nil
 }
 
-// validateContainerMemoryWithinTask rejects a container hard memory limit larger than the task's memory.
-func validateContainerMemoryWithinTask(memory string, defs []ContainerDefinition, kind error) error {
-	taskMiB, ok := parseTaskMemory(memory)
-	if !ok {
-		return nil
+// validateContainersWithinTask rejects container hard memory limits and cpu reservations that do not fit the
+// task-level values (task_definition_parameters.html, container memory and cpu: the totals "must be lower than"
+// the task value). The message text is not published; it follows the existing single-container wording.
+func validateContainersWithinTask(cpu, memory string, defs []ContainerDefinition, kind error) error {
+	if taskMiB, ok := parseTaskMemory(memory); ok {
+		total := 0
+
+		for _, cd := range defs {
+			if cd.Memory > taskMiB {
+				return fmt.Errorf(
+					"%w: Invalid setting for container '%s'. The 'memory' setting for container is greater than for the task",
+					kind,
+					cd.Name,
+				)
+			}
+
+			total += cd.Memory
+		}
+
+		if total > taskMiB {
+			return fmt.Errorf(
+				"%w: The sum of the container 'memory' settings (%d) is greater than the task memory (%d)",
+				kind, total, taskMiB,
+			)
+		}
 	}
 
-	for _, cd := range defs {
-		if cd.Memory > taskMiB {
+	if taskUnits, ok := parseTaskCPU(cpu); ok {
+		total := 0
+		for _, cd := range defs {
+			total += cd.CPU
+		}
+
+		if total > taskUnits {
 			return fmt.Errorf(
-				"%w: Invalid setting for container '%s'. The 'memory' setting for container is greater than for the task",
-				kind,
-				cd.Name,
+				"%w: The sum of the container 'cpu' settings (%d) is greater than the task cpu (%d)",
+				kind, total, taskUnits,
 			)
 		}
 	}

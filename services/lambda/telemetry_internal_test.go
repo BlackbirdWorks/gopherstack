@@ -742,6 +742,8 @@ func TestTelemetryDeliveryLifecycle(t *testing.T) {
 				raw, _ := json.Marshal(rd.Record, jsonx.V1())
 				assert.Contains(t, string(raw), `"status":"success"`)
 				assert.Contains(t, string(raw), `"producedBytes":4`)
+				assert.Contains(t, string(raw), `"name":"runtimeOverhead"`)
+				assert.Contains(t, string(raw), `"name":"responseLatency"`)
 			}
 
 			if fn, ok := lis.find("function"); ok && tt.jsonLogs && tt.api == apiTelemetry {
@@ -791,6 +793,7 @@ func TestTelemetryTimeoutReport(t *testing.T) {
 
 	raw, _ := json.Marshal(rd.Record, jsonx.V1())
 	assert.Contains(t, string(raw), `"status":"timeout"`)
+	assert.NotContains(t, string(raw), "runtimeOverhead", "the runtime never called next")
 }
 
 func TestLineSplitter(t *testing.T) {

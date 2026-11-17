@@ -97,6 +97,7 @@ type InMemoryBackend struct {
 	efs              EFSResolver
 	ebs              EBSProvisioner
 	envFiles         EnvFileStore
+	execTranscripts  ExecTranscriptStore
 	hooksInFlight    map[string]struct{}
 	asgResolver      AutoScalingGroupResolver
 	asgController    AutoScalingGroupController

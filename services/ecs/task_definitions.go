@@ -431,5 +431,5 @@ func validateRegisteredTaskSize(input RegisterTaskDefinitionInput) error {
 		return err
 	}
 
-	return validateContainerMemoryWithinTask(input.Memory, input.ContainerDefinitions, ErrClient)
+	return validateContainersWithinTask(input.CPU, input.Memory, input.ContainerDefinitions, ErrClient)
 }

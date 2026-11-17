@@ -221,3 +221,67 @@ func TestRunTask_DockerTaskLimits(t *testing.T) {
 		})
 	}
 }
+
+func TestContainerTotalsWithinTask(t *testing.T) {
+	t.Parallel()
+
+	two := func(cpuA, cpuB, memA, memB int) []ContainerDefinition {
+		return []ContainerDefinition{
+			{Name: "a", Image: "i", Essential: true, CPU: cpuA, Memory: memA},
+			{Name: "b", Image: "i", CPU: cpuB, Memory: memB},
+		}
+	}
+
+	tests := []struct {
+		name    string
+		cpu     string
+		memory  string
+		wantErr string
+		defs    []ContainerDefinition
+	}{
+		{name: "totals fit", cpu: "512", memory: "1024", defs: two(256, 256, 512, 512)},
+		{
+			name: "cpu sum over task", cpu: "512", memory: "1024", defs: two(256, 512, 256, 256),
+			wantErr: "'cpu' settings (768)",
+		},
+		{
+			name: "memory sum over task", cpu: "512", memory: "1024", defs: two(128, 128, 600, 600),
+			wantErr: "'memory' settings (1200)",
+		},
+		{
+			name: "vcpu spelling", cpu: "0.5 vCPU", memory: "1 GB", defs: two(300, 300, 1, 1),
+			wantErr: "'cpu' settings (600)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := NewInMemoryBackend("000000000000", "us-east-1", NewNoopRunner())
+			td, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
+				Family: "f", NetworkMode: networkModeAwsvpc, RequiresCompatibilities: []string{launchTypeFargate},
+				CPU: tt.cpu, Memory: tt.memory, ContainerDefinitions: tt.defs,
+			})
+
+			if tt.wantErr != "" {
+				require.ErrorIs(t, err, ErrClient)
+				assert.Contains(t, err.Error(), tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			_, err = b.CreateCluster(CreateClusterInput{ClusterName: "c"})
+			require.NoError(t, err)
+
+			_, _, err = b.RunTask(RunTaskInput{
+				Cluster: "c", TaskDefinition: td.TaskDefinitionArn, LaunchType: launchTypeFargate,
+				Overrides: &TaskOverride{CPU: "256", Memory: "512"},
+			})
+			require.ErrorIs(t, err, ErrInvalidParameter)
+			assert.Contains(t, err.Error(), "is greater than the task")
+		})
+	}
+}

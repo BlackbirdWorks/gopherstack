@@ -13,6 +13,7 @@ const snapshotVersion = 1
 
 type backendSnapshot struct {
 	Tables    map[string]jsontext.Value `json:"tables"`
+	AlertLog  map[string][]nflogRecord  `json:"alertLog,omitempty"`
 	AccountID string                    `json:"accountID"`
 	Region    string                    `json:"region"`
 	Version   int                       `json:"version"`
@@ -30,7 +31,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		return nil
 	}
 
-	snap := backendSnapshot{Version: snapshotVersion, Tables: tables, AccountID: b.accountID, Region: b.region}
+	snap := backendSnapshot{Version: snapshotVersion, Tables: tables, AccountID: b.accountID, Region: b.region,
+		AlertLog: b.nflogSnapshotLocked()}
 
 	return persistence.MarshalSnapshot(ctx, serviceName, &snap)
 }
@@ -60,6 +62,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	b.resetRuntimeLocked()
+	b.restoreNflogLocked(snap.AlertLog)
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

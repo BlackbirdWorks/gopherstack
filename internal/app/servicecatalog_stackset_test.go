@@ -204,6 +204,111 @@ func TestServiceCatalogStackSetProductsUseCloudFormationStackSets(t *testing.T) 
 	}
 }
 
+func TestServiceCatalogUpdatesStackSetProducts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		viaPlan bool
+	}{
+		{name: "update_provisioned_product"},
+		{name: "execute_plan", viaPlan: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			fx := newSFNFixture(t)
+			cfn := cloudformation.NewFromConfig(fx.cfg)
+			ctx := t.Context()
+			cat := newSCCatalog(t, fx, scSetTemplate)
+			cat.constrain(t, "STACKSET", scSetConstraint)
+
+			_, err := cat.provision(t, "ss-product", nil)
+			require.NoError(t, err)
+
+			pp, err := cat.sc.DescribeProvisionedProduct(
+				ctx, &servicecatalog.DescribeProvisionedProductInput{Name: aws.String("ss-product")},
+			)
+			require.NoError(t, err)
+
+			ppID := pp.ProvisionedProductDetail.Id
+			params := []sctypes.UpdateProvisioningParameter{{Key: aws.String("Env"), Value: aws.String("prod")}}
+
+			if tc.viaPlan {
+				plan, perr := cat.sc.CreateProvisionedProductPlan(
+					ctx,
+					&servicecatalog.CreateProvisionedProductPlanInput{
+						PlanName: aws.String("p"), PlanType: sctypes.ProvisionedProductPlanTypeCloudformation,
+						ProductId: cat.product, ProvisionedProductName: aws.String("ss-product"),
+						ProvisioningArtifactId: cat.artifact, IdempotencyToken: aws.String("plan-" + t.Name()),
+						ProvisioningParameters: params,
+					},
+				)
+				require.NoError(t, perr)
+
+				_, err = cat.sc.ExecuteProvisionedProductPlan(ctx, &servicecatalog.ExecuteProvisionedProductPlanInput{
+					PlanId: plan.PlanId, IdempotencyToken: aws.String("exec-" + t.Name()),
+				})
+			} else {
+				_, err = cat.sc.UpdateProvisionedProduct(ctx, &servicecatalog.UpdateProvisionedProductInput{
+					UpdateToken: aws.String("upd-" + t.Name()), ProvisionedProductId: ppID,
+					ProvisioningParameters: params,
+				})
+			}
+
+			require.NoError(t, err)
+
+			pp, err = cat.sc.DescribeProvisionedProduct(ctx, &servicecatalog.DescribeProvisionedProductInput{Id: ppID})
+			require.NoError(t, err)
+			assert.Equal(t, sctypes.ProvisionedProductStatusAvailable, pp.ProvisionedProductDetail.Status)
+
+			setName := "SC-000000000000-" + aws.ToString(ppID)
+			insts, err := cfn.ListStackInstances(
+				ctx,
+				&cloudformation.ListStackInstancesInput{StackSetName: aws.String(setName)},
+			)
+			require.NoError(t, err)
+			require.Len(t, insts.Summaries, 2)
+
+			for _, i := range insts.Summaries {
+				stack, derr := cfn.DescribeStacks(ctx, &cloudformation.DescribeStacksInput{StackName: i.StackId})
+				require.NoError(t, derr)
+				require.Len(t, stack.Stacks, 1)
+
+				env := ""
+
+				for _, p := range stack.Stacks[0].Parameters {
+					if aws.ToString(p.ParameterKey) == "Env" {
+						env = aws.ToString(p.ParameterValue)
+					}
+				}
+
+				assert.Equal(t, "prod", env, "instance stack %s", aws.ToString(i.StackId))
+			}
+
+			ops, err := cfn.ListStackSetOperations(
+				ctx,
+				&cloudformation.ListStackSetOperationsInput{StackSetName: aws.String(setName)},
+			)
+			require.NoError(t, err)
+
+			updates := 0
+
+			for _, o := range ops.Summaries {
+				if o.Action == cfntypes.StackSetOperationActionUpdate {
+					updates++
+
+					assert.Equal(t, cfntypes.StackSetOperationStatusSucceeded, o.Status)
+				}
+			}
+
+			assert.Equal(t, 1, updates)
+		})
+	}
+}
+
 func TestServiceCatalogReportsCloudWatchDashboards(t *testing.T) {
 	t.Parallel()
 

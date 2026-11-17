@@ -720,11 +720,23 @@ func (b *InMemoryBackend) resolveUpdateLocked(
 		return nil, err
 	}
 
-	if lp.stackSet != nil || pp.Type == ppTypeCFNStackSet {
-		return nil, fail(ErrOperationNotSupported, "updating a STACKSET provisioned product is not supported")
+	if err = checkLaunchKind(lp, pp.Type); err != nil {
+		return nil, err
 	}
 
 	return lp, nil
+}
+
+// checkLaunchKind rejects moving a provisioned product between a stack and a StackSet.
+func checkLaunchKind(lp *launchPlan, ppType string) error {
+	switch {
+	case lp.stackSet != nil && ppType != ppTypeCFNStackSet:
+		return invalid("the path has a STACKSET constraint but the provisioned product is not a STACKSET product")
+	case lp.stackSet == nil && ppType == ppTypeCFNStackSet:
+		return invalid("the provisioned product is a STACKSET product but the path has no STACKSET constraint")
+	}
+
+	return nil
 }
 
 func (b *InMemoryBackend) updateStack(
@@ -738,6 +750,10 @@ func (b *InMemoryBackend) updateStack(
 	newTags map[string]string,
 ) (*RecordOutputDetail, error) {
 	external := isExternalProduct(lp.prod.Type)
+
+	if err := b.checkStackSetLaunch(lp, external, in.ProvisioningPreferences); err != nil {
+		return nil, err
+	}
 
 	var (
 		template string
@@ -797,6 +813,12 @@ func (b *InMemoryBackend) updateStack(
 
 	if external {
 		return b.detailOf(rec, true), nil
+	}
+
+	if lp.stackSet != nil {
+		st, serr := b.updateStackSet(ctx, lp, stack, template, params, rec.Tags, in.ProvisioningPreferences)
+
+		return b.finish(pp.ID, rec.ID, st, serr, true), nil
 	}
 
 	st, serr := b.engineOrNil().UpdateStack(ctx, StackRequest{

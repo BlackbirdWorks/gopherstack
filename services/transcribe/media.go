@@ -44,6 +44,28 @@ func (r backendS3Reader) GetObject(ctx context.Context, bucket, key string) ([]b
 	return data, nil
 }
 
+// LimitedMediaReader is a MediaReader that can stop reading an object after limit bytes.
+type LimitedMediaReader interface {
+	GetObjectLimit(ctx context.Context, bucket, key string, limit int64) ([]byte, error)
+}
+
+// GetObjectLimit reads at most limit+1 bytes so callers can detect an oversized object without buffering it.
+func (r backendS3Reader) GetObjectLimit(ctx context.Context, bucket, key string, limit int64) ([]byte, error) {
+	out, err := r.backend.GetObject(ctx, &awss3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})
+	if err != nil || out == nil || out.Body == nil {
+		return nil, ErrMediaNotFound
+	}
+
+	defer out.Body.Close()
+
+	data, err := io.ReadAll(io.LimitReader(out.Body, limit+1))
+	if err != nil {
+		return nil, ErrMediaNotFound
+	}
+
+	return data, nil
+}
+
 // SetMediaReader overrides where job media is read from.
 func (b *InMemoryBackend) SetMediaReader(r MediaReader) {
 	b.mu.Lock("SetMediaReader")

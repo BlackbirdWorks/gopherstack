@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
 	"github.com/blackbirdworks/gopherstack/services/amp/promql"
@@ -16,18 +17,25 @@ var labelNameRe = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 // IngestResult counts what a remote-write request stored.
 type IngestResult struct {
-	Samples   int
-	Duplicate int
-	Dropped   int
+	seriesLimit string
+	Samples     int
+	Duplicate   int
+	Dropped     int
 	// Expired counts samples older than the workspace retention period.
 	Expired int
 	// OutOfOrder counts samples older than the workspace's newest sample by more than the out-of-order window.
 	OutOfOrder int
+	// TooOld counts samples older than maxSampleAge; AMP refuses them.
+	TooOld int
 	// Exemplars counts stored exemplars; ExemplarsDropped those that were oversized or expired.
 	Exemplars        int
 	ExemplarsDropped int
 	// LimitExceeded counts series refused by a limitsPerLabelSet entry.
 	LimitExceeded int
+	// SeriesLimitExceeded counts new series refused by the active series quota.
+	SeriesLimitExceeded int
+
+	activeSeries int
 }
 
 func (b *InMemoryBackend) dataWorkspaceLocked(sc scope, id string) error {
@@ -54,7 +62,7 @@ func validateWriteSeries(ws writeSeries) error {
 		}
 	}
 
-	return nil
+	return validateLabelLimits(ws.Labels)
 }
 
 // Ingest stores remote-write samples. Non-finite values (including stale markers) are dropped.
@@ -76,19 +84,31 @@ func (b *InMemoryBackend) Ingest(ctx context.Context, wsID string, series []writ
 		return IngestResult{}, err
 	}
 
+	now := b.now()
+
+	if b.quotas.Enforce && !b.takeLocked(wsID, sampleCount(series), now) {
+		return IngestResult{}, b.quotas.errRateLimited(sampleCount(series))
+	}
+
 	var res IngestResult
 
 	w, _ := b.workspaces.Get(wsID)
+	res.activeSeries = -1
+	if b.quotas.Enforce {
+		res.activeSeries = b.activeSeriesLocked(wsID, now)
+	}
+
 	cutoff := b.retentionCutoffMs(w)
+	ageCutoff := b.now().Add(-maxSampleAge).UnixMilli()
 
 	for _, ws := range series {
-		b.ingestSeriesLocked(w, cutoff, ws, &res)
+		b.ingestSeriesLocked(w, cutoff, ageCutoff, ws, &res)
 	}
 
 	return res, nil
 }
 
-func (b *InMemoryBackend) ingestSeriesLocked(w *Workspace, cutoff int64, ws writeSeries, res *IngestResult) {
+func (b *InMemoryBackend) ingestSeriesLocked(w *Workspace, cutoff, ageCutoff int64, ws writeSeries, res *IngestResult) {
 	key := seriesKey(w.ID, promql.Fingerprint(ws.Labels))
 
 	rec, ok := b.series.Get(key)
@@ -99,6 +119,17 @@ func (b *InMemoryBackend) ingestSeriesLocked(w *Workspace, cutoff int64, ws writ
 			return
 		}
 
+		if res.activeSeries >= 0 {
+			if res.activeSeries >= b.quotas.ActiveSeries {
+				res.SeriesLimitExceeded++
+				res.seriesLimit = b.quotas.seriesLimitMessage()
+
+				return
+			}
+
+			res.activeSeries++
+		}
+
 		rec = &SeriesRecord{Key: key, WorkspaceID: w.ID, Labels: ws.Labels}
 		b.series.Put(rec)
 	}
@@ -106,18 +137,7 @@ func (b *InMemoryBackend) ingestSeriesLocked(w *Workspace, cutoff int64, ws writ
 	window := int64(w.Config.OutOfOrderTimeWindowInSeconds) * msPerSecondInt
 
 	for _, s := range ws.Samples {
-		switch {
-		case s.H == nil && (math.IsNaN(s.V) || math.IsInf(s.V, 0)):
-			res.Dropped++
-		case s.T < cutoff:
-			res.Expired++
-		case tooOld(rec, s.T, window, func() int64 { return b.headMaxLocked(w.ID) }):
-			res.OutOfOrder++
-		case insertSample(rec, s):
-			res.Samples++
-		default:
-			res.Duplicate++
-		}
+		b.ingestSampleLocked(w, rec, cutoff, ageCutoff, window, s, res)
 	}
 
 	for _, ex := range ws.Exemplars {
@@ -130,6 +150,28 @@ func (b *InMemoryBackend) ingestSeriesLocked(w *Workspace, cutoff int64, ws writ
 		if addExemplar(rec, ex) {
 			res.Exemplars++
 		}
+	}
+}
+
+// maxSampleAge: "Metric samples older than 1 hour are refused" (AMP_quotas.html, Additional limits on ingested data).
+const maxSampleAge = time.Hour
+
+func (b *InMemoryBackend) ingestSampleLocked(
+	w *Workspace, rec *SeriesRecord, cutoff, ageCutoff, window int64, s promql.Sample, res *IngestResult,
+) {
+	switch {
+	case s.H == nil && (math.IsNaN(s.V) || math.IsInf(s.V, 0)):
+		res.Dropped++
+	case s.T < cutoff:
+		res.Expired++
+	case s.T < ageCutoff:
+		res.TooOld++
+	case tooOld(rec, s.T, window, func() int64 { return b.headMaxLocked(w.ID) }):
+		res.OutOfOrder++
+	case insertSample(rec, s):
+		res.Samples++
+	default:
+		res.Duplicate++
 	}
 }
 

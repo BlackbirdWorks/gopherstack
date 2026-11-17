@@ -901,6 +901,7 @@ func TestStackSet_CreateUpdateDeleteWithInstances(t *testing.T) {
 	updated, _, err := b.UpdateStackSet("my-ss", "", simpleTemplate, cloudformation.StackSetOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, "ACTIVE", updated.Status)
+	b.WaitForStackSetOperations()
 
 	// Delete instances.
 	_, err = b.DeleteStackInstances(t.Context(), "my-ss", accounts, nil, regions, false, "")

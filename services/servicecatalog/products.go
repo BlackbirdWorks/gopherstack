@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const maxProductText = 8191
@@ -119,6 +120,15 @@ func artifactDetail(a *Artifact) *ProvisioningArtifactDetail {
 	}
 }
 
+func logSourceSync(ctx context.Context, sc *SourceConnection) {
+	if sc == nil {
+		return
+	}
+
+	logger.Load(ctx).InfoContext(ctx, "servicecatalog: would sync CodeStar repository (not performed)",
+		"connectionArn", sc.ConnectionArn, "repository", sc.Repository, "branch", sc.Branch)
+}
+
 func newSourceConnection(in *SourceConnectionRequest) (*SourceConnection, error) {
 	if in.Type != "" && in.Type != "CODESTAR" {
 		return nil, invalid("SourceConnection Type must be CODESTAR")
@@ -209,6 +219,8 @@ func (b *InMemoryBackend) CreateProduct(ctx context.Context, in *CreateProductIn
 	if err = validateTags(tags); err != nil {
 		return nil, err
 	}
+
+	logSourceSync(ctx, conn)
 
 	art, err := b.newArtifact(ctx, in.ProductType, in.ProvisioningArtifactParameters)
 	if err != nil {
@@ -350,6 +362,8 @@ func (b *InMemoryBackend) UpdateProduct(ctx context.Context, in *UpdateProductIn
 			return nil, err
 		}
 	}
+
+	logSourceSync(ctx, conn)
 
 	b.mu.Lock("UpdateProduct")
 	defer b.mu.Unlock()

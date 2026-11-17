@@ -309,7 +309,7 @@ func (b *InMemoryBackend) writeErrorReport(
 	}
 
 	key := path.Join(
-		strings.Trim(sq.ErrorReportObjectKeyPrefix, "/"), sq.Name,
+		strings.Trim(sq.ErrorReportObjectKeyPrefix, "/"), sq.Arn[strings.LastIndex(sq.Arn, "/")+1:],
 		invocation.UTC().Format(time.RFC3339), kind, triggered.UTC().Format(time.RFC3339),
 	)
 	key = strings.TrimPrefix(key, "/")

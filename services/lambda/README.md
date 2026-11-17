@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 11 (11 ok) |
-| Known gaps | 5 |
+| Known gaps | 3 |
 | Structural gaps (can't be emulated) | 11 |
 | Deferred items | 0 |
 | Resource leaks | ok |
@@ -16,9 +16,7 @@
 ### Known gaps
 
 - CONTAINER_RUNTIME=kubernetes (Pod executor, gopherstack-49qct.87): EFS file systems, hot reload, layer extensions, LAMBDA_DOCKER_FLAGS and host DNS/CA injection are not supported on Pods; those functions fail to start or skip the feature. Tracked in gopherstack-49qct.88.
-- Telemetry/Logs API (gopherstack-49qct.91): not emitted -- platform.restoreStart/RuntimeDone/Report (SnapStart), platform.fault (Logs API), spans on init events, and runtimeOverhead span; platform.runtimeDone fires when the response is posted, not at the runtime's next call. Function/extension lines come from container stdout/stderr (extension lines are tagged by the launcher), so extensions of image functions without /bin/sh are not started and unclassified internal/external. Error-type strings and status codes for unknown/late subscribers, internal-extension SHUTDOWN rejection (400 Extension.InvalidEventType) and the TCP URI form (tcp://host:port) are unverified: the AWS docs list only status codes.
-- Extensions API: the error-type strings in register 4xx bodies (Extension.InvalidExtensionName, Extension.TooManyExtensions, Extension.RegistrationClosed, Extension.AlreadyRegistered, Extension.InvalidEventType) are not published: the extensions-api.yaml OpenAPI sample and runtimes-extensions-api.html give the placeholder Extension.ErrorEnum and status codes 400, 403 and 500 only. SHUTDOWN waits until each extension took the event (up to 2s), not until the process exits
-- GET /_aws/lambda/runtimes rejects an unknown filter value with an error where the reference implementation ignores it and falls back to the supported list (deliberate, strict dev endpoint); LOCALSTACK_INIT_LOG_LEVEL and LOCALSTACK_USER are not applicable (no init binary); pass them through LAMBDA_DOCKER_FLAGS -e if an image needs them.
+- Telemetry/Logs API (gopherstack-49qct.91): not emitted -- platform.restoreStart/RuntimeDone/Report (SnapStart is stored as configuration only, no snapshot is taken or restored, handler_functions.go applySnapStart), platform.fault (Logs API; no documented trigger or record shape), and spans on init events (telemetry-schema-reference defines no init span names); extensions of image functions without /bin/sh are not started and unclassified internal/external
 - --lambda-isolation=firecracker is rejected at startup: no firecracker binary is installed on the build host, so no microVM runner exists. Design: export the function image with `docker export` into an ext4 rootfs, boot it under firecracker with a configured kernel image (--lambda-firecracker-kernel), and reach the Runtime API over vsock (or a TAP device) instead of the docker bridge. Needs /dev/kvm access and a firecracker binary to build and test (gopherstack-cefu7.7).
 
 ### Structural gaps

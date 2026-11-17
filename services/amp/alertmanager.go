@@ -1,6 +1,7 @@
 package amp
 
 import (
+	maps0 "maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -27,6 +28,7 @@ type aggGroup struct {
 	alerts    map[string]Alert
 	state     map[int]*notifyState
 	route     *amRoute
+	id        string
 }
 
 // alertManager is one workspace's alert dispatcher: routing, grouping, inhibition and notification timing.
@@ -35,6 +37,7 @@ type alertManager struct {
 	cfg      *amConfig
 	alerts   map[string]Alert
 	groups   map[string]*aggGroup
+	nflog    map[string]map[int]*notifyState
 	src      []byte
 	silences []compiledSilence
 }
@@ -42,7 +45,7 @@ type alertManager struct {
 func newAlertManager(cfg *amConfig, src []byte) *alertManager {
 	return &alertManager{
 		mu: lockmetrics.New(serviceName + ".alertmanager"), cfg: cfg, src: src,
-		alerts: map[string]Alert{}, groups: map[string]*aggGroup{},
+		alerts: map[string]Alert{}, groups: map[string]*aggGroup{}, nflog: map[string]map[int]*notifyState{},
 	}
 }
 
@@ -91,7 +94,10 @@ func (m *alertManager) dispatchLocked(fp string, a Alert, now time.Time) {
 		if !ok {
 			g = &aggGroup{
 				route: r, labels: gl, alerts: map[string]Alert{},
-				state: map[int]*notifyState{}, nextFlush: now.Add(r.wait),
+				state: maps0.Clone(m.nflog[key]), nextFlush: now.Add(r.wait), id: key,
+			}
+			if g.state == nil {
+				g.state = map[int]*notifyState{}
 			}
 			m.groups[key] = g
 		}
@@ -170,6 +176,7 @@ func (m *alertManager) Flush(now time.Time) []pendingNotify {
 	}
 
 	m.gcLocked(now)
+	m.sweepNflogLocked(now)
 
 	return out
 }
@@ -337,7 +344,9 @@ func (m *alertManager) decideLocked(
 			m.mu.Lock("record")
 			defer m.mu.Unlock()
 
-			g.state[idx] = &notifyState{at: now, firing: curFiring}
+			rec := &notifyState{at: now, firing: curFiring}
+			g.state[idx] = rec
+			m.recordNflogLocked(g.id, idx, rec)
 		},
 	}, true
 }

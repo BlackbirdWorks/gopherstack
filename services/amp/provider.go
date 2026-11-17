@@ -16,5 +16,13 @@ func (p *Provider) Name() string { return "AMP" }
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	accountID, region := service.AccountRegionOrDefault(ctx)
 
-	return NewHandler(NewInMemoryBackend(accountID, region)), nil
+	settings := DefaultSettings()
+	if cp, ok := ctx.Config.(ConfigProvider); ok {
+		settings = cp.GetAMPSettings()
+	}
+
+	backend := NewInMemoryBackend(accountID, region)
+	backend.SetIngestionQuotas(quotasFromSettings(settings))
+
+	return NewHandler(backend), nil
 }

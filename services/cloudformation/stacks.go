@@ -826,6 +826,17 @@ func (b *InMemoryBackend) updateStack(
 	b.mu.Lock("UpdateStack")
 	defer b.mu.Unlock()
 
+	return b.updateStackLocked(ctx, nameOrID, templateBody, params, opts, async)
+}
+
+// updateStackLocked is updateStack's body for callers already holding b.mu.
+func (b *InMemoryBackend) updateStackLocked(
+	ctx context.Context,
+	nameOrID, templateBody string,
+	params []Parameter,
+	opts StackOptions,
+	async bool,
+) (*Stack, error) {
 	stack, params, err := b.prepareUpdateLocked(nameOrID, templateBody, params, opts)
 	if err != nil {
 		return nil, err

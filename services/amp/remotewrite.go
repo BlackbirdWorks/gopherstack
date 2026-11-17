@@ -24,6 +24,8 @@ const (
 	fieldSeriesHistogram = 4
 
 	maxDecodedWrite = 32 << 20
+	maxWriteSeries  = 1 << 18
+	maxWriteSamples = 1 << 21
 )
 
 var errBadWrite = errors.New("invalid remote write payload")
@@ -55,6 +57,8 @@ func decodeWriteRequest(body []byte) ([]writeSeries, error) {
 
 	var out []writeSeries
 
+	samples := 0
+
 	for len(raw) > 0 {
 		num, typ, nn := protowire.ConsumeTag(raw)
 		if nn < 0 {
@@ -69,9 +73,9 @@ func decodeWriteRequest(body []byte) ([]writeSeries, error) {
 				return nil, fmt.Errorf("%w: bad timeseries", errBadWrite)
 			}
 
-			ws, ierr := decodeTimeSeries(msg)
-			if ierr != nil {
-				return nil, ierr
+			ws, serr := decodeBoundedSeries(msg, len(out), &samples)
+			if serr != nil {
+				return nil, serr
 			}
 
 			out = append(out, ws)
@@ -89,6 +93,24 @@ func decodeWriteRequest(body []byte) ([]writeSeries, error) {
 	}
 
 	return out, nil
+}
+
+// decodeBoundedSeries decodes one series, refusing a request past the series or sample caps.
+func decodeBoundedSeries(msg []byte, have int, samples *int) (writeSeries, error) {
+	if have >= maxWriteSeries {
+		return writeSeries{}, fmt.Errorf("%w: more than %d series", errBadWrite, maxWriteSeries)
+	}
+
+	ws, err := decodeTimeSeries(msg)
+	if err != nil {
+		return ws, err
+	}
+
+	if *samples += len(ws.Samples); *samples > maxWriteSamples {
+		return ws, fmt.Errorf("%w: more than %d samples", errBadWrite, maxWriteSamples)
+	}
+
+	return ws, nil
 }
 
 func decodeTimeSeries(msg []byte) (writeSeries, error) {
@@ -137,6 +159,9 @@ func (ws *writeSeries) add(num protowire.Number, sub []byte) error {
 		}
 
 		ws.Labels[name] = value
+		if len(ws.Labels) > maxLabelsPerSeries {
+			return fmt.Errorf("%w: series has more than %d labels", errBadWrite, maxLabelsPerSeries)
+		}
 
 		return nil
 	}

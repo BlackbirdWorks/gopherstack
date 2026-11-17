@@ -8,6 +8,7 @@ type Word struct {
 	Start      float64
 	End        float64
 	Confidence float64
+	Filtered   bool
 }
 
 // Engine turns mono 16-bit little-endian PCM into timed words.

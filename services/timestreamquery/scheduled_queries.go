@@ -11,10 +11,12 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 const (
 	scheduledQueryArnFormat     = "scheduled-query/%s"
+	scheduledQuerySuffixLen     = 12
 	scheduledQueryStateEnabled  = "ENABLED"
 	scheduledQueryStateDisabled = "DISABLED"
 )
@@ -47,6 +49,7 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 	now := b.clock()
 
 	created := false
+	createdArn := ""
 
 	defer func() {
 		if !created {
@@ -56,7 +59,7 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 		n, _ := b.deps()
 		b.publishTo(ctx, n, notificationTopicArn, map[string]string{
 			notifyKeyType: notifyCreating,
-			notifyKeyArn:  arn.Build("timestream", region, b.accountID, fmt.Sprintf(scheduledQueryArnFormat, name)),
+			notifyKeyArn:  createdArn,
 		})
 	}()
 
@@ -75,10 +78,14 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 		}
 	}
 
-	arnStr := arn.Build("timestream", region, b.accountID, fmt.Sprintf(scheduledQueryArnFormat, name))
-	if b.scheduledQueries.Has(arnStr) {
-		return nil, fmt.Errorf("%w: scheduled query %q already exists", ErrAlreadyExists, name)
+	for _, existing := range b.scheduledQueriesByRegion.Get(region) {
+		if existing.Name == name {
+			return nil, fmt.Errorf("%w: scheduled query %q already exists", ErrAlreadyExists, name)
+		}
 	}
+
+	arnStr := arn.Build("timestream", region, b.accountID,
+		fmt.Sprintf(scheduledQueryArnFormat, name+"-"+awsid.NewN("", scheduledQuerySuffixLen)))
 
 	sq := &ScheduledQuery{
 		Arn:                         arnStr,
@@ -107,6 +114,7 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 	b.scheduledQueries.Put(sq)
 
 	created = true
+	createdArn = arnStr
 
 	if clientToken != "" {
 		b.scheduledQueryTokens.set(clientToken, arnStr)

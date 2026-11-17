@@ -22,13 +22,16 @@ const (
 	initTypeOnDemand = "on-demand"
 	phaseInit        = "init"
 
-	traceType        = "X-Amzn-Trace-Id"
-	spanIDLen        = 16
-	stateReady       = "Ready"
-	spanResponseLat  = "responseLatency"
-	spanResponseDur  = "responseDuration"
-	memProbeTimeout  = 2 * time.Second
-	logsMinRuntimeEv = schemaLogs20210318
+	traceType          = "X-Amzn-Trace-Id"
+	spanIDLen          = 16
+	stateReady         = "Ready"
+	spanResponseLat    = "responseLatency"
+	spanResponseDur    = "responseDuration"
+	spanOverhead       = "runtimeOverhead"
+	telTypeRuntimeDone = "platform.runtimeDone"
+	memProbeTimeout    = 2 * time.Second
+	runtimeDoneSpans   = 3
+	logsMinRuntimeEv   = schemaLogs20210318
 )
 
 // hubIdentity is the function identity stamped into platform events.
@@ -43,8 +46,11 @@ type invocationTrack struct {
 	started   time.Time
 	finished  time.Time
 	tracing   *telTracing
+	readStart time.Time
 	status    string
 	errorType string
+	produced  int
+	doneSent  bool
 }
 
 // phaseTracker records init and per-invocation timing so platform events carry real durations.
@@ -222,19 +228,10 @@ func (h *telemetryHub) finishRuntime(
 	}
 
 	tr.finished, tr.status, tr.errorType = readEnd, status, errType
+	tr.readStart, tr.produced = readStart, produced
 	h.ph.reportQueue = append(h.ph.reportQueue, reqID)
-	started, tracing := tr.started, tr.tracing
 
 	h.ph.mu.Unlock()
-
-	rec := recRuntimeDone{
-		RequestID: reqID, Status: status, ErrorType: errType, Tracing: tracing,
-		Metrics: &recRuntimeDoneMetrics{DurationMs: roundMs(readEnd.Sub(started)), ProducedBytes: produced},
-		Spans: []telSpan{
-			{Name: spanResponseLat, Start: eventTime(started), DurationMs: roundMs(readStart.Sub(started))},
-			{Name: spanResponseDur, Start: eventTime(readStart), DurationMs: roundMs(readEnd.Sub(readStart))},
-		},
-	}
 
 	logsStatus := status
 	if status == statusError {
@@ -243,8 +240,7 @@ func (h *telemetryHub) finishRuntime(
 
 	h.publish(hubEvent{
 		at: readEnd, category: typePlatform,
-		telType: "platform.runtimeDone", telRec: rec,
-		logsType: "platform.runtimeDone", logsRec: recLogsRuntimeDone{RequestID: reqID, Status: logsStatus},
+		logsType: telTypeRuntimeDone, logsRec: recLogsRuntimeDone{RequestID: reqID, Status: logsStatus},
 		logsMinSchema: logsMinRuntimeEv,
 	})
 	h.publish(hubEvent{
@@ -253,13 +249,72 @@ func (h *telemetryHub) finishRuntime(
 	})
 }
 
+// telemetryRuntimeDone builds the Telemetry API platform.runtimeDone record. The runtimeOverhead span covers the
+// time from the response to the runtime's next call (telemetry-schema-reference, Span); it is omitted when the
+// runtime never called next.
+func telemetryRuntimeDone(reqID string, tr *invocationTrack, nextAt time.Time) recRuntimeDone {
+	latency := telSpan{
+		Name:       spanResponseLat,
+		Start:      eventTime(tr.started),
+		DurationMs: roundMs(tr.readStart.Sub(tr.started)),
+	}
+	duration := telSpan{
+		Name: spanResponseDur, Start: eventTime(tr.readStart), DurationMs: roundMs(tr.finished.Sub(tr.readStart)),
+	}
+	spans := append(make([]telSpan, 0, runtimeDoneSpans), latency, duration)
+
+	if !nextAt.IsZero() {
+		spans = append(spans, telSpan{
+			Name: spanOverhead, Start: eventTime(tr.finished), DurationMs: roundMs(nextAt.Sub(tr.finished)),
+		})
+	}
+
+	return recRuntimeDone{
+		RequestID: reqID, Status: tr.status, ErrorType: tr.errorType, Tracing: tr.tracing,
+		Metrics: &recRuntimeDoneMetrics{DurationMs: roundMs(tr.finished.Sub(tr.started)), ProducedBytes: tr.produced},
+		Spans:   spans,
+	}
+}
+
 // timedOut publishes runtimeDone and report for an invocation that exceeded its deadline.
 func (h *telemetryHub) timedOut(ctx context.Context, reqID string, now time.Time) {
 	h.finishRuntime(reqID, statusTimeout, "", 0, now, now)
 	h.invokePhaseEnded(ctx, now)
 }
 
-// invokePhaseEnded publishes platform.report for invocations whose runtime and extensions are done.
+// runtimeNext publishes platform.runtimeDone with the runtimeOverhead span for responses not yet announced. It
+// runs before the runtime waits for extensions, so an extension that waits for runtimeDone cannot deadlock it.
+func (h *telemetryHub) runtimeNext(now time.Time) {
+	if !h.hasPlatformSubscribers() {
+		return
+	}
+
+	h.ph.mu.Lock("runtimeNext")
+
+	var pending []invocationTrack
+
+	ids := make([]string, 0, len(h.ph.reportQueue))
+
+	for _, id := range h.ph.reportQueue {
+		if tr, ok := h.ph.invs[id]; ok && !tr.doneSent {
+			tr.doneSent = true
+			pending = append(pending, *tr)
+			ids = append(ids, id)
+		}
+	}
+
+	h.ph.mu.Unlock()
+
+	for i := range pending {
+		h.publish(hubEvent{
+			at: now, category: typePlatform,
+			telType: telTypeRuntimeDone, telRec: telemetryRuntimeDone(ids[i], &pending[i], now),
+		})
+	}
+}
+
+// invokePhaseEnded publishes platform.report, and platform.runtimeDone without a runtimeOverhead span when the
+// runtime never called next, for invocations whose runtime and extensions are done.
 func (h *telemetryHub) invokePhaseEnded(ctx context.Context, now time.Time) {
 	h.ph.mu.Lock("invokePhaseEnded")
 
@@ -271,8 +326,8 @@ func (h *telemetryHub) invokePhaseEnded(ctx context.Context, now time.Time) {
 
 	type item struct {
 		cold *float64
-		tr   invocationTrack
 		id   string
+		tr   invocationTrack
 	}
 
 	items := make([]item, 0, len(queue))
@@ -301,7 +356,9 @@ func (h *telemetryHub) invokePhaseEnded(ctx context.Context, now time.Time) {
 
 	var usedMB int
 
-	if probe != nil && h.hasPlatformSubscribers() {
+	subscribed := h.hasPlatformSubscribers()
+
+	if probe != nil && subscribed {
 		pctx, cancel := context.WithTimeout(ctx, memProbeTimeout)
 		if b, ok := probe(pctx); ok {
 			usedMB = int(math.Ceil(float64(b) / bytesPerMB))
@@ -310,8 +367,17 @@ func (h *telemetryHub) invokePhaseEnded(ctx context.Context, now time.Time) {
 		cancel()
 	}
 
-	for _, it := range items {
+	for i := range items {
+		it := items[i]
 		dur := it.tr.finished.Sub(it.tr.started)
+
+		if subscribed && !it.tr.doneSent {
+			h.publish(hubEvent{
+				at: now, category: typePlatform,
+				telType: telTypeRuntimeDone, telRec: telemetryRuntimeDone(it.id, &it.tr, time.Time{}),
+			})
+		}
+
 		metrics := recReportMetrics{
 			DurationMs: roundMs(dur), BilledDuration: int64(math.Ceil(float64(dur) / float64(time.Millisecond))),
 			MemorySizeMB: memMB, MaxMemoryUsedMB: usedMB, InitDurationMs: it.cold,

@@ -62,26 +62,27 @@ func (h *Handler) handleDataChannel(c *echo.Context) error {
 }
 
 type dataChannel struct {
-	ws        *websocket.Conn
-	b         *InMemoryBackend
-	shell     Shell
-	conn      net.Conn
-	pending   map[int64]*StreamMessage
-	params    map[string][]string
-	exited    chan struct{}
-	started   time.Time
-	sessionID string
-	region    string
-	target    string
-	container string
-	command   string
-	document  string
-	wg        sync.WaitGroup
-	wmu       sync.Mutex
-	outSeq    int64
-	expected  int64
-	cols      uint
-	rows      uint
+	ws         *websocket.Conn
+	b          *InMemoryBackend
+	transcript *transcriptBuffer
+	shell      Shell
+	conn       net.Conn
+	pending    map[int64]*StreamMessage
+	params     map[string][]string
+	exited     chan struct{}
+	started    time.Time
+	sessionID  string
+	region     string
+	target     string
+	container  string
+	command    string
+	document   string
+	wg         sync.WaitGroup
+	wmu        sync.Mutex
+	outSeq     int64
+	expected   int64
+	cols       uint
+	rows       uint
 }
 
 func newDataChannel(b *InMemoryBackend, ws *websocket.Conn, sessionID string) *dataChannel {
@@ -127,6 +128,12 @@ func (d *dataChannel) serve(parent context.Context) {
 
 	d.b.trackChannel(d.sessionID, cancel)
 	defer d.b.untrackChannel(d.sessionID)
+
+	if sink := d.b.takeTranscriptSink(d.sessionID); sink != nil {
+		d.transcript = &transcriptBuffer{}
+
+		defer func() { sink(d.sessionID, d.transcript.data) }()
+	}
 
 	frames := make(chan []byte)
 	d.wg.Go(func() { d.readFrames(ctx, frames) })
@@ -364,6 +371,10 @@ func (d *dataChannel) pumpShell(sh Shell) {
 
 	for {
 		n, err := sh.Read(buf)
+		if n > 0 && d.transcript != nil {
+			d.transcript.add(buf[:n])
+		}
+
 		if n > 0 && d.sendOutput(PayloadOutput, buf[:n]) != nil {
 			return
 		}

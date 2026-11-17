@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -22,22 +23,37 @@ var errSetBoom = errors.New("boom")
 
 // fakeSets is an in-memory StackSetEngine.
 type fakeSets struct {
-	err     error
-	sets    map[string][]servicecatalog.StackSetInstance
-	status  string
-	created []servicecatalog.StackSetRequest
-	deleted []string
-	mu      sync.Mutex
+	probe        func()
+	err          error
+	updateErr    error
+	sets         map[string][]servicecatalog.StackSetInstance
+	status       string
+	updateStatus string
+	created      []servicecatalog.StackSetRequest
+	updated      []servicecatalog.StackSetUpdateRequest
+	previews     []string
+	deleted      []string
+	mu           sync.Mutex
+}
+
+func (f *fakeSets) enter() {
+	if f.probe != nil {
+		f.probe()
+	}
 }
 
 func newFakeSets() *fakeSets {
-	return &fakeSets{sets: map[string][]servicecatalog.StackSetInstance{}, status: "SUCCEEDED"}
+	return &fakeSets{
+		sets: map[string][]servicecatalog.StackSetInstance{}, status: "SUCCEEDED", updateStatus: "SUCCEEDED",
+	}
 }
 
 func (f *fakeSets) CreateStackSet(
 	_ context.Context,
 	req servicecatalog.StackSetRequest,
 ) (servicecatalog.StackSetResult, error) {
+	f.enter()
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -62,7 +78,49 @@ func (f *fakeSets) CreateStackSet(
 	}, nil
 }
 
+func (f *fakeSets) UpdateStackSet(
+	_ context.Context,
+	req servicecatalog.StackSetUpdateRequest,
+) (servicecatalog.StackSetResult, error) {
+	f.enter()
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.updated = append(f.updated, req)
+
+	if f.updateErr != nil {
+		return servicecatalog.StackSetResult{}, f.updateErr
+	}
+
+	return servicecatalog.StackSetResult{
+		ID: "ss-id", Status: f.updateStatus, Reason: "instance update failed", Instances: f.sets[req.Name],
+	}, nil
+}
+
+func (f *fakeSets) PreviewStackSet(
+	_ context.Context, name, _ string, _ map[string]string,
+) ([]servicecatalog.PlanChange, error) {
+	f.enter()
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.previews = append(f.previews, name)
+
+	action := "ADD"
+	if name != "" {
+		action = "MODIFY"
+	}
+
+	return []servicecatalog.PlanChange{
+		{Action: action, LogicalResourceID: "Queue", ResourceType: "AWS::SQS::Queue"},
+	}, nil
+}
+
 func (f *fakeSets) DeleteStackSet(_ context.Context, name string) error {
+	f.enter()
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -73,20 +131,22 @@ func (f *fakeSets) DeleteStackSet(_ context.Context, name string) error {
 }
 
 func (f *fakeSets) StackSetInstances(_ context.Context, name string) ([]servicecatalog.StackSetInstance, error) {
+	f.enter()
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	return f.sets[name], nil
 }
 
-func stackSetCatalog(t *testing.T, f *fixture, props string) (*sdk.Client, catalog) {
+func stackSetCatalog(t *testing.T, f *fixture) (*sdk.Client, catalog) {
 	t.Helper()
 
 	c := f.client(t)
 	cat := createCatalog(t, c, templateURL)
 	_, err := c.CreateConstraint(t.Context(), &sdk.CreateConstraintInput{
 		PortfolioId: aws.String(cat.portfolioID), ProductId: aws.String(cat.productID),
-		Type: aws.String("STACKSET"), Parameters: aws.String(props), IdempotencyToken: aws.String(token(t)),
+		Type: aws.String("STACKSET"), Parameters: aws.String(twoByTwoSet), IdempotencyToken: aws.String(token(t)),
 	})
 	require.NoError(t, err)
 
@@ -156,7 +216,7 @@ func TestStackSetProvisioning(t *testing.T) {
 			f := newFixture(t)
 			sets := newFakeSets()
 			f.backend.SetStackSetEngine(sets)
-			c, cat := stackSetCatalog(t, f, twoByTwoSet)
+			c, cat := stackSetCatalog(t, f)
 
 			out, err := provisionStackSet(t, c, cat, tc.prefs)
 			if tc.wantCode != "" {
@@ -195,7 +255,7 @@ func TestStackSetLifecycle(t *testing.T) {
 	f := newFixture(t)
 	sets := newFakeSets()
 	f.backend.SetStackSetEngine(sets)
-	c, cat := stackSetCatalog(t, f, twoByTwoSet)
+	c, cat := stackSetCatalog(t, f)
 	ctx := t.Context()
 
 	out, err := provisionStackSet(t, c, cat, nil)
@@ -224,14 +284,19 @@ func TestStackSetLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, rest.StackInstances, 1)
 
-	_, err = c.UpdateProvisionedProduct(ctx, &sdk.UpdateProvisionedProductInput{
+	upd, err := c.UpdateProvisionedProduct(ctx, &sdk.UpdateProvisionedProductInput{
 		UpdateToken:          aws.String(token(t)),
 		ProvisionedProductId: ppID,
 		ProvisioningParameters: []sctypes.UpdateProvisioningParameter{
 			{Key: aws.String("Size"), Value: aws.String("m")},
 		},
 	})
-	assert.Equal(t, "OperationNotSupportedException", apiCode(err))
+	require.NoError(t, err)
+	updRec, err := c.DescribeRecord(ctx, &sdk.DescribeRecordInput{Id: upd.RecordDetail.RecordId})
+	require.NoError(t, err)
+	assert.Equal(t, sctypes.RecordStatusSucceeded, updRec.RecordDetail.Status)
+	require.Len(t, sets.updated, 1)
+	assert.Equal(t, map[string]string{"Size": "m"}, sets.updated[0].Parameters)
 
 	_, err = c.TerminateProvisionedProduct(ctx, &sdk.TerminateProvisionedProductInput{
 		TerminateToken: aws.String(token(t)), ProvisionedProductId: ppID,
@@ -262,7 +327,7 @@ func TestStackSetFailureAndGuards(t *testing.T) {
 			sets := newFakeSets()
 			tc.setup(sets)
 			f.backend.SetStackSetEngine(sets)
-			c, cat := stackSetCatalog(t, f, twoByTwoSet)
+			c, cat := stackSetCatalog(t, f)
 
 			out, err := provisionStackSet(t, c, cat, nil)
 			require.NoError(t, err)
@@ -329,4 +394,314 @@ func TestStackSetConstraintValidation(t *testing.T) {
 			assert.Equal(t, "InvalidParametersException", apiCode(err))
 		})
 	}
+}
+
+func TestStackSetUpdate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(*fakeSets)
+		prefs        *sctypes.UpdateProvisioningPreferences
+		name         string
+		wantCode     string
+		wantStatus   sctypes.ProvisionedProductStatus
+		wantRecord   sctypes.RecordStatus
+		wantAccounts []string
+		wantRegions  []string
+		wantUpdates  int
+	}{
+		{
+			name: "succeeds", wantStatus: sctypes.ProvisionedProductStatusAvailable,
+			wantRecord: sctypes.RecordStatusSucceeded, wantUpdates: 1,
+		},
+		{
+			name: "narrowed_targets",
+			prefs: &sctypes.UpdateProvisioningPreferences{
+				StackSetAccounts: []string{"222222222222"}, StackSetRegions: []string{"us-west-2"},
+				StackSetFailureToleranceCount: new(int32(1)),
+			},
+			wantStatus: sctypes.ProvisionedProductStatusAvailable, wantRecord: sctypes.RecordStatusSucceeded,
+			wantAccounts: []string{"222222222222"}, wantRegions: []string{"us-west-2"}, wantUpdates: 1,
+		},
+		{
+			name:       "operation_failed",
+			setup:      func(s *fakeSets) { s.updateStatus = "FAILED" },
+			wantStatus: sctypes.ProvisionedProductStatusTainted, wantRecord: sctypes.RecordStatusFailed, wantUpdates: 1,
+		},
+		{
+			name:       "engine_error",
+			setup:      func(s *fakeSets) { s.updateErr = errSetBoom },
+			wantStatus: sctypes.ProvisionedProductStatusTainted, wantRecord: sctypes.RecordStatusFailed, wantUpdates: 1,
+		},
+		{
+			name:     "account_outside_constraint",
+			prefs:    &sctypes.UpdateProvisioningPreferences{StackSetAccounts: []string{"999999999999"}},
+			wantCode: "InvalidParametersException",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newFixture(t)
+			sets := newFakeSets()
+			f.backend.SetStackSetEngine(sets)
+			c, cat := stackSetCatalog(t, f)
+			ctx := t.Context()
+
+			out, err := provisionStackSet(t, c, cat, nil)
+			require.NoError(t, err)
+
+			ppID := out.RecordDetail.ProvisionedProductId
+
+			if tc.setup != nil {
+				tc.setup(sets)
+			}
+
+			upd, err := c.UpdateProvisionedProduct(ctx, &sdk.UpdateProvisionedProductInput{
+				UpdateToken: aws.String(token(t)), ProvisionedProductId: ppID, ProvisioningPreferences: tc.prefs,
+				ProvisioningParameters: []sctypes.UpdateProvisioningParameter{
+					{Key: aws.String("Size"), Value: aws.String("m")},
+				},
+				Tags: []sctypes.Tag{{Key: aws.String("team"), Value: aws.String("a")}},
+			})
+			if tc.wantCode != "" {
+				assert.Equal(t, tc.wantCode, apiCode(err))
+				assert.Empty(t, sets.updated)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			updRec, err := c.DescribeRecord(ctx, &sdk.DescribeRecordInput{Id: upd.RecordDetail.RecordId})
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantRecord, updRec.RecordDetail.Status)
+			require.Len(t, sets.updated, tc.wantUpdates)
+
+			req := sets.updated[0]
+			assert.Equal(t, map[string]string{"Size": "m"}, req.Parameters)
+			assert.Equal(t, "arn:aws:iam::123456789012:role/admin", req.AdminRole)
+			assert.Equal(t, tc.wantAccounts, req.Accounts)
+			assert.Equal(t, tc.wantRegions, req.Regions)
+			assert.Equal(t, "a", req.Tags["team"])
+
+			pp, err := c.DescribeProvisionedProduct(ctx, &sdk.DescribeProvisionedProductInput{Id: ppID})
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantStatus, pp.ProvisionedProductDetail.Status)
+			assert.Equal(t, upd.RecordDetail.RecordId, pp.ProvisionedProductDetail.LastRecordId)
+
+			if tc.wantRecord == sctypes.RecordStatusFailed {
+				rec, rerr := c.DescribeRecord(ctx, &sdk.DescribeRecordInput{Id: upd.RecordDetail.RecordId})
+				require.NoError(t, rerr)
+				require.NotEmpty(t, rec.RecordDetail.RecordErrors)
+				assert.Len(t, sets.created, 1, "no new stack set is created on a failed update")
+			}
+		})
+	}
+}
+
+func TestStackSetPlans(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*fakeSets)
+		name       string
+		wantPlan   sctypes.ProvisionedProductPlanStatus
+		wantStatus sctypes.ProvisionedProductStatus
+		update     bool
+	}{
+		{
+			name: "update_plan", update: true, wantPlan: sctypes.ProvisionedProductPlanStatusExecuteSuccess,
+			wantStatus: sctypes.ProvisionedProductStatusAvailable,
+		},
+		{
+			name: "update_plan_failure", update: true,
+			setup:      func(s *fakeSets) { s.updateStatus = "FAILED" },
+			wantPlan:   sctypes.ProvisionedProductPlanStatusExecuteFailed,
+			wantStatus: sctypes.ProvisionedProductStatusTainted,
+		},
+		{
+			name: "launch_plan", wantPlan: sctypes.ProvisionedProductPlanStatusExecuteSuccess,
+			wantStatus: sctypes.ProvisionedProductStatusAvailable,
+		},
+		{
+			name: "launch_plan_failure", setup: func(s *fakeSets) { s.status = "FAILED" },
+			wantPlan:   sctypes.ProvisionedProductPlanStatusExecuteFailed,
+			wantStatus: sctypes.ProvisionedProductStatusError,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newFixture(t)
+			sets := newFakeSets()
+			f.backend.SetStackSetEngine(sets)
+			c, cat := stackSetCatalog(t, f)
+			ctx := t.Context()
+
+			if tc.update {
+				_, err := provisionStackSet(t, c, cat, nil)
+				require.NoError(t, err)
+			}
+
+			if tc.setup != nil {
+				tc.setup(sets)
+			}
+
+			plan, err := c.CreateProvisionedProductPlan(ctx, &sdk.CreateProvisionedProductPlanInput{
+				PlanName: aws.String("p"), PlanType: sctypes.ProvisionedProductPlanTypeCloudformation,
+				ProductId: aws.String(cat.productID), ProvisionedProductName: aws.String("ss"),
+				ProvisioningArtifactId: aws.String(cat.artifactID), IdempotencyToken: aws.String(token(t)),
+				ProvisioningParameters: []sctypes.UpdateProvisioningParameter{
+					{Key: aws.String("Size"), Value: aws.String("m")},
+				},
+			})
+			require.NoError(t, err)
+
+			desc, err := c.DescribeProvisionedProductPlan(
+				ctx, &sdk.DescribeProvisionedProductPlanInput{PlanId: plan.PlanId},
+			)
+			require.NoError(t, err)
+			assert.Equal(
+				t,
+				sctypes.ProvisionedProductPlanStatusCreateSuccess,
+				desc.ProvisionedProductPlanDetails.Status,
+			)
+			require.Len(t, desc.ResourceChanges, 1)
+			assert.Equal(t, "AWS::SQS::Queue", aws.ToString(desc.ResourceChanges[0].ResourceType))
+
+			wantAction := sctypes.ChangeActionAdd
+			if tc.update {
+				wantAction = sctypes.ChangeActionModify
+			}
+
+			assert.Equal(t, wantAction, desc.ResourceChanges[0].Action)
+
+			exec, err := c.ExecuteProvisionedProductPlan(ctx, &sdk.ExecuteProvisionedProductPlanInput{
+				PlanId: plan.PlanId, IdempotencyToken: aws.String(token(t)),
+			})
+			require.NoError(t, err)
+
+			pp, err := c.DescribeProvisionedProduct(
+				ctx,
+				&sdk.DescribeProvisionedProductInput{Id: plan.ProvisionProductId},
+			)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantStatus, pp.ProvisionedProductDetail.Status)
+			assert.Equal(t, "CFN_STACKSET", aws.ToString(pp.ProvisionedProductDetail.Type))
+			assert.Equal(t, exec.RecordDetail.RecordId, pp.ProvisionedProductDetail.LastRecordId)
+
+			desc, err = c.DescribeProvisionedProductPlan(
+				ctx, &sdk.DescribeProvisionedProductPlanInput{PlanId: plan.PlanId},
+			)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantPlan, desc.ProvisionedProductPlanDetails.Status)
+
+			if tc.update {
+				require.Len(t, sets.updated, 1)
+				assert.Equal(t, map[string]string{"Size": "m"}, sets.updated[0].Parameters)
+				assert.Len(t, sets.created, 1)
+			} else {
+				require.Len(t, sets.created, 1)
+				assert.Equal(t, map[string]string{"Size": "m"}, sets.created[0].Parameters)
+				assert.Equal(t, []string{"111111111111", "222222222222"}, sets.created[0].Accounts)
+				assert.Empty(t, sets.updated)
+			}
+
+			_, err = c.DeleteProvisionedProductPlan(ctx, &sdk.DeleteProvisionedProductPlanInput{PlanId: plan.PlanId})
+			require.NoError(t, err)
+			assert.Empty(t, f.engine.deletedChangeSets(), "a stack set plan has no change set to delete")
+		})
+	}
+}
+
+func TestStackSetEngineCalledWithoutBackendLock(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture(t)
+	sets := newFakeSets()
+
+	var contended, calls atomic.Int32
+
+	sets.probe = func() {
+		calls.Add(1)
+
+		if f.backend.LockContended() {
+			contended.Add(1)
+		}
+	}
+
+	f.backend.SetStackSetEngine(sets)
+
+	c, cat := stackSetCatalog(t, f)
+	ctx := t.Context()
+
+	out, err := provisionStackSet(t, c, cat, nil)
+	require.NoError(t, err)
+
+	ppID := out.RecordDetail.ProvisionedProductId
+	params := []sctypes.UpdateProvisioningParameter{{Key: aws.String("Size"), Value: aws.String("m")}}
+
+	_, err = c.UpdateProvisionedProduct(ctx, &sdk.UpdateProvisionedProductInput{
+		UpdateToken: aws.String(token(t)), ProvisionedProductId: ppID, ProvisioningParameters: params,
+	})
+	require.NoError(t, err)
+
+	plan, err := c.CreateProvisionedProductPlan(ctx, &sdk.CreateProvisionedProductPlanInput{
+		PlanName: aws.String("p"), PlanType: sctypes.ProvisionedProductPlanTypeCloudformation,
+		ProductId: aws.String(cat.productID), ProvisionedProductName: aws.String("ss"),
+		ProvisioningArtifactId: aws.String(cat.artifactID), IdempotencyToken: aws.String(token(t)),
+		ProvisioningParameters: params,
+	})
+	require.NoError(t, err)
+
+	_, err = c.ExecuteProvisionedProductPlan(ctx, &sdk.ExecuteProvisionedProductPlanInput{
+		PlanId: plan.PlanId, IdempotencyToken: aws.String(token(t)),
+	})
+	require.NoError(t, err)
+
+	_, err = c.TerminateProvisionedProduct(ctx, &sdk.TerminateProvisionedProductInput{
+		TerminateToken: aws.String(token(t)), ProvisionedProductId: ppID,
+	})
+	require.NoError(t, err)
+
+	assert.GreaterOrEqual(t, calls.Load(), int32(5))
+	assert.Zero(t, contended.Load(), "the Service Catalog lock was held across a CloudFormation call")
+}
+
+func TestStackSetPlanSurvivesSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture(t)
+	sets := newFakeSets()
+	f.backend.SetStackSetEngine(sets)
+	c, cat := stackSetCatalog(t, f)
+	ctx := t.Context()
+
+	plan, err := c.CreateProvisionedProductPlan(ctx, &sdk.CreateProvisionedProductPlanInput{
+		PlanName: aws.String("p"), PlanType: sctypes.ProvisionedProductPlanTypeCloudformation,
+		ProductId: aws.String(cat.productID), ProvisionedProductName: aws.String("ss"),
+		ProvisioningArtifactId: aws.String(cat.artifactID), IdempotencyToken: aws.String(token(t)),
+		ProvisioningParameters: []sctypes.UpdateProvisioningParameter{
+			{Key: aws.String("Size"), Value: aws.String("m")},
+		},
+	})
+	require.NoError(t, err)
+
+	restored := servicecatalog.NewInMemoryBackend(testAccount, "us-east-1")
+	restored.SetStackEngine(f.engine)
+	restored.SetStackSetEngine(sets)
+	require.NoError(t, restored.Restore(ctx, f.backend.Snapshot(ctx)))
+
+	rc := (&fixture{backend: restored, engine: f.engine, clock: f.clock, url: serve(t, restored)}).client(t)
+
+	_, err = rc.ExecuteProvisionedProductPlan(ctx, &sdk.ExecuteProvisionedProductPlanInput{
+		PlanId: plan.PlanId, IdempotencyToken: aws.String(token(t)),
+	})
+	require.NoError(t, err)
+	assert.Len(t, sets.created, 1, "a restored stack set plan must create the stack set, not execute a change set")
 }

@@ -27,6 +27,8 @@ func (b *InMemoryBackend) resetRuntimeLocked() {
 	b.groups = map[string]*groupRuntime{}
 	b.parsed = map[string]*parsedNamespace{}
 	b.ams = map[string]*alertManager{}
+	b.restoredLog = map[string][]nflogRecord{}
+	b.buckets = map[string]*tokenBucket{}
 }
 
 // appendSampleLocked stores one sample in the workspace's series for labels.
@@ -106,8 +108,13 @@ func (b *InMemoryBackend) managerFor(w *Workspace, now time.Time) *alertManager 
 
 	m := newAlertManager(cfg, d.Data)
 	m.setSilences(b.workspaceSilencesLocked(w.ID))
-	if old != nil {
+
+	switch {
+	case old != nil:
 		m.Receive(old.List(), now)
+	case len(b.restoredLog[w.ID]) > 0:
+		m.loadNflog(b.restoredLog[w.ID])
+		delete(b.restoredLog, w.ID)
 	}
 
 	return m
@@ -120,6 +127,7 @@ func (b *InMemoryBackend) Tick(ctx context.Context) {
 	b.mu.Lock("Tick")
 	b.purgeLocked()
 	b.pruneExpiredLocked(now)
+	b.sweepRestoredNflogLocked(now)
 	batches := b.evaluateRulesLocked(now)
 	ams := b.syncAlertManagersLocked(now)
 	pub := b.publisher

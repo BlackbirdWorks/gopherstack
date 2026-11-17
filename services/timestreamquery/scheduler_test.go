@@ -424,7 +424,9 @@ func TestScheduledQuery_IngestionFailureWritesErrorReport(t *testing.T) {
 
 	loc := d.LastRunSummary.ErrorReportLocation.S3ReportLocation
 	assert.Equal(t, "errs", aws.ToString(loc.BucketName))
-	assert.Regexp(t, `^reports/sq/2026-10-31T13:00:00Z/Auto/2026-10-31T13:00:00Z$`, aws.ToString(loc.ObjectKey))
+	assert.Regexp(
+		t, `^reports/sq-[0-9a-f]{12}/2026-10-31T13:00:00Z/Auto/2026-10-31T13:00:00Z$`, aws.ToString(loc.ObjectKey),
+	)
 	assert.Equal(t, loc, d.RecentlyFailedRuns[0].ErrorReportLocation.S3ReportLocation)
 
 	body := env.objects.objects["errs/"+aws.ToString(loc.ObjectKey)]

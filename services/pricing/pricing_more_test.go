@@ -176,3 +176,60 @@ func TestSavingsPlansPriceLists(t *testing.T) {
 	assert.Equal(t, "AmazonEC2", file.Terms.SavingsPlan[0].Rates[0].DiscountedServiceCode)
 	assert.Equal(t, "ComputeSavingsPlans", file.Products[0].ProductFamily)
 }
+
+func TestSavingsPlansFileEnvelope(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		region string
+	}{
+		{"eu_west_1", "eu-west-1"},
+		{"us_east_1", "us-east-1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := newClient(t)
+			lists, err := c.ListPriceLists(t.Context(), &psdk.ListPriceListsInput{
+				ServiceCode: aws.String("ComputeSavingsPlans"), CurrencyCode: aws.String("USD"),
+				EffectiveDate: aws.Time(time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC)),
+				RegionCode:    aws.String(tt.region),
+			})
+			require.NoError(t, err)
+			require.Len(t, lists.PriceLists, 1)
+
+			got, err := c.GetPriceListFileUrl(t.Context(), &psdk.GetPriceListFileUrlInput{
+				PriceListArn: lists.PriceLists[0].PriceListArn, FileFormat: aws.String("json"),
+			})
+			require.NoError(t, err)
+
+			u, err := url.Parse(aws.ToString(got.Url))
+			require.NoError(t, err)
+
+			e := echo.New()
+			e.GET(pricing.FilePathPattern, pricing.NewHandler().ServePriceListFile)
+
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, u.Path, http.NoBody))
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var raw map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
+			assert.Equal(t, tt.region, raw["regionCode"])
+			assert.Contains(t, raw, "publicationDate")
+			assert.NotContains(t, raw, "publishDate")
+
+			terms, _ := raw["terms"].(map[string]any)
+			sp, _ := terms["savingsPlan"].([]any)
+			require.NotEmpty(t, sp)
+
+			rates, _ := sp[0].(map[string]any)["rates"].([]any)
+			require.NotEmpty(t, rates)
+			assert.NotContains(t, rates[0], "unitPrice")
+			assert.Contains(t, rates[0], "rateCode")
+		})
+	}
+}

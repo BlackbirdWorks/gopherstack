@@ -92,6 +92,7 @@ func viewTranscription(j *TranscriptionJob) jobView {
 	if j.Settings != nil {
 		spec.ShowSpeakers = j.Settings.ShowSpeakerLabels
 		spec.IdentifyChannels = j.Settings.ChannelIdentification
+		spec.FilterName, spec.FilterMethod = j.Settings.VocabularyFilterName, j.Settings.VocabularyFilterMethod
 	}
 
 	if j.Subtitles != nil {

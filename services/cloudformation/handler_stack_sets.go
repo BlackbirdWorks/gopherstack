@@ -146,7 +146,78 @@ func stackInstancesErrorCode(err error) string {
 		return "StackSetNotFoundException"
 	}
 
+	switch {
+	case errors.Is(err, ErrOperationInProgress):
+		return "OperationInProgressException"
+	case errors.Is(err, ErrOperationIDAlreadyExists):
+		return "OperationIdAlreadyExistsException"
+	case errors.Is(err, ErrStackInstanceNotFound):
+		return "StackInstanceNotFoundException"
+	case errors.Is(err, ErrInvalidOperation):
+		return "InvalidOperationException"
+	}
+
 	return "ValidationError"
+}
+
+// stackSetOpOptions are the options shared by every StackSet operation request: OperationId and
+// OperationPreferences.
+func stackSetOpOptions(form url.Values) []StackSetOpOption {
+	opts := []StackSetOpOption{WithOperationPreferences(parseOperationPreferences(form))}
+	if id := form.Get("OperationId"); id != "" {
+		opts = append(opts, WithOperationID(id))
+	}
+
+	return opts
+}
+
+// updateStackSetOpOptions adds UpdateStackSet's optional Accounts/DeploymentTargets/Regions narrowing.
+func updateStackSetOpOptions(form url.Values) []StackSetOpOption {
+	opts := stackSetOpOptions(form)
+	accounts := parseStackInstanceAccounts(form)
+	ouIDs := parseMemberList(form, "DeploymentTargets.OrganizationalUnitIds.")
+	regions := parseMemberList(form, "Regions.")
+
+	if len(accounts) == 0 && len(ouIDs) == 0 && len(regions) == 0 {
+		return opts
+	}
+
+	filterType, _ := parseAccountFilterType(form, false)
+
+	return append(opts, WithInstanceTargets(accounts, ouIDs, regions, filterType))
+}
+
+// parameterOverrideOption is the ParameterOverrides request member, absent when not sent.
+func parameterOverrideOption(form url.Values) []StackSetOpOption {
+	if _, sent := form["ParameterOverrides"]; sent {
+		return []StackSetOpOption{WithParameterOverrides([]Parameter{})}
+	}
+
+	params := parseParamsWithPrefix(form, "ParameterOverrides.member.")
+	if params == nil {
+		return nil
+	}
+
+	return []StackSetOpOption{WithParameterOverrides(params)}
+}
+
+func parseParamsWithPrefix(form url.Values, list string) []Parameter {
+	var params []Parameter
+
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("%s%d.", list, i)
+
+		key := form.Get(prefix + "ParameterKey")
+		if key == "" {
+			return params
+		}
+
+		params = append(params, Parameter{
+			ParameterKey:     key,
+			ParameterValue:   form.Get(prefix + "ParameterValue"),
+			UsePreviousValue: form.Get(prefix+"UsePreviousValue") == boolTrue,
+		})
+	}
 }
 
 // callAsDelegatedAdmin is CallAs' non-default enum value (see validateCallAs).
@@ -257,7 +328,7 @@ func (h *Handler) handleUpdateStackSet(form url.Values, c *echo.Context) error {
 
 	_, opID, err := h.Backend.UpdateStackSet(
 		name, form.Get("Description"), form.Get("TemplateBody"), parseStackSetOptions(form),
-		WithOperationPreferences(parseOperationPreferences(form)),
+		updateStackSetOpOptions(form)...,
 	)
 	if err != nil {
 		return h.xmlError(c, stackInstancesErrorCode(err), err.Error())
@@ -583,10 +654,12 @@ func (h *Handler) handleStackInstancesOp(
 	accounts := parseStackInstanceAccounts(form)
 	ouIDs := parseMemberList(form, "DeploymentTargets.OrganizationalUnitIds.")
 	regions := parseMemberList(form, "Regions.")
-	opID, err := op(
-		c.Request().Context(), name, accounts, ouIDs, regions, filterType,
-		WithOperationPreferences(parseOperationPreferences(form)),
-	)
+	opts := stackSetOpOptions(form)
+	if isCreate {
+		opts = append(opts, parameterOverrideOption(form)...)
+	}
+
+	opID, err := op(c.Request().Context(), name, accounts, ouIDs, regions, filterType, opts...)
 	if err != nil {
 		return h.xmlError(c, stackInstancesErrorCode(err), err.Error())
 	}
@@ -652,7 +725,8 @@ func (h *Handler) handleUpdateStackInstances(form url.Values, c *echo.Context) e
 	ouIDs := parseMemberList(form, "DeploymentTargets.OrganizationalUnitIds.")
 	regions := parseMemberList(form, "Regions.")
 	opID, err := h.Backend.UpdateStackInstances(
-		name, accounts, ouIDs, regions, filterType, WithOperationPreferences(parseOperationPreferences(form)),
+		name, accounts, ouIDs, regions, filterType,
+		append(stackSetOpOptions(form), parameterOverrideOption(form)...)...,
 	)
 	if err != nil {
 		return h.xmlError(c, stackInstancesErrorCode(err), err.Error())
@@ -804,6 +878,7 @@ func (h *Handler) handleDescribeStackInstance(form url.Values, c *echo.Context) 
 		DriftStatus             string             `xml:"DriftStatus,omitempty"`
 		LastOperationID         string             `xml:"LastOperationId,omitempty"`
 		OrganizationalUnitID    string             `xml:"OrganizationalUnitId,omitempty"`
+		ParameterOverrides      []Parameter        `xml:"ParameterOverrides>member,omitempty"`
 	}
 	type result struct {
 		StackInstance instXML `xml:"StackInstance"`
@@ -811,8 +886,8 @@ func (h *Handler) handleDescribeStackInstance(form url.Values, c *echo.Context) 
 	type response struct {
 		XMLName   xml.Name `xml:"DescribeStackInstanceResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
-		Result    result   `xml:"DescribeStackInstanceResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		Result    result   `xml:"DescribeStackInstanceResult"`
 	}
 
 	return writeXML(c, response{
@@ -828,6 +903,7 @@ func (h *Handler) handleDescribeStackInstance(form url.Values, c *echo.Context) 
 				DriftStatus:             inst.DriftStatus,
 				LastOperationID:         inst.LastOperationID,
 				OrganizationalUnitID:    inst.OrganizationalUnitID,
+				ParameterOverrides:      inst.ParameterOverrides,
 				StackInstanceStatus:     stackInstanceStatusXML(inst),
 				LastDriftCheckTimestamp: inst.LastDriftCheckTimestamp,
 			},
@@ -843,7 +919,7 @@ func (h *Handler) handleDetectStackSetDrift(form url.Values, c *echo.Context) er
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
 
-	opID, err := h.Backend.DetectStackSetDrift(name, WithOperationPreferences(parseOperationPreferences(form)))
+	opID, err := h.Backend.DetectStackSetDrift(name, stackSetOpOptions(form)...)
 	if err != nil {
 		return h.xmlError(c, stackInstancesErrorCode(err), err.Error())
 	}
@@ -1036,8 +1112,7 @@ func (h *Handler) handleImportStacksToStackSet(form url.Values, c *echo.Context)
 
 	stackIDs := parseMemberList(form, "StackIds.")
 	opID, err := h.Backend.ImportStacksToStackSet(
-		name, stackIDs, parseMemberList(form, "OrganizationalUnitIds."),
-		WithOperationPreferences(parseOperationPreferences(form)),
+		name, stackIDs, parseMemberList(form, "OrganizationalUnitIds."), stackSetOpOptions(form)...,
 	)
 	if err != nil {
 		if errors.Is(err, ErrStackSetNotFound) {

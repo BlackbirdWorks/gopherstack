@@ -18,7 +18,7 @@ ops:
   CreatePortfolio: {wire: ok, errors: ok, state: ok, persist: ok, note: "DisplayName 1-100, ProviderName 1-50, 50 tags; IdempotencyToken replays"}
   CreatePortfolioShare: {wire: ok, errors: ok, state: ok, persist: ok, note: "SharePrincipals exposes the owner IAM_PATTERN associations to the accepted recipient (ListPrincipalsForPortfolio, launch access) and ShareTagOptions its portfolio and product TagOptions (ListTagOptions, DescribeTagOption, DescribePortfolio, DescribeProvisioningParameters, stack tags), live and toggled by UpdatePortfolioShare; ACCOUNT shares need AcceptPortfolioShare; ORGANIZATION/OU/ACCOUNT nodes need trusted access, resolve member accounts through Organizations and are accepted implicitly; token only for node shares"}
   CreateProduct: {wire: ok, errors: ok, state: ok, persist: ok, note: "CLOUD_FORMATION_TEMPLATE, TERRAFORM_OPEN_SOURCE, TERRAFORM_CLOUD or EXTERNAL; the template behind LoadTemplateFromURL (emulated S3) is fetched and validated unless DisableTemplateValidation; MARKETPLACE products are rejected"}
-  CreateProvisionedProductPlan: {wire: ok, errors: ok, state: ok, persist: ok, note: "a CloudFormation change set; a new launch gets a PLAN_IN_PROGRESS placeholder product"}
+  CreateProvisionedProductPlan: {wire: ok, errors: ok, state: ok, persist: ok, note: "a CloudFormation change set; a new launch gets a PLAN_IN_PROGRESS placeholder product; on a STACKSET path the plan holds the template and parameters and previews the resource changes of the stack set template (no change set exists for a stack set)"}
   CreateProvisioningArtifact: {wire: ok, errors: ok, state: ok, persist: ok, note: "version name is not unique-checked; template validated like CreateProduct"}
   CreateServiceAction: {wire: ok, errors: ok, state: ok, persist: ok, note: "SSM_AUTOMATION; Definition Name and Version required, Parameters a JSON list of {Name, Type TARGET|TEXT_VALUE}"}
   CreateTagOption: {wire: ok, errors: ok, state: ok, persist: ok, note: "Key/Value unique per account and Region; aws: keys rejected"}
@@ -53,7 +53,7 @@ ops:
   DisassociateServiceActionFromProvisioningArtifact: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateTagOptionFromResource: {wire: ok, errors: ok, state: ok, persist: ok}
   EnableAWSOrganizationsAccess: {wire: ok, errors: ok, state: ok, persist: ok, note: "toggles the servicecatalog.amazonaws.com trusted service in the Organizations backend (a local flag when none is wired)"}
-  ExecuteProvisionedProductPlan: {wire: ok, errors: ok, state: ok, persist: ok, note: "executes the change set and records a PROVISION or UPDATE record"}
+  ExecuteProvisionedProductPlan: {wire: ok, errors: ok, state: ok, persist: ok, note: "executes the change set (or creates/updates the StackSet for a STACKSET plan) and records a PROVISION or UPDATE record; a failed run leaves the plan EXECUTE_FAILED"}
   ExecuteProvisionedProductServiceAction: {wire: ok, errors: ok, state: ok, persist: ok, note: "starts the SSM automation through the SSM backend; TARGET parameters are required; record EXECUTE_PROFILE_SERVICE_ACTION"}
   GetAWSOrganizationsAccessStatus: {wire: ok, errors: ok, state: ok, persist: ok}
   GetProvisionedProductOutputs: {wire: ok, errors: ok, state: ok, persist: ok, note: "the stack outputs, filtered by OutputKeys"}
@@ -90,7 +90,7 @@ ops:
   UpdatePortfolio: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdatePortfolioShare: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateProduct: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateProvisionedProduct: {wire: ok, errors: ok, state: ok, persist: ok, note: "new version, parameters (UsePreviousValue) or tags; RESOURCE_UPDATE can forbid tag changes; failure leaves the product TAINTED"}
+  UpdateProvisionedProduct: {wire: ok, errors: ok, state: ok, persist: ok, note: "new version, parameters (UsePreviousValue) or tags; RESOURCE_UPDATE can forbid tag changes; failure leaves the product TAINTED; on a STACKSET product it updates the stack set and every instance stack (StackSetAccounts/StackSetRegions narrow the instances, the other StackSet preferences become the operation preferences) and the path must keep its STACKSET constraint"}
   UpdateProvisionedProductProperties: {wire: ok, errors: ok, state: ok, persist: ok, note: "OWNER and LAUNCH_ROLE"}
   UpdateProvisioningArtifact: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateServiceAction: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -105,12 +105,7 @@ families:
   Provisioning: {status: ok, note: "Stack creation is synchronous inside the request; the record then reports IN_PROGRESS for the lifecycle delay (default 0, Backend.SetLifecycleDelay). Product status is derived from the last record."}
   Plan: {status: ok, note: "Backed by CloudFormation change sets."}
 gaps: []
-items_still_open:
-  - UpdateProvisionedProduct and CreateProvisionedProductPlan on a STACKSET product return OperationNotSupportedException: the CloudFormation emulator's UpdateStackSet and UpdateStackInstances do not re-deploy instance stacks
-  - CreateProduct SourceConnection: the CodeStar repository is stored but never synced, so LastSync and SourceRevision stay empty
-  - Notify*EngineWorkflowResult: no channel hands the workflow token to an engine; it is wf-<RecordId>
-  - SearchProducts: a caller with an unresolved identity (no principal) sees every accessible portfolio; a resolved non-root identity needs a principal association
-  - "TerminateProvisionedProduct on a product that is under change returns InvalidParametersException; API_TerminateProvisionedProduct.html models only ResourceNotFoundException (400) and the SDK doc comment says only that an unknown product returns ResourceNotFound, so the class is an emulator choice (InvalidParametersException is a modeled shape of the service)"
+items_still_open: []
 structural_gaps:
   - "Terraform, EXTERNAL and CodeStar-sourced products have no engine inside the emulator: an engine would have to call Notify*EngineWorkflowResult itself."
 deferred: []
@@ -149,3 +144,7 @@ Accept/RejectPortfolioShare with PortfolioShareType AWS_SERVICECATALOG return Re
 ## External effects that are recorded, not performed
 
 - CreateProduct with a MARKETPLACE product is rejected with InvalidParametersException because there is no AWS Marketplace catalogue to resolve it against.
+- CreateProduct/UpdateProduct SourceConnection (CODESTAR): the connection is stored and returned by DescribeProductAsAdmin; no repository is synced, so LastSync and SourceRevision stay empty, and the intended sync is logged ("would sync CodeStar repository").
+- Notify*EngineWorkflowResult: API_NotifyProvisionProductEngineWorkflowResult.html describes the token only as handed to the external engine; the emulator has no engine channel, issues wf-<RecordId> and accepts it back.
+- SearchProducts: a caller with no resolved principal sees every accessible portfolio; a resolved non-root identity needs a principal association. The documentation does not describe unauthenticated callers.
+- TerminateProvisionedProduct on a product under change returns InvalidParametersException (a modeled shape of the service); API_TerminateProvisionedProduct.html models only ResourceNotFoundException and does not describe the in-flight case.

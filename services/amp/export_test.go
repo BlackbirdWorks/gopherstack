@@ -48,3 +48,11 @@ func DecodeWriteRequest(body []byte) ([]WriteSeries, error) { return decodeWrite
 func NewSeries(labels map[string]string, samples ...promql.Sample) WriteSeries {
 	return WriteSeries{Labels: labels, Samples: samples}
 }
+
+// BucketCount returns the workspaces holding an ingestion token bucket.
+func (b *InMemoryBackend) BucketCount() int {
+	b.mu.RLock("BucketCount")
+	defer b.mu.RUnlock()
+
+	return len(b.buckets)
+}

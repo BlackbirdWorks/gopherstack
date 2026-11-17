@@ -334,15 +334,8 @@ func (h *Handler) remoteWrite(c *echo.Context, wsID string) error {
 		return h.server.WriteErr(c, ierr)
 	}
 
-	if res.OutOfOrder > 0 {
-		return restroute.WriteError(c, http.StatusBadRequest, "ValidationException",
-			fmt.Sprintf("out of order sample: %d samples are older than the workspace out-of-order window",
-				res.OutOfOrder), nil)
-	}
-
-	if res.LimitExceeded > 0 {
-		return restroute.WriteError(c, http.StatusBadRequest, "ValidationException",
-			fmt.Sprintf("per-labelset series limit exceeded for %d series", res.LimitExceeded), nil)
+	if msg := res.refusal(); msg != "" {
+		return restroute.WriteError(c, http.StatusBadRequest, "ValidationException", msg, nil)
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -598,4 +591,20 @@ func (h *Handler) labelValues(c *echo.Context, wsID, name string, vals url.Value
 	slices.Sort(values)
 
 	return c.JSON(http.StatusOK, promResponse{Status: statusSuccess, Data: values})
+}
+
+func (r IngestResult) refusal() string {
+	switch {
+	case r.OutOfOrder > 0:
+		return fmt.Sprintf("out of order sample: %d samples are older than the workspace out-of-order window",
+			r.OutOfOrder)
+	case r.TooOld > 0:
+		return fmt.Sprintf("sample too old: %d samples are older than 1 hour", r.TooOld)
+	case r.SeriesLimitExceeded > 0:
+		return r.seriesLimit
+	case r.LimitExceeded > 0:
+		return fmt.Sprintf("per-labelset series limit exceeded for %d series", r.LimitExceeded)
+	default:
+		return ""
+	}
 }

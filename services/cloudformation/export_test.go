@@ -212,3 +212,19 @@ func EmbeddedPropertySchemasForTest() map[string]map[string]string {
 func AccessAnalyzerFilterForTest(v any) map[string]accessanalyzerbackend.FilterCriterion {
 	return accessAnalyzerFilter(v, nil, nil)
 }
+
+// StackInstancesErrorCode exposes stackInstancesErrorCode to the external tests.
+func StackInstancesErrorCode(err error) string { return stackInstancesErrorCode(err) }
+
+// SetStackInstanceStatusForTest forces a stack instance's Status.
+func (b *InMemoryBackend) SetStackInstanceStatusForTest(stackSetName, account, region, status string) {
+	b.mu.Lock("SetStackInstanceStatusForTest")
+	defer b.mu.Unlock()
+
+	for i := range b.stackInstances[stackSetName] {
+		inst := &b.stackInstances[stackSetName][i]
+		if inst.Account == account && inst.Region == region {
+			inst.Status = status
+		}
+	}
+}

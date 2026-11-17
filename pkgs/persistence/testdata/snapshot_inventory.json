@@ -494,8 +494,13 @@
       "WorkspaceConfig.RuleQueryOffsetInSeconds int32 `json:\"ruleQueryOffsetInSeconds\"`",
       "WorkspaceConfig.RuleQueryOffsetSet bool `json:\"ruleQueryOffsetSet,omitempty\"`",
       "backendSnapshot.AccountID string `json:\"accountID\"`",
+      "backendSnapshot.AlertLog map[string][]nflogRecord `json:\"alertLog,omitempty\"`",
       "backendSnapshot.Region string `json:\"region\"`",
-      "backendSnapshot.Tables map[string]jsontext.Value `json:\"tables\"`"
+      "backendSnapshot.Tables map[string]jsontext.Value `json:\"tables\"`",
+      "nflogRecord.At time.Time `json:\"at\"`",
+      "nflogRecord.Firing []string `json:\"firing\"`",
+      "nflogRecord.Group string `json:\"group\"`",
+      "nflogRecord.Index int `json:\"index\"`"
     ],
     "version": 1
   },
@@ -7353,6 +7358,7 @@
       "StackInstance.LastDriftCheckTimestamp *time.Time `xml:\"LastDriftCheckTimestamp,omitempty\" json:\"lastDriftCheckTimestamp,omitempty\"`",
       "StackInstance.LastOperationID string `xml:\"LastOperationId,omitempty\"         json:\"lastOperationID,omitempty\"`",
       "StackInstance.OrganizationalUnitID string `xml:\"OrganizationalUnitId,omitempty\" json:\"organizationalUnitID,omitempty\"`",
+      "StackInstance.ParameterOverrides []Parameter `xml:\"-\" json:\"parameterOverrides,omitempty\"`",
       "StackInstance.Region string `xml:\"Region,omitempty\"                  json:\"region,omitempty\"`",
       "StackInstance.StackID string `xml:\"StackId,omitempty\"                 json:\"stackID,omitempty\"`",
       "StackInstance.StackSetID string `xml:\"StackSetId,omitempty\"              json:\"stackSetID,omitempty\"`",
@@ -7405,6 +7411,7 @@
       "StackSetOperation.FailedCount int `json:\"failedCount,omitempty\"`",
       "StackSetOperation.OperationID string",
       "StackSetOperation.Preferences *OperationPreferences `json:\"preferences,omitempty\"`",
+      "StackSetOperation.RequestKey string `json:\"requestKey,omitempty\"`",
       "StackSetOperation.RetainStacks bool `json:\"retainStacks,omitempty\"`",
       "StackSetOperation.StackSetName string",
       "StackSetOperation.Status string",
@@ -36152,6 +36159,7 @@
       "Plan.ProvisionedProductName string `json:\"provisionedProductName\"`",
       "Plan.Region string `json:\"region\"`",
       "Plan.StackName string `json:\"stackName\"`",
+      "Plan.StackSet bool `json:\"stackSet,omitempty\"`",
       "Plan.Status string `json:\"status\"`",
       "Plan.StatusMessage string `json:\"statusMessage,omitempty\"`",
       "Plan.Tags map[string]string `json:\"tags,omitempty\"`",
