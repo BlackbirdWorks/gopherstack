@@ -58,6 +58,8 @@ func (b *InMemoryBackend) ListTasks(in *batchpb.ListTasksRequest) (*batchpb.List
 		return nil, err
 	}
 
+	defer b.flushNotes()
+
 	b.mu.Lock("ListTasks")
 	b.advanceLocked()
 
@@ -89,6 +91,8 @@ func (b *InMemoryBackend) GetTask(name string) (*batchpb.Task, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	defer b.flushNotes()
 
 	b.mu.Lock("GetTask")
 	defer b.mu.Unlock()

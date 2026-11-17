@@ -78,8 +78,10 @@ func (s gcsObjectStore) WriteObject(bucket, name string, data []byte, contentTyp
 	return nil
 }
 
-// wireGCPBigQuery connects BigQuery load and extract jobs to the GCS emulator.
+// wireGCPBigQuery connects BigQuery load and extract jobs, and Datastore export and import, to the GCS emulator.
 func wireGCPBigQuery(byName map[string]service.Registerable) {
+	wireGCPDatastore(byName)
+
 	bq, ok := byName["GCPBigQuery"].(*gcpbigquerybackend.Handler)
 	if !ok {
 		return

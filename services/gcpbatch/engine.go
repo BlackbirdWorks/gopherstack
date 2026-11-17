@@ -68,6 +68,8 @@ func (b *InMemoryBackend) stopRunnerLocked(name string) {
 
 // withJob runs f on the job under the write lock unless the job is gone.
 func (b *InMemoryBackend) withJob(name string, f func(r *jobRec)) {
+	defer b.flushNotes()
+
 	b.mu.Lock("withJob")
 	defer b.mu.Unlock()
 

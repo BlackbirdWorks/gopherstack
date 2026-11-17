@@ -21,6 +21,7 @@ const (
 func (r *jobRec) setPhase(to int32, at time.Time) {
 	from := r.Phase
 	r.Phase = to
+	r.noteJobState(to)
 	r.Events = append(r.Events, eventRec{
 		Time: at, Type: eventStatusChanged,
 		Desc: "Job state is set from " + stateName(from) + " to " + stateName(to) + " for job " + r.pb.GetName() + ".",
@@ -49,6 +50,7 @@ func (r *jobRec) setTask(i int, to int32, at time.Time, exit *int32, note string
 	}
 
 	t.State = to
+	r.noteTaskState(i, to)
 	t.Events = append(t.Events, eventRec{Time: at, Type: eventStatusChanged, Desc: desc, Exit: exit})
 }
 
@@ -229,6 +231,8 @@ func (b *InMemoryBackend) CreateJob(in *batchpb.CreateJobRequest) (*batchpb.Job,
 		return nil, err
 	}
 
+	defer b.flushNotes()
+
 	b.mu.Lock("CreateJob")
 	defer b.mu.Unlock()
 
@@ -265,6 +269,8 @@ func (b *InMemoryBackend) CreateJob(in *batchpb.CreateJobRequest) (*batchpb.Job,
 
 // GetJob returns one job.
 func (b *InMemoryBackend) GetJob(name string) (*batchpb.Job, error) {
+	defer b.flushNotes()
+
 	b.mu.Lock("GetJob")
 	defer b.mu.Unlock()
 
@@ -280,6 +286,8 @@ func (b *InMemoryBackend) GetJob(name string) (*batchpb.Job, error) {
 
 // DeleteJob starts deletion: the job reads DELETION_IN_PROGRESS until the operation ends, then is gone.
 func (b *InMemoryBackend) DeleteJob(in *batchpb.DeleteJobRequest) (*longrunningpb.Operation, error) {
+	defer b.flushNotes()
+
 	b.mu.Lock("DeleteJob")
 	defer b.mu.Unlock()
 
@@ -311,6 +319,8 @@ func (b *InMemoryBackend) DeleteJob(in *batchpb.DeleteJobRequest) (*longrunningp
 
 // CancelJob starts cancellation: the job reads CANCELLATION_IN_PROGRESS, then CANCELLED.
 func (b *InMemoryBackend) CancelJob(in *batchpb.CancelJobRequest) (*longrunningpb.Operation, error) {
+	defer b.flushNotes()
+
 	b.mu.Lock("CancelJob")
 	defer b.mu.Unlock()
 

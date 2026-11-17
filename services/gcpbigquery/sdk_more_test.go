@@ -463,3 +463,47 @@ func TestQueryRequestID(t *testing.T) {
 		}
 	}
 }
+
+func TestExtractDestinationURIRules(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		uri     string
+		wantErr bool
+	}{
+		{name: "file name wildcard", uri: "gs://bkt/out/part-*.csv"},
+		{name: "no wildcard", uri: "gs://bkt/out/one.csv"},
+		{name: "wildcard in directory", uri: "gs://bkt/out-*/part.csv", wantErr: true},
+		{name: "two wildcards", uri: "gs://bkt/out/a-*-*.csv", wantErr: true},
+		{name: "no object", uri: "gs://bkt", wantErr: true},
+		{name: "not a gs uri", uri: "s3://bkt/x.csv", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			env := newSDK(t)
+			ctx := t.Context()
+			ds := env.dataset(t, "ex")
+
+			_, err := env.client.Query("CREATE TABLE ex.src AS SELECT 1 AS id").Run(ctx)
+			require.NoError(t, err)
+
+			job, err := ds.Table("src").ExtractorTo(bigquery.NewGCSReference(tt.uri)).Run(ctx)
+			require.NoError(t, err)
+
+			status, err := job.Wait(ctx)
+			require.NoError(t, err)
+
+			if tt.wantErr {
+				require.Error(t, status.Err())
+
+				return
+			}
+
+			require.NoError(t, status.Err())
+		})
+	}
+}

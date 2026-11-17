@@ -30,10 +30,7 @@ families:
   auth: {status: partial, note: "No request is authenticated or authorised."}
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; RPC failures are logged at debug. No dashboard page."}
 items_still_open:
-  - "ExportEntities and ImportEntities are not served (they need a Cloud Storage bucket target); the admin service answers UNIMPLEMENTED for them."
-  - "Vector search (find_nearest) returns UNIMPLEMENTED, and a property_mask is applied to full entities only."
-  - "Pessimistic concurrency, point-in-time recovery beyond one hour, multiple named databases' lifecycle API and TTL policies are not modelled; the database_id field only partitions data."
-  - "Composite index rules cover only the cases the documentation states; the index build is instantaneous (no CREATING state) and the exact wording of FAILED_PRECONDITION and ABORTED messages was chosen without a production reference."
+  - "CreateIndex completes instantly (the index is READY and the operation done on return, no CREATING state); the blocker is that an asynchronous build needs a backend-clock worker that does not exist yet (admin.go CreateIndex)."
   - "There is no dashboard page."
 leaks: {status: clean, note: "Background resources are the grpc.Server and its serve goroutines, joined by Shutdown."}
 ---
@@ -41,3 +38,12 @@ leaks: {status: clean, note: "Background resources are the grpc.Server and its s
 Initial implementation (2026-10-26): google.datastore.v1 Datastore and google.datastore.admin.v1 index management verified against cloud.google.com/go/datastore v1.25.0 through the official client and raw datastorepb clients in the package tests, including REST/JSON through the shared transcoder.
 
 Explain (RunQuery, RunAggregationQuery): ExplainMetrics follow query_profile.proto (plan_summary.indexes_used entries shaped like the proto example; analyze=false skips execution and returns only the plan; analyze=true adds results_returned, execution_duration, read_operations and debug_stats). The index text itself is the emulator's rendering. __property__ queries list each indexed property of each kind with property_representation index types.
+
+## Emulator choices where the vendor is silent
+
+- Export data layout: gs://BUCKET/PATH/STAMP/STAMP.overall_export_metadata plus one output-0 per namespace and kind. The documented layout is only the overall metadata file; its content and the data files are emulator-private (JSON metadata, length-prefixed datastore.v1 Entity messages) and cannot be fed to another tool. Source for the URL shape: ExportEntitiesRequest and ImportEntitiesRequest field comments in adminpb.
+- ExportEntities and ImportEntities finish synchronously (the returned operation is done); a missing Cloud Storage emulator, bucket or file is a synchronous error. Exports cap at 200000 entities and 256 MiB; import is one atomic commit.
+- Vector values use the map {__type__: "__vector__", value: [numbers]}, taken from the Firestore encoding; the Datastore FindNearest field comments (limit 1..100, query vector up to 2048 dimensions, distance_threshold semantics) are the verified part, the storage encoding is not stated in datastorepb.
+- The Datastore admin API (datastore.admin.v1) has only ExportEntities, ImportEntities and the four index methods (adminpb DatastoreAdminServer). Named-database lifecycle, TTL policies and the point-in-time-recovery switch belong to the Firestore admin API and are not part of this service; read_time beyond one hour needs that switch (ReadOptions.read_time comment), so history stays at one hour.
+- Pessimistic locking is a server-side default that TransactionOptions.ReadWrite (only previous_transaction) does not expose; the emulator keeps the optimistic behaviour.
+- RunQueryRequest.property_mask applies to full-entity results only: the field comment says it must not be set for a projection query.

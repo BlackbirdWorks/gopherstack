@@ -25,6 +25,7 @@ type queryPlan struct {
 	ancestor  *datastorepb.Key
 	filter    *datastorepb.Filter
 	q         *datastorepb.Query
+	nearest   *nearestPlan
 	eqProps   map[string]struct{}
 	part      partition
 	kind      string
@@ -42,11 +43,12 @@ type queryPlan struct {
 }
 
 func buildPlan(part partition, q *datastorepb.Query) (*queryPlan, error) {
-	if q.GetFindNearest() != nil {
-		return nil, errUnimplemented("Vector search (find_nearest) is not supported.")
+	nn, q, err := nearestStage(q)
+	if err != nil {
+		return nil, err
 	}
 
-	p := &queryPlan{q: q, part: part, eqProps: map[string]struct{}{}, offset: int(q.GetOffset())}
+	p := &queryPlan{q: q, nearest: nn, part: part, eqProps: map[string]struct{}{}, offset: int(q.GetOffset())}
 
 	if len(q.GetKind()) > 1 {
 		return nil, errInvalid("Only one kind may be specified in a query.")
@@ -98,6 +100,20 @@ func buildPlan(part partition, q *datastorepb.Query) (*queryPlan, error) {
 	}
 
 	return p, nil
+}
+
+func nearestStage(q *datastorepb.Query) (*nearestPlan, *datastorepb.Query, error) {
+	fn := q.GetFindNearest()
+	if fn == nil {
+		return nil, q, nil
+	}
+
+	nn, err := planNearest(fn, q)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return nn, withoutOrders(q), nil
 }
 
 func (p *queryPlan) kindlessOK() bool {

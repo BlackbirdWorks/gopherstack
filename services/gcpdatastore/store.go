@@ -125,11 +125,13 @@ type InMemoryBackend struct {
 	used           map[string]map[int64]struct{}
 	indexes        map[string]*adminpb.Index
 	ops            *gcplro.Store
+	objects        ObjectStore
 	lastCommit     time.Time
 	lastTxnRead    time.Time
 	lastSweep      time.Time
 	changes        []change
 	nextIndex      int64
+	exportSeq      int64
 	enforceIndexes bool
 }
 

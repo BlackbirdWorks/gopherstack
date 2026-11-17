@@ -73,6 +73,10 @@ func (b *InMemoryBackend) execExtract(_ string, cfg map[string]any, dryRun bool)
 		return nil, errInvalid("Cannot extract table %s of type EXTERNAL", ids["tableId"])
 	}
 
+	if msg := badExtractURI(ec.URIs); msg != "" {
+		return (&outcome{Stats: map[string]any{}}).fail(litInvalid, msg)
+	}
+
 	counts := make([]any, len(ec.URIs))
 	for i := range counts {
 		counts[i] = "0"
@@ -105,6 +109,27 @@ func (b *InMemoryBackend) execExtract(_ string, cfg map[string]any, dryRun bool)
 	counts[0] = "1"
 
 	return out, nil
+}
+
+// badExtractURI applies the documented URI rules: at most one wildcard per URI and only in the file name.
+func badExtractURI(uris []string) string {
+	for _, uri := range uris {
+		u, ok := parseGCSURI(uri)
+		if !ok || u.object == "" {
+			return "Invalid Cloud Storage URI: " + uri
+		}
+
+		dir := ""
+		if i := strings.LastIndex(u.object, "/"); i >= 0 {
+			dir = u.object[:i]
+		}
+
+		if strings.Count(u.object, "*") > 1 || strings.Contains(dir, "*") {
+			return "Invalid Cloud Storage URI " + uri + ": a single wildcard is allowed, only in the file name."
+		}
+	}
+
+	return ""
 }
 
 func (b *InMemoryBackend) writeExtract(ec extractConfig, data []byte, ctype string) *jobError {

@@ -83,6 +83,19 @@ func systemLabel(md *monitoredres.MonitoredResourceMetadata, key string) []strin
 func (b *InMemoryBackend) ListTimeSeries(
 	req *monitoringpb.ListTimeSeriesRequest,
 ) (*monitoringpb.ListTimeSeriesResponse, error) {
+	if sel, isSLO, serr := parseSLOSelector(req.GetFilter()); isSLO {
+		if serr != nil {
+			return nil, errInvalid("Field filter had an invalid value: %s", serr.Error())
+		}
+
+		series, lerr := b.listSLOSelector(sel, req)
+		if lerr != nil {
+			return nil, lerr
+		}
+
+		return listResponse(series, req)
+	}
+
 	q, err := b.prepareQuery(req)
 	if err != nil {
 		return nil, err
@@ -100,7 +113,13 @@ func (b *InMemoryBackend) ListTimeSeries(
 		return nil, err
 	}
 
-	if err = pageTokenOK(req.GetPageToken()); err != nil {
+	return listResponse(series, req)
+}
+
+func listResponse(
+	series []*aSeries, req *monitoringpb.ListTimeSeriesRequest,
+) (*monitoringpb.ListTimeSeriesResponse, error) {
+	if err := pageTokenOK(req.GetPageToken()); err != nil {
 		return nil, err
 	}
 
