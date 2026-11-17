@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 35 (12 ok, 23 partial) |
+| PARITY entries audited | 37 (12 ok, 25 partial) |
 | Feature families | 9 (7 ok, 2 partial) |
 | Known gaps | 5 |
 | Deferred items | 0 |
@@ -15,9 +15,9 @@
 
 ### Known gaps
 
-- Not implemented (not attempted this pass for lack of budget after the password sign-in work): custom role definitions, devices, contacts, create-group-in-administrative-unit (POST administrativeUnits/{id}/members), soft delete and restore of administrative units, administrative-unit scoped role assignments through roleManagement (directoryScopeId /administrativeUnits/{id}), applicationTemplates, tokenIssuancePolicies, claimsMappingPolicies, delta queries, extension attributes, photos, licensing, manager@odata.bind on user create/update (not documented on the user create/update pages; use PUT manager/$ref) and $expand for appRoleAssignments.
+- Not implemented: contacts, create-group-in-administrative-unit (POST administrativeUnits/{id}/members), soft delete and restore of administrative units, administrative-unit scoped role assignments through roleManagement (directoryScopeId /administrativeUnits/{id}), applicationTemplates, tokenIssuancePolicies, claimsMappingPolicies, extension attributes, photos, licensing, manager@odata.bind on user create/update (not documented on the user create/update pages; use PUT manager/$ref), $expand for appRoleAssignments, delta $select=manager (the manager@delta annotation shape is not on the user-delta page) and delta queries for resources other than users and groups.
 - Graph permissions are not enforced (no Authorization_RequestDenied for missing Application.ReadWrite.All and similar); requiredResourceAccess and appRoleAssignments are stored but grant nothing, and tokens carry no roles/scp claims.
-- No authorization-code or device-code flow (only grant_type=password signs a user in), so interactive delegated flows still need a hand-built user token. PFX (X509CertAndPassword) keys and PATCH of keyCredentials/passwordCredentials are not supported, so certificates cannot authenticate from a PFX-only credential.
+- No authorization-code or device-code flow (only grant_type=password signs a user in), so interactive delegated flows still need a hand-built user token. PFX (X509CertAndPassword) keys keep metadata only, so certificates cannot authenticate from a PFX-only credential; passwordCredentials is not in the Update application property table and PATCH of it stays refused.
 - Terraform azuread fixture (application with web redirect URIs and requiredResourceAccess, service principal, application password) applies, replans empty and destroys against the container (test/terraform/azure/azuread_test.go) using metadata_host and the dev client; other azuread resources (groups, users, app role assignments, federated credentials, directory roles) are not exercised.
 - ARM role assignment validation (--azure-arm-validate-principals) does not know system-assigned identities of VMs, web apps and other ARM resources, so it stays opt-in.
 

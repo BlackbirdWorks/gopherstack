@@ -8,19 +8,17 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 17 (17 ok) |
-| Feature families | 8 (8 ok) |
-| Known gaps | 6 |
+| Feature families | 10 (10 ok) |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | ok |
 
 ### Known gaps
 
 - Bundle-extension triggers other than timer, queue, blob, Service Bus and Event Hubs (Cosmos DB, Event Grid and the rest) are not exercised against a real host (triggers_docker_test.go).
-- The listener is plain HTTP, so httpsOnly is stored (in services/azurearm site config) but not enforced: no TLS listener exists in serve.go and the flag is not delivered to this backend.
 - Not implemented: VNet integration, custom domains and certificates, easy auth (authsettings are stored only); Flex Consumption deployment.storage is validated but not used as the package store, and alwaysReady, maximumInstanceCount and perInstanceConcurrency have no runtime effect.
-- Deployment slots: no slot-level custom domains; slotsdiffs does not list the sticky-setting changes of the preview phases; a swap holds the Microsoft.Web provider lock while it warms the source slot.
-- Web apps: ACR managed-identity image pulls (acrUseManagedIdentityCreds) are not done: services/azurearm/rp_web.go:470 hardwires the site config value to false and never passes it, or acrUserManagedIdentityID, to this backend; doing it needs the flag stored in the ARM site config, a new Registry-to-backend field, an Entra token for the site identity (identity.go), the /oauth2/exchange call and an authenticated pull in pkgs/container (PullImage takes no credentials), none of which exists yet. The emulated ACR now serves /oauth2/exchange, so the exchange itself is no longer the blocker. Tomcat, JBoss, Ruby and Go stacks are rejected because the supported version matrix is not published on Learn (it comes from az webapp list-runtimes); Windows web apps, multi-container (sitecontainers) and docker-compose apps are rejected with 400.
-- Hosts are never reaped while idle (no Consumption scale to zero, no 20 minute unload of apps without Always On): the Always On site setting (services/azurearm/rp_web_config.go:62) never reaches this backend, and a reaped host would stop timer and queue triggers, which autostart.go starts at deploy.
+- Deployment slots: no slot-level custom domains (custom domains are not implemented); slotsdiffs does not list the sticky-setting changes of the preview phases; only the swapped settings that differ are reported.
+- Web apps: Tomcat, JBoss, Ruby and Go stacks are rejected because the supported version matrix is not published on Learn (it comes from az webapp list-runtimes); Windows web apps, multi-container (sitecontainers) and docker-compose apps are rejected with 400.
 
 ## More
 
