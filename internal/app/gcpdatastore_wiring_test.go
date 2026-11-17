@@ -57,3 +57,20 @@ func TestBatchNotifierPublishesToPubSub(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, "x", got[0]["Type"])
 }
+
+func TestStorageConsumersWireDatastoreWithoutBigQuery(t *testing.T) {
+	t.Parallel()
+
+	gcs := gcpstoragebackend.NewHandler(gcpstoragebackend.NewInMemoryBackend())
+	ds := gcpdatastorebackend.NewHandler(gcpdatastorebackend.NewInMemoryBackend())
+
+	wireGCPStorageConsumers(map[string]service.Registerable{"GCPStorage": gcs, "GCPDatastore": ds})
+
+	_, err := gcs.Backend.CreateBucket("proj", gcpstoragebackend.Patch{"name": []byte(`"lake"`)})
+	require.NoError(t, err)
+
+	_, err = ds.Backend.ExportEntities(t.Context(), &adminpb.ExportEntitiesRequest{
+		ProjectId: "proj", OutputUrlPrefix: "gs://lake/dumps",
+	})
+	require.NoError(t, err)
+}

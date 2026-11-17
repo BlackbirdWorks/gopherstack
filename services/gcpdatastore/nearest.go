@@ -108,10 +108,6 @@ func planNearest(fn *datastorepb.FindNearest, q *datastorepb.Query) (*nearestPla
 		return nil, errInvalid("Cursors cannot be combined with find_nearest.")
 	}
 
-	if len(q.GetProjection()) > 0 || len(q.GetDistinctOn()) > 0 {
-		return nil, errInvalid("Projections and distinct_on cannot be combined with find_nearest.")
-	}
-
 	n := &nearestPlan{
 		query: qv, prop: fn.GetVectorProperty().GetName(), distProp: fn.GetDistanceResultProperty(),
 		measure: fn.GetDistanceMeasure(), limit: int(fn.GetLimit().GetValue()),

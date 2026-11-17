@@ -26,6 +26,14 @@ func subsetOf(want, have []string) bool {
 
 func (m *exportMeta) validate(in *adminpb.ImportEntitiesRequest, base string) error {
 	if m.Format != exportFormat {
+		if strings.HasPrefix(m.Format, exportFormatBase) {
+			return errPrecondition(
+				"The export format %q is not supported; this emulator reads %q.",
+				m.Format,
+				exportFormat,
+			)
+		}
+
 		return errPrecondition("The input URL does not name an overall export metadata file written by ExportEntities.")
 	}
 
@@ -35,7 +43,7 @@ func (m *exportMeta) validate(in *adminpb.ImportEntitiesRequest, base string) er
 	}
 
 	for _, g := range m.Groups {
-		if !strings.HasPrefix(g.DataFile, base) {
+		if base == "" || !strings.HasPrefix(g.DataFile, base) || !validObjectPath(g.DataFile) {
 			return errPrecondition("The export metadata refers to a file outside the export.")
 		}
 	}
@@ -98,6 +106,18 @@ func (b *InMemoryBackend) loadExport(
 			return nil, 0, derr
 		}
 
+		if g.Entities != len(ents) {
+			return nil, 0, errPrecondition("The export data file gs://%s/%s is corrupt.", bucket, g.DataFile)
+		}
+
+		if slices.ContainsFunc(ents, func(e *datastorepb.Entity) bool { return !isComplete(e.GetKey()) }) {
+			return nil, 0, errPrecondition(
+				"The export data file gs://%s/%s holds an entity with an incomplete key.",
+				bucket,
+				g.DataFile,
+			)
+		}
+
 		out = append(out, ents...)
 	}
 
@@ -144,7 +164,7 @@ func (b *InMemoryBackend) ImportEntities(
 	muts := make([]*datastorepb.Mutation, 0, len(ents))
 
 	for _, e := range ents {
-		if !filterMatches(nil, f.GetNamespaceIds(), e.GetKey()) {
+		if !filterMatches(f.GetKinds(), f.GetNamespaceIds(), e.GetKey()) {
 			continue
 		}
 

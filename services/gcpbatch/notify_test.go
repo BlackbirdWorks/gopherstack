@@ -198,3 +198,97 @@ func make11(m *batchpb.JobNotification_Message) []*batchpb.JobNotification_Messa
 
 	return out
 }
+
+func TestNotificationsConcurrentReadsPublishOnce(t *testing.T) {
+	t.Parallel()
+
+	n := &fakeNotifier{}
+	e := newEnv(t, withTiming(gcpbatch.Timing{
+		Schedule: time.Second, Start: time.Second, TaskRun: time.Second,
+	}), func(b *gcpbatch.InMemoryBackend) { b.SetNotifier(n) })
+
+	job := basicJob(3)
+	job.Notifications = notifyOn(
+		&batchpb.JobNotification_Message{Type: batchpb.JobNotification_JOB_STATE_CHANGED},
+		&batchpb.JobNotification_Message{Type: batchpb.JobNotification_TASK_STATE_CHANGED},
+	)
+	e.create(t, "cc", job)
+	e.clock.Advance(time.Minute)
+
+	var wg sync.WaitGroup
+
+	errs := make(chan error, 16)
+
+	for range 8 {
+		wg.Go(func() {
+			_, err := e.client.GetJob(t.Context(), &batchpb.GetJobRequest{Name: parent + "/jobs/cc"})
+			errs <- err
+
+			_, err = e.client.ListJobs(t.Context(), &batchpb.ListJobsRequest{Parent: parent}).Next()
+			errs <- err
+		})
+	}
+
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		require.NoError(t, err)
+	}
+
+	assert.ElementsMatch(t, []string{"SCHEDULED", "RUNNING", "SUCCEEDED"}, n.states("JOB_STATE_CHANGED", "NewJobState"))
+	assert.ElementsMatch(
+		t,
+		[]string{
+			"ASSIGNED",
+			"ASSIGNED",
+			"ASSIGNED",
+			"RUNNING",
+			"RUNNING",
+			"RUNNING",
+			"SUCCEEDED",
+			"SUCCEEDED",
+			"SUCCEEDED",
+		},
+		n.states("TASK_STATE_CHANGED", "NewTaskState"),
+	)
+}
+
+type reentrantNotifier struct {
+	reenter func()
+	mu      sync.Mutex
+	calls   int
+}
+
+func (r *reentrantNotifier) PublishNotification(string, []byte, map[string]string) error {
+	r.mu.Lock()
+	r.calls++
+	first := r.calls == 1
+	r.mu.Unlock()
+
+	if first {
+		r.reenter()
+	}
+
+	return nil
+}
+
+func TestNotificationPublishedOutsideBackendLock(t *testing.T) {
+	t.Parallel()
+
+	n := &reentrantNotifier{}
+	e := newEnv(t, withTiming(gcpbatch.Timing{Schedule: time.Second}), func(b *gcpbatch.InMemoryBackend) {
+		b.SetNotifier(n)
+	})
+
+	n.reenter = func() { e.get(t, "lk") }
+
+	job := basicJob(1)
+	job.Notifications = notifyOn(&batchpb.JobNotification_Message{Type: batchpb.JobNotification_JOB_STATE_CHANGED})
+	e.create(t, "lk", job)
+	e.clock.Advance(time.Hour)
+
+	e.get(t, "lk")
+
+	assert.Positive(t, n.calls)
+}

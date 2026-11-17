@@ -25,6 +25,10 @@ const (
 	overallSuffix     = ".overall_export_metadata"
 	dataFileName      = "output-0"
 	exportFormat      = "gopherstack-datastore-export-v1"
+	exportFormatBase  = "gopherstack-datastore-export-"
+	maxBucketName     = 222
+	minBucketName     = 3
+	maxObjectName     = 1024
 	maxExportEntities = 200_000
 	maxExportBytes    = 256 << 20
 	maxExportEntity   = 1 << 20
@@ -75,11 +79,36 @@ func parseGSURL(raw string) (string, string, error) {
 	}
 
 	bucket, path, _ := strings.Cut(rest, "/")
-	if bucket == "" {
-		return "", "", errInvalid("The URL %q has no bucket name.", raw)
+	if !validBucketName(bucket) {
+		return "", "", errInvalid("The URL %q has no valid bucket name.", raw)
 	}
 
-	return bucket, strings.Trim(path, "/"), nil
+	path = strings.Trim(path, "/")
+	if path != "" && !validObjectPath(path) {
+		return "", "", errInvalid("The URL %q has an empty, relative or control-character path segment.", raw)
+	}
+
+	return bucket, path, nil
+}
+
+func validBucketName(b string) bool {
+	if len(b) < minBucketName || len(b) > maxBucketName || strings.ContainsFunc(b, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' && r != '_' && r != '.'
+	}) {
+		return false
+	}
+
+	return b[0] != '-' && b[0] != '_' && b[0] != '.' && b[len(b)-1] != '-' && b[len(b)-1] != '_' && b[len(b)-1] != '.'
+}
+
+func validObjectPath(p string) bool {
+	if len(p) > maxObjectName || strings.ContainsFunc(p, func(r rune) bool { return r < ' ' || r == 0x7f }) {
+		return false
+	}
+
+	return !slices.ContainsFunc(strings.Split(p, "/"), func(seg string) bool {
+		return seg == "" || seg == "." || seg == ".."
+	})
 }
 
 func validateFilter(f *adminpb.EntityFilter) error {
@@ -122,13 +151,17 @@ func nsDir(ns string) string {
 	return "namespace_" + url.PathEscape(ns)
 }
 
-func encodeEntities(ents []*datastorepb.Entity) ([]byte, error) {
+func encodeEntities(ents []*datastorepb.Entity, budget int64) ([]byte, error) {
 	var buf bytes.Buffer
 
 	for _, e := range ents {
 		raw, err := proto.Marshal(e)
 		if err != nil {
 			return nil, fmt.Errorf("marshal entity: %w", err)
+		}
+
+		if int64(buf.Len()+len(raw)) > budget {
+			return nil, errPrecondition("The export would be larger than %d bytes.", maxExportBytes)
 		}
 
 		buf.Write(binary.AppendUvarint(nil, uint64(len(raw))))
@@ -293,15 +326,12 @@ func writeGroups(
 	var total int64
 
 	for _, g := range order {
-		data, err := encodeEntities(groups[g])
+		data, err := encodeEntities(groups[g], maxExportBytes-total)
 		if err != nil {
-			return nil, 0, errInvalid("%v", err)
+			return nil, 0, err
 		}
 
 		total += int64(len(data))
-		if total > maxExportBytes {
-			return nil, 0, errPrecondition("The export would be larger than %d bytes.", maxExportBytes)
-		}
 
 		file := base + nsDir(g.ns) + "/kind_" + url.PathEscape(g.kind) + "/" + dataFileName
 		if err = store.WriteObject(bucket, file, data, exportContentType); err != nil {

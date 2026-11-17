@@ -51,6 +51,7 @@ Pass 2026-11-13: barrier runnables synchronise the tasks of a group: a task reac
 
 ## Emulator choices where the vendor is silent
 
+- job.notifications accepts at most 10 entries (the page and batchpb state no maximum; the cap bounds work). Queued notifications (at most 1000 per job) are not persisted, so a restart drops notes not yet published, and publishes from concurrent API calls may reach Pub/Sub out of order.
 - Predefined environment variables other than BATCH_TASK_INDEX, BATCH_TASK_COUNT, BATCH_HOSTS_FILE and BATCH_TASK_RETRY_ATTEMPT (for example BATCH_TASK_UID or job identity) are not set: no primary page lists them, and the value BATCH_TASK_RETRY_ATTEMPT takes on the first attempt (emulator: 0) is not documented. The hosts file content (one name per task) is not documented.
 - Task status event texts other than the documented 'Task state is updated from X to Y' prefix, the TASK_RETRY event type and the retry description are emulator wording; the task event type names and the initial job events are not in a primary source.
 - Validation and state-conflict error codes and texts (AlreadyExists, FAILED_PRECONDITION for a repeated delete or cancel, the task_count upper bound of 100000 enforced here) have no primary text; the REST filter grammar of ListJobs is a subset.

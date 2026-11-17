@@ -89,6 +89,7 @@ Alert strategy and delivery pass (2026-11-05): evaluation_missing_data, renotify
 
 ## Emulator choices where the vendor is silent
 
+- select_slo_health and the other selectors except select_slo_burn_rate take only the objective name, as the page states. The page forbids select_slo_compliance and the budget and counts selectors in alerting policies; the emulator still evaluates them there. Evaluation holds the read lock: a request is refused when points times windows-based windows per point exceeds 1000000.
 - Incidents are not exposed through a Cloud Monitoring API (the v3 API has none); they are readable only from Go through InMemoryBackend.Incidents, Deliveries and Outbox.
 - ListTimeSeries order_by is ignored (the monitoringpb field is documented as unsupported and must be left blank); page_size counts series rather than points; DELTA of a cumulative distribution cannot recover the sum of squared deviation, so REDUCE_STDDEV after such an alignment sees zero deviation within each series; REDUCE_STDDEV on distributions is the sample deviation of the merged distribution (n-1), the divisor is not documented.
 

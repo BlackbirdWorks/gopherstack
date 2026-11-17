@@ -137,6 +137,7 @@ func wireGCPStorageConsumers(byName map[string]service.Registerable) {
 	wireGCPContainer(byName)
 	wireGCPIdentityToolkit(byName)
 	wireGCPBatch(byName)
+	wireGCPDatastore(byName)
 	wireGCPStorageSecurity(byName)
 }
 

@@ -25,6 +25,9 @@ const (
 
 	defaultSelectorPeriod = time.Minute
 	maxSelectorPoints     = 10000
+	maxSelectorWindows    = 1_000_000
+	maxMonthDays          = 31
+	fortnightDays         = 14
 )
 
 var sloSelectorRe = regexp.MustCompile(
@@ -63,7 +66,7 @@ func parseSLOSelector(filter string) (sloSelector, bool, error) {
 		return sel, true, errInvalid("%s requires a lookback period.", selectBurnRate)
 	}
 
-	if sel.lookback != 0 && sel.kind != selectBurnRate && sel.kind != selectHealth {
+	if sel.lookback != 0 && sel.kind != selectBurnRate {
 		return sel, true, errInvalid("%s takes only the service level objective name.", sel.kind)
 	}
 
@@ -448,7 +451,7 @@ func (b *InMemoryBackend) sloSelectorPointsLocked(
 	}
 
 	good, total, has := b.sloCountsLocked(project, slo, window{start: at.Add(-span), end: at})
-	if !has || total == 0 {
+	if !has || total <= 0 || math.IsNaN(good) || math.IsInf(good, 0) || math.IsInf(total, 0) {
 		return nil
 	}
 
@@ -475,7 +478,7 @@ func (b *InMemoryBackend) sloSelectorSeriesLocked(
 	sel sloSelector, period time.Duration, steps int, now time.Time,
 ) []*aSeries {
 	slo, ok := b.slos[sel.slo]
-	if !ok {
+	if !ok || selectorCost(slo, sel, period, steps) > maxSelectorWindows {
 		return nil
 	}
 
@@ -558,8 +561,14 @@ func (b *InMemoryBackend) listSLOSelector(
 	b.mu.RLock("ListTimeSeries")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.slos[sel.slo]; !ok {
+	slo, ok := b.slos[sel.slo]
+	if !ok {
 		return nil, errNotFound("Service level objective %s does not exist.", sel.slo)
+	}
+
+	if selectorCost(slo, sel, period, steps) > maxSelectorWindows {
+		return nil, errInvalid("Evaluating %s over %d alignment periods of %s is too expensive: "+
+			"shorten the interval or lengthen aggregation.alignment_period.", sel.kind, steps, period)
 	}
 
 	if p, _, _ := splitName(sloServiceOf(sel.slo), collServices); p != project {
@@ -567,4 +576,44 @@ func (b *InMemoryBackend) listSLOSelector(
 	}
 
 	return b.sloSelectorSeriesLocked(sel, period, steps, win.end), nil
+}
+
+// selectorCost bounds the work of a selector: windows evaluated per point times points.
+func selectorCost(slo *monitoringpb.ServiceLevelObjective, sel sloSelector, period time.Duration, steps int) int64 {
+	wb := slo.GetServiceLevelIndicator().GetWindowsBased()
+	if wb == nil || wb.GetWindowPeriod().AsDuration() <= 0 {
+		return int64(steps)
+	}
+
+	span := period
+
+	switch sel.kind {
+	case selectBurnRate:
+		span = sel.lookback
+	case selectCompliance, selectBudget, selectBudgetFraction, selectBudgetTotal:
+		span = maxCompliancePeriod(slo)
+	}
+
+	return (int64(span/wb.GetWindowPeriod().AsDuration()) + 1) * int64(steps)
+}
+
+func maxCompliancePeriod(slo *monitoringpb.ServiceLevelObjective) time.Duration {
+	if r, ok := slo.GetPeriod().(*monitoringpb.ServiceLevelObjective_RollingPeriod); ok {
+		return r.RollingPeriod.AsDuration()
+	}
+
+	days := 1
+
+	switch slo.GetCalendarPeriod() {
+	case calendarperiod.CalendarPeriod_WEEK:
+		days = daysPerWeek
+	case calendarperiod.CalendarPeriod_FORTNIGHT:
+		days = fortnightDays
+	case calendarperiod.CalendarPeriod_MONTH:
+		days = maxMonthDays
+	case calendarperiod.CalendarPeriod_CALENDAR_PERIOD_UNSPECIFIED, calendarperiod.CalendarPeriod_DAY,
+		calendarperiod.CalendarPeriod_QUARTER, calendarperiod.CalendarPeriod_HALF, calendarperiod.CalendarPeriod_YEAR:
+	}
+
+	return time.Duration(days) * 24 * time.Hour
 }
