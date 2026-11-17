@@ -22,7 +22,7 @@
 - Code interpreter: executeCode runs a fresh python process per call, so variables do not persist between calls; javascript, typescript and the async task tools are rejected
 - Code interpreter: network mode, certificates and filesystem configurations are stored but not applied to the sandbox; a no-network mode would cut the sandbox off from the emulator endpoint (sandbox.go:119)
 - Browser: no automation or live-view streams, no profiles, and no browser process behind a session
-- Identity: ON_BEHALF_OF_TOKEN_EXCHANGE flows are rejected, and vendor providers without a discovery document have no reachable authorization or token endpoint
+- Identity: vendor providers without a discovery document have no reachable authorization or token endpoint
 
 ### Structural gaps
 

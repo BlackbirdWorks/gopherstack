@@ -943,14 +943,14 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Azure Event Grid](services/azureeventgrid/README.md) | B | 10 | 8 gaps |
 | [Azure Event Hubs](services/azureeventhubs/README.md) | B | 16 | 4 gaps |
 | [Azure Files](services/azurefile/README.md) | B | 42 | 3 gaps |
-| [Azure Functions](services/azurefunctions/README.md) | B | 17 | 6 gaps |
+| [Azure Functions](services/azurefunctions/README.md) | B | 17 | 4 gaps |
 | [Azure Key Vault](services/azurekeyvault/README.md) | B | 15 | 1 gap |
 | [Azure Monitor Logs](services/azuremonitor/README.md) | B | 20 | 4 gaps |
 | [Azure Queue Storage](services/azurequeue/README.md) | C | 13 | 6 gaps; 1 deferred |
 | [Azure SQL Database](services/azuresql/README.md) | B | 14 | 8 gaps |
 | [Azure Service Bus](services/azureservicebus/README.md) | B | 25 | 3 gaps; 4 deferred |
 | [Azure Table Storage](services/azuretable/README.md) | C | 14 | 4 gaps; 3 deferred |
-| [Microsoft Graph](services/azuregraph/README.md) | B | 35 | 5 gaps |
+| [Microsoft Graph](services/azuregraph/README.md) | B | 37 | 5 gaps |
 
 ### GCP
 
@@ -962,7 +962,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cloud Bigtable](services/gcpbigtable/README.md) | B | 45 | 1 gap |
 | [Cloud Build](services/gcpcloudbuild/README.md) | B | 21 | 4 gaps |
 | [Cloud DNS](services/gcpdns/README.md) | B | — | 8 families; 1 gap |
-| [Cloud Datastore](services/gcpdatastore/README.md) | B | 13 | 5 gaps |
+| [Cloud Datastore](services/gcpdatastore/README.md) | B | 13 | 2 gaps |
 | [Cloud Functions](services/gcpfunctions/README.md) | B | 8 | 4 gaps |
 | [Cloud IAM](services/gcpiam/README.md) | B | 31 | 4 gaps |
 | [Cloud Logging](services/gcplogging/README.md) | B | 43 | 3 gaps |
@@ -974,7 +974,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cloud Tasks](services/gcpcloudtasks/README.md) | B | 20 | clean |
 | [Compute Engine](services/gcpcompute/README.md) | B | — | 8 families; 7 gaps |
 | [Eventarc](services/gcpeventarc/README.md) | B | 47 | 3 gaps |
-| [Google Cloud Batch](services/gcpbatch/README.md) | B | 14 | 5 gaps |
+| [Google Cloud Batch](services/gcpbatch/README.md) | B | 14 | 4 gaps |
 | [Google Cloud Firestore](services/gcpfirestore/README.md) | B | 17 | 3 gaps |
 | [Google Cloud KMS](services/gcpkms/README.md) | B | 35 | 4 gaps |
 | [Google Cloud Pub/Sub](services/gcppubsub/README.md) | B | 38 | 3 gaps |
@@ -990,11 +990,11 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [OCI API Gateway](services/ociapigateway/README.md) | B | 52 | 7 gaps |
+| [OCI API Gateway](services/ociapigateway/README.md) | B | 52 | 3 gaps |
 | [OCI Artifacts and Container Registry](services/ociartifacts/README.md) | B | 37 | 1 gap |
 | [OCI Autonomous Database](services/ocidatabase/README.md) | B | 21 | 5 gaps |
 | [OCI Container Engine for Kubernetes](services/ocicontainerengine/README.md) | B | 50 | 1 gap |
-| [OCI Container Instances](services/ocicontainerinstances/README.md) | B | 18 | 6 gaps |
+| [OCI Container Instances](services/ocicontainerinstances/README.md) | B | 18 | 2 gaps |
 | [OCI Core Services](services/ocicore/README.md) | B | 358 | 4 gaps |
 | [OCI DNS](services/ocidns/README.md) | B | 52 | 2 gaps |
 | [OCI Events](services/ocievents/README.md) | B | 6 | 4 gaps |
@@ -1009,7 +1009,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [OCI Notifications](services/ocinotifications/README.md) | B | 16 | 1 gap |
 | [OCI Object Storage](services/ociobjectstorage/README.md) | B | 57 | 5 gaps |
 | [OCI Queue](services/ociqueue/README.md) | B | 19 | 1 gap |
-| [OCI Streaming](services/ocistreaming/README.md) | B | 30 | 5 gaps |
+| [OCI Streaming](services/ocistreaming/README.md) | B | 30 | 1 gap |
 | [OCI Vault](services/ocivault/README.md) | B | 62 | 2 gaps |
 
 ### Other
