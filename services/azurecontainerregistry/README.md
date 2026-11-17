@@ -9,20 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 24 (24 ok) |
 | Feature families | 5 (5 ok) |
-| Known gaps | 8 |
+| Known gaps | 3 |
 | Deferred items | 0 |
 | Resource leaks | partial |
 
 ### Known gaps
 
-- The listener is plain HTTP unless --azure-acr-tls-cert/--azure-acr-tls-key are set, so az acr login and docker only trust it as an insecure or localhost registry.
-- Connected registries, agent pools and ACR Tasks (tasks, runs, taskRuns, scheduleRun, task run logs) are not modelled: a task build step needs an image build API and pkgs/container only creates and execs containers.
-- ARM listUsages is not served (the Size usage needs registry size metering); a customer-managed key is only followed while it exists and is enabled, revoking the registry identity's Key Vault permission is not modelled; policies other than their defaults (quarantine, trust, retention, export, soft delete) are stored and have no effect.
-- Webhooks: no retries, the quarantine action never fires, each webhook keeps its last 100 events.
-- Replications are metadata only: there is one copy of the data.
-- Blobs unreferenced by any manifest are never garbage collected, and registry size is not metered.
-- Content trust, quarantine and retention policies are not implemented; quarantineState is always Passed and signed is always false.
-- Each registry's embedded distribution library leaves one go-events broadcaster goroutine running until process exit.
+- Connected registries, agent pools and ACR Tasks (tasks, runs, taskRuns, scheduleRun, task run logs) are not modelled: the ARM routes belong in services/azurearm/rp_acr_routes.go:45 (containerRegistryRoutes), an existing file this pass could not edit, and a task build step needs an image build API that pkgs/container does not have (PullImage at pkgs/container/container.go:196 is the only image call).
+- Quarantine, content trust (Notary) and soft delete policies are stored and have no data-plane effect: quarantine has no Learn page (container-registry-quarantine answered 404 when checked) and its data-plane API is not documented, so quarantineState stays Passed and the webhook quarantine action never fires; content trust needs a Notary signing service that no emulated service provides (signed stays false); soft delete needs the data-plane list-deleted and restore paths, which Learn container-registry-soft-delete-policy names only as az acr commands (az acr manifest list-deleted, restore) without their REST paths. Revoking the registry identity's Key Vault permission is not modelled (Key Vault permission evaluation is out of scope).
+- Each registry's embedded distribution library leaves one go-events broadcaster goroutine running until process exit: distribution v3.1.2 registry/handlers/app.go:526 builds events.NewBroadcaster into the unexported app.events field and App.Shutdown (app.go:461) never closes it.
 
 ## More
 

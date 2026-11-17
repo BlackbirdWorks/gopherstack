@@ -9,19 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 47 (27 ok, 20 partial) |
 | Feature families | 13 (9 ok, 4 partial) |
-| Known gaps | 7 |
+| Known gaps | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Audit logs: Data Access records are emitted unconditionally (no IAM audit config), the principal is the fixed gcpaudit.DefaultPrincipal, Cloud Build, Cloud Run, Pub/Sub, KMS and the other emulated services record nothing (Artifact Registry records repository and artifact writes, not reads or Docker data-plane calls); the ce-subject layout {serviceName}/{resourceName} is not documented (the cloudevents and supported-events pages never mention subject) and stays the emulator's choice.
-- Triggers cannot target GKE (not emulated); Cloud Functions are reached through the Cloud Run destination, a trigger cannot set cloud_function (the API forbids it).
-- Advanced: LoggingConfig is stored and not honoured; Publisher avro_message is UNIMPLEMENTED (the publishing proto documents only CloudEvent protos and JSON text for channels); input_payload_format and output_payload_format are recorded but data is always JSON; the CEL functions toDestinationPayloadFormat and toCloudEventJsonWithPayloadFormat are identity; destination network_config is ignored; an organization subscription receives every project's events; Cloud Storage events carry no project, so project subscriptions do not filter them; the default message binding and the Pub/Sub topic destination payload are the emulator's choice (unverified); crypto_key_name on buses, pipelines and Google API sources is validated, but delivery through them does not stop when the key is disabled.
-- network_config, event_data_content_type application/protobuf for event types other than Firestore and satisfies_pzs are not honoured; trigger conditions are always empty.
-- A Cloud Run service need not exist when a trigger is created; an unresolved service only fails deliveries (and is retried). Region and location rules (global triggers, storage bucket region match) are not enforced.
-- The default operation delay (1s) is the emulator's choice; a cancelled create/update/delete is not rolled back.
-- After a restore the transport subscriptions keep the push endpoint of the run that created them; a changed --gcp-eventarc-port needs the triggers recreated.
+- Audit logs: Data Access records are emitted unconditionally (honouring audit configs is IAM policy evaluation, out of scope), the principal is the fixed gcpaudit.DefaultPrincipal, Cloud Build, Cloud Run, Pub/Sub, KMS and the other emulated services record nothing (Artifact Registry records repository and artifact writes, not reads or Docker data-plane calls).
+- Advanced: Publisher avro_message is UNIMPLEMENTED (publisher.pb.go names the CloudEvents Avro format, but the exact record schema and union order could not be read verbatim from the spec page, and Avro binary needs them exact); input_payload_format and output_payload_format are recorded but data is always JSON, and toDestinationPayloadFormat and toCloudEventJsonWithPayloadFormat are identity, because avro and protobuf payloads need those schemas; an organization subscription covers every project under the single emulated organization (a project Resource Manager does not know is delivered).
+- event_data_content_type application/protobuf is honoured only for Firestore events; Cloud Storage and Pub/Sub events are always JSON.
 
 ## More
 

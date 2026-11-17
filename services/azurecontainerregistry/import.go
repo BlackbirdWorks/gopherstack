@@ -169,13 +169,15 @@ func (b *InMemoryBackend) ImportImage(ctx context.Context, reg string, req Impor
 		srcRef = defaultImageTag
 	}
 
+	sink := importSink{
+		hold:  func() func() { return b.pushGate(reg) },
+		after: func(t imageRef, digest string) { b.afterImport(ctx, reg, app, t, digest) },
+	}
+
 	for _, t := range targets {
-		digest, copyErr := copyImage(ctx, from, dst, src.repo, srcRef, t)
-		if copyErr != nil {
+		if copyErr := copyImage(ctx, from, dst, src.repo, srcRef, t, sink); copyErr != nil {
 			return copyErr
 		}
-
-		b.afterImport(ctx, reg, app, t, digest)
 	}
 
 	return nil
@@ -217,29 +219,38 @@ func importTargets(src imageRef, req ImportRequest) ([]imageRef, error) {
 	return out, nil
 }
 
+// importSink serialises pushes with deletes: hold takes the registry gate shared around every write, after
+// records a stored manifest while the gate is still held.
+type importSink struct {
+	hold  func() func()
+	after func(t imageRef, digest string)
+}
+
 func copyImage(
 	ctx context.Context, from imageSource, dst ociregistry.Client, srcRepo, srcRef string, t imageRef,
-) (string, error) {
+	sink importSink,
+) error {
 	m, err := from.manifest(ctx, srcRepo, srcRef)
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	var doc importManifest
 	if err = json.Unmarshal(m.body, &doc, jsonx.V1()); err != nil {
-		return "", fmt.Errorf("%w: manifest: %w", ErrImportUpstream, err)
+		return fmt.Errorf("%w: manifest: %w", ErrImportUpstream, err)
 	}
 
 	for _, child := range doc.Manifests {
-		if _, err = copyImage(
+		if err = copyImage(
 			ctx,
 			from,
 			dst,
 			srcRepo,
 			child.Digest,
 			imageRef{repo: t.repo, ref: child.Digest},
+			sink,
 		); err != nil {
-			return "", err
+			return err
 		}
 	}
 
@@ -255,11 +266,16 @@ func copyImage(
 	for _, d := range digests {
 		data, blobErr := from.blob(ctx, srcRepo, d)
 		if blobErr != nil {
-			return "", blobErr
+			return blobErr
 		}
 
-		if err = dst.PutBlob(ctx, t.repo, d, data); err != nil {
-			return "", fmt.Errorf("store blob %s: %w", d, err)
+		release := sink.hold()
+		err = dst.PutBlob(ctx, t.repo, d, data)
+
+		release()
+
+		if err != nil {
+			return fmt.Errorf("store blob %s: %w", d, err)
 		}
 	}
 
@@ -273,12 +289,16 @@ func copyImage(
 		mediaType = doc.MediaType
 	}
 
+	defer sink.hold()()
+
 	digest, err := dst.PutManifest(ctx, t.repo, ref, mediaType, m.body)
 	if err != nil {
-		return "", fmt.Errorf("store manifest: %w", err)
+		return fmt.Errorf("store manifest: %w", err)
 	}
 
-	return digest, nil
+	sink.after(imageRef{repo: t.repo, ref: t.ref}, digest)
+
+	return nil
 }
 
 func (b *InMemoryBackend) afterImport(ctx context.Context, reg string, app http.Handler, t imageRef, digest string) {
@@ -318,6 +338,10 @@ func (b *InMemoryBackend) importSource(s ImportSource) (imageSource, error) {
 			return nil, fmt.Errorf("%w: registry %s", ErrImportSourceNotFound, s.Registry)
 		}
 
+		if !b.exportAllowed(s.Registry) {
+			return nil, fmt.Errorf("%w: %s", ErrImportExportOff, s.Registry)
+		}
+
 		return localSource{c: ociregistry.NewClient(app)}, nil
 	}
 
@@ -331,6 +355,10 @@ func (b *InMemoryBackend) importSource(s ImportSource) (imageSource, error) {
 
 	if label, rest, ok := strings.Cut(host, "."); ok && emulatedHost(rest) {
 		if name, found := b.registryNamed(label); found && b.sourceReadable(name, s) {
+			if !b.exportAllowed(name) {
+				return nil, fmt.Errorf("%w: %s", ErrImportExportOff, name)
+			}
+
 			app, _ := b.app(name)
 
 			return localSource{c: ociregistry.NewClient(app)}, nil

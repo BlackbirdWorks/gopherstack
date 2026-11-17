@@ -18,6 +18,8 @@ const (
 	StorageTypePrefix = "google.cloud.storage.object.v1."
 	// FirestoreTypePrefix prefixes Firestore event types.
 	FirestoreTypePrefix = "google.cloud.firestore.document.v1."
+	// AuditLogType is the event type of Cloud Audit Logs entries.
+	AuditLogType = "google.cloud.audit.log.v1.written"
 	// FirestoreWritten is the suffix matching created, updated and deleted.
 	FirestoreWritten = "written"
 
@@ -77,6 +79,22 @@ func StorageEvent(id, kind, bucket, object string, data []byte, t time.Time) Clo
 		Time:        stamp(t),
 		ContentType: contentTypeJSON,
 		Extensions:  map[string]string{"bucket": bucket},
+		Data:        data,
+	}
+}
+
+// AuditLogEvent wraps a Cloud Audit Logs LogEntry (JSON data) in a CloudEvent of type
+// google.cloud.audit.log.v1.written; the source and the servicename, methodname and resourcename extension
+// attributes follow docs.cloud.google.com/eventarc/docs/cloudevents.
+func AuditLogEvent(id, project, service, method, resource string, data []byte, t time.Time) CloudEvent {
+	return CloudEvent{
+		ID:          id,
+		Type:        AuditLogType,
+		Source:      "//" + service + "/projects/" + project,
+		Subject:     service + "/" + resource,
+		Time:        stamp(t),
+		ContentType: contentTypeJSON,
+		Extensions:  map[string]string{"servicename": service, "methodname": method, "resourcename": resource},
 		Data:        data,
 	}
 }

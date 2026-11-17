@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -33,7 +34,7 @@ var (
 	errNoPusher     = errors.New("the container runtime cannot push images")
 	errNoRegistry   = errors.New("the Artifact Registry emulator is not available to this build")
 	errRegistryHost = errors.New(
-		"images must be pushed to <location>-docker.pkg.dev/<project>/<repository>/<image>",
+		"images must be pushed to <location>-docker.pkg.dev/<project>/<repository>/<image> or gcr.io/<project>/<image>",
 	)
 	errUnsafeArtifact = errors.New("artifact path must be relative to the workspace")
 	errTooManyFiles   = errors.New("too many artifact files")
@@ -140,9 +141,29 @@ func withTag(image string) string {
 	return image + ":latest"
 }
 
+var gcrProjectRe = regexp.MustCompile(`^[a-z][a-z0-9.:_-]{0,127}$`)
+
+func isGCRHost(host string) bool {
+	switch host {
+	case "gcr.io", "us.gcr.io", "eu.gcr.io", "asia.gcr.io":
+		return true
+	}
+
+	return false
+}
+
 // registryTarget maps <location>-docker.pkg.dev/<project>/<repo>/<image> onto the emulator's address.
 func registryTarget(addr, image string) (string, error) {
 	host, rest, ok := strings.Cut(image, "/")
+	if ok && isGCRHost(host) {
+		project, path, found := strings.Cut(rest, "/")
+		if !found || !gcrProjectRe.MatchString(project) || path == "" {
+			return "", fmt.Errorf("%w: got %q", errRegistryHost, image)
+		}
+
+		return addr + "/" + project + "/" + host + "/" + withTag(path), nil
+	}
+
 	if !ok || (host != arHostSuffix && !strings.HasSuffix(host, "-"+arHostSuffix)) ||
 		strings.Count(rest, "/") < 2 {
 		return "", fmt.Errorf("%w: got %q", errRegistryHost, image)

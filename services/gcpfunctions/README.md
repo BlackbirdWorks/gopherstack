@@ -9,20 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 8 (8 ok) |
 | Feature families | 13 (6 ok, 7 partial) |
-| Known gaps | 8 |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- The Docker log stream is covered by a unit test and one opt-in Docker test, not a live daemon run in CI.
-- GEN_1 functions (cloudfunctions.v1 API), repo_source/git_uri builds and Cloud Build are not implemented.
-- Audit-log and custom-channel (Eventarc) event types are rejected; Storage and Firestore events are delivered in-process, not through an Eventarc trigger or a Pub/Sub transport topic.
+- GEN_1 functions (cloudfunctions.v1 API), repo_source/git_uri builds and Cloud Build builds are not implemented: deploy.go builds in the function container, and no code path reaches gcpcloudbuild.
+- Custom-channel (Eventarc channel) event types are rejected; Storage, Firestore and audit-log events are delivered in-process by the emulators' observers, not through an Eventarc trigger or a Pub/Sub transport topic.
 - available_memory and available_cpu are validated but not enforced: dependency install and serving share one container, and limiting it would OOM-kill the install (real builds run in Cloud Build with their own resources); enforcing them needs a separate unlimited install container or a runtime update call.
-- vpc_connector is stored but not applied (no VPC data plane); ingress internal is an explicit header marker, not network provenance.
-- GetFunction rejects the revision field, which the reference limits to 1st gen functions (not implemented); ListFunctions rejects filter and order_by because the reference only says AIP-160 and a comma separated field list without naming the filterable or sortable fields.
-- URLs are http .localhost addresses, not https://*.cloudfunctions.net or *.run.app, and the upload bucket is synthetic rather than a GCS bucket.
-- The container build path (npm/pip/go get at start) needs network access and has only been exercised against a fake runtime.
+- The container build path for the pip and go runtimes (pip install, go get at start) needs network access and has only been exercised against a fake runtime; the Node.js npm path ran against Docker.
 
 ## More
 

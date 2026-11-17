@@ -171,3 +171,70 @@ func TestGCRHostCreatesRepositoryOnPush(t *testing.T) {
 		})
 	}
 }
+
+func TestGCRRepositoryPathCreatesRepositoryOnPush(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		repoID   string
+		location string
+	}{
+		{"gcr.io", "us"},
+		{"eu.gcr.io", "europe"},
+		{"asia.gcr.io", "asia"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.repoID, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, "")
+			c := e.docker(t)
+			name := "projects/" + project + "/locations/" + tt.location + "/repositories/" + tt.repoID
+
+			assert.Equal(t, 404, c.Do("GET", "/v2/"+project+"/"+tt.repoID+"/app/manifests/v1", nil, nil).Status)
+
+			img := c.PushImage(project+"/"+tt.repoID+"/app", "v1")
+
+			repo, err := e.client.GetRepository(t.Context(), &artifactregistrypb.GetRepositoryRequest{Name: name})
+			require.NoError(t, err)
+			assert.Equal(t, artifactregistrypb.Repository_DOCKER, repo.GetFormat())
+
+			got := c.Do("GET", "/v2/"+project+"/"+tt.repoID+"/app/manifests/v1", nil, nil)
+			require.Equal(t, 200, got.Status)
+			assert.Equal(t, img.Body, got.Body)
+		})
+	}
+}
+
+func TestGCRPushRejectsInvalidProject(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct{ name, host, path, project string }{
+		{name: "upper case host", host: "gcr.io", path: "/v2/BAD$PROJECT/app/blobs/uploads/", project: "BAD$PROJECT"},
+		{name: "leading dash host", host: "gcr.io", path: "/v2/-lead/app/blobs/uploads/", project: "-lead"},
+		{name: "upper case path", host: "", path: "/v2/BAD$PROJECT/gcr.io/app/blobs/uploads/", project: "BAD$PROJECT"},
+		{name: "dots path", host: "", path: "/v2/../gcr.io/app/blobs/uploads/", project: ".."},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, "")
+			c := e.docker(t)
+
+			if tt.host != "" {
+				c.Host = tt.host
+			}
+
+			c.Do("POST", tt.path, nil, nil)
+
+			it := e.client.ListRepositories(t.Context(), &artifactregistrypb.ListRepositoriesRequest{
+				Parent: "projects/" + tt.project + "/locations/-",
+			})
+			_, err := it.Next()
+			assert.ErrorIs(t, err, iterator.Done)
+		})
+	}
+}

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"cloud.google.com/go/logging/apiv2/loggingpb"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
@@ -172,7 +174,19 @@ func (b *InMemoryBackend) notifyObservers(entries []*loggingpb.LogEntry) {
 
 	for _, fn := range obs {
 		for _, e := range entries {
-			fn(e)
+			callObserver(fn, e)
 		}
 	}
+}
+
+// callObserver isolates a panicking observer so it cannot fail the write or starve the observers after it.
+func callObserver(fn EntryObserver, e *loggingpb.LogEntry) {
+	defer func() {
+		if r := recover(); r != nil {
+			ctx := context.Background()
+			logger.Load(ctx).ErrorContext(ctx, "gcplogging: entry observer panicked", "panic", r)
+		}
+	}()
+
+	fn(e)
 }

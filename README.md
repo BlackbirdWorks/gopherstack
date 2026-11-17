@@ -938,19 +938,19 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Azure App Configuration](services/azureappconfig/README.md) | B | 14 | 2 gaps |
 | [Azure Blob Storage](services/azureblob/README.md) | C | 35 | 4 gaps; 3 deferred |
 | [Azure Cache for Redis](services/azureredis/README.md) | B | 13 | 9 gaps |
-| [Azure Container Registry](services/azurecontainerregistry/README.md) | B | 24 | 8 gaps |
+| [Azure Container Registry](services/azurecontainerregistry/README.md) | B | 24 | 3 gaps |
 | [Azure Cosmos DB](services/cosmosdb/README.md) | A | 35 | clean |
 | [Azure Event Grid](services/azureeventgrid/README.md) | B | 10 | 8 gaps |
 | [Azure Event Hubs](services/azureeventhubs/README.md) | B | 16 | 4 gaps |
 | [Azure Files](services/azurefile/README.md) | B | 42 | 3 gaps |
-| [Azure Functions](services/azurefunctions/README.md) | B | 17 | 8 gaps |
+| [Azure Functions](services/azurefunctions/README.md) | B | 17 | 6 gaps |
 | [Azure Key Vault](services/azurekeyvault/README.md) | B | 15 | 1 gap |
 | [Azure Monitor Logs](services/azuremonitor/README.md) | B | 20 | 4 gaps |
 | [Azure Queue Storage](services/azurequeue/README.md) | C | 13 | 6 gaps; 1 deferred |
 | [Azure SQL Database](services/azuresql/README.md) | B | 14 | 8 gaps |
 | [Azure Service Bus](services/azureservicebus/README.md) | B | 25 | 3 gaps; 4 deferred |
 | [Azure Table Storage](services/azuretable/README.md) | C | 14 | 4 gaps; 3 deferred |
-| [Microsoft Graph](services/azuregraph/README.md) | B | 35 | 8 gaps |
+| [Microsoft Graph](services/azuregraph/README.md) | B | 35 | 5 gaps |
 
 ### GCP
 
@@ -960,10 +960,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Artifact Registry](services/gcpartifactregistry/README.md) | B | 52 | 3 gaps |
 | [BigQuery](services/gcpbigquery/README.md) | B | 28 | 8 gaps |
 | [Cloud Bigtable](services/gcpbigtable/README.md) | B | 45 | 1 gap |
-| [Cloud Build](services/gcpcloudbuild/README.md) | B | 21 | 6 gaps |
+| [Cloud Build](services/gcpcloudbuild/README.md) | B | 21 | 4 gaps |
 | [Cloud DNS](services/gcpdns/README.md) | B | — | 8 families; 1 gap |
 | [Cloud Datastore](services/gcpdatastore/README.md) | B | 13 | 5 gaps |
-| [Cloud Functions](services/gcpfunctions/README.md) | B | 8 | 8 gaps |
+| [Cloud Functions](services/gcpfunctions/README.md) | B | 8 | 4 gaps |
 | [Cloud IAM](services/gcpiam/README.md) | B | 31 | 4 gaps |
 | [Cloud Logging](services/gcplogging/README.md) | B | 43 | 3 gaps |
 | [Cloud Monitoring](services/gcpmonitoring/README.md) | B | 54 | 5 gaps |
@@ -973,7 +973,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cloud Spanner](services/gcpspanner/README.md) | B | 31 | 2 gaps |
 | [Cloud Tasks](services/gcpcloudtasks/README.md) | B | 20 | clean |
 | [Compute Engine](services/gcpcompute/README.md) | B | — | 8 families; 7 gaps |
-| [Eventarc](services/gcpeventarc/README.md) | B | 47 | 7 gaps |
+| [Eventarc](services/gcpeventarc/README.md) | B | 47 | 3 gaps |
 | [Google Cloud Batch](services/gcpbatch/README.md) | B | 14 | 5 gaps |
 | [Google Cloud Firestore](services/gcpfirestore/README.md) | B | 17 | 3 gaps |
 | [Google Cloud KMS](services/gcpkms/README.md) | B | 35 | 4 gaps |

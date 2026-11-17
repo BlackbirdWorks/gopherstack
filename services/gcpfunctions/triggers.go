@@ -15,6 +15,10 @@ const (
 	attrNamespace = "namespace"
 	attrDocument  = "document"
 	defaultNS     = "(default)"
+
+	attrServiceName  = "serviceName"
+	attrMethodName   = "methodName"
+	attrResourceName = "resourceName"
 )
 
 // BucketLookup tells event triggers whether a Cloud Storage bucket exists.
@@ -53,8 +57,8 @@ func isFirestoreType(typ string) bool {
 }
 
 func supportedEventTypes() string {
-	out := make([]string, 1, 1+len(storageKinds())+len(firestoreKinds()))
-	out[0] = EventTypePubSub
+	out := make([]string, 0, 2+len(storageKinds())+len(firestoreKinds()))
+	out = append(out, EventTypePubSub, gcpevents.AuditLogType)
 
 	for _, k := range storageKinds() {
 		out = append(out, gcpevents.StorageTypePrefix+k)
@@ -148,6 +152,25 @@ func validateFirestoreTrigger(et *functionspb.EventTrigger) error {
 
 	if fs[attrDatabase] == nil {
 		return errInvalid("Events of type %q require a filter for the %q attribute.", et.GetEventType(), attrDatabase)
+	}
+
+	return nil
+}
+
+func validateAuditTrigger(et *functionspb.EventTrigger) error {
+	if et.GetPubsubTopic() != "" {
+		return errInvalid("pubsub_topic is only valid for %s events.", EventTypePubSub)
+	}
+
+	fs, err := checkFilters(et, []string{attrServiceName, attrMethodName, attrResourceName}, attrResourceName)
+	if err != nil {
+		return err
+	}
+
+	for _, a := range []string{attrServiceName, attrMethodName} {
+		if fs[a] == nil {
+			return errInvalid("Events of type %q require a filter for the %q attribute.", et.GetEventType(), a)
+		}
 	}
 
 	return nil

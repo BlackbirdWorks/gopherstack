@@ -264,6 +264,8 @@ func (h *Handler) deleteRepo(w http.ResponseWriter, r *http.Request, reg, repo s
 		return
 	}
 
+	defer h.Backend.deleteGate(reg)()
+
 	gone, found := h.Backend.ForgetRepository(reg, repo)
 	if !found {
 		notFound(w, "NAME_UNKNOWN")
@@ -274,6 +276,7 @@ func (h *Handler) deleteRepo(w http.ResponseWriter, r *http.Request, reg, repo s
 	c := ociregistry.NewClient(app)
 	for _, d := range gone.Digests {
 		_ = c.DeleteManifest(r.Context(), repo, d)
+		h.Backend.collectGarbage(r.Context(), reg, repo, d)
 	}
 
 	writeJSON(w, http.StatusAccepted, map[string]any{"manifestsDeleted": gone.Digests, "tagsDeleted": gone.Tags})
@@ -444,6 +447,8 @@ func (h *Handler) deleteTag(w http.ResponseWriter, r *http.Request, reg string, 
 		return
 	}
 
+	defer h.Backend.deleteGate(reg)()
+
 	if err := ociregistry.NewClient(app).DeleteManifest(r.Context(), rt.repo, rt.item); err != nil {
 		notFound(w, "NAME_UNKNOWN")
 
@@ -603,6 +608,8 @@ func (h *Handler) deleteManifest(w http.ResponseWriter, r *http.Request, reg str
 
 		return
 	}
+
+	defer h.Backend.deleteGate(reg)()
 
 	if err := ociregistry.NewClient(app).DeleteManifest(r.Context(), rt.repo, rt.item); err != nil {
 		notFound(w, "NAME_UNKNOWN")

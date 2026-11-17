@@ -86,6 +86,7 @@ func (b *Backend) Restore(ctx context.Context, data []byte) error {
 	fill(&b.roleAssigns, snap.RoleAssigns, func(a *RoleAssignment) string { return a.ID })
 
 	b.owners, b.members, b.secrets = orEmpty(snap.Owners), orEmpty(snap.Members), orEmpty(snap.Secrets)
+	b.signIns = map[string]*signInState{}
 	b.managers, b.dirRoles = orEmpty(snap.Managers), orEmpty(snap.DirectoryRoles)
 	b.keyMaterial, b.fics = orEmpty(snap.KeyMaterial), orEmpty(snap.Federated)
 	b.purgeExpired()

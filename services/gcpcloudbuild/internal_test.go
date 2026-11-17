@@ -110,7 +110,10 @@ func TestRegistryTarget(t *testing.T) {
 		{image: "docker.pkg.dev/p/r/app", want: "h:1/p/r/app:latest"},
 		{image: "us-docker.pkg.dev/p/r/sub/app:1", want: "h:1/p/r/sub/app:1"},
 		{image: "us-docker.pkg.dev/p/app", wantErr: true},
-		{image: "gcr.io/p/app", wantErr: true},
+		{image: "gcr.io/p/app", want: "h:1/p/gcr.io/app:latest"},
+		{image: "eu.gcr.io/p/team/app:2", want: "h:1/p/eu.gcr.io/team/app:2"},
+		{image: "gcr.io/p", wantErr: true},
+		{image: "docker.io/p/app", wantErr: true},
 		{image: "app", wantErr: true},
 	}
 

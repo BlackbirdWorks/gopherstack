@@ -34,6 +34,7 @@ var (
 	ErrImportTagExists      = errors.New("azurecontainerregistry: import target tag already exists")
 	ErrImportRemoteDisabled = errors.New("azurecontainerregistry: importing from external registries is disabled")
 	ErrImportAuth           = errors.New("azurecontainerregistry: the source registry refused authentication")
+	ErrImportExportOff      = errors.New("azurecontainerregistry: the source registry has its export policy disabled")
 	ErrImportInvalid        = errors.New("azurecontainerregistry: invalid import request")
 	ErrImportUpstream       = errors.New("azurecontainerregistry: the source registry returned an error")
 )

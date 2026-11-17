@@ -127,6 +127,13 @@ func (b *InMemoryBackend) servePush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if trigger.GetDestination().GetGke() != nil {
+		deliverToGKE(r.Context(), trigger, ev)
+		w.WriteHeader(http.StatusNoContent)
+
+		return
+	}
+
 	target, err := destinationURL(trigger, targets)
 	if err == nil {
 		err = b.send(r.Context(), trigger, target, ev)
@@ -448,7 +455,9 @@ type StorageEvent struct {
 	Type   string
 	Bucket string
 	Name   string
-	Data   []byte
+	// Project owns the bucket; empty when unknown.
+	Project string
+	Data    []byte
 }
 
 // HandleStorageEvent publishes ev to the transport topic of every trigger whose filters it satisfies.
@@ -458,8 +467,9 @@ func (b *InMemoryBackend) HandleStorageEvent(ev StorageEvent) {
 	id := uuid.NewString()
 
 	b.publishEvent(fanout{
-		types: []string{typ},
-		attrs: map[string]string{attrBucket: ev.Bucket, attrSubject: subject},
+		types:   []string{typ},
+		project: ev.Project,
+		attrs:   map[string]string{attrBucket: ev.Bucket, attrSubject: subject},
 		message: func() map[string]any {
 			return eventMessage(id, storageSourcePrefix+ev.Bucket, typ, subject, ev.Time,
 				map[string]string{"bucket": ev.Bucket}, ev.Data)

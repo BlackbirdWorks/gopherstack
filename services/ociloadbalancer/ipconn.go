@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/netip"
 	"slices"
+	"strconv"
 )
 
 func checkIPMaxConns(r Rule) *APIError {
@@ -95,8 +96,9 @@ func (d *dataPlane) admit(p *portListener, c net.Conn) {
 		return
 	}
 
-	key := p.spec.key() + "|" + ap.Addr().String()
-	n := d.counter("ip|" + key)
+	// lbID must lead the key: prune drops counters whose leading segment is not a live load balancer.
+	key := p.spec.lbID + "|ip|" + strconv.Itoa(p.spec.port) + "|" + ap.Addr().String()
+	n := d.counter(key)
 
 	if int(n.Add(1)) > limit {
 		n.Add(-1)
@@ -117,6 +119,6 @@ func (d *dataPlane) release(p *portListener, c net.Conn) {
 	d.mu.Unlock()
 
 	if ok {
-		d.counter("ip|" + key).Add(-1)
+		d.counter(key).Add(-1)
 	}
 }

@@ -261,10 +261,23 @@ func (h *Handler) roleAssignments(c *echo.Context, ctx string, tail []string) er
 			return h.writeErr(c, err)
 		}
 
-		return h.entity(c, http.StatusOK, ctx, toMap(a))
+		return h.assignmentEntity(c, ctx, toMap(a))
 	case len(tail) == 1 && r.Method == http.MethodDelete:
 		return h.noContent(c, b.DeleteRoleAssignment(tail[0]))
 	}
 
 	return h.methodNotAllowed(c)
+}
+
+func (h *Handler) assignmentEntity(c *echo.Context, ctx string, m map[string]any) error {
+	q, err := parseListQuery(c.Request(), resourceRoleAssignment, fieldsOf[RoleAssignment]())
+	if err != nil {
+		return h.writeErr(c, err)
+	}
+
+	if err = h.expandAll(q, resourceRoleAssignment, m); err != nil {
+		return h.writeErr(c, err)
+	}
+
+	return h.entity(c, http.StatusOK, ctx, m)
 }

@@ -8,7 +8,10 @@ import (
 
 	"cloud.google.com/go/firestore/apiv1/firestorepb"
 	"cloud.google.com/go/functions/apiv2/functionspb"
+	"cloud.google.com/go/logging/apiv2/loggingpb"
 	"github.com/google/uuid"
+	"google.golang.org/genproto/googleapis/cloud/audit"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpevents"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpscale"
@@ -181,6 +184,58 @@ func (b *InMemoryBackend) HandleDocumentEvent(ev DocumentEvent) {
 		for _, tg := range b.matching(typ, match) {
 			b.dispatch(tg, out)
 		}
+	}
+}
+
+// HandleLogEntry delivers a Cloud Audit Logs entry (protoPayload AuditLog) to every function whose
+// google.cloud.audit.log.v1.written trigger satisfies its serviceName, methodName and resourceName filters.
+func (b *InMemoryBackend) HandleLogEntry(e *loggingpb.LogEntry) {
+	pp := e.GetProtoPayload()
+	if pp == nil {
+		return
+	}
+
+	var al audit.AuditLog
+	if err := pp.UnmarshalTo(&al); err != nil {
+		return
+	}
+
+	rest, ok := strings.CutPrefix(e.GetLogName(), "projects/")
+	if !ok {
+		return
+	}
+
+	project, _, _ := strings.Cut(rest, "/logs/")
+	if project == "" {
+		return
+	}
+
+	attrs := map[string]string{
+		attrServiceName: al.GetServiceName(), attrMethodName: al.GetMethodName(),
+		attrResourceName: al.GetResourceName(),
+	}
+
+	targets := b.matching(gcpevents.AuditLogType, func(et *functionspb.EventTrigger, n resName) bool {
+		return n.project == project && matchFilters(et.GetEventFilters(), attrs)
+	})
+	if len(targets) == 0 {
+		return
+	}
+
+	data, err := protojson.Marshal(e)
+	if err != nil {
+		return
+	}
+
+	id := e.GetInsertId()
+	if id == "" {
+		id = uuid.NewString()
+	}
+
+	ce := gcpevents.AuditLogEvent(id, project, al.GetServiceName(), al.GetMethodName(), al.GetResourceName(),
+		data, e.GetTimestamp().AsTime())
+	for _, tg := range targets {
+		b.dispatch(tg, ce)
 	}
 }
 

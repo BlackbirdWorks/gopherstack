@@ -29,6 +29,8 @@ type Backend struct {
 	managers    map[string]string
 	dirRoles    map[string]string
 	secrets     map[string]string
+	signIns     map[string]*signInState
+	hooks       signInHooks
 	keyMaterial map[string]string
 	fics        map[string][]FederatedCredential
 	apps        store[Application]
@@ -90,6 +92,7 @@ func (b *Backend) reset() {
 	b.assigns, b.grants = newStore[AppRoleAssignment](), newStore[OAuth2PermissionGrant]()
 	b.deleted, b.roleAssigns = newStore[deletedItem](), newStore[RoleAssignment]()
 	b.owners, b.members, b.secrets = map[string][]string{}, map[string][]string{}, map[string]string{}
+	b.signIns = map[string]*signInState{}
 	b.managers, b.dirRoles = map[string]string{}, map[string]string{}
 	b.keyMaterial, b.fics = map[string]string{}, map[string][]FederatedCredential{}
 	b.adminUnits, b.auMembers = newStore[AdministrativeUnit](), map[string][]string{}

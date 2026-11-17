@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"time"
 
+	storagedriver "github.com/distribution/distribution/v3/registry/storage/driver"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -41,22 +43,28 @@ type Credentials struct {
 }
 
 type registry struct {
-	CreatedAt  time.Time                 `json:"createdAt"`
-	Repos      ociregistry.Ledger        `json:"repos"`
-	Webhooks   map[string]*Webhook       `json:"webhooks,omitempty"`
-	Events     map[string][]WebhookEvent `json:"events,omitempty"`
-	ScopeMaps  map[string]*ScopeMap      `json:"scopeMaps,omitempty"`
-	Tokens     map[string]*Token         `json:"tokens,omitempty"`
-	CacheRules map[string]*CacheRule     `json:"cacheRules,omitempty"`
-	raw        http.Handler
-	app        http.Handler
-	Name       string       `json:"name"`
-	Password1  string       `json:"password1"`
-	Password2  string       `json:"password2"`
-	KeyID      string       `json:"keyId,omitempty"`
-	Network    NetworkRules `json:"network,omitzero"`
-	Admin      bool         `json:"admin"`
-	Anonymous  bool         `json:"anonymousPull,omitempty"`
+	CreatedAt      time.Time                       `json:"createdAt"`
+	Repos          ociregistry.Ledger              `json:"repos"`
+	Webhooks       map[string]*Webhook             `json:"webhooks,omitempty"`
+	Events         map[string][]WebhookEvent       `json:"events,omitempty"`
+	ScopeMaps      map[string]*ScopeMap            `json:"scopeMaps,omitempty"`
+	Tokens         map[string]*Token               `json:"tokens,omitempty"`
+	CacheRules     map[string]*CacheRule           `json:"cacheRules,omitempty"`
+	RetentionDue   map[string]map[string]time.Time `json:"retentionDue,omitempty"`
+	GarbageDue     map[string]map[string]time.Time `json:"garbageDue,omitempty"`
+	touched        map[string]time.Time
+	raw            http.Handler
+	app            http.Handler
+	driver         storagedriver.StorageDriver
+	gate           *lockmetrics.RWMutex
+	Name           string       `json:"name"`
+	Password1      string       `json:"password1"`
+	Password2      string       `json:"password2"`
+	KeyID          string       `json:"keyId,omitempty"`
+	Network        NetworkRules `json:"network,omitzero"`
+	Admin          bool         `json:"admin"`
+	Anonymous      bool         `json:"anonymousPull,omitempty"`
+	ExportDisabled bool         `json:"exportDisabled,omitempty"`
 }
 
 // InMemoryBackend holds every registry's control-plane state under one lock; blobs and manifests live in
@@ -71,6 +79,8 @@ type InMemoryBackend struct {
 	regs          map[string]*registry
 	secrets       SecretResolver
 	keyCheck      KeyChecker
+	retention     RetentionSource
+	onPlanned     func()
 	dataDir       string
 	secret        []byte
 	remoteImports bool
@@ -106,7 +116,7 @@ func (b *InMemoryBackend) SetContext(ctx context.Context) {
 
 func newRegistry(name string, now time.Time) *registry {
 	return &registry{
-		Name: name, CreatedAt: now, Repos: ociregistry.Ledger{},
+		Name: name, CreatedAt: now, Repos: ociregistry.Ledger{}, gate: newGate(),
 		Password1: awsid.NewN("", passwordChars), Password2: awsid.NewN("", passwordChars),
 	}
 }
@@ -195,7 +205,7 @@ func (b *InMemoryBackend) DeleteRegistry(name string) error {
 func (b *InMemoryBackend) release(r *registry, purge bool) {
 	if r.raw != nil {
 		ociregistry.Shutdown(r.raw)
-		r.raw, r.app = nil, nil
+		r.raw, r.app, r.driver = nil, nil, nil
 	}
 
 	if purge && b.dataDir != "" {
@@ -271,8 +281,9 @@ func (b *InMemoryBackend) app(name string) (http.Handler, bool) {
 			dir = filepath.Join(b.dataDir, strs.Fold(r.Name))
 		}
 
+		r.driver = newDriver(dir)
 		r.raw = ociregistry.New(b.ctx, ociregistry.Options{
-			InstanceID: "gopherstack-acr-" + strs.Fold(r.Name), RootDir: dir,
+			InstanceID: "gopherstack-acr-" + strs.Fold(r.Name), Driver: r.driver,
 		})
 		r.app = ociregistry.Limit(r.raw, 0)
 	}

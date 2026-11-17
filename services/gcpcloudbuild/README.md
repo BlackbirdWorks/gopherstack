@@ -9,18 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 21 (21 ok) |
 | Feature families | 14 (12 ok, 2 partial) |
-| Known gaps | 6 |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | ok |
 
 ### Known gaps
 
-- connectedRepository builds fail with FETCH_SOURCE_FAILED (no Cloud Build v2 connections or repositories API in-process); there is no Source Repositories emulator, so repoSource resolves refs from Services.RepoBase git remotes only; repository_event_config and git_file_source triggers cannot resolve a repository, and triggers that read cloudbuild.yaml from a repository can be stored but not run.
-- Event triggers on repository events (trigger_template, github, repository_event_config) are stored and never fire, because the emulator has no repository event source; builds start from CreateBuild, RetryBuild, RunBuildTrigger, ReceiveTriggerWebhook and pubsub_config triggers. pubsub_config.subscription is not populated because no subscription is created, so $(body.subscription) is empty, and webhook and pubsub filters support only ==, !=, &&, ||, !, parentheses and matches/contains/startsWith/endsWith over substitution variables.
-- options.pool, machine_type and disk_size_gb do not change where or how steps run; no concurrency limit exists, so a build is never held QUEUED and queue_ttl only applies to approval-held and late-started builds.
-- Images can only be pushed to the Artifact Registry emulator; gcr.io and other registries fail the build.
-- Step containers share the host Docker daemon (and its socket when present), so builds are not isolated from each other or from the host.
-- Authentication is not checked, IAM is not enforced and service_account is ignored.
+- connectedRepository builds fail with FETCH_SOURCE_FAILED (sourcemanifest.go:23: no Cloud Build v2 connections or repositories API in-process); repository_event_config and git_file_source triggers cannot resolve a repository, and triggers that read cloudbuild.yaml from a repository can be stored but not run.
+- options.machine_type, options.disk_size_gb and worker pool machine settings are logged but do not limit the step containers (run.go:268): the vCPU and memory of each Cloud Build machine type could not be read from the Cloud Build pricing page (truncated), so no limits are applied; there is also no concurrency limit, so a build is never held QUEUED and queue_ttl applies only to approval-held and late-started builds.
+- Step containers share the host Docker daemon and mount its socket when present (step.go:304) so docker builder steps work; builds are not isolated from each other or from the host.
+- Authentication is not checked, IAM is not enforced and service_account is ignored (IAM evaluation is out of scope).
 
 ## More
 

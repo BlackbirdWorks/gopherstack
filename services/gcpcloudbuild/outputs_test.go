@@ -183,8 +183,16 @@ func TestImagePush(t *testing.T) {
 			},
 		},
 		{
+			name:       "container registry host",
+			images:     []string{"us.gcr.io/p/app:v2"},
+			wantStatus: cloudbuildpb.Build_SUCCESS,
+			wantPush: []string{
+				"us.gcr.io/p/app:v2 -> localhost:8134/p/us.gcr.io/app:v2",
+			},
+		},
+		{
 			name:       "other registry",
-			images:     []string{"gcr.io/p/app"},
+			images:     []string{"docker.io/p/app"},
 			wantStatus: cloudbuildpb.Build_FAILURE,
 			wantDetail: "must be pushed to <location>-docker.pkg.dev",
 			wantType:   cloudbuildpb.Build_FailureInfo_PUSH_FAILED,

@@ -250,8 +250,10 @@ func TestIPBasedMaxConnections(t *testing.T) {
 		name      string
 		rule      loadbalancer.IpBasedMaxConnectionsRule
 		wantAdmit bool
+		sweep     bool
 	}{
 		{name: "default", rule: loadbalancer.IpBasedMaxConnectionsRule{DefaultMaxConnections: new(1)}},
+		{name: "sweep", sweep: true, rule: loadbalancer.IpBasedMaxConnectionsRule{DefaultMaxConnections: new(1)}},
 		{name: "override", wantAdmit: true, rule: loadbalancer.IpBasedMaxConnectionsRule{
 			DefaultMaxConnections: new(1),
 			IpMaxConnections: []loadbalancer.IpMaxConnections{
@@ -300,6 +302,10 @@ func TestIPBasedMaxConnections(t *testing.T) {
 			defer first.Close()
 
 			require.Equal(t, http.StatusOK, status(first), "the connection under the cap is served")
+
+			if tt.sweep {
+				e.backend.Sweep()
+			}
 
 			second, err := dialer.DialContext(t.Context(), "tcp", addr)
 			require.NoError(t, err)

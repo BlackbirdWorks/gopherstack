@@ -68,7 +68,7 @@ func (b *InMemoryBackend) serveDocker(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dp, ok := splitDockerPath(r.Host, strings.TrimPrefix(rest, "/"))
-	if ok && dp.createOnPush && isWrite(r.Method) {
+	if ok && (dp.createOnPush || dp.createRepo) && isWrite(r.Method) {
 		b.createGCRRepo(dp)
 	}
 
@@ -83,6 +83,10 @@ func (b *InMemoryBackend) serveDocker(w http.ResponseWriter, r *http.Request) {
 
 // createGCRRepo creates the project's gcr.io repository for a host the first time an image is pushed to it.
 func (b *InMemoryBackend) createGCRRepo(dp dockerPath) {
+	if !gcrProjectRe.MatchString(dp.project) {
+		return
+	}
+
 	ref := dp.ref()
 	pb := b.buildRepository(ref, &artifactregistrypb.Repository{
 		Format: artifactregistrypb.Repository_DOCKER, Description: "gcr.io repository",
@@ -175,11 +179,17 @@ type dockerPath struct {
 	location string
 
 	createOnPush bool
+	// createRepo creates the gcr.io repository on the first write without the gcr.io host path rewrite.
+	createRepo bool
 }
 
 func (dp dockerPath) ref() repoRef {
 	return repoRef{project: dp.project, location: dp.location, id: dp.id}
 }
+
+var gcrProjectRe = regexp.MustCompile(`^[a-z][a-z0-9.:_-]{0,127}$`)
+
+var gcrRepoRe = regexp.MustCompile(`^((?:us\.|eu\.|asia\.)?)gcr\.io$`)
 
 var gcrHostRe = regexp.MustCompile(`^((?:us|eu|asia)\.)?gcr\.io(?::\d+)?$`)
 
@@ -219,7 +229,12 @@ func splitDockerPath(host, path string) (dockerPath, bool) {
 		return dockerPath{}, false
 	}
 
-	return dockerPath{project: parts[0], id: parts[1], tail: parts[2]}, true
+	dp := dockerPath{project: parts[0], id: parts[1], tail: parts[2]}
+	if m := gcrRepoRe.FindStringSubmatch(parts[1]); m != nil {
+		dp.location, dp.createRepo = gcrLocation(m[1]), true
+	}
+
+	return dp, true
 }
 
 func (b *InMemoryBackend) dockerRepoOK(w http.ResponseWriter, r *http.Request, dp *dockerPath) bool {

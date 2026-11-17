@@ -238,6 +238,32 @@ func (b *InMemoryBackend) GetBucket(name string, pre Preconds) (*Bucket, error) 
 	return bk.clone(), nil
 }
 
+// BucketLocation returns the location of a bucket, and false when it does not exist.
+func (b *InMemoryBackend) BucketLocation(name string) (string, bool) {
+	b.mu.RLock("BucketLocation")
+	defer b.mu.RUnlock()
+
+	bk, ok := b.buckets[name]
+	if !ok {
+		return "", false
+	}
+
+	return bk.Location, true
+}
+
+// BucketProject returns the project that owns a bucket, and false when it does not exist.
+func (b *InMemoryBackend) BucketProject(name string) (string, bool) {
+	b.mu.RLock("BucketProject")
+	defer b.mu.RUnlock()
+
+	bk, ok := b.buckets[name]
+	if !ok {
+		return "", false
+	}
+
+	return bk.Project, true
+}
+
 func (b *InMemoryBackend) bucketLocked(name string) (*Bucket, error) {
 	bk, ok := b.buckets[name]
 	if !ok {

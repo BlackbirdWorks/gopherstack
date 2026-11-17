@@ -55,6 +55,8 @@ func (b *InMemoryBackend) DeleteTag(ctx context.Context, reg, repo, tag string) 
 		return ErrRegistryNotFound
 	}
 
+	defer b.deleteGate(reg)()
+
 	if err := ociregistry.NewClient(app).DeleteManifest(ctx, repo, tag); err != nil {
 		return ErrNotFound
 	}

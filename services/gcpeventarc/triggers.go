@@ -1,6 +1,7 @@
 package gcpeventarc
 
 import (
+	"context"
 	"net/url"
 	"regexp"
 	"strings"
@@ -11,7 +12,9 @@ import (
 	"cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -59,10 +62,22 @@ func validateDestination(d *eventarcpb.Destination) error {
 	case *eventarcpb.Destination_Workflow:
 		return validateWorkflowName(dest.Workflow)
 	case *eventarcpb.Destination_Gke:
-		return errPrecondition("GKE destinations are not available: no GKE service is emulated.")
+		return validateGKE(dest.Gke)
 	default:
 		return errInvalid("destination must set one of cloud_run or http_endpoint.")
 	}
+}
+
+func validateGKE(g *eventarcpb.GKE) error {
+	if g.GetCluster() == "" || g.GetLocation() == "" || g.GetNamespace() == "" || g.GetService() == "" {
+		return errInvalid("destination.gke needs cluster, location, namespace and service.")
+	}
+
+	if p := g.GetPath(); strings.Contains(p, "?") || strings.Contains(p, "#") {
+		return errInvalid("destination.gke.path must be a URI path segment.")
+	}
+
+	return nil
 }
 
 func validateWorkflowName(name string) error {
@@ -207,6 +222,43 @@ func (b *InMemoryBackend) provision(plan transportPlan, trigger string) error {
 	return nil
 }
 
+// rebindTransports points every trigger's push subscription at the current listener, so a restored
+// subscription never keeps the endpoint of the run that created it.
+func (b *InMemoryBackend) rebindTransports() {
+	type bind struct{ sub, trigger string }
+
+	b.mu.RLock("rebindTransports")
+	ps, base := b.svc.PubSub, b.pushBase
+
+	var binds []bind
+
+	for name, rec := range b.triggers {
+		if sub := rec.pb.GetTransport().GetPubsub().GetSubscription(); sub != "" {
+			binds = append(binds, bind{sub: sub, trigger: name})
+		}
+	}
+	b.mu.RUnlock()
+
+	if ps == nil || base == "" {
+		return
+	}
+
+	for _, x := range binds {
+		_, err := ps.UpdateSubscription(&pubsubpb.UpdateSubscriptionRequest{
+			Subscription: &pubsubpb.Subscription{
+				Name:       x.sub,
+				PushConfig: &pubsubpb.PushConfig{PushEndpoint: base + pushPath + x.trigger},
+			},
+			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"push_config"}},
+		})
+		if err != nil {
+			ctx := context.Background()
+			logger.Load(ctx).WarnContext(ctx, "gcpeventarc: could not rebind trigger transport",
+				"trigger", x.trigger, "subscription", x.sub, "error", err)
+		}
+	}
+}
+
 func (b *InMemoryBackend) deprovision(rec *triggerRec) {
 	if b.svc.PubSub == nil {
 		return
@@ -315,6 +367,14 @@ func (b *InMemoryBackend) CreateTrigger(in *eventarcpb.CreateTriggerRequest) (*l
 
 	t, plan, err := b.buildTrigger(project, location, in.GetTriggerId(), in.GetTrigger())
 	if err != nil {
+		return nil, err
+	}
+
+	if err = b.checkBucketRegion(location, t.GetEventFilters()); err != nil {
+		return nil, err
+	}
+
+	if err = b.checkCluster(project, t.GetDestination()); err != nil {
 		return nil, err
 	}
 
@@ -497,6 +557,14 @@ func (b *InMemoryBackend) UpdateTrigger(in *eventarcpb.UpdateTriggerRequest) (*l
 
 	project, location, id, err := parseChild(src.GetName(), kindTriggers)
 	if err != nil {
+		return nil, err
+	}
+
+	if err = b.checkCluster(project, src.GetDestination()); err != nil {
+		return nil, err
+	}
+
+	if err = b.checkBucketRegion(location, b.withStoredType(src.GetName(), src.GetEventFilters())); err != nil {
 		return nil, err
 	}
 

@@ -82,6 +82,10 @@ type ClientCredentialsClaims struct {
 	TenantID string
 	ClientID string // the "appid" claim; also "oid"/"sub" when ObjectID is empty
 	ObjectID string // optional "oid"/"sub": the service principal's or user's directory object ID
+	// UserPrincipalName, when set, is the "upn" claim of a delegated user token.
+	UserPrincipalName string
+	// Scope, when set, is the space-separated "scp" claim of a delegated token.
+	Scope string
 }
 
 // IssueClientCredentialsToken signs and returns an AAD-shaped access token
@@ -111,6 +115,14 @@ func (iss *Issuer) IssueClientCredentialsToken(claims ClientCredentialsClaims, e
 		"iat":   now,
 		"nbf":   now,
 		"exp":   now + expiry,
+	}
+
+	if claims.UserPrincipalName != "" {
+		jwtClaims["upn"] = claims.UserPrincipalName
+	}
+
+	if claims.Scope != "" {
+		jwtClaims["scp"] = claims.Scope
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwtClaims)

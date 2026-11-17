@@ -238,6 +238,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.adv = r.adv
 	b.mu.Unlock()
 
+	b.rebindTransports()
+
 	return nil
 }
 

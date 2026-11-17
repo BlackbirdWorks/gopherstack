@@ -29,6 +29,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 
 	if reg, ok := h.resolve(r); ok {
+		h.Backend.SweepRetention(r.Context(), reg)
+		h.Backend.sweepGarbage(r.Context(), reg)
+
 		switch {
 		case !h.Backend.clientAllowed(reg, r):
 			writeNetworkDenied(w, r)
@@ -317,6 +320,17 @@ func (h *Handler) serveRegistry(w http.ResponseWriter, r *http.Request) {
 		(r.Method == http.MethodGet || r.Method == http.MethodHead) {
 		h.Backend.pullThrough(r.Context(), reg, app, repo, ref)
 	}
+
+	if d := blobDigestOf(r); d != "" {
+		h.Backend.touchBlob(reg, d)
+	}
+
+	release, ok := h.gate(w, r, reg)
+	if !ok {
+		return
+	}
+
+	defer release()
 
 	ociregistry.ServeObserved(app, w, r, h.observer(reg, app, r))
 }

@@ -46,6 +46,7 @@ func wireAzureContainerRegistry(byName map[string]service.Registerable) {
 
 	if h, hOk := byName["AzureContainerRegistry"].(*acr.Handler); hOk {
 		armH.Registry.SetContainerRegistries(&azureContainerRegistryAdapter{backend: h.Backend})
+		h.Backend.SetRetentionSource(armH.Registry.ContainerRegistryRetention)
 
 		if kv, kvOK := byName["AzureKeyVault"].(*azurekeyvault.Handler); kvOK {
 			h.Backend.SetSecretResolver(keyVaultSecretResolver(kv.Backend))
@@ -229,6 +230,16 @@ func (a *azureContainerRegistryAdapter) ImportImage(
 	}
 
 	return mapRegistryError(err)
+}
+
+func (a *azureContainerRegistryAdapter) SetExportAllowed(registry string, allowed bool) error {
+	return mapRegistryError(a.backend.SetExportAllowed(registry, allowed))
+}
+
+func (a *azureContainerRegistryAdapter) UsedBytes(registry string) (int64, error) {
+	n, err := a.backend.UsedBytes(registry)
+
+	return n, mapRegistryError(err)
 }
 
 func (a *azureContainerRegistryAdapter) SetNetworkRules(

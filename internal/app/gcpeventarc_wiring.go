@@ -4,12 +4,14 @@ import (
 	"errors"
 	"fmt"
 
+	"cloud.google.com/go/container/apiv1/containerpb"
 	"cloud.google.com/go/functions/apiv2/functionspb"
 	"cloud.google.com/go/run/apiv2/runpb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	gcpartifactregistrybackend "github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 	gcpbigquerybackend "github.com/blackbirdworks/gopherstack/services/gcpbigquery"
+	gcpcontainerbackend "github.com/blackbirdworks/gopherstack/services/gcpcontainer"
 	gcpeventarcbackend "github.com/blackbirdworks/gopherstack/services/gcpeventarc"
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
 	gcpfunctionsbackend "github.com/blackbirdworks/gopherstack/services/gcpfunctions"
@@ -88,6 +90,19 @@ func wireGCPEventarc(byName map[string]service.Registerable) {
 	}
 
 	svc.Targets = targets
+
+	if gke, isGKE := byName["GCPContainer"].(*gcpcontainerbackend.Handler); isGKE {
+		svc.Clusters = clusterChecker{gke.Backend}
+	}
+
+	if rm, isRM := byName["GCPResourceManager"].(*gcpresourcemanagerbackend.Handler); isRM {
+		svc.Org = rm.Backend
+	}
+
+	if gcs, isGCS := byName["GCPStorage"].(*gcpstoragebackend.Handler); isGCS {
+		svc.Buckets = gcs.Backend
+	}
+
 	ea.Backend.SetServices(svc)
 
 	wireGCPAudit(byName, ea)
@@ -104,9 +119,27 @@ func wireGCPEventarc(byName map[string]service.Registerable) {
 		gcs.Backend.ObserveObjects(func(ev gcpstoragebackend.ObjectEvent) {
 			ea.Backend.HandleStorageEvent(gcpeventarcbackend.StorageEvent{
 				Type: string(ev.Type), Bucket: ev.Object.Bucket, Name: ev.Object.Name, Data: ev.Data(), Time: ev.Time,
+				Project: bucketProject(gcs.Backend, ev.Object.Bucket),
 			})
 		})
 	}
+}
+
+// clusterChecker answers whether a GKE cluster exists.
+type clusterChecker struct {
+	b *gcpcontainerbackend.InMemoryBackend
+}
+
+func (c clusterChecker) ClusterExists(name string) bool {
+	_, err := c.b.GetCluster(&containerpb.GetClusterRequest{Name: name})
+
+	return err == nil
+}
+
+func bucketProject(b *gcpstoragebackend.InMemoryBackend, bucket string) string {
+	p, _ := b.BucketProject(bucket)
+
+	return p
 }
 
 // wireGCPAudit points the audit emitters of the emulated services at the Logging emulator, and feeds the audit

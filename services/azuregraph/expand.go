@@ -155,6 +155,10 @@ func (h *Handler) expandAll(q *listQuery, resource string, items ...map[string]a
 		return nil
 	}
 
+	if resource == resourceRoleAssignment {
+		return h.expandAssignmentPrincipals(q, items)
+	}
+
 	kind := kindOfResource(resource)
 	if kind == "" {
 		return unsupported("Expanding relationships with $expand is not supported on this resource.")
@@ -203,6 +207,39 @@ func (h *Handler) expandRelationOn(e expandSpec, kind string, it map[string]any)
 	}
 
 	it[e.name] = rendered
+
+	return nil
+}
+
+const resourceRoleAssignment = "UnifiedRoleAssignment"
+
+// expandAssignmentPrincipals serves $expand=principal on role assignments, the only navigation property the
+// list-unifiedRoleAssignments reference documents.
+func (h *Handler) expandAssignmentPrincipals(q *listQuery, items []map[string]any) error {
+	for _, e := range q.expand {
+		if !strings.EqualFold(e.name, "principal") {
+			return badRequest("Property '%s' on entity type 'microsoft.graph.unifiedRoleAssignment' is not a valid "+
+				"expandable navigation property.", e.name)
+		}
+
+		for _, it := range items {
+			id, _ := it["principalId"].(string)
+
+			o, ok := h.Backend.object(id)
+			if !ok {
+				it[e.name] = nil
+
+				continue
+			}
+
+			rendered := typed(o.Kind, o.Entity)
+			if len(e.selects) > 0 {
+				rendered = (&listQuery{selects: e.selects}).project(rendered)
+			}
+
+			it[e.name] = rendered
+		}
+	}
 
 	return nil
 }

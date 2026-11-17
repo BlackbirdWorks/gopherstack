@@ -602,6 +602,8 @@ type ContainerRegistries interface {
 	CredentialHealth(usernameSecretID, passwordSecretID string) (healthy bool, code, message string)
 	CheckEncryptionKey(keyIdentifier string) error
 	SetEncryptionKey(registry, keyIdentifier string) error
+	SetExportAllowed(registry string, allowed bool) error
+	UsedBytes(registry string) (int64, error)
 }
 
 // ContainerRegistryCacheCredentials locates a cache rule's upstream login in Key Vault.
@@ -742,6 +744,10 @@ func (noopContainerRegistries) CredentialHealth(string, string) (bool, string, s
 func (noopContainerRegistries) CheckEncryptionKey(string) error { return nil }
 
 func (noopContainerRegistries) SetEncryptionKey(string, string) error { return nil }
+
+func (noopContainerRegistries) SetExportAllowed(string, bool) error { return nil }
+
+func (noopContainerRegistries) UsedBytes(string) (int64, error) { return 0, ErrACRUnavailable }
 
 func (noopContainerRegistries) ImportImage(context.Context, string, ContainerRegistryImport) error {
 	return ErrACRUnavailable
