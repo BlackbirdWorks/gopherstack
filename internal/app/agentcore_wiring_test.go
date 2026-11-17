@@ -15,6 +15,8 @@ import (
 	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 )
 
 func agentCoreErrCode(err error) string {
@@ -123,4 +125,48 @@ func TestAgentCoreWiringChecksOtherServices(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, agenttypes.DatasetStatusActive, got.Status)
 	assert.Equal(t, int64(2), aws.ToInt64(got.ExampleCount), "the JSONL object was read from the S3 backend")
+}
+
+func TestAgentCoreRefsReadObjectUpTo(t *testing.T) {
+	t.Parallel()
+
+	fx := newSFNFixture(t)
+	ctx := t.Context()
+
+	s3c := s3.NewFromConfig(fx.cfg, func(o *s3.Options) { o.UsePathStyle = true })
+	_, err := s3c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String("bounded")})
+	require.NoError(t, err)
+	_, err = s3c.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: aws.String("bounded"), Key: aws.String("obj"), Body: strings.NewReader("0123456789"),
+	})
+	require.NoError(t, err)
+
+	h, ok := serviceByName(fx.services)["S3"].(*s3backend.S3Handler)
+	require.True(t, ok)
+
+	refs := agentCoreRefs{s3: h}
+
+	tests := []struct {
+		name         string
+		key          string
+		wantData     string
+		limit        int64
+		wantFound    bool
+		wantTooLarge bool
+	}{
+		{name: "under cap", key: "obj", limit: 10, wantData: "0123456789", wantFound: true},
+		{name: "over cap", key: "obj", limit: 9, wantFound: true, wantTooLarge: true},
+		{name: "missing", key: "nope", limit: 10},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			data, found, tooLarge := refs.ReadObjectUpTo("bounded", tt.key, tt.limit)
+			assert.Equal(t, tt.wantData, string(data))
+			assert.Equal(t, tt.wantFound, found)
+			assert.Equal(t, tt.wantTooLarge, tooLarge)
+		})
+	}
 }

@@ -27,10 +27,7 @@ var (
 	errAgentCoreNoLambda  = errors.New("lambda is not wired")
 )
 
-const (
-	maxAgentCoreObjectBytes = 256 << 20
-	arnResourceFields       = 7
-)
+const arnResourceFields = 7
 
 // agentCoreRefs resolves the resources AgentCore control-plane resources point at in other emulated services.
 type agentCoreRefs struct {
@@ -175,26 +172,6 @@ func (r agentCoreRefs) ObjectExists(bucket, key string) bool {
 	}
 
 	return true
-}
-
-func (r agentCoreRefs) ReadObject(bucket, key string) ([]byte, bool) {
-	if r.s3 == nil {
-		return nil, false
-	}
-
-	out, err := r.s3.Backend.GetObject(context.Background(), &awss3.GetObjectInput{Bucket: &bucket, Key: &key})
-	if err != nil || out == nil || out.Body == nil {
-		return nil, false
-	}
-
-	defer out.Body.Close()
-
-	data, err := io.ReadAll(io.LimitReader(out.Body, maxAgentCoreObjectBytes))
-	if err != nil {
-		return nil, false
-	}
-
-	return data, true
 }
 
 // ReadObjectUpTo reads at most limit bytes and reports an object larger than that without buffering the rest.

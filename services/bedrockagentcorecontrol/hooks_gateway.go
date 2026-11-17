@@ -479,27 +479,76 @@ func (b *InMemoryBackend) validateAPIGatewayTarget(cfg map[string]any) error {
 	return nil
 }
 
-// preflightAPIGateway checks the target's REST API stage exists. It runs before the backend lock is taken because
-// the export crosses into the API Gateway backend.
-func (b *InMemoryBackend) preflightAPIGateway(sc scope, k *kindSpec, in map[string]any) error {
-	if k.Name != kindGatewayTarget {
-		return nil
-	}
+type apigwKey struct{}
 
+// apigwChecks maps "region/api/stage" to the outcome of the pre-lock export; nil means the stage exists.
+type apigwChecks map[string]error
+
+func apigwCheckKey(region string, cfg map[string]any) string {
+	return region + "/" + strOf(cfg, "restApiId") + "/" + strOf(cfg, "stage")
+}
+
+func apiGatewayConfigOf(in map[string]any) map[string]any {
 	cfg := objOf(objOf(objOf(in, "targetConfiguration"), "mcp"), targetAPIGateway)
 	if cfg == nil || !apiGatewayShapeValid(cfg) {
 		return nil
 	}
 
+	return cfg
+}
+
+// preflightAPIGateway exports the target's REST API stage before the backend lock is taken, because the export
+// crosses into the API Gateway backend. The outcome rides in the context and is enforced by recheckAPIGateway
+// under the lock, only when the write is not an idempotent replay.
+func (b *InMemoryBackend) preflightAPIGateway(
+	ctx context.Context, sc scope, k *kindSpec, in map[string]any,
+) context.Context {
+	if k.Name != kindGatewayTarget {
+		return ctx
+	}
+
+	cfg := apiGatewayConfigOf(in)
+	if cfg == nil {
+		return ctx
+	}
+
 	host, ok := b.restAPIHost()
 	if !ok {
-		return nil
+		return ctx
 	}
+
+	var outcome error
 
 	if _, err := host.RestAPIExport(sc.region, strOf(cfg, "restApiId"), strOf(cfg, "stage")); err != nil &&
 		!errors.Is(err, ErrRestAPIHostUnavailable) {
-		return notFound("REST API %q stage %q not found", strOf(cfg, "restApiId"), strOf(cfg, "stage"))
+		outcome = notFound("REST API %q stage %q not found", strOf(cfg, "restApiId"), strOf(cfg, "stage"))
 	}
 
-	return nil
+	return context.WithValue(ctx, apigwKey{}, apigwChecks{apigwCheckKey(sc.region, cfg): outcome})
+}
+
+// recheckAPIGateway runs under the backend lock on the document about to be stored: the stage it names must be the
+// one the pre-lock export verified.
+func (b *InMemoryBackend) recheckAPIGateway(ctx context.Context, sc scope, k *kindSpec, doc map[string]any) error {
+	if k.Name != kindGatewayTarget {
+		return nil
+	}
+
+	cfg := apiGatewayConfigOf(doc)
+	if cfg == nil {
+		return nil
+	}
+
+	if _, ok := b.refs.(RestAPIHost); !ok {
+		return nil
+	}
+
+	checks, _ := ctx.Value(apigwKey{}).(apigwChecks)
+
+	outcome, verified := checks[apigwCheckKey(sc.region, cfg)]
+	if !verified {
+		return notFound("REST API %q stage %q could not be verified", strOf(cfg, "restApiId"), strOf(cfg, "stage"))
+	}
+
+	return outcome
 }

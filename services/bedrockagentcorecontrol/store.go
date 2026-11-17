@@ -29,11 +29,7 @@ type References interface {
 	ECRRepositoryExists(account, region, repository string) bool
 	LambdaFunctionExists(arn string) bool
 	SecretExists(arn string) bool
-	ReadObject(bucket, key string) ([]byte, bool)
-}
-
-// BoundedReader is the optional References extension that stops reading an object past a byte limit.
-type BoundedReader interface {
+	// ReadObjectUpTo reads at most limit bytes; an object larger than limit is reported as tooLarge, not buffered.
 	ReadObjectUpTo(bucket, key string, limit int64) (data []byte, found, tooLarge bool)
 }
 

@@ -265,3 +265,81 @@ func TestAPIGatewayTargetExportRunsOutsideBackendLock(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, "ResourceNotFoundException", apiCode(err))
 }
+
+type hookAPIs struct {
+	*fakeRestAPIs
+	hook func()
+	gone atomic.Bool
+}
+
+func (h *hookAPIs) RestAPIExport(region, apiID, stage string) (map[string]any, error) {
+	if h.gone.Load() {
+		return nil, errNoSuchAPI
+	}
+
+	out, err := h.fakeRestAPIs.RestAPIExport(region, apiID, stage)
+	if h.hook != nil {
+		h.hook()
+	}
+
+	return out, err
+}
+
+func TestAPIGatewayTargetWriteRevalidatesAfterExport(t *testing.T) {
+	t.Parallel()
+
+	filters := []types.ApiGatewayToolFilter{
+		{FilterPath: aws.String("/pets"), Methods: []types.RestApiMethod{types.RestApiMethodGet}},
+	}
+	creds := []types.CredentialProviderConfiguration{
+		{CredentialProviderType: types.CredentialProviderTypeGatewayIamRole},
+	}
+
+	t.Run("replay survives a deleted stage", func(t *testing.T) {
+		t.Parallel()
+
+		m := newMCPFixture(t)
+		base := fakeRefs{functions: map[string]bool{lambdaARN: true}}
+		host := &hookAPIs{fakeRestAPIs: &fakeRestAPIs{fakeInvoker: fakeInvoker{fakeRefs: base, calls: m.calls}}}
+		m.backend.SetReferences(host)
+
+		gw := createGateway(t, m.client, "Replay-Gw")
+		in := &sdk.CreateGatewayTargetInput{
+			GatewayIdentifier: gw.GatewayId, Name: aws.String("api"),
+			ClientToken:         aws.String("replay-token-0001-replay-token-0001"),
+			TargetConfiguration: apiGatewayTarget(filters, nil), CredentialProviderConfigurations: creds,
+		}
+
+		first, err := m.client.CreateGatewayTarget(t.Context(), in)
+		require.NoError(t, err)
+
+		host.gone.Store(true)
+
+		again, err := m.client.CreateGatewayTarget(t.Context(), in)
+		require.NoError(t, err, "an idempotent replay returns the original result without re-checking the stage")
+		assert.Equal(t, aws.ToString(first.TargetId), aws.ToString(again.TargetId))
+	})
+
+	t.Run("gateway deleted during export", func(t *testing.T) {
+		t.Parallel()
+
+		m := newMCPFixture(t)
+		base := fakeRefs{functions: map[string]bool{lambdaARN: true}}
+		host := &hookAPIs{fakeRestAPIs: &fakeRestAPIs{fakeInvoker: fakeInvoker{fakeRefs: base, calls: m.calls}}}
+		m.backend.SetReferences(host)
+
+		gw := createGateway(t, m.client, "Gone-Gw")
+		host.hook = func() {
+			_, _ = m.client.DeleteGateway(
+				context.WithoutCancel(t.Context()), &sdk.DeleteGatewayInput{GatewayIdentifier: gw.GatewayId},
+			)
+		}
+
+		_, err := m.client.CreateGatewayTarget(t.Context(), &sdk.CreateGatewayTargetInput{
+			GatewayIdentifier: gw.GatewayId, Name: aws.String("api"),
+			TargetConfiguration: apiGatewayTarget(filters, nil), CredentialProviderConfigurations: creds,
+		})
+		require.Error(t, err)
+		assert.Equal(t, "ResourceNotFoundException", apiCode(err))
+	})
+}

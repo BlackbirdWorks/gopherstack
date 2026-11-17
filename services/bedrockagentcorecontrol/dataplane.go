@@ -260,7 +260,13 @@ func (b *InMemoryBackend) codeInfo(doc map[string]any) *dataplane.CodeInfo {
 				return nil, errNoCodeStore
 			}
 
-			data, ok := refs.ReadObject(bucket, key)
+			data, ok, tooLarge := refs.ReadObjectUpTo(bucket, key, limitCodePackage)
+			if tooLarge {
+				return nil, fmt.Errorf(
+					"%w: s3://%s/%s exceeds %d bytes", errNoCodeObject, bucket, key, limitCodePackage,
+				)
+			}
+
 			if !ok {
 				return nil, fmt.Errorf("%w: s3://%s/%s", errNoCodeObject, bucket, key)
 			}
@@ -269,6 +275,9 @@ func (b *InMemoryBackend) codeInfo(doc map[string]any) *dataplane.CodeInfo {
 		},
 	}
 }
+
+// OutboundHTTP is the gated client identity token endpoint calls go through.
+func (d dataSeam) OutboundHTTP() dataplane.HTTPDoer { return d.b.outboundClient() }
 
 // VerifyWorkloadJWT verifies a user token for a workload identity. A runtime or gateway-managed identity accepts
 // only tokens its inbound customJWTAuthorizer accepts (issuer, audience, clients, scopes, custom claims).

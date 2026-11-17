@@ -67,3 +67,11 @@ func (b *InMemoryBackend) WriteLocked() bool {
 
 	return held
 }
+
+// JWKSNegativeSize is the number of cached JWKS failures.
+func (b *InMemoryBackend) JWKSNegativeSize() int {
+	b.mu.RLock("JWKSNegativeSize")
+	defer b.mu.RUnlock()
+
+	return len(b.jwksNegative)
+}

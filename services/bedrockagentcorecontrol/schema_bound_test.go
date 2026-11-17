@@ -13,15 +13,8 @@ import (
 
 type boundedRefs struct {
 	*fakeInvoker
-	asked      *atomic.Int64
-	plainReads *atomic.Int32
-	tooLarge   bool
-}
-
-func (r boundedRefs) ReadObject(bucket, key string) ([]byte, bool) {
-	r.plainReads.Add(1)
-
-	return r.fakeInvoker.ReadObject(bucket, key)
+	asked    *atomic.Int64
+	tooLarge bool
 }
 
 func (r boundedRefs) ReadObjectUpTo(_, _ string, limit int64) ([]byte, bool, bool) {
@@ -54,7 +47,7 @@ func TestS3SchemaReadIsBoundedWhileStreaming(t *testing.T) {
 			base := fakeRefs{functions: map[string]bool{lambdaARN: true}}
 			refs := boundedRefs{
 				fakeInvoker: &fakeInvoker{fakeRefs: base, calls: m.calls},
-				asked:       &atomic.Int64{}, plainReads: &atomic.Int32{}, tooLarge: tt.tooLarge,
+				asked:       &atomic.Int64{}, tooLarge: tt.tooLarge,
 			}
 			m.backend.SetReferences(refs)
 
@@ -79,6 +72,7 @@ func TestS3SchemaReadIsBoundedWhileStreaming(t *testing.T) {
 				})
 				require.Error(t, err)
 				assert.Equal(t, "ValidationException", apiCode(err))
+				assert.Contains(t, err.Error(), "exceeds 10485760 bytes")
 			} else {
 				m.createTarget(t, gid, "big", cfg)
 
@@ -93,7 +87,6 @@ func TestS3SchemaReadIsBoundedWhileStreaming(t *testing.T) {
 			}
 
 			assert.Equal(t, int64(10<<20), refs.asked.Load())
-			assert.Zero(t, refs.plainReads.Load(), "the unbounded reader is not used")
 		})
 	}
 }

@@ -246,10 +246,10 @@ Pass 2026-11-13: every kmsKeyArn and encryptionKeyArn member (including kmsConfi
 
 ## Emulator choices where the vendor is silent
 
-- Gateway MCP request bodies are capped at 6 MiB (the item text this replaces cites the 6 MB payload quota; the quota page was not re-read in this pass).
+- Gateway MCP request bodies are capped at 6 MiB, the "Maximum tool-call/tool-list/tool-search payload size 6 MB" row of devguide/bedrock-agentcore-limits.html.
 - User JWTs sent to GetWorkloadAccessTokenForJWT are verified against the customJWTAuthorizer (issuer, audience, clients, scopes, custom claims) of the runtime or gateway that owns the managed workload identity; CreateWorkloadIdentity documents only allowedResourceOauth2ReturnUrls (SDK api_op_CreateWorkloadIdentity.go), so an identity created by hand has no issuer configuration to enforce and falls back to signature, expiry and loopback-gated JWKS verification.
-- JWKS fetch failures are cached for one minute on the backend clock (at most 32 issuers) so a bad issuer is not refetched per request.
-- S3 tool schemas are read through an optional bounded reader that stops at 10 MiB; the REST API stage export of an apiGateway target is checked before the backend lock is taken.
+- JWKS fetch failures are cached for one minute on the backend clock (at most 32 issuers) so a bad issuer is not refetched per request; a caller whose context ended never records a failure, a failure never evicts a still-valid key set, and an unknown kid refetches at most once per 30 seconds. An issuer document without an issuer field is refused.
+- Every S3 object read (tool schemas 10 MiB, direct code 250 MiB, dataset objects 256 MiB) goes through References.ReadObjectUpTo, which stops at the limit; the REST API stage of an apiGateway target is exported before the backend lock is taken and its outcome is enforced under the lock only for a fresh write, so an idempotent replay never re-checks it.
 
 - Update semantics: UpdateAgentRuntime, UpdateGateway and UpdateGatewayTarget clear on omission only the members the pinned SDK documents as clearing (UpdateGatewayTarget certificateConfigurations, UpdateGateway exceptionLevel); every other optional member (description, environmentVariables, authorizerConfiguration, credentialProviderConfigurations and so on) is retained when omitted, pending verification against the service
 - GetMemory: the view query parameter is validated (full, without_decryption) but both views return the same document; the API Reference does not say what without_decryption omits

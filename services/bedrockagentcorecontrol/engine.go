@@ -212,10 +212,7 @@ func tagsOf(in args) map[string]string {
 }
 
 func (b *InMemoryBackend) create(ctx context.Context, sc scope, k *kindSpec, op string, in args) (*reply, error) {
-	if err := b.preflightAPIGateway(sc, k, in); err != nil {
-		return nil, err
-	}
-
+	ctx = b.preflightAPIGateway(ctx, sc, k, in)
 	ctx = b.prepareAuth(ctx, sc, k, in)
 
 	b.mu.Lock("create")
@@ -269,6 +266,10 @@ func creatingStatus(k *kindSpec) string {
 
 func (b *InMemoryBackend) createLocked(ctx context.Context, sc scope, k *kindSpec, in args) (*Resource, error) {
 	if err := b.validateCreate(sc, k, in); err != nil {
+		return nil, err
+	}
+
+	if err := b.recheckAPIGateway(ctx, sc, k, in); err != nil {
 		return nil, err
 	}
 
@@ -355,10 +356,7 @@ func (b *InMemoryBackend) settleCreate(k *kindSpec, r *Resource) {
 }
 
 func (b *InMemoryBackend) update(ctx context.Context, sc scope, k *kindSpec, op string, in args) (*reply, error) {
-	if err := b.preflightAPIGateway(sc, k, in); err != nil {
-		return nil, err
-	}
-
+	ctx = b.preflightAPIGateway(ctx, sc, k, in)
 	ctx = b.prepareAuth(ctx, sc, k, in)
 
 	b.mu.Lock("update")
@@ -393,6 +391,10 @@ func (b *InMemoryBackend) update(ctx context.Context, sc scope, k *kindSpec, op 
 	}
 
 	if err = b.validateUpdate(sc, k, r, patch); err != nil {
+		return nil, err
+	}
+
+	if err = b.recheckAPIGateway(ctx, sc, k, patch); err != nil {
 		return nil, err
 	}
 

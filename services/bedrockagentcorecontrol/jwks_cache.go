@@ -62,10 +62,6 @@ func (b *InMemoryBackend) rememberJWKSFailure(discovery string) {
 // for jwksTTL; an unknown kid refetches at most once per jwksRefetchGap.
 func (b *InMemoryBackend) jwksKey(ctx context.Context, discovery, kid string) (*rsa.PublicKey, string, error) {
 	e, ok, failed := b.cachedJWKS(discovery)
-	if failed && (!ok || b.now().Sub(e.fetched) >= jwksTTL) {
-		return nil, "", errJWKSUnavailable
-	}
-
 	age := b.now().Sub(e.fetched)
 
 	if ok && age < jwksTTL {
@@ -73,14 +69,18 @@ func (b *InMemoryBackend) jwksKey(ctx context.Context, discovery, kid string) (*
 			return key, e.issuer, nil
 		}
 
-		if age < jwksRefetchGap {
+		if failed || age < jwksRefetchGap {
 			return nil, e.issuer, errNoSigningKey
 		}
+	} else if failed {
+		return nil, "", errJWKSUnavailable
 	}
 
 	e, err := b.fetchJWKS(ctx, discovery)
 	if err != nil {
-		b.rememberJWKSFailure(discovery)
+		if ctx.Err() == nil {
+			b.rememberJWKSFailure(discovery)
+		}
 
 		return nil, e.issuer, err
 	}
@@ -121,8 +121,10 @@ func (e jwksEntry) pick(kid string) *rsa.PublicKey {
 		return e.keys[kid]
 	}
 
-	for _, k := range e.keys {
-		return k
+	if len(e.keys) == 1 {
+		for _, k := range e.keys {
+			return k
+		}
 	}
 
 	return nil

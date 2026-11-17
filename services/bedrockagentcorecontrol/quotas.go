@@ -34,6 +34,8 @@ const (
 	limitEnvironmentBytes = 4 << 10
 	limitInlineSchema     = 1 << 20
 	limitS3Schema         = 10 << 20
+	limitCodePackage      = 250 << 20
+	limitDatasetObject    = 256 << 20
 	limitToolsPerTarget   = 1000
 	limitToolNameLen      = 256
 )

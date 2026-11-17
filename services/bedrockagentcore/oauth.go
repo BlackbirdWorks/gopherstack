@@ -57,17 +57,59 @@ func (b *InMemoryBackend) getResourceOAuth2Token(ctx context.Context, req *restr
 	return doc{"accessToken": token}, 0, nil
 }
 
-// onBehalfOf exchanges the user JWT the workload token was issued from for a provider token (RFC 8693).
+const (
+	grantJWTAssertion = "urn:ietf:params:oauth:grant-type:jwt-bearer"
+	actorTypeAccess   = "urn:ietf:params:oauth:token-type:access_token"
+	paramGrantType    = "grant_type"
+	grantTypeTokenEx  = "TOKEN_EXCHANGE"
+	grantTypeJWTAuth  = "JWT_AUTHORIZATION_GRANT"
+	actorM2M          = "M2M"
+	actorNone         = "NONE"
+	actorIAMJWT       = "AWS_IAM_ID_TOKEN_JWT"
+	vendorMicrosoft   = "MicrosoftOauth2"
+)
+
+// onBehalfOf exchanges the user JWT the workload token was issued from for a provider token. The provider's
+// onBehalfOfTokenExchangeConfig picks RFC 8693 (TOKEN_EXCHANGE) or RFC 7523 (JWT_AUTHORIZATION_GRANT); see
+// https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/on-behalf-of-token-exchange.html.
 func (b *InMemoryBackend) onBehalfOf(ctx context.Context, t *AccessToken, p ProviderInfo, in doc) (any, int, error) {
 	if t.UserJWT == "" {
 		return nil, 0, invalid("the workload access token was not issued from a user JWT")
 	}
 
-	form := url.Values{
-		"grant_type": {grantExchange}, "subject_token": {t.UserJWT}, "subject_token_type": {subjectTypeJWT},
+	obo := objOf(p.Config, "onBehalfOfTokenExchangeConfig")
+
+	form := url.Values{}
+
+	switch grant := strOf(obo, "grantType"); grant {
+	case grantTypeJWTAuth:
+		form.Set(paramGrantType, grantJWTAssertion)
+		form.Set("assertion", t.UserJWT)
+
+		if p.Vendor == vendorMicrosoft {
+			form.Set("requested_token_use", "on_behalf_of")
+		}
+	case grantTypeTokenEx, "":
+		form.Set(paramGrantType, grantExchange)
+		form.Set("subject_token", t.UserJWT)
+		form.Set("subject_token_type", subjectTypeJWT)
+
+		if err := b.addActorToken(ctx, p, objOf(obo, "tokenExchangeGrantTypeConfig"), form); err != nil {
+			return nil, 0, err
+		}
+	default:
+		return nil, 0, invalid("onBehalfOfTokenExchangeConfig.grantType %q is not supported", grant)
 	}
 
-	token, err := b.postTokenForm(ctx, p, form, in)
+	addRequestParams(form, in)
+
+	for k, v := range stringMapOf(objOf(in, "customParameters")) {
+		if k != paramGrantType {
+			form.Set(k, v)
+		}
+	}
+
+	token, err := b.postTokenForm(ctx, p, form)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -75,21 +117,35 @@ func (b *InMemoryBackend) onBehalfOf(ctx context.Context, t *AccessToken, p Prov
 	return doc{"accessToken": token}, 0, nil
 }
 
-func (b *InMemoryBackend) clientCredentials(ctx context.Context, p ProviderInfo, in doc) (string, error) {
-	return b.postTokenForm(ctx, p, url.Values{"grant_type": {"client_credentials"}}, in)
+func (b *InMemoryBackend) addActorToken(
+	ctx context.Context, p ProviderInfo, cfg map[string]any, form url.Values,
+) error {
+	switch actor := strOf(cfg, "actorTokenContent"); actor {
+	case actorNone, "":
+		return nil
+	case actorM2M:
+		m2m := url.Values{paramGrantType: {"client_credentials"}}
+		if scopes := strList(cfg, "actorTokenScopes"); len(scopes) > 0 {
+			m2m.Set("scope", strings.Join(scopes, " "))
+		}
+
+		token, err := b.postTokenForm(ctx, p, m2m)
+		if err != nil {
+			return err
+		}
+
+		form.Set("actor_token", token)
+		form.Set("actor_token_type", actorTypeAccess)
+
+		return nil
+	case actorIAMJWT:
+		return invalid("actorTokenContent %s needs an STS web identity token the emulator does not mint", actor)
+	default:
+		return invalid("actorTokenContent %q is not supported", actor)
+	}
 }
 
-func (b *InMemoryBackend) postTokenForm(ctx context.Context, p ProviderInfo, form url.Values, in doc) (string, error) {
-	secret, ok := b.ctl().SecretValue(p.SecretARN, p.SecretJSONID)
-	if !ok {
-		return "", notFound("the client secret of provider %q is unavailable", p.Name)
-	}
-
-	endpoint, err := b.tokenEndpoint(ctx, p)
-	if err != nil {
-		return "", err
-	}
-
+func addRequestParams(form url.Values, in doc) {
 	if scopes := strList(in, "scopes"); len(scopes) > 0 {
 		form.Set("scope", strings.Join(scopes, " "))
 	}
@@ -100,6 +156,37 @@ func (b *InMemoryBackend) postTokenForm(ctx context.Context, p ProviderInfo, for
 
 	for _, r := range strList(in, "resources") {
 		form.Add("resource", r)
+	}
+}
+
+func (b *InMemoryBackend) clientCredentials(ctx context.Context, p ProviderInfo, in doc) (string, error) {
+	form := url.Values{paramGrantType: {"client_credentials"}}
+	addRequestParams(form, in)
+
+	return b.postTokenForm(ctx, p, form)
+}
+
+// httpDoer is the control plane's gated outbound client (loopback unless external targets are enabled, no
+// redirects); the engine client only serves a control that offers none.
+func (b *InMemoryBackend) httpDoer() HTTPDoer {
+	if c := b.ctl(); c != nil {
+		if d := c.OutboundHTTP(); d != nil {
+			return d
+		}
+	}
+
+	return b.engine.cfg.HTTP
+}
+
+func (b *InMemoryBackend) postTokenForm(ctx context.Context, p ProviderInfo, form url.Values) (string, error) {
+	secret, ok := b.ctl().SecretValue(p.SecretARN, p.SecretJSONID)
+	if !ok {
+		return "", notFound("the client secret of provider %q is unavailable", p.Name)
+	}
+
+	endpoint, err := b.tokenEndpoint(ctx, p)
+	if err != nil {
+		return "", err
 	}
 
 	hreq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
@@ -114,7 +201,7 @@ func (b *InMemoryBackend) postTokenForm(ctx context.Context, p ProviderInfo, for
 }
 
 func (b *InMemoryBackend) exchange(hreq *http.Request) (string, error) {
-	resp, err := b.engine.cfg.HTTP.Do(hreq)
+	resp, err := b.httpDoer().Do(hreq)
 	if err != nil {
 		return "", invalid("the token endpoint could not be reached")
 	}
@@ -154,7 +241,7 @@ func (b *InMemoryBackend) tokenEndpoint(ctx context.Context, p ProviderInfo) (st
 		return "", invalid("the discovery URL %q is not valid", du)
 	}
 
-	resp, err := b.engine.cfg.HTTP.Do(hreq)
+	resp, err := b.httpDoer().Do(hreq)
 	if err != nil {
 		return "", invalid("the discovery URL could not be reached")
 	}

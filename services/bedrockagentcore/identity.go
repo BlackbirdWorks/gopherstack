@@ -109,7 +109,9 @@ func (b *InMemoryBackend) authorize(token string) (*AccessToken, error) {
 		return nil, unauthorized("the workload identity token is invalid or expired")
 	}
 
-	return t, nil
+	cp := *t
+
+	return &cp, nil
 }
 
 func (b *InMemoryBackend) providerFor(t *AccessToken, kind ProviderKind, name string) (ProviderInfo, error) {

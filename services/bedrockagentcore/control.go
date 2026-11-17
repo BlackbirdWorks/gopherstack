@@ -131,4 +131,6 @@ type Control interface {
 	CompleteFederation(ctx context.Context, sc Scope, sessionURI string, user UserIdentifier) error
 	VerifyUserJWT(ctx context.Context, token string) (string, error)
 	VerifyWorkloadJWT(ctx context.Context, sc Scope, workload, token string) (string, error)
+	// OutboundHTTP is the client for provider token endpoints; nil falls back to the engine client.
+	OutboundHTTP() HTTPDoer
 }

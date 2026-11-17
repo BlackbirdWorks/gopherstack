@@ -240,7 +240,7 @@ func (b *InMemoryBackend) verifyBearerToken(
 		return nil, bearerFailure(http.StatusUnauthorized, "invalid_token", "Invalid or expired token")
 	}
 
-	if iss, _ := claims["iss"].(string); iss != issuer {
+	if iss, _ := claims["iss"].(string); iss == "" || iss != issuer {
 		return nil, bearerFailure(
 			http.StatusUnauthorized, "invalid_token", "Token issuer does not match the authorizer",
 		)
