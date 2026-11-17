@@ -99,6 +99,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	}
 
 	h.Backend.setRunCtx(context.WithoutCancel(ctx))
+	h.Backend.startReaper(context.WithoutCancel(ctx))
 
 	srv := &http.Server{
 		Handler: h, ReadHeaderTimeout: httpReadHeaderTimeout, IdleTimeout: httpIdleTimeout,

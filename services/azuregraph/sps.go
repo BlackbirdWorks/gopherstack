@@ -124,9 +124,17 @@ func (b *Backend) UpdateServicePrincipal(r Ref, body map[string]jsontext.Value) 
 		return denied()
 	}
 
+	body, keys, patchKeys := splitKeyPatch(body)
+
 	next, err := applyBody(cur, body, append([]string{propAppID, "appOwnerOrganizationId"}, spReadOnly()...)...)
 	if err != nil {
 		return err
+	}
+
+	if patchKeys {
+		if next.KeyCredentials, err = b.patchKeyCredentials(cur.KeyCredentials, keys); err != nil {
+			return err
+		}
 	}
 
 	b.sps.put(cur.ID, next)

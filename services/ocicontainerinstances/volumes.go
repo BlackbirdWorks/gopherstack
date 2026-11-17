@@ -2,16 +2,12 @@ package ocicontainerinstances
 
 import (
 	"encoding/base64"
-	"encoding/json/jsontext"
-	"encoding/json/v2"
 	"fmt"
 	"os"
 	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -169,20 +165,3 @@ func (s *scratch) binds(mounts []VolumeMount) []string {
 }
 
 // securityUser maps a LINUX security context to docker's uid[:gid] user and the fsGroup supplementary group.
-func securityUser(raw jsontext.Value) string {
-	var sc struct {
-		User  *int `json:"runAsUser"`
-		Group *int `json:"runAsGroup"`
-	}
-
-	if len(raw) == 0 || json.Unmarshal(raw, &sc, jsonx.V1()) != nil || sc.User == nil {
-		return ""
-	}
-
-	u := strconv.Itoa(*sc.User)
-	if sc.Group != nil {
-		u += ":" + strconv.Itoa(*sc.Group)
-	}
-
-	return u
-}

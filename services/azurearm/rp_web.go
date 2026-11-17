@@ -45,6 +45,12 @@ const (
 	webStateRunning       = "Running"
 	webStateStopped       = "Stopped"
 	webPlanSKUDefault     = "Y1"
+	webFieldACRManagedID  = "acrUseManagedIdentityCreds"
+	webFieldACRIdentityID = "acrUserManagedIdentityID"
+	hostingConsumption    = "Consumption"
+	hostingFlex           = "Flex"
+	hostingPremium        = "Premium"
+	hostingDedicated      = "Dedicated"
 	webMaxWorkers         = 200
 	webNameMin            = 2
 	webNameMax            = 60
@@ -351,7 +357,7 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 
 	rec.Configs[webConfigWeb] = cfgWeb
 
-	info, err := p.startSite(name, kind, cfgWeb, flex, siteCfg)
+	info, err := p.startSite(rec, cfgWeb, flex, siteCfg)
 	if err != nil {
 		return nil, err
 	}
@@ -368,8 +374,9 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 }
 
 // startSite creates or updates the site's app in the data plane with its configuration and app settings.
-func (p *WebProvider) startSite(name, kind string, cfgWeb, flex, siteCfg map[string]any) (FunctionAppInfo, error) {
-	info, err := p.dataPlane.PutApp(name, siteAppConfig(kind, cfgWeb, flex))
+func (p *WebProvider) startSite(rec *storedWebSite, cfgWeb, flex, siteCfg map[string]any) (FunctionAppInfo, error) {
+	name := rec.Name
+	info, err := p.dataPlane.PutApp(name, siteAppConfig(rec.Kind, p.hostingOf(rec), cfgWeb, flex))
 	if err != nil {
 		return FunctionAppInfo{}, badWebRequest(err)
 	}
@@ -383,17 +390,65 @@ func (p *WebProvider) startSite(name, kind string, cfgWeb, flex, siteCfg map[str
 	return info, nil
 }
 
-func siteAppConfig(kind string, cfg, flex map[string]any) FunctionAppConfig {
+func siteAppConfig(kind, hosting string, cfg, flex map[string]any) FunctionAppConfig {
 	fx, _ := cfg[webFieldLinuxFx].(string)
 	cmd, _ := cfg[webFieldAppCmd].(string)
 	health, _ := cfg[webFieldHealthCheck].(string)
+	alwaysOn, _ := cfg["alwaysOn"].(bool)
+	acrMI, _ := cfg[webFieldACRManagedID].(bool)
+	acrID, _ := cfg[webFieldACRIdentityID].(string)
 
-	out := FunctionAppConfig{Kind: kind, LinuxFx: fx, AppCommandLine: cmd, HealthCheckPath: health}
+	out := FunctionAppConfig{
+		Kind: kind, LinuxFx: fx, AppCommandLine: cmd, HealthCheckPath: health, Hosting: hosting, AlwaysOn: alwaysOn,
+		ACRManagedID: acrMI, ACRIdentityID: acrID,
+	}
 	if len(flex) > 0 {
-		out.LinuxFx, out.Flex = flexLinuxFx(flex), true
+		out.LinuxFx, out.Flex, out.AlwaysReady = flexLinuxFx(flex), true, flexAlwaysReady(flex)
 	}
 
 	return out
+}
+
+// flexAlwaysReady reports whether a Flex app keeps at least one always ready instance.
+func flexAlwaysReady(flex map[string]any) bool {
+	sc := mapOf(mapOf(flex)["scaleAndConcurrency"])
+
+	for _, raw := range flexSlice(sc["alwaysReady"]) {
+		if c, ok := fnAppInt(mapOf(raw), "instanceCount"); ok && c > 0 {
+			return true
+		}
+	}
+
+	return false
+}
+
+// hostingOf names the plan family of a site's hosting plan, the input of the data plane's idle policy.
+func (p *WebProvider) hostingOf(s *storedWebSite) string {
+	sku, ok := p.siteSKU(s)
+	if !ok && s.Slot != "" {
+		if parent, found := p.site(s.ResourceGroup, s.Name); found {
+			sku, ok = p.siteSKU(parent)
+		}
+	}
+
+	tier, _ := sku[cosmosFieldTier].(string)
+	name, _ := sku[fieldName].(string)
+	tier, name = strings.ToLower(tier), strings.ToLower(name)
+
+	switch {
+	case !ok && isFunctionAppKind(s.Kind):
+		return hostingConsumption
+	case !ok:
+		return hostingDedicated
+	case tier == webTierDynamic || name == strings.ToLower(webPlanSKUDefault):
+		return hostingConsumption
+	case tier == webTierFlex || name == "fc1":
+		return hostingFlex
+	case tier == webTierElastic || strings.HasPrefix(name, "ep"):
+		return hostingPremium
+	}
+
+	return hostingDedicated
 }
 
 // mergeWebConfig overlays the request's siteConfig (minus appSettings, which the data plane owns) on cur.
@@ -467,7 +522,11 @@ func (p *WebProvider) siteBody(
 	cfg := webConfigDefaults(s)
 	siteCfg := map[string]any{
 		webFieldWorkers: cfg[webFieldWorkers], webFieldLinuxFx: cfg[webFieldLinuxFx], "alwaysOn": cfg["alwaysOn"],
-		"acrUseManagedIdentityCreds": false, "http20Enabled": cfg["http20Enabled"],
+		webFieldACRManagedID: cfg[webFieldACRManagedID], "http20Enabled": cfg["http20Enabled"],
+	}
+
+	if id, _ := cfg[webFieldACRIdentityID].(string); id != "" {
+		siteCfg[webFieldACRIdentityID] = id
 	}
 
 	if isFunctionAppKind(s.Kind) {

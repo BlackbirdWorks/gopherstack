@@ -38,7 +38,7 @@ func TestRoleDefinitions(t *testing.T) {
 
 	assertErr(t, e.req(t, http.MethodGet, rolesBase+"roleDefinitions/"+newID0(), nil),
 		http.StatusNotFound, "Request_ResourceNotFound")
-	assertErr(t, e.req(t, http.MethodPost, rolesBase+"roleDefinitions", map[string]any{}),
+	assertErr(t, e.req(t, http.MethodPut, rolesBase+"roleDefinitions", map[string]any{}),
 		http.StatusMethodNotAllowed, "Request_BadRequest")
 }
 

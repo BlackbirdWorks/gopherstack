@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 14 (8 ok, 5 partial, 1 gap) |
 | Feature families | 9 (4 ok, 5 partial) |
-| Known gaps | 5 |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -17,7 +17,6 @@
 
 - Compute Engine behaviour is not emulated: no VMs, so allocation_policy has no effect, instances stay empty, tasks are never preempted (exit codes 50001 to 50004 and 50006 cannot occur) and task_count_per_node, permissive_ssh and run_as_non_root are stored only. The 50005 exit code for exceeded run time is from the troubleshooting page.
 - Container runnable options, username and password (registry credentials) and enable_image_streaming are stored but ignored; script runnables run in a container image rather than on the VM host, so host paths a script path refers to must exist in that image.
-- Job.notifications are stored but no Pub/Sub message is sent.
 - No IAM policy methods, CancelOperation, dashboard page or proxy.
 - In docker mode a job that was RUNNING when the emulator restarts is marked FAILED on restore (its containers are gone) instead of being resumed.
 

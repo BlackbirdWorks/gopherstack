@@ -5,3 +5,11 @@ package azuregraph
 func (b *Backend) SetSignInHooks(burned, verified func()) {
 	b.hooks = signInHooks{burned: burned, verified: verified}
 }
+
+// DeltaSessionCount reports the live delta sessions.
+func (b *Backend) DeltaSessionCount() int {
+	b.mu.RLock("DeltaSessionCount")
+	defer b.mu.RUnlock()
+
+	return len(b.deltaSessions)
+}

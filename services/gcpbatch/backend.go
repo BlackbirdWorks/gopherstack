@@ -80,6 +80,7 @@ type InMemoryBackend struct {
 	rt       Runtime
 	ctx      context.Context //nolint:containedctx // parent of every job runner
 	svc      Services
+	notifier Notifier
 	script   string
 	timing   Timing
 }

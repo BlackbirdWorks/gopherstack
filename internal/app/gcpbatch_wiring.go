@@ -1,9 +1,12 @@
 package app
 
 import (
+	"cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	gcpbatchbackend "github.com/blackbirdworks/gopherstack/services/gcpbatch"
 	gcploggingbackend "github.com/blackbirdworks/gopherstack/services/gcplogging"
+	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
 	gcpsecretmanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
 )
 
@@ -25,4 +28,22 @@ func wireGCPBatch(byName map[string]service.Registerable) {
 	}
 
 	bt.Backend.SetServices(svc)
+
+	if ps, isPS := byName["GCPPubSub"].(*gcppubsubbackend.Handler); isPS {
+		bt.Backend.SetNotifier(batchNotifier{b: ps.Backend})
+	}
+}
+
+// batchNotifier publishes Batch job notifications to the Pub/Sub emulator.
+type batchNotifier struct {
+	b *gcppubsubbackend.InMemoryBackend
+}
+
+func (n batchNotifier) PublishNotification(topic string, data []byte, attrs map[string]string) error {
+	_, err := n.b.Publish(&pubsubpb.PublishRequest{
+		Topic:    topic,
+		Messages: []*pubsubpb.PubsubMessage{{Data: data, Attributes: attrs}},
+	})
+
+	return err
 }

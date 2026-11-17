@@ -83,7 +83,7 @@ func (b *InMemoryBackend) validateTargetInput(sc scope, in map[string]any) error
 	}
 
 	if kind == "mcp" {
-		if err := b.validateMCPTarget(sc, objOf(tc, "mcp")); err != nil {
+		if err := b.validateMCPTarget(objOf(tc, "mcp")); err != nil {
 			return err
 		}
 	}
@@ -91,7 +91,7 @@ func (b *InMemoryBackend) validateTargetInput(sc scope, in map[string]any) error
 	return b.validateCredentialConfigs(sc, listOf(in, "credentialProviderConfigurations"))
 }
 
-func (b *InMemoryBackend) validateMCPTarget(sc scope, mcp map[string]any) error {
+func (b *InMemoryBackend) validateMCPTarget(mcp map[string]any) error {
 	kind, ok := exactlyOne(mcp, mcpTargetTypes())
 	if !ok {
 		return invalid("targetConfiguration.mcp must set exactly one of %s", strings.Join(mcpTargetTypes(), ", "))
@@ -114,7 +114,7 @@ func (b *InMemoryBackend) validateMCPTarget(sc scope, mcp map[string]any) error 
 			return invalid("Lambda function %q does not exist", arn)
 		}
 	case targetAPIGateway:
-		return b.validateAPIGatewayTarget(sc, objOf(mcp, targetAPIGateway))
+		return b.validateAPIGatewayTarget(objOf(mcp, targetAPIGateway))
 	case "mcpServer":
 		if u := strOf(objOf(mcp, "mcpServer"), "endpoint"); !strings.HasPrefix(u, "https://") {
 			return invalid("mcpServer endpoint must be an https URL")
@@ -462,7 +462,12 @@ func elemKeys(op, key string) []string {
 	return nil
 }
 
-func (b *InMemoryBackend) validateAPIGatewayTarget(sc scope, cfg map[string]any) error {
+func apiGatewayShapeValid(cfg map[string]any) bool {
+	return strOf(cfg, "restApiId") != "" && strOf(cfg, "stage") != "" &&
+		len(listOf(objOf(cfg, "apiGatewayToolConfiguration"), "toolFilters")) > 0
+}
+
+func (b *InMemoryBackend) validateAPIGatewayTarget(cfg map[string]any) error {
 	if strOf(cfg, "restApiId") == "" || strOf(cfg, "stage") == "" {
 		return invalid("apiGateway targets require restApiId and stage")
 	}
@@ -471,12 +476,79 @@ func (b *InMemoryBackend) validateAPIGatewayTarget(sc scope, cfg map[string]any)
 		return invalid("apiGateway targets require at least one tool filter")
 	}
 
-	if host, ok := b.refs.(RestAPIHost); ok {
-		if _, err := host.RestAPIExport(sc.region, strOf(cfg, "restApiId"), strOf(cfg, "stage")); err != nil &&
-			!errors.Is(err, ErrRestAPIHostUnavailable) {
-			return notFound("REST API %q stage %q not found", strOf(cfg, "restApiId"), strOf(cfg, "stage"))
-		}
+	return nil
+}
+
+type apigwKey struct{}
+
+// apigwChecks maps "region/api/stage" to the outcome of the pre-lock export; nil means the stage exists.
+type apigwChecks map[string]error
+
+func apigwCheckKey(region string, cfg map[string]any) string {
+	return region + "/" + strOf(cfg, "restApiId") + "/" + strOf(cfg, "stage")
+}
+
+func apiGatewayConfigOf(in map[string]any) map[string]any {
+	cfg := objOf(objOf(objOf(in, "targetConfiguration"), "mcp"), targetAPIGateway)
+	if cfg == nil || !apiGatewayShapeValid(cfg) {
+		return nil
 	}
 
-	return nil
+	return cfg
+}
+
+// preflightAPIGateway exports the target's REST API stage before the backend lock is taken, because the export
+// crosses into the API Gateway backend. The outcome rides in the context and is enforced by recheckAPIGateway
+// under the lock, only when the write is not an idempotent replay.
+func (b *InMemoryBackend) preflightAPIGateway(
+	ctx context.Context, sc scope, k *kindSpec, in map[string]any,
+) context.Context {
+	if k.Name != kindGatewayTarget {
+		return ctx
+	}
+
+	cfg := apiGatewayConfigOf(in)
+	if cfg == nil {
+		return ctx
+	}
+
+	host, ok := b.restAPIHost()
+	if !ok {
+		return ctx
+	}
+
+	var outcome error
+
+	if _, err := host.RestAPIExport(sc.region, strOf(cfg, "restApiId"), strOf(cfg, "stage")); err != nil &&
+		!errors.Is(err, ErrRestAPIHostUnavailable) {
+		outcome = notFound("REST API %q stage %q not found", strOf(cfg, "restApiId"), strOf(cfg, "stage"))
+	}
+
+	return context.WithValue(ctx, apigwKey{}, apigwChecks{apigwCheckKey(sc.region, cfg): outcome})
+}
+
+// recheckAPIGateway runs under the backend lock on the document about to be stored: the stage it names must be the
+// one the pre-lock export verified.
+func (b *InMemoryBackend) recheckAPIGateway(ctx context.Context, sc scope, k *kindSpec, doc map[string]any) error {
+	if k.Name != kindGatewayTarget {
+		return nil
+	}
+
+	cfg := apiGatewayConfigOf(doc)
+	if cfg == nil {
+		return nil
+	}
+
+	if _, ok := b.refs.(RestAPIHost); !ok {
+		return nil
+	}
+
+	checks, _ := ctx.Value(apigwKey{}).(apigwChecks)
+
+	outcome, verified := checks[apigwCheckKey(sc.region, cfg)]
+	if !verified {
+		return notFound("REST API %q stage %q could not be verified", strOf(cfg, "restApiId"), strOf(cfg, "stage"))
+	}
+
+	return outcome
 }

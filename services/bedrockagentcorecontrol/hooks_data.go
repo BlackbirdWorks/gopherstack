@@ -106,7 +106,11 @@ func (b *InMemoryBackend) loadExamples(source map[string]any) ([]any, string) {
 		return nil, "the S3 object " + bucket + "/" + key + " could not be read"
 	}
 
-	data, ok := b.refs.ReadObject(bucket, key)
+	data, ok, tooLarge := b.refs.ReadObjectUpTo(bucket, key, limitDatasetObject)
+	if tooLarge {
+		return nil, "the S3 object " + bucket + "/" + key + " is larger than the supported size"
+	}
+
 	if !ok {
 		return nil, "the S3 object " + bucket + "/" + key + " does not exist"
 	}

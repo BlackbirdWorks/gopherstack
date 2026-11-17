@@ -3,6 +3,7 @@ package ociapigateway
 import (
 	"bytes"
 	"encoding/json/v2"
+	"errors"
 	"io"
 	"maps"
 	"net/http"
@@ -15,7 +16,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
-const maxDataBody = 10 << 20
+const (
+	maxDataBody = 10 << 20
+	// maxBackendResponse bounds a proxied response body; a longer one aborts the client connection.
+	maxBackendResponse = 128 << 20
+	copyChunk          = 32 << 10
+)
 
 // target is the deployment a data-plane request resolved to.
 type target struct {
@@ -358,8 +364,10 @@ func (b *InMemoryBackend) respond(w http.ResponseWriter, r *http.Request, res ba
 
 	storable := o.cache.active && !o.cache.bypass && cachedStatus(res.status)
 	if storable {
-		captured, _ = io.ReadAll(io.LimitReader(res.body, cacheMaxBody+1))
-		storable = len(captured) <= cacheMaxBody
+		var rerr error
+
+		captured, rerr = io.ReadAll(io.LimitReader(res.body, cacheMaxBody+1))
+		storable = rerr == nil && len(captured) <= cacheMaxBody
 
 		res.body = io.NopCloser(io.MultiReader(bytes.NewReader(captured), res.body))
 	}
@@ -386,7 +394,7 @@ func (b *InMemoryBackend) respond(w http.ResponseWriter, r *http.Request, res ba
 	w.WriteHeader(res.status)
 
 	if r.Method != http.MethodHead {
-		_, _ = io.Copy(w, res.body)
+		copyBody(w, res.body, b.responseCap())
 	}
 }
 
@@ -561,4 +569,47 @@ func (b *InMemoryBackend) serveCached(
 	}
 
 	return rc, false
+}
+
+func (b *InMemoryBackend) responseCap() int64 {
+	b.mu.RLock("responseCap")
+	defer b.mu.RUnlock()
+
+	if b.respCap > 0 {
+		return b.respCap
+	}
+
+	return maxBackendResponse
+}
+
+// copyBody streams src to w, flushing each chunk so a streaming back end reaches the client as it is produced.
+func copyBody(w http.ResponseWriter, src io.Reader, limit int64) {
+	rc := http.NewResponseController(w)
+	buf := make([]byte, copyChunk)
+
+	var sent int64
+
+	for {
+		n, err := src.Read(buf)
+		if n > 0 {
+			sent += int64(n)
+			if sent > limit {
+				panic(http.ErrAbortHandler)
+			}
+
+			if _, werr := w.Write(buf[:n]); werr != nil {
+				return
+			}
+
+			_ = rc.Flush()
+		}
+
+		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				panic(http.ErrAbortHandler)
+			}
+
+			return
+		}
+	}
 }

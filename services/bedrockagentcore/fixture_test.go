@@ -49,6 +49,7 @@ type fakeControl struct {
 	workloads map[string]bool
 	providers map[string]bedrockagentcore.ProviderInfo
 	secrets   map[string]string
+	outbound  bedrockagentcore.HTTPDoer
 }
 
 func (f fakeControl) Runtime(_ bedrockagentcore.Scope, ref, qualifier string) (bedrockagentcore.RuntimeInfo, error) {
@@ -201,3 +202,11 @@ func (f fakeControl) CompleteFederation(
 
 	return nil
 }
+
+func (f fakeControl) VerifyWorkloadJWT(
+	ctx context.Context, _ bedrockagentcore.Scope, _, token string,
+) (string, error) {
+	return f.VerifyUserJWT(ctx, token)
+}
+
+func (f fakeControl) OutboundHTTP() bedrockagentcore.HTTPDoer { return f.outbound }

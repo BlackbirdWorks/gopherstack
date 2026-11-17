@@ -60,3 +60,18 @@ func (b *InMemoryBackend) JWKSCacheSize() int {
 
 	return len(b.jwksCache)
 }
+
+// WriteLocked reports whether the backend write lock is held.
+func (b *InMemoryBackend) WriteLocked() bool {
+	held, _, _ := b.mu.GetLockStatus()
+
+	return held
+}
+
+// JWKSNegativeSize is the number of cached JWKS failures.
+func (b *InMemoryBackend) JWKSNegativeSize() int {
+	b.mu.RLock("JWKSNegativeSize")
+	defer b.mu.RUnlock()
+
+	return len(b.jwksNegative)
+}

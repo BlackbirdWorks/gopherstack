@@ -2,6 +2,7 @@ package ociapigateway
 
 import (
 	"context"
+	"io"
 	"net/http/httptrace"
 	"sync"
 	"time"
@@ -61,4 +62,18 @@ func withBackendTimeouts(ctx context.Context, be *backendDoc) (context.Context, 
 		p.stop()
 		cancel()
 	}
+}
+
+// idleBody applies the read timeout between successive reads of a response body, so a back end that stalls
+// after its headers is cut off like one that never answers.
+type idleBody struct {
+	io.ReadCloser
+	timers *phaseTimers
+}
+
+func (i *idleBody) Read(p []byte) (int, error) {
+	i.timers.arm(i.timers.read)
+	defer i.timers.stop()
+
+	return i.ReadCloser.Read(p)
 }

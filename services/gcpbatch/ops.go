@@ -88,6 +88,8 @@ func (b *InMemoryBackend) opViewLocked(o *opRec) *longrunningpb.Operation {
 
 // GetOperation returns one operation.
 func (b *InMemoryBackend) GetOperation(name string) (*longrunningpb.Operation, error) {
+	defer b.flushNotes()
+
 	b.mu.Lock("GetOperation")
 	defer b.mu.Unlock()
 
@@ -153,6 +155,8 @@ func (b *InMemoryBackend) ListOperations(in *longrunningpb.ListOperationsRequest
 	}
 
 	prefix := strings.TrimSuffix(in.GetName(), "/") + "/" + kindOperations + "/"
+
+	defer b.flushNotes()
 
 	b.mu.Lock("ListOperations")
 	b.advanceLocked()

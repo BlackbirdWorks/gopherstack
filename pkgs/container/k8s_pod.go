@@ -68,15 +68,17 @@ func rejectUnsupported(spec Spec) error {
 	var bad []string
 
 	for field, set := range map[string]bool{
-		"Mounts":      len(spec.Mounts) > 0,
-		"Ports":       len(spec.Ports) > 0,
-		"Privileged":  spec.Privileged,
-		"Network":     spec.Network != "",
-		"Platform":    spec.Platform != "",
-		"GroupAdd":    len(spec.GroupAdd) > 0,
-		"CapAdd":      len(spec.CapAdd) > 0,
-		"CapDrop":     len(spec.CapDrop) > 0,
-		"SecurityOpt": len(spec.SecurityOpt) > 0,
+		"Mounts":          len(spec.Mounts) > 0,
+		"Ports":           len(spec.Ports) > 0,
+		"Privileged":      spec.Privileged,
+		"Network":         spec.Network != "",
+		"Platform":        spec.Platform != "",
+		"GroupAdd":        len(spec.GroupAdd) > 0,
+		"CapAdd":          len(spec.CapAdd) > 0,
+		"CapDrop":         len(spec.CapDrop) > 0,
+		"SecurityOpt":     len(spec.SecurityOpt) > 0,
+		"ReadOnlyRootfs":  spec.ReadOnlyRootfs,
+		"StopTimeoutSecs": spec.StopTimeoutSecs != nil,
 	} {
 		if set {
 			bad = append(bad, field)

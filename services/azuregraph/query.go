@@ -40,6 +40,10 @@ func eventual(r *http.Request) bool {
 // resource (nil skips property validation); resource names it in error messages.
 func parseListQuery(r *http.Request, resource string, fields map[string]bool) (*listQuery, error) {
 	vals := parseQueryValues(r.URL.RawQuery)
+	if err := checkQueryBounds(vals); err != nil {
+		return nil, err
+	}
+
 	q := &listQuery{top: defaultPageSize, token: vals.Get("$skiptoken"), eventual: eventual(r)}
 
 	if err := q.parseCount(r, vals); err != nil {
@@ -171,7 +175,7 @@ func fieldsOrAny(fields map[string]bool, filter string) map[string]bool {
 }
 
 func (q *listQuery) parseCount(r *http.Request, vals url.Values) error {
-	if !strings.EqualFold(vals.Get("$count"), "true") {
+	if !strings.EqualFold(vals.Get(paramCount), "true") {
 		return nil
 	}
 

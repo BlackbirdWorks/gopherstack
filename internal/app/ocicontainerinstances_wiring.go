@@ -1,6 +1,8 @@
 package app
 
 import (
+	"errors"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	ocicontainerinstances "github.com/blackbirdworks/gopherstack/services/ocicontainerinstances"
 	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
@@ -24,6 +26,7 @@ func wireOCIContainerInstances(byName map[string]service.Registerable) {
 	if identityH, found := byName["OCIIdentity"].(*ociidentitybackend.Handler); found {
 		h.Backend.Auth.Link(identityH.Backend.Auth)
 		h.Backend.SetCompartmentChecker(identityH.Backend.CompartmentActive)
+		h.Backend.SetTagLookup(identityH.Backend.TagDefinition)
 	}
 
 	if coreH, found := byName["OCICore"].(*ocicorebackend.Handler); found {
@@ -32,6 +35,7 @@ func wireOCIContainerInstances(byName map[string]service.Registerable) {
 
 			return live
 		})
+		h.Backend.SetNetwork(ociContainerInstancesNetwork(coreH.Backend))
 	}
 
 	if vaultH, found := byName["OCIVault"].(*ocivaultbackend.Handler); found {
@@ -44,4 +48,29 @@ func wireOCIContainerInstances(byName map[string]service.Registerable) {
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetOCIContainerInstancesHandler() service.Registerable {
 	return c.ociContainerInstancesHandler
+}
+
+func ociContainerInstancesNetwork(core *ocicorebackend.InMemoryBackend) ocicontainerinstances.Network {
+	return ocicontainerinstances.Network{
+		Allocate: func(r ocicontainerinstances.VnicRequest) (ocicontainerinstances.VnicAllocation, error) {
+			nic, err := core.CreateServiceNic(ocicorebackend.ServiceNicIn{
+				CompartmentID: r.CompartmentID, AD: r.AD, SubnetID: r.SubnetID, DisplayName: r.DisplayName,
+				HostnameLabel: r.HostnameLabel, PrivateIP: r.PrivateIP, NsgIDs: r.NsgIDs, AssignPublicIP: r.IsPublic,
+			})
+			if err != nil {
+				if ae, ok := errors.AsType[*ocicorebackend.APIError](err); ok {
+					return ocicontainerinstances.VnicAllocation{}, &ocicontainerinstances.APIError{
+						Status: ae.Status, Code: ae.Code, Message: ae.Message,
+					}
+				}
+
+				return ocicontainerinstances.VnicAllocation{}, err
+			}
+
+			return ocicontainerinstances.VnicAllocation{
+				VnicID: nic.VnicID, PrivateIP: nic.IPAddress, PublicIPs: nic.PublicIPs,
+			}, nil
+		},
+		Release: core.DeleteServiceNic,
+	}
 }

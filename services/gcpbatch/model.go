@@ -56,6 +56,7 @@ type jobRec struct {
 	RunningAt   time.Time `json:"runningAt"`
 	StartedAt   time.Time `json:"startedAt"`
 	pb          *batchpb.Job
+	pending     []note
 	Events      []eventRec `json:"events"`
 	Tasks       []*taskRec `json:"tasks"`
 	TaskRun     int64      `json:"taskRun"`

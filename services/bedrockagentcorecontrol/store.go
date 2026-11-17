@@ -29,7 +29,8 @@ type References interface {
 	ECRRepositoryExists(account, region, repository string) bool
 	LambdaFunctionExists(arn string) bool
 	SecretExists(arn string) bool
-	ReadObject(bucket, key string) ([]byte, bool)
+	// ReadObjectUpTo reads at most limit bytes; an object larger than limit is reported as tooLarge, not buffered.
+	ReadObjectUpTo(bucket, key string, limit int64) (data []byte, found, tooLarge bool)
 }
 
 // SecretStore is the optional References extension that persists credential provider secrets in Secrets Manager.
@@ -41,25 +42,26 @@ type SecretStore interface {
 
 // InMemoryBackend is the AgentCore control-plane state; one coarse lock guards every table.
 type InMemoryBackend struct {
-	resources *store.Table[Resource]
-	policies  *store.Table[ResourcePolicy]
-	vaults    *store.Table[TokenVault]
-	sessions  *store.Table[AuthSession]
-	jwksCache map[string]jwksEntry
-	registry  *store.Registry
-	mu        *lockmetrics.RWMutex
-	idem      *idempotency.Memo
-	now       func() time.Time
-	refs      References
-	keys      cmek.KeyChecker
-	jwks      JWKSProvider
-	outbound  *http.Client
-	kinds     map[string]*kindSpec
-	accountID string
-	region    string
-	sigSecret string
-	dwell     time.Duration
-	external  bool
+	resources    *store.Table[Resource]
+	policies     *store.Table[ResourcePolicy]
+	vaults       *store.Table[TokenVault]
+	sessions     *store.Table[AuthSession]
+	jwksCache    map[string]jwksEntry
+	jwksNegative map[string]time.Time
+	registry     *store.Registry
+	mu           *lockmetrics.RWMutex
+	idem         *idempotency.Memo
+	now          func() time.Time
+	refs         References
+	keys         cmek.KeyChecker
+	jwks         JWKSProvider
+	outbound     *http.Client
+	kinds        map[string]*kindSpec
+	accountID    string
+	region       string
+	sigSecret    string
+	dwell        time.Duration
+	external     bool
 }
 
 // NewInMemoryBackend creates an empty backend.

@@ -69,6 +69,8 @@ type appState struct {
 	AppCommandLine  string                       `json:"appCommandLine,omitempty"`
 	HealthCheckPath string                       `json:"healthCheckPath,omitempty"`
 	MasterKey       string                       `json:"masterKey"`
+	ACRIdentityID   string                       `json:"acrIdentityId,omitempty"`
+	Hosting         Hosting                      `json:"hosting,omitempty"`
 	PublishPassword string                       `json:"publishPassword"`
 	Zip             []byte                       `json:"zip"`
 	Deployments     []Deployment                 `json:"deployments"`
@@ -76,6 +78,9 @@ type appState struct {
 	StoppedJobs     []string                     `json:"stoppedJobs,omitempty"`
 	Stopped         bool                         `json:"stopped"`
 	Flex            bool                         `json:"flex,omitempty"`
+	AlwaysOn        bool                         `json:"alwaysOn,omitempty"`
+	AlwaysReady     bool                         `json:"alwaysReady,omitempty"`
+	ACRManagedID    bool                         `json:"acrManagedIdentity,omitempty"`
 }
 
 // app is a function app with its running host, if any.
@@ -88,9 +93,11 @@ type app struct {
 	dir         string
 	secretsDir  string
 	startErr    string
+	lastActive  time.Time
 	appState
 	hostPort int
 	epoch    int
+	inflight int
 }
 
 // InMemoryBackend holds all function apps under one lock.
@@ -104,6 +111,9 @@ type InMemoryBackend struct {
 	rules          func(app string) []RoutingRule
 	onDeploy       func(ctx context.Context, name string)
 	issuer         TokenIssuer
+	exchange       RegistryExchanger
+	stopReap       context.CancelFunc
+	reapDone       *sync.WaitGroup
 	mu             *lockmetrics.RWMutex
 	transport      *http.Transport
 	wg             *sync.WaitGroup
@@ -202,6 +212,7 @@ func (b *InMemoryBackend) Reset() {
 
 // Close stops every host and runs the onClose hook.
 func (b *InMemoryBackend) Close() {
+	b.stopReaper()
 	b.Reset()
 
 	b.mu.RLock("Close")
@@ -270,7 +281,12 @@ type AppConfig struct {
 	LinuxFx         string
 	AppCommandLine  string
 	HealthCheckPath string
+	ACRIdentityID   string
+	Hosting         Hosting
 	Flex            bool
+	AlwaysOn        bool
+	AlwaysReady     bool
+	ACRManagedID    bool
 }
 
 // AppInfo is the data plane's view of an app.
@@ -340,6 +356,8 @@ func (b *InMemoryBackend) PutApp(name string, cfg AppConfig) AppInfo {
 	}
 
 	a.Kind, a.Flex = cfg.Kind, cfg.Flex
+	a.Hosting, a.AlwaysOn, a.AlwaysReady = cfg.Hosting, cfg.AlwaysOn, cfg.AlwaysReady
+	a.ACRManagedID, a.ACRIdentityID = cfg.ACRManagedID, cfg.ACRIdentityID
 	if a.Kind == "" {
 		a.Kind = defaultKindName
 	}

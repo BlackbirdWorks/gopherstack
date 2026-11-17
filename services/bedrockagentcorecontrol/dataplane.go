@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	dataplane "github.com/blackbirdworks/gopherstack/services/bedrockagentcore"
@@ -259,7 +260,13 @@ func (b *InMemoryBackend) codeInfo(doc map[string]any) *dataplane.CodeInfo {
 				return nil, errNoCodeStore
 			}
 
-			data, ok := refs.ReadObject(bucket, key)
+			data, ok, tooLarge := refs.ReadObjectUpTo(bucket, key, limitCodePackage)
+			if tooLarge {
+				return nil, fmt.Errorf(
+					"%w: s3://%s/%s exceeds %d bytes", errNoCodeObject, bucket, key, limitCodePackage,
+				)
+			}
+
 			if !ok {
 				return nil, fmt.Errorf("%w: s3://%s/%s", errNoCodeObject, bucket, key)
 			}
@@ -267,4 +274,47 @@ func (b *InMemoryBackend) codeInfo(doc map[string]any) *dataplane.CodeInfo {
 			return data, nil
 		},
 	}
+}
+
+// OutboundHTTP is the gated client identity token endpoint calls go through.
+func (d dataSeam) OutboundHTTP() dataplane.HTTPDoer { return d.b.outboundClient() }
+
+// VerifyWorkloadJWT verifies a user token for a workload identity. A runtime or gateway-managed identity accepts
+// only tokens its inbound customJWTAuthorizer accepts (issuer, audience, clients, scopes, custom claims).
+func (d dataSeam) VerifyWorkloadJWT(ctx context.Context, sc dataplane.Scope, workload, token string) (string, error) {
+	b := d.b
+
+	cfg := b.managedAuthorizer(dsc(sc), workload)
+	if cfg == nil {
+		return d.VerifyUserJWT(ctx, token)
+	}
+
+	claims, f := b.verifyBearerToken(ctx, strings.TrimSpace(token), cfg)
+	if f != nil {
+		return "", fmt.Errorf("%w: %s", dataplane.ErrInvalidFederation, f.message)
+	}
+
+	sub, _ := claims["sub"].(string)
+	if sub == "" {
+		return "", fmt.Errorf("%w: no sub claim", dataplane.ErrInvalidFederation)
+	}
+
+	return sub, nil
+}
+
+func (b *InMemoryBackend) managedAuthorizer(sc scope, workload string) map[string]any {
+	b.mu.RLock("managedAuthorizer")
+	defer b.mu.RUnlock()
+
+	for _, r := range b.resources.All() {
+		if r.Account != sc.account || r.Region != sc.region || strOf(r.Aux, "managedIdentity") != workload {
+			continue
+		}
+
+		if cfg := objOf(objOf(r.Doc, "authorizerConfiguration"), "customJWTAuthorizer"); cfg != nil {
+			return deepCopy(cfg)
+		}
+	}
+
+	return nil
 }

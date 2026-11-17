@@ -9,18 +9,14 @@
 | --- | --- |
 | PARITY entries audited | 18 (16 ok, 2 partial) |
 | Feature families | 9 (6 ok, 3 partial) |
-| Known gaps | 6 |
+| Known gaps | 2 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- Not published (checked container-instance-shapes.htm, overview-of-container-instances.htm and the containerinstances SDK doc comments): the health check defaults; default memory per OCPU; the E3 limits (mirrors E4; the shape page lists E4, E5 and A1 only) and all processorDescription strings; ocid kinds computecontainerinstance, computecontainer and computecontainerinstanceworkrequest; 409 IncorrectState when stopping, starting or restarting from the wrong state; UPDATING as the state during stop, start and restart; INACTIVE once all containers have terminated; 409 for RetrieveLogs with the state engine; gracefulShutdownTimeoutInSeconds is accepted without an upper bound (all emulator choices)
-- Only one VNIC and no ocicore VNIC resource: vnicId is a generated OCID that OCI Core does not know, no private IP is assigned, isPublicIpAssigned, hostnameLabel, nsgIds and privateIp are accepted but unused, and containers have no network of their own beyond docker's default.
-- OCI_FSS_FILE_SYSTEM volumes are rejected. securityContext is stored and returned but only runAsUser and runAsGroup are enforced; fsGroup, capabilities, isRootFileSystemReadonly and isNonRootUserCheckEnabled are ignored. isResourcePrincipalDisabled is stored, no resource principal is provided to the containers.
-- gracefulShutdownTimeoutInSeconds is not enforced: docker stops use the runtime's fixed timeout. Memory-backed EMPTYDIR volumes use a directory under /dev/shm rather than a per-instance tmpfs.
-- Containers are re-created from their image on every start and restart, so a restart policy restart loses the container's filesystem; only the previous run's logs are kept. Docker log files are not rotated per Oracle's 20 MB retention.
-- Compute shape quotas, availability-domain and fault-domain validation, tenancy limits, IAM policies, systemTags and the definedTags namespace check are not applied. Pass 2026-11-13: VAULT image pull secrets read the secret's latest version (OCI Vault stage LATEST, including a pending version), as https://docs.oracle.com/en-us/iaas/Content/container-instances/vault-secrets-image-authorization.htm says ("Container Instances always uses the latest version of a secret"); ocivault.SecretContent changed from CURRENT to LATEST. The container cap is 60 per instance ("You can create a maximum of 60 containers on each container instance", https://docs.oracle.com/en-us/iaas/Content/container-instances/creating-a-container-instance.htm); it was 32 before this pass, so a request with 33 to 60 containers is now accepted.
+- isNonRootUserCheckEnabled is enforced only against an explicit runAsUser 0 (400 at create); an image whose default user is root is not rejected at start because pkgs/container exposes no image config inspection (pkgs/container/container.go APIClient has no ImageInspect).
+- isResourcePrincipalDisabled is stored and no resource principal is provided to the containers; IAM policies, quotas and tenancy limits are not applied (IAM, resource principals and authorization are out of scope). Pass 2026-11-13: VAULT image pull secrets read the secret's latest version (OCI Vault stage LATEST, including a pending version), as https://docs.oracle.com/en-us/iaas/Content/container-instances/vault-secrets-image-authorization.htm says ("Container Instances always uses the latest version of a secret"); ocivault.SecretContent changed from CURRENT to LATEST. The container cap is 60 per instance ("You can create a maximum of 60 containers on each container instance", https://docs.oracle.com/en-us/iaas/Content/container-instances/creating-a-container-instance.htm); it was 32 before this pass, so a request with 33 to 60 containers is now accepted.
 
 ## More
 

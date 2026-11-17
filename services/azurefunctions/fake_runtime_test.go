@@ -34,7 +34,10 @@ type fakeContainer struct {
 type fakeRuntime struct {
 	boxes map[string]*fakeContainer
 	// onExec, when set, handles Exec on a container started without ports (a build container).
-	onExec  func(spec container.Spec, cmd []string) container.ExecResult
+	onExec func(spec container.Spec, cmd []string) container.ExecResult
+	// onEcho and onAdmin, when set, run inside the host's catch-all and /admin/functions handlers.
+	onEcho  func()
+	onAdmin func()
 	started []container.Spec
 	reqs    []hostRequest
 	removed []string
@@ -91,12 +94,20 @@ func (f *fakeRuntime) CreateAndStart(_ context.Context, spec container.Spec) (st
 		f.mu.Unlock()
 
 		if r.URL.Path == "/admin/functions" {
+			if f.onAdmin != nil {
+				f.onAdmin()
+			}
+
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`[{"name":"hello","language":"node","isDisabled":false,` +
 				`"config":{"bindings":[{"type":"httpTrigger","authLevel":"anonymous","direction":"in","name":"req"}]}},` +
 				`{"name":"tick","language":"node","isDisabled":true,"config":{"bindings":[{"type":"timerTrigger"}]}}]`))
 
 			return
+		}
+
+		if f.onEcho != nil {
+			f.onEcho()
 		}
 
 		_, _ = fmt.Fprintf(w, "echo %s", r.URL.Path)

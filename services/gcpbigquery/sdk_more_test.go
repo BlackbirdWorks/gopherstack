@@ -11,6 +11,7 @@ import (
 	"cloud.google.com/go/bigquery"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	bqv2 "google.golang.org/api/bigquery/v2"
 	"google.golang.org/api/googleapi"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
@@ -461,5 +462,88 @@ func TestQueryRequestID(t *testing.T) {
 		case status == http.StatusOK:
 			assert.NotEqual(t, first, out, tt.name)
 		}
+	}
+}
+
+func TestExtractDestinationURIRules(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		uri     string
+		wantErr bool
+	}{
+		{name: "file name wildcard", uri: "gs://bkt/out/part-*.csv"},
+		{name: "no wildcard", uri: "gs://bkt/out/one.csv"},
+		{name: "wildcard in directory", uri: "gs://bkt/out-*/part.csv", wantErr: true},
+		{name: "two wildcards", uri: "gs://bkt/out/a-*-*.csv", wantErr: true},
+		{name: "no object", uri: "gs://bkt", wantErr: true},
+		{name: "not a gs uri", uri: "s3://bkt/x.csv", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			env := newSDK(t)
+			ctx := t.Context()
+			ds := env.dataset(t, "ex")
+
+			_, err := env.client.Query("CREATE TABLE ex.src AS SELECT 1 AS id").Run(ctx)
+			require.NoError(t, err)
+
+			job, err := ds.Table("src").ExtractorTo(bigquery.NewGCSReference(tt.uri)).Run(ctx)
+			require.NoError(t, err)
+
+			status, err := job.Wait(ctx)
+			require.NoError(t, err)
+
+			if tt.wantErr {
+				require.Error(t, status.Err())
+
+				return
+			}
+
+			require.NoError(t, status.Err())
+		})
+	}
+}
+
+func TestExtractDestinationURIRulesDryRun(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		uri     string
+		wantErr bool
+	}{
+		{name: "file name wildcard", uri: "gs://bkt/out/part-*.csv"},
+		{name: "wildcard in directory", uri: "gs://bkt/out-*/part.csv", wantErr: true},
+		{name: "two wildcards", uri: "gs://bkt/out/a-*-*.csv", wantErr: true},
+		{name: "no object", uri: "gs://bkt", wantErr: true},
+		{name: "not a gs uri", uri: "s3://bkt/x.csv", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			env := newSDK(t)
+			ctx := t.Context()
+			env.dataset(t, "dr")
+			env.exec(t, "CREATE TABLE dr.src AS SELECT 1 AS id")
+
+			job, err := env.policyService(t).Jobs.Insert(sdkProject, &bqv2.Job{Configuration: &bqv2.JobConfiguration{
+				DryRun: true,
+				Extract: &bqv2.JobConfigurationExtract{
+					SourceTable:     &bqv2.TableReference{ProjectId: sdkProject, DatasetId: "dr", TableId: "src"},
+					DestinationUris: []string{tt.uri}, DestinationFormat: "CSV",
+				},
+			}}).Context(ctx).Do()
+
+			failed := err != nil || (job.Status != nil && job.Status.ErrorResult != nil)
+			assert.Equal(t, tt.wantErr, failed)
+			assert.Empty(t, env.objects.data)
+		})
 	}
 }

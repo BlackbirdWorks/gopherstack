@@ -40,6 +40,18 @@ func (s *adminServer) DeleteIndex(
 	return s.b.DeleteIndex(in)
 }
 
+func (s *adminServer) ExportEntities(
+	ctx context.Context, in *adminpb.ExportEntitiesRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.ExportEntities(ctx, in)
+}
+
+func (s *adminServer) ImportEntities(
+	ctx context.Context, in *adminpb.ImportEntitiesRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.ImportEntities(ctx, in)
+}
+
 func (s *adminServer) GetIndex(_ context.Context, in *adminpb.GetIndexRequest) (*adminpb.Index, error) {
 	return s.b.GetIndex(in)
 }

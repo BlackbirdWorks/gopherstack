@@ -530,6 +530,10 @@ func (b *InMemoryBackend) execQuery(p *queryPlan, rv *readView) (*queryResult, e
 
 	rows = p.applyDistinct(rows, byKey)
 
+	if p.nearest != nil {
+		rows = p.nearest.apply(rows, byKey)
+	}
+
 	return p.slice(rows, rv)
 }
 

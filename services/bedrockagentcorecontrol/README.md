@@ -21,7 +21,7 @@
 - Authorizers: AWS_IAM verifies the SigV4 signature (secret from --sigv4-secret) but evaluates no IAM or resource policy, so every valid signature is authorized; IAM roles named in requests are checked for existence only, never for trust or permissions
 - Nested validation: deeper member constraints are still accepted as sent for Smithy model contents, VPC endpoint overrides (privateEndpointOverrides member shapes) and the harness, evaluator and policy-engine configuration unions
 - Failure states: CREATE_FAILED and UPDATE_FAILED are reached by dataset S3 sources and gateway targets whose OAuth authorization endpoint cannot be resolved (FAILED); no other asynchronous failure is modeled
-- Quotas: resource-count limits, memory strategies per memory, environment variable size, inline and S3 schema size, tools per target and tool name length are enforced, but request-rate limits (TPS throttling per API), gateway tool-call payload size (6 MB), configuration bundle (5 MB), policy size (10 KB, 200 KB) and resource policy (20 KB, 100 statements) limits and the active-concurrency limits (batch evaluation, AB tests, recommendations) are not; no ThrottlingException is ever returned
+- Quotas: resource-count limits, memory strategies per memory, environment variable size, inline and S3 schema size, tools per target and tool name length are enforced, but request-rate limits (TPS throttling per API), configuration bundle (5 MB), policy size (10 KB, 200 KB) and resource policy (20 KB, 100 statements) limits and the active-concurrency limits (batch evaluation, AB tests, recommendations) are not; no ThrottlingException is ever returned
 
 ### Structural gaps
 

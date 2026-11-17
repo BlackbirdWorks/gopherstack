@@ -212,7 +212,7 @@ func (b *InMemoryBackend) launch(st *appState, host string) (box, error) {
 	}
 
 	if rc.custom {
-		if err = b.pullPrivateImage(rc.image, st.Settings); err != nil {
+		if err = b.pullPrivateImage(rc.image, st); err != nil {
 			return box{}, err
 		}
 	}
@@ -396,6 +396,7 @@ func (b *InMemoryBackend) runStart(name string, claim startClaim) (int, error) {
 			cur.startErr = launchErr.Error()
 		} else {
 			cur.containerID, cur.dir, cur.secretsDir, cur.hostPort = x.id, x.dir, x.secretsDir, x.port
+			cur.lastActive = b.now()
 			b.startLoopsLocked(cur)
 		}
 	}

@@ -9,16 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 13 (10 ok, 3 partial) |
 | Feature families | 8 (3 ok, 5 partial) |
-| Known gaps | 5 |
+| Known gaps | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- ExportEntities and ImportEntities are not served (they need a Cloud Storage bucket target); the admin service answers UNIMPLEMENTED for them.
-- Vector search (find_nearest) returns UNIMPLEMENTED, and a property_mask is applied to full entities only.
-- Pessimistic concurrency, point-in-time recovery beyond one hour, multiple named databases' lifecycle API and TTL policies are not modelled; the database_id field only partitions data.
-- Composite index rules cover only the cases the documentation states; the index build is instantaneous (no CREATING state) and the exact wording of FAILED_PRECONDITION and ABORTED messages was chosen without a production reference.
+- CreateIndex completes instantly (the index is READY and the operation done on return, no CREATING state); the blocker is that an asynchronous build needs a backend-clock worker that does not exist yet (admin.go CreateIndex).
 - There is no dashboard page.
 
 ## More

@@ -256,5 +256,9 @@ func validateJob(j *batchpb.Job) error {
 		return err
 	}
 
+	if err := validateNotifications(j.GetNotifications()); err != nil {
+		return err
+	}
+
 	return validateLogs(j.GetLogsPolicy())
 }

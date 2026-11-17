@@ -11,8 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Cases share one database: every case that sets a limit must use the same value as any other case on that limit,
-// and no case may create a table wider than the lowest columns limit (4).
+// Cases run serially in one database; each restores sys.gs_limits to its defaults before the next starts.
 func TestDockerDatabaseLimits(t *testing.T) {
 	t.Parallel()
 
@@ -98,39 +97,82 @@ func TestDockerDatabaseLimits(t *testing.T) {
 		t.Parallel()
 
 		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				t.Parallel()
-
-				ctx, cancel := context.WithTimeout(t.Context(), dockerEngineWait)
-				defer cancel()
-
-				admin := dp.mustOpen(t, "admin", dp.token(t, true), pgx.QueryExecModeSimpleProtocol)
-
-				super, serr := dp.instance(t).superConn(ctx)
-				require.NoError(t, serr)
-				t.Cleanup(func() { _ = super.Close(context.WithoutCancel(t.Context())) })
-
-				for _, s := range tt.setup {
-					_, serr = admin.Exec(ctx, s)
-					require.NoError(t, serr, s)
-				}
-
-				if tt.limit != "" {
-					_, serr = super.Exec(ctx, "UPDATE sys.gs_limits SET value = "+strconv.FormatInt(tt.value, 10)+
-						" WHERE name = '"+tt.limit+"'")
-					require.NoError(t, serr)
-				}
-
-				_, err := admin.Exec(ctx, tt.stmt)
-
-				var pgErr *pgconn.PgError
-
-				require.ErrorAs(t, err, &pgErr)
-				assert.Equal(t, tt.code, pgErr.Code)
-				assert.Equal(t, tt.msg, pgErr.Message)
-			})
+			runLimitCase(t, dp, tt.name, tt.limit, tt.stmt, tt.code, tt.msg, tt.setup, tt.value)
 		}
 	})
+}
+
+func runLimitCase(
+	t *testing.T, dp *dataPlane, name, limit, stmt, code, msg string, setup []string, value int64,
+) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(t.Context(), dockerEngineWait)
+	defer cancel()
+
+	admin := dp.mustOpen(t, "admin", dp.token(t, true), pgx.QueryExecModeSimpleProtocol)
+
+	super, serr := dp.instance(t).superConn(ctx)
+	require.NoError(t, serr, name)
+
+	defer func() { _ = super.Close(context.WithoutCancel(t.Context())) }()
+
+	defaults := readLimits(ctx, t, super)
+	defer restoreLimits(context.WithoutCancel(t.Context()), t, super, defaults)
+
+	for _, s := range setup {
+		_, serr = admin.Exec(ctx, s)
+		require.NoError(t, serr, name+": "+s)
+	}
+
+	if limit != "" {
+		_, serr = super.Exec(ctx, "UPDATE sys.gs_limits SET value = "+strconv.FormatInt(value, 10)+
+			" WHERE name = '"+limit+"'")
+		require.NoError(t, serr, name)
+	}
+
+	_, err := admin.Exec(ctx, stmt)
+
+	var pgErr *pgconn.PgError
+
+	require.ErrorAs(t, err, &pgErr, name)
+	assert.Equal(t, code, pgErr.Code, name)
+	assert.Equal(t, msg, pgErr.Message, name)
+}
+
+func readLimits(ctx context.Context, t *testing.T, c *pgx.Conn) map[string]int64 {
+	t.Helper()
+
+	rows, err := c.Query(ctx, "SELECT name, value FROM sys.gs_limits")
+	require.NoError(t, err)
+
+	defer rows.Close()
+
+	out := map[string]int64{}
+
+	for rows.Next() {
+		var (
+			name string
+			v    int64
+		)
+
+		require.NoError(t, rows.Scan(&name, &v))
+
+		out[name] = v
+	}
+
+	require.NoError(t, rows.Err())
+
+	return out
+}
+
+func restoreLimits(ctx context.Context, t *testing.T, c *pgx.Conn, limits map[string]int64) {
+	t.Helper()
+
+	for name, v := range limits {
+		_, err := c.Exec(ctx, "UPDATE sys.gs_limits SET value = $1 WHERE name = $2", v, name)
+		assert.NoError(t, err)
+	}
 }
 
 func TestDockerTableCountLimit(t *testing.T) {
@@ -160,4 +202,35 @@ func TestDockerTableCountLimit(t *testing.T) {
 	require.ErrorAs(t, err, &pgErr)
 	assert.Equal(t, "54000", pgErr.Code)
 	assert.Equal(t, "creating more than 1 tables not allowed", pgErr.Message)
+}
+
+func TestDockerCollationIsC(t *testing.T) {
+	t.Parallel()
+
+	dp := newDataPlane(t)
+
+	ctx, cancel := context.WithTimeout(t.Context(), dockerEngineWait)
+	defer cancel()
+
+	admin := dp.mustOpen(t, "admin", dp.token(t, true), pgx.QueryExecModeSimpleProtocol)
+
+	for _, tt := range []struct{ name, column, want string }{
+		{"collate", "datcollate", "C"},
+		{"ctype", "datctype", "C"},
+		{"encoding", "pg_encoding_to_char(encoding)", "UTF8"},
+	} {
+		var got string
+
+		q := "SELECT " + tt.column + " FROM pg_database WHERE datname = current_database()"
+		require.NoError(t, admin.QueryRow(ctx, q).Scan(&got), tt.name)
+		assert.Equal(t, tt.want, got, tt.name)
+	}
+
+	var upper, ordered string
+
+	require.NoError(t, admin.QueryRow(ctx, "SELECT min(v) FROM (VALUES ('a'), ('B')) t(v)").Scan(&ordered))
+	assert.Equal(t, "B", ordered, "C collation sorts uppercase before lowercase")
+
+	require.NoError(t, admin.QueryRow(ctx, "SELECT upper('é')").Scan(&upper))
+	assert.Equal(t, "é", upper, "the C locale does not case-map non-ASCII letters")
 }

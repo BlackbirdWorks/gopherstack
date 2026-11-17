@@ -56,7 +56,7 @@ func alwaysOnAllowed(sku map[string]any) bool {
 	tier, name = strings.ToLower(tier), strings.ToLower(name)
 
 	switch tier {
-	case acSkuFree, webTierShared, "dynamic", "elasticpremium", "flexconsumption":
+	case acSkuFree, webTierShared, webTierDynamic, webTierElastic, webTierFlex:
 		return false
 	case "":
 		return name != "" && !strings.HasPrefix(name, "ep") && name != "y1" && name != "fc1" &&

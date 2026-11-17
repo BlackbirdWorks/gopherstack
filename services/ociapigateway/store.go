@@ -61,9 +61,17 @@ type InMemoryBackend struct {
 	client        *http.Client
 	jwks          *jwksCache
 	disco         *discoveryCache
+	respCap       int64
 	transition    time.Duration
 	seq           int64
 	allowExternal bool
+}
+
+// SetBackendResponseLimit caps the bytes proxied from one back end response; 0 restores the default.
+func (b *InMemoryBackend) SetBackendResponseLimit(n int64) {
+	b.mu.Lock("SetBackendResponseLimit")
+	b.respCap = n
+	b.mu.Unlock()
 }
 
 // NewInMemoryBackend creates an empty backend.

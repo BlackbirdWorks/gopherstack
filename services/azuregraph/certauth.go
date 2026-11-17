@@ -96,34 +96,10 @@ func (b *Backend) AddKey(id string, in KeyCredential, proof string) (KeyCredenti
 		return KeyCredential{}, badRequest("A value is required for property 'key' of resource 'KeyCredential'.")
 	}
 
-	if _, err := base64.StdEncoding.DecodeString(*in.Key); err != nil {
-		return KeyCredential{}, b.keyErr("key")
-	}
-
-	if in.Type != typeCert && in.Type != typeCertPFX {
-		return KeyCredential{}, b.keyErr("type")
-	}
-
-	if in.Usage != usageVerify && in.Usage != usageSign {
-		return KeyCredential{}, b.keyErr("usage")
-	}
-
-	var cert *x509.Certificate
-
-	if in.Type == typeCert {
-		c, err := parseCert(*in.Key)
-		if err != nil {
-			return KeyCredential{}, b.keyErr("key")
-		}
-
-		cert = c
-		in.StartDateTime, in.EndDateTime = c.NotBefore, c.NotAfter
-	}
-
 	b.mu.Lock("AddKey")
 	defer b.mu.Unlock()
 
-	start, end, err := b.credWindow(in.StartDateTime, in.EndDateTime)
+	cred, err := b.newKeyCredential(in)
 	if err != nil {
 		return KeyCredential{}, err
 	}
@@ -139,19 +115,8 @@ func (b *Backend) AddKey(id string, in KeyCredential, proof string) (KeyCredenti
 		}
 	}
 
-	cred := KeyCredential{
-		KeyID: newID(), Type: in.Type, Usage: in.Usage, DisplayName: in.DisplayName,
-		CustomKeyIdentifier: in.CustomKeyIdentifier, StartDateTime: start, EndDateTime: end,
-	}
-
-	if cert != nil {
+	if cred.Type == typeCert {
 		b.keyMaterial[cred.KeyID] = *in.Key
-
-		if cred.CustomKeyIdentifier == nil {
-			sum := sha1.Sum(cert.Raw) //nolint:gosec // certificate thumbprint, not a security hash
-			thumb := base64.StdEncoding.EncodeToString(sum[:])
-			cred.CustomKeyIdentifier = &thumb
-		}
 	}
 
 	*keys = append(slices.Clone(*keys), cred)
@@ -375,4 +340,49 @@ func (b *Backend) checkFederatedAssertion(
 	}
 
 	return sp.ID, true, nil
+}
+
+// newKeyCredential validates in and builds the stored credential (without key material or a stable keyId).
+func (b *Backend) newKeyCredential(in KeyCredential) (KeyCredential, error) {
+	if _, err := base64.StdEncoding.DecodeString(*in.Key); err != nil {
+		return KeyCredential{}, b.keyErr("key")
+	}
+
+	if in.Type != typeCert && in.Type != typeCertPFX {
+		return KeyCredential{}, b.keyErr("type")
+	}
+
+	if in.Usage != usageVerify && in.Usage != usageSign {
+		return KeyCredential{}, b.keyErr("usage")
+	}
+
+	var cert *x509.Certificate
+
+	if in.Type == typeCert {
+		c, err := parseCert(*in.Key)
+		if err != nil {
+			return KeyCredential{}, b.keyErr("key")
+		}
+
+		cert = c
+		in.StartDateTime, in.EndDateTime = c.NotBefore, c.NotAfter
+	}
+
+	start, end, err := b.credWindow(in.StartDateTime, in.EndDateTime)
+	if err != nil {
+		return KeyCredential{}, err
+	}
+
+	cred := KeyCredential{
+		KeyID: newID(), Type: in.Type, Usage: in.Usage, DisplayName: in.DisplayName,
+		CustomKeyIdentifier: in.CustomKeyIdentifier, StartDateTime: start, EndDateTime: end,
+	}
+
+	if cert != nil && cred.CustomKeyIdentifier == nil {
+		sum := sha1.Sum(cert.Raw) //nolint:gosec // certificate thumbprint, not a security hash
+		thumb := base64.StdEncoding.EncodeToString(sum[:])
+		cred.CustomKeyIdentifier = &thumb
+	}
+
+	return cred, nil
 }

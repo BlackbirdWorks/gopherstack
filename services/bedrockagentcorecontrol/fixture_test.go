@@ -2,6 +2,7 @@ package bedrockagentcorecontrol_test
 
 import (
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,10 +24,26 @@ const (
 	testImage   = testAccount + ".dkr.ecr.us-east-1.amazonaws.com/agent:latest"
 )
 
-type fakeClock struct{ t time.Time }
+type fakeClock struct {
+	t  time.Time
+	mu sync.Mutex
+}
 
-func (c *fakeClock) now() time.Time { return c.t }
-func (c *fakeClock) advance()       { c.t = c.t.Add(time.Minute) }
+func (c *fakeClock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.t
+}
+
+func (c *fakeClock) advance() { c.step(time.Minute) }
+
+func (c *fakeClock) step(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.t = c.t.Add(d)
+}
 
 type fakeRefs struct {
 	repos     map[string]bool
@@ -39,10 +56,13 @@ func (f fakeRefs) ECRRepositoryExists(_, _, repo string) bool { return f.repos[r
 func (f fakeRefs) LambdaFunctionExists(arn string) bool       { return f.functions[arn] }
 func (f fakeRefs) SecretExists(arn string) bool               { return f.secrets[arn] }
 
-func (f fakeRefs) ReadObject(bucket, key string) ([]byte, bool) {
+func (f fakeRefs) ReadObjectUpTo(bucket, key string, limit int64) ([]byte, bool, bool) {
 	b, ok := f.objects[bucket+"/"+key]
+	if int64(len(b)) > limit {
+		return nil, true, true
+	}
 
-	return b, ok
+	return b, ok, false
 }
 
 type fixture struct {

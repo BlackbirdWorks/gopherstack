@@ -140,6 +140,8 @@ func (b *Backend) purgeExpired() {
 			b.deleted.del(lc(d.id()))
 		}
 	}
+
+	b.purgeRoleDefs(cutoff)
 }
 
 // ListDeleted returns the soft-deleted objects of a kind (all kinds when kind is empty).

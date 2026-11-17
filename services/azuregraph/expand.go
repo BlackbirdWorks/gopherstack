@@ -37,15 +37,23 @@ func parseExpand(spec string) ([]expandSpec, error) {
 	for i, r := range spec {
 		switch r {
 		case '(':
-			depth++
+			if depth++; depth > maxExpandDepth {
+				return nil, badRequest("The $expand option is nested more than %d levels deep.", maxExpandDepth)
+			}
 		case ')':
-			depth--
+			if depth--; depth < 0 {
+				return nil, badRequest("The $expand option has unbalanced parentheses.")
+			}
 		case ',':
 			if depth == 0 {
 				parts = append(parts, spec[start:i])
 				start = i + 1
 			}
 		}
+	}
+
+	if depth != 0 {
+		return nil, badRequest("The $expand option has unbalanced parentheses.")
 	}
 
 	parts = append(parts, spec[start:])

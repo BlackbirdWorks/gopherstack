@@ -122,6 +122,8 @@ func (b *InMemoryBackend) ListJobs(in *batchpb.ListJobsRequest) (*batchpb.ListJo
 		prefix = "projects/" + project + "/locations/"
 	}
 
+	defer b.flushNotes()
+
 	b.mu.Lock("ListJobs")
 	b.advanceLocked()
 

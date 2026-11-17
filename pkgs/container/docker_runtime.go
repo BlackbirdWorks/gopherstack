@@ -302,6 +302,7 @@ func (r *realDockerClient) Close() error {
 type DockerRuntime struct {
 	docker APIClient
 	pools  map[string][]*PooledContainer
+	stops  map[string]int
 	mu     *lockmetrics.RWMutex
 	cfg    Config
 }
@@ -456,6 +457,8 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 		CapAdd:      spec.CapAdd,
 		CapDrop:     spec.CapDrop,
 		SecurityOpt: spec.SecurityOpt,
+
+		ReadonlyRootfs: spec.ReadOnlyRootfs,
 	}
 	hostCfg.Memory = spec.MemoryBytes
 	hostCfg.MemoryReservation = spec.MemoryReservationBytes
@@ -510,7 +513,36 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 		return "", fmt.Errorf("container start %q: %w", resp.ID, startErr)
 	}
 
+	r.rememberStop(resp.ID, spec.StopTimeoutSecs)
+
 	return resp.ID, nil
+}
+
+// rememberStop records the grace period a container gets on stop; 0 keeps the default.
+func (r *DockerRuntime) rememberStop(id string, secs *int) {
+	if secs == nil || *secs < 0 {
+		return
+	}
+
+	r.mu.Lock("rememberStop")
+	defer r.mu.Unlock()
+
+	if r.stops == nil {
+		r.stops = map[string]int{}
+	}
+
+	r.stops[id] = *secs
+}
+
+func (r *DockerRuntime) stopSecs(id string) int {
+	r.mu.RLock("stopSecs")
+	defer r.mu.RUnlock()
+
+	if secs, ok := r.stops[id]; ok {
+		return secs
+	}
+
+	return stopTimeoutSecs
 }
 
 // applyPorts publishes each [IP:]HOST:CONTAINER[/PROTO] pair (TCP unless the container port carries /udp);
@@ -547,7 +579,7 @@ func applyPorts(cfg *dockercontainer.Config, hostCfg *dockercontainer.HostConfig
 
 // StopAndRemove stops and removes a container.
 func (r *DockerRuntime) StopAndRemove(ctx context.Context, containerID string) error {
-	timeout := stopTimeoutSecs
+	timeout := r.stopSecs(containerID)
 
 	if err := r.docker.ContainerStop(ctx, containerID, dockercontainer.StopOptions{Timeout: &timeout}); err != nil {
 		return fmt.Errorf("container stop %q: %w", containerID, err)
@@ -561,12 +593,20 @@ func (r *DockerRuntime) StopAndRemove(ctx context.Context, containerID string) e
 		return fmt.Errorf("container remove %q: %w", containerID, err)
 	}
 
+	r.forgetStop(containerID)
+
 	return nil
+}
+
+func (r *DockerRuntime) forgetStop(id string) {
+	r.mu.Lock("forgetStop")
+	delete(r.stops, id)
+	r.mu.Unlock()
 }
 
 // StopContainer stops a container without removing it, keeping its published ports and data.
 func (r *DockerRuntime) StopContainer(ctx context.Context, containerID string) error {
-	timeout := stopTimeoutSecs
+	timeout := r.stopSecs(containerID)
 
 	if err := r.docker.ContainerStop(ctx, containerID, dockercontainer.StopOptions{Timeout: &timeout}); err != nil {
 		return fmt.Errorf("container stop %q: %w", containerID, err)

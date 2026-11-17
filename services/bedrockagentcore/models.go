@@ -57,4 +57,6 @@ type AccessToken struct {
 	Region   string    `json:"region"`
 	Workload string    `json:"workload"`
 	UserID   string    `json:"userId,omitempty"`
+	// UserJWT is the user token of GetWorkloadAccessTokenForJWT; held in memory only so it never reaches a snapshot.
+	UserJWT string `json:"-"`
 }

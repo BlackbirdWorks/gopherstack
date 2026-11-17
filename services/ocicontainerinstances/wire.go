@@ -11,8 +11,12 @@ type (
 		MemoryInGBs *float32 `json:"memoryInGBs"`
 	}
 	createVnicIn struct {
-		SubnetID    string `json:"subnetId"`
-		DisplayName string `json:"displayName"`
+		IsPublic      *bool    `json:"isPublicIpAssigned"`
+		SubnetID      string   `json:"subnetId"`
+		DisplayName   string   `json:"displayName"`
+		HostnameLabel string   `json:"hostnameLabel"`
+		PrivateIP     string   `json:"privateIp"`
+		NsgIDs        []string `json:"nsgIds"`
 	}
 	createVolumeIn struct {
 		Name         string       `json:"name"`

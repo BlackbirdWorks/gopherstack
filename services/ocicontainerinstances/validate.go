@@ -3,15 +3,12 @@ package ocicontainerinstances
 import (
 	"cmp"
 	"encoding/base64"
-	"encoding/json/jsontext"
-	"encoding/json/v2"
 	"fmt"
 	"net/netip"
 	"path"
 	"slices"
 	"strings"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -26,13 +23,17 @@ const (
 	maxVnics      = 1
 )
 
-func (b *InMemoryBackend) buildInstance(in createIn) (*Instance, *APIError) {
+func (b *InMemoryBackend) buildInstance(in createIn, vnics []VnicAllocation) (*Instance, *APIError) {
 	if aerr := b.checkCompartment(in.Compartment); aerr != nil {
 		return nil, aerr
 	}
 
 	if in.AD == "" || in.Shape == "" {
 		return nil, errMissing("availabilityDomain and shape are required")
+	}
+
+	if aerr := checkPlacement(in.AD, in.FaultDomain); aerr != nil {
+		return nil, aerr
 	}
 
 	sc, aerr := buildShapeConfig(in)
@@ -61,7 +62,7 @@ func (b *InMemoryBackend) buildInstance(in createIn) (*Instance, *APIError) {
 		inst.DisplayName = "containerinstance" + now.Format("20060102150405")
 	}
 
-	if aerr = b.buildParts(inst, in); aerr != nil {
+	if aerr = b.buildParts(inst, in, vnics); aerr != nil {
 		return nil, aerr
 	}
 
@@ -102,7 +103,7 @@ func buildShapeConfig(in createIn) (ShapeConfig, *APIError) {
 	return ShapeConfig{Processor: shape.Processor, Ocpus: ocpus, Memory: mem, Bandwidth: shape.bandwidth(ocpus)}, nil
 }
 
-func (b *InMemoryBackend) buildParts(inst *Instance, in createIn) *APIError {
+func (b *InMemoryBackend) buildParts(inst *Instance, in createIn, allocs []VnicAllocation) *APIError {
 	if in.Graceful != nil && *in.Graceful < 0 {
 		return errParam("gracefulShutdownTimeoutInSeconds must not be negative")
 	}
@@ -115,7 +116,7 @@ func (b *InMemoryBackend) buildParts(inst *Instance, in createIn) *APIError {
 		return aerr
 	}
 
-	if aerr := b.buildVnics(inst, in.Vnics); aerr != nil {
+	if aerr := b.buildVnics(inst, in.Vnics, allocs); aerr != nil {
 		return aerr
 	}
 
@@ -130,7 +131,7 @@ func (b *InMemoryBackend) buildParts(inst *Instance, in createIn) *APIError {
 	return b.buildContainers(inst, in.Containers)
 }
 
-func (b *InMemoryBackend) buildVnics(inst *Instance, vnics []createVnicIn) *APIError {
+func (b *InMemoryBackend) buildVnics(inst *Instance, vnics []createVnicIn, allocs []VnicAllocation) *APIError {
 	if len(vnics) == 0 {
 		return errMissing("vnics is required and needs one entry")
 	}
@@ -148,23 +149,12 @@ func (b *InMemoryBackend) buildVnics(inst *Instance, vnics []createVnicIn) *APIE
 			return errNotFound(v.SubnetID)
 		}
 
-		inst.Vnics = append(inst.Vnics, Vnic{VnicID: newOCID("vnic"), SubnetID: v.SubnetID})
-	}
+		vn := Vnic{VnicID: newOCID("vnic"), SubnetID: v.SubnetID}
+		if len(allocs) > 0 {
+			vn.VnicID, vn.PrivateIP, vn.PublicIPs = allocs[0].VnicID, allocs[0].PrivateIP, allocs[0].PublicIPs
+		}
 
-	return nil
-}
-
-func checkSecurity(raw jsontext.Value) *APIError {
-	if len(raw) == 0 || string(raw) == "null" {
-		return nil
-	}
-
-	var sc struct {
-		Type string `json:"securityContextType"`
-	}
-
-	if err := json.Unmarshal(raw, &sc, jsonx.V1()); err != nil || sc.Type != "LINUX" {
-		return errParam("securityContext.securityContextType must be LINUX")
+		inst.Vnics = append(inst.Vnics, vn)
 	}
 
 	return nil

@@ -9,19 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 52 (42 ok, 10 partial) |
 | Feature families | 20 (6 ok, 14 partial) |
-| Known gaps | 7 |
+| Known gaps | 3 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- Gateway addresses are not reachable at their own IPs (the emulator serves every gateway on its shared port, or on --oci-apigateway-tls-port); the hostname <id>.apigateway.<region>.oci.customer-oci.com resolves nowhere locally, so clients map it themselves or use /_apigw/<gatewayId>. An IPV6-only gateway still holds an IPv4 private IP on its VNIC because OCI Core cannot create IPv6-only VNICs (services/ocicore/network.go newVnic always allocates an IPv4 address via freeIPIn).
-- SDK resources are stored only: no client library is generated, so artifactUrl and timeArtifactUrlExpiresAt are never set (generation needs the OpenAPI Generator toolchain for five target languages).
-- OAuth2 login/logout backends, validationFailurePolicy OAUTH2, REMOTE_DISCOVERY with VALIDATION_BLOCK client or source details are rejected with 400 (they need an OAuth2 identity provider session flow); the SDK models only body validationType NONE, so JSON-schema body validation does not exist.
-- Cancelling a work request marks it CANCELED but does not stop the resource transition it describes.
-- No back end retries and no streaming flush; request bodies are buffered up to 10 MiB and the read timeout covers the wait for the response headers only, not the body.
-- IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified. systemTags are never set.
-- The dashboard has no OCI API Gateway page.
+- OAuth2 login and logout backends, the OAUTH2 validationFailurePolicy and VALIDATION_BLOCK client or source details are rejected with 400 (dynauth.go validateRemoteDiscovery, reqpolicy.go bodyValidation): they need an OIDC authorization-code relying party with session cookies and PKCE against an identity provider, which the emulator does not have.
+- IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified.
+- The dashboard has no OCI API Gateway page (no dashboard/ociapigateway_proxy.go, ui/src/lib/components/oci page or cloud.ts entry).
 
 ## More
 

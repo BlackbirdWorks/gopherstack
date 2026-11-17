@@ -18,7 +18,7 @@ ops:
   GetEvent: {wire: ok, errors: ok, state: ok, persist: ok, note: "events past the memory eventExpiryDuration read as not found"}
   GetMemoryRecord: {wire: ok, errors: ok, state: ok, persist: ok, note: "the namespace query narrows the match"}
   GetResourceApiKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "reads the key from the Secrets Manager secret the control plane stored"}
-  GetResourceOauth2Token: {wire: ok, errors: ok, state: ok, persist: ok, note: "M2M flow performs a real client_credentials request against the provider's token endpoint; USER_FEDERATION returns authorizationUrl, sessionUri and IN_PROGRESS until the user authorizes at the provider and CompleteResourceTokenAuth binds the user, then accessToken (refreshed with the stored refresh token); ON_BEHALF_OF_TOKEN_EXCHANGE is rejected"}
+  GetResourceOauth2Token: {wire: ok, errors: ok, state: ok, persist: ok, note: "M2M flow performs a real client_credentials request against the provider's token endpoint; USER_FEDERATION returns authorizationUrl, sessionUri and IN_PROGRESS until the user authorizes at the provider and CompleteResourceTokenAuth binds the user, then accessToken (refreshed with the stored refresh token); ON_BEHALF_OF_TOKEN_EXCHANGE follows the provider's onBehalfOfTokenExchangeConfig (TOKEN_EXCHANGE with M2M or no actor token, JWT_AUTHORIZATION_GRANT; the subject token is the user JWT of GetWorkloadAccessTokenForJWT, held in memory only)"}
   GetWorkloadAccessToken: {wire: ok, errors: ok, state: ok, persist: ok, note: "opaque token, 1 hour, workload identity must exist"}
   GetWorkloadAccessTokenForJWT: {wire: ok, errors: ok, state: ok, persist: ok, note: "verifies the RS signature, exp and sub against the JWKS of the token issuer (control plane, loopback-only fetch unless external targets are enabled, cached)"}
   GetWorkloadAccessTokenForUserId: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -51,7 +51,7 @@ items_still_open:
   - Code interpreter: executeCode runs a fresh python process per call, so variables do not persist between calls; javascript, typescript and the async task tools are rejected
   - "Code interpreter: network mode, certificates and filesystem configurations are stored but not applied to the sandbox; a no-network mode would cut the sandbox off from the emulator endpoint (sandbox.go:119)"
   - Browser: no automation or live-view streams, no profiles, and no browser process behind a session
-  - Identity: ON_BEHALF_OF_TOKEN_EXCHANGE flows are rejected, and vendor providers without a discovery document have no reachable authorization or token endpoint
+  - Identity: vendor providers without a discovery document have no reachable authorization or token endpoint
 structural_gaps:
   - Semantic memory search: real retrieval embeds text with a model; the emulator has none, so ranking is lexical
   - Browser automation: a headless browser container with a CDP bridge is out of scope
@@ -83,6 +83,10 @@ Success statuses follow the Response Syntax of each operation in the AgentCore A
 - Memory extraction needs a model: events are stored and CreateEvent logs that extraction "would" run for memories with strategies; no memory records are produced, ExtractionMode and ExtractionConfig are ignored.
 
 ## Emulator choices where the vendor is silent
+
+- ON_BEHALF_OF_TOKEN_EXCHANGE follows the provider's onBehalfOfTokenExchangeConfig as documented at devguide/on-behalf-of-token-exchange.html: TOKEN_EXCHANGE posts grant_type token-exchange with the user JWT of GetWorkloadAccessTokenForJWT as subject_token (type jwt) plus an actor_token from a client_credentials request (actorTokenContent M2M, scopes actorTokenScopes) or none (NONE); JWT_AUTHORIZATION_GRANT posts grant_type jwt-bearer with the JWT as assertion, plus requested_token_use=on_behalf_of for MicrosoftOauth2; customParameters override request parameters except grant_type. Not performed: actorTokenContent AWS_IAM_ID_TOKEN_JWT needs sts:GetWebIdentityToken for the provider's token endpoint audience and is answered with ValidationException. A provider with no onBehalfOfTokenExchangeConfig is treated as TOKEN_EXCHANGE with no actor token (the page does not say what AWS does). Client authentication is always HTTP basic. The JWT lives in memory on the workload access token (json:"-"), is dropped with it after one hour, and is never persisted: after a restart the flow answers ValidationException until a new token is issued.
+- Provider token and discovery requests go through the control plane's outbound client (loopback only unless AGENTCORE_ALLOW_EXTERNAL_GATEWAY_TARGETS, no redirects), so the client secret and the user JWT are only sent to a destination that gate permits.
+- GetWorkloadAccessTokenForJWT: the API reference and identity-authentication pages describe no issuer registration on a workload identity (the discovery URL page says tokens from a provider are accepted "without explicit onboarding"), so a hand-created identity accepts any issuer whose signature verifies through the loopback-gated JWKS; identities owned by a runtime or gateway additionally enforce that resource's customJWTAuthorizer (an emulator restriction).
 
 - Persistence: sessions come back TERMINATED after a restart, and warm runtime containers and sandbox files are not persisted (container filesystems cannot be snapshotted by the emulator).
 - InvokeAgentRuntimeCommand: output arrives as one contentDelta per stream after the command exits (the container runtime returns buffered output); a platform failure or timeout reports exitCode -1.

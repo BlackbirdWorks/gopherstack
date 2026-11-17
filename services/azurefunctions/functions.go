@@ -67,6 +67,8 @@ func (b *InMemoryBackend) invokeURL(name, fn string, cfg map[string]any) string 
 }
 
 func (b *InMemoryBackend) adminFunctions(ctx context.Context, name string) ([]adminFunction, error) {
+	defer b.hold(name, false)()
+
 	port, err := b.ensureStarted(ctx, name)
 	if err != nil {
 		return nil, err

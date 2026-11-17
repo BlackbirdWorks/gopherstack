@@ -266,6 +266,14 @@ func checkValue(name string, v *datastorepb.Value, depth int, inArray bool) erro
 			return errInvalid("Property %q: entity values are nested deeper than %d levels.", name, maxEntityDepth)
 		}
 
+		if vec, isVec := vectorOf(v); isVec {
+			if len(vec) > maxVectorDims {
+				return errInvalid("Property %q: vectors may have at most %d dimensions.", name, maxVectorDims)
+			}
+
+			return nil
+		}
+
 		return checkProps(t.EntityValue, depth+1)
 	case *datastorepb.Value_KeyValue:
 		if t.KeyValue == nil || len(t.KeyValue.GetPath()) == 0 {

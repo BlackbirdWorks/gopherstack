@@ -134,7 +134,9 @@ func randomSecret() string {
 func (l *dockerLauncher) Launch(ctx context.Context, ref ClusterRef) (Instance, error) {
 	rootPW, adminPW := randomSecret(), randomSecret()
 
-	srv, err := l.eng.Launch(ctx, pgengine.Spec{ID: ref.ID, Image: l.cfg.Image, Password: rootPW})
+	srv, err := l.eng.Launch(ctx, pgengine.Spec{
+		ID: ref.ID, Image: l.cfg.Image, Password: rootPW, InitdbArgs: dsqlInitdbArgs,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("dsql engine: %w", err)
 	}
@@ -291,3 +293,6 @@ func (i *dockerInstance) roleLogin(ctx context.Context, role, principalARN strin
 func (i *dockerInstance) logWarn(ctx context.Context, msg string, args ...any) {
 	logger.Load(ctx).WarnContext(ctx, msg, args...)
 }
+
+// dsqlInitdbArgs gives the database the C collation Aurora DSQL supports (UTF-8 encoded).
+const dsqlInitdbArgs = "--locale=C --encoding=UTF8"

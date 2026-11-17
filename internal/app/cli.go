@@ -2836,6 +2836,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"OCIObjectStorage", "ociobjectstorage", cli.OCIObjectStorage.Port},
 		{"OCIVault", "ocivault", cli.OCIVault.Port},
 		{"OCIStreaming", "ocistreaming", cli.OCIStreaming.Port},
+		{"OCIStreamingKafka", "ocistreaming-kafka", cli.OCIStreaming.KafkaPort},
 		{"OCIIdentity", "ociidentity", cli.OCIIdentity.Port},
 		{"OCIFunctions", "ocifunctions", cli.OCIFunctions.Port},
 		{"OCICore", "ocicore", cli.OCICore.Port},
@@ -3972,6 +3973,11 @@ func wireOCIIdentityKeys(byName map[string]service.Registerable) {
 
 	if h, found := byName["OCIStreaming"].(*ocistreamingbackend.Handler); found {
 		h.Backend.Auth.Link(identityH.Backend.Auth)
+		h.Backend.SetTokenVerifier(func(user, token string) bool {
+			_, valid := identityH.Backend.VerifyAuthToken(user, token)
+
+			return valid
+		})
 		h.Backend.SetTagLookup(identityH.Backend.TagDefinition)
 	}
 

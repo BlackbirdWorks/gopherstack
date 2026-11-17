@@ -92,8 +92,10 @@ type Spec struct {
 	Image string
 	// Password is the superuser password applied on first initialisation; it must match an existing volume.
 	Password string
-	Persist  bool
-	Fresh    bool
+	// InitdbArgs is passed to initdb on first initialisation (POSTGRES_INITDB_ARGS); trusted, not user input.
+	InitdbArgs string
+	Persist    bool
+	Fresh      bool
 }
 
 // VolumeName is the data volume of server id.
@@ -178,6 +180,10 @@ func (s *Server) prepare() (container.Spec, error) {
 		Image: s.spec.Image,
 		Env:   []string{"POSTGRES_USER=" + Superuser, "POSTGRES_PASSWORD=" + s.spec.Password, "PGDATA=" + pgData},
 		Ports: []string{container.PortSpec(container.LoopbackHost, strconv.Itoa(port), servicePort)},
+	}
+
+	if s.spec.InitdbArgs != "" {
+		spec.Env = append(spec.Env, "POSTGRES_INITDB_ARGS="+s.spec.InitdbArgs)
 	}
 
 	if s.volume != "" {

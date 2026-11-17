@@ -71,6 +71,8 @@ type ArchiveDeliverer interface {
 // Spec holds the specification for creating a container.
 type Spec struct {
 	Labels map[string]string
+	// StopTimeoutSecs is the grace period given on stop; nil keeps the runtime default.
+	StopTimeoutSecs *int
 	// Archives are unpacked read-only at their Dest before the container starts.
 	Archives    []Archive
 	Image       string
@@ -97,8 +99,10 @@ type Spec struct {
 	MemoryReservationBytes int64
 	CPUShares              int64
 	NanoCPUs               int64
-	Privileged             bool
-	Unmanaged              bool
+	// ReadOnlyRootfs mounts the container's root filesystem read-only.
+	ReadOnlyRootfs bool
+	Privileged     bool
+	Unmanaged      bool
 }
 
 // ExecResult is the outcome of a command run inside a container.

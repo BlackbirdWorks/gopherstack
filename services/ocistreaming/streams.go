@@ -1,6 +1,8 @@
 package ocistreaming
 
 import (
+	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -178,6 +180,12 @@ func (b *InMemoryBackend) CreateStream(in CreateStreamIn, endpoint string) (stre
 
 	if aerr = b.checkTags(in.Tags); aerr != nil {
 		return streamWire{}, "", "", aerr
+	}
+
+	if b.partLimit > 0 && b.livePartitions()+parts > b.partLimit {
+		return streamWire{}, "", "", newErr(http.StatusBadRequest, "LimitExceeded",
+			"Fulfilling this request exceeds the Oracle-defined limit of "+strconv.Itoa(b.partLimit)+
+				" partitions for this tenancy")
 	}
 
 	s := &Stream{
@@ -384,4 +392,16 @@ func (f streamFilter) matches(s *Stream) bool {
 	return (f.compartment == "" || s.CompartmentID == f.compartment) && (f.poolID == "" || s.PoolID == f.poolID) &&
 		(f.id == "" || s.ID == f.id) && (f.name == "" || s.Name == f.name) &&
 		(f.state == "" || strings.EqualFold(s.State, f.state))
+}
+
+func (b *InMemoryBackend) livePartitions() int {
+	n := 0
+
+	for _, s := range b.streams {
+		if s.State != stateDeleted {
+			n += len(s.Parts)
+		}
+	}
+
+	return n
 }
