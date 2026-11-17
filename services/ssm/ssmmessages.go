@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 )
 
 // Shell is an interactive terminal attached to a managed node.
@@ -163,7 +164,14 @@ func requestScheme(r *http.Request) string {
 const (
 	maxTranscriptBytes = 1 << 20
 	maxTranscriptSinks = 1024
+	transcriptSinkTTL  = time.Hour
 )
+
+// transcriptEntry is a sink waiting for its session's data channel; unclaimed ones expire.
+type transcriptEntry struct {
+	at   time.Time
+	sink TranscriptSink
+}
 
 // TranscriptSink receives a session's output after its data channel closes.
 type TranscriptSink func(sessionID string, transcript []byte)
@@ -177,11 +185,21 @@ func (b *InMemoryBackend) addTranscriptSink(sessionID string, sink TranscriptSin
 	defer b.execMu.Unlock()
 
 	if b.transcriptSinks == nil {
-		b.transcriptSinks = make(map[string]TranscriptSink)
+		b.transcriptSinks = make(map[string]transcriptEntry)
+	}
+
+	now := timeNow()
+
+	if len(b.transcriptSinks) >= maxTranscriptSinks {
+		for id, e := range b.transcriptSinks {
+			if now.Sub(e.at) > transcriptSinkTTL {
+				delete(b.transcriptSinks, id)
+			}
+		}
 	}
 
 	if len(b.transcriptSinks) < maxTranscriptSinks {
-		b.transcriptSinks[sessionID] = sink
+		b.transcriptSinks[sessionID] = transcriptEntry{sink: sink, at: now}
 	}
 }
 
@@ -196,10 +214,10 @@ func (b *InMemoryBackend) takeTranscriptSink(sessionID string) TranscriptSink {
 	b.execMu.Lock()
 	defer b.execMu.Unlock()
 
-	sink := b.transcriptSinks[sessionID]
+	e := b.transcriptSinks[sessionID]
 	delete(b.transcriptSinks, sessionID)
 
-	return sink
+	return e.sink
 }
 
 // transcriptBuffer keeps the first maxTranscriptBytes of a session's output.

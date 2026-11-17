@@ -58,7 +58,7 @@ type InMemoryBackend struct {
 	shells                      ShellOpener
 	portDialer                  PortDialer
 	dataChannels                map[string]context.CancelFunc
-	transcriptSinks             map[string]TranscriptSink
+	transcriptSinks             map[string]transcriptEntry
 	execCancels                 map[string]context.CancelFunc
 	agents                      map[string]*agentQueue
 	registry                    *store.Registry

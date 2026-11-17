@@ -256,8 +256,9 @@ func (s *runtimeServer) handleNext(w http.ResponseWriter, r *http.Request) {
 
 	s.exts.awaitInit(r.Context())
 	s.tel.initFinished(time.Now(), "")
+	s.tel.runtimeNext(time.Now())
 	s.exts.awaitIdle(r.Context())
-	s.tel.runtimeNext(r.Context(), time.Now())
+	s.tel.invokePhaseEnded(r.Context(), time.Now())
 
 	select {
 	case inv := <-s.queue:

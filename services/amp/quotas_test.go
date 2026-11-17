@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	ampsdk "github.com/aws/aws-sdk-go-v2/service/amp"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -222,4 +224,22 @@ func TestProviderAppliesIngestionSettings(t *testing.T) {
 			assert.Equal(t, tt.want, f.write(t, ws, nSamples("m", 6)).status)
 		})
 	}
+}
+
+func TestIngestionBucketsSweptWithWorkspace(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture(t)
+	f.backend.SetIngestionQuotas(amp.IngestionQuotas{Rate: 1000, ActiveSeries: 10, Enforce: true})
+	ws := f.workspace(t)
+
+	require.Equal(t, http.StatusOK, f.write(t, ws, nSamples("a", 1)).status)
+	require.Equal(t, 1, f.backend.BucketCount())
+
+	_, err := f.client.DeleteWorkspace(t.Context(), &ampsdk.DeleteWorkspaceInput{WorkspaceId: aws.String(ws)})
+	require.NoError(t, err)
+	f.settle()
+	f.workspace(t)
+
+	require.Equal(t, 0, f.backend.BucketCount())
 }

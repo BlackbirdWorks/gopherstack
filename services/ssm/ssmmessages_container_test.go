@@ -2,10 +2,13 @@ package ssm_test
 
 import (
 	"context"
+	"net"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v5"
@@ -99,17 +102,6 @@ func TestContainerSession(t *testing.T) {
 	}
 }
 
-func exitSession(_ *testing.T, c *dcClient, _ *ssm.InMemoryBackend, _ string) {
-	c.input(ssm.PayloadOutput, []byte("exit\n"))
-}
-
-func terminateSession(t *testing.T, _ *dcClient, bk *ssm.InMemoryBackend, sid string) {
-	t.Helper()
-
-	_, err := bk.TerminateSession(t.Context(), &ssm.TerminateSessionInput{SessionID: sid})
-	assert.NoError(t, err)
-}
-
 type transcript struct {
 	id   string
 	body []byte
@@ -119,12 +111,30 @@ func TestContainerSessionTranscript(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		end  func(t *testing.T, c *dcClient, bk *ssm.InMemoryBackend, sid string)
-		want string
+		end     func(t *testing.T, c *dcClient, bk *ssm.InMemoryBackend, sid string, stop context.CancelFunc)
+		name    string
+		want    string
+		wantMsg bool
 	}{
-		{name: "exit delivers output", want: "ok\n", end: exitSession},
-		{name: "terminate delivers output", want: "ok\n", end: terminateSession},
+		{name: "exit delivers output", want: "ok\n", wantMsg: true,
+			end: func(_ *testing.T, c *dcClient, _ *ssm.InMemoryBackend, _ string, _ context.CancelFunc) {
+				c.input(ssm.PayloadOutput, []byte("exit\n"))
+			}},
+		{name: "terminate delivers output", want: "ok\n", wantMsg: true,
+			end: func(t *testing.T, _ *dcClient, bk *ssm.InMemoryBackend, sid string, _ context.CancelFunc) {
+				t.Helper()
+
+				_, err := bk.TerminateSession(t.Context(), &ssm.TerminateSessionInput{SessionID: sid})
+				assert.NoError(t, err)
+			}},
+		{name: "client disconnect delivers output", want: "ok\n",
+			end: func(_ *testing.T, c *dcClient, _ *ssm.InMemoryBackend, _ string, _ context.CancelFunc) {
+				_ = c.ws.Close()
+			}},
+		{name: "server shutdown delivers output", want: "ok\n", wantMsg: true,
+			end: func(_ *testing.T, _ *dcClient, _ *ssm.InMemoryBackend, _ string, stop context.CancelFunc) {
+				stop()
+			}},
 	}
 
 	for _, tt := range tests {
@@ -135,17 +145,27 @@ func TestContainerSessionTranscript(t *testing.T) {
 			e := echo.New()
 			e.Any("/*", h.Handler())
 
-			srv := httptest.NewServer(e)
+			base, stop := context.WithCancel(t.Context())
+			defer stop()
+
+			srv := httptest.NewUnstartedServer(e)
+			srv.Config.BaseContext = func(net.Listener) context.Context { return base }
+			srv.Start()
 			t.Cleanup(srv.Close)
 			bk.SetShellOpener(&commandOpener{})
 
-			done := make(chan transcript, 1)
+			var calls atomic.Int32
+
+			done := make(chan transcript, 2)
 			in := ssm.ContainerSessionInput{
 				Target: "ecs:c_t_r", ContainerID: "cid-1", Command: "x",
 				StreamBase: "ws://" + strings.TrimPrefix(srv.URL, "http://"),
 			}
 
-			in.OnEnd = func(id string, body []byte) { done <- transcript{id: id, body: body} }
+			in.OnEnd = func(id string, body []byte) {
+				calls.Add(1)
+				done <- transcript{id: id, body: body}
+			}
 
 			out, err := bk.StartContainerSession(t.Context(), in)
 			require.NoError(t, err)
@@ -159,12 +179,20 @@ func TestContainerSessionTranscript(t *testing.T) {
 			c.handshake(map[int64]bool{})
 			c.input(ssm.PayloadOutput, []byte("echo ok\n"))
 			assert.Equal(t, "ok\n", string(c.nextNonAck(map[int64]bool{}).Payload))
-			tt.end(t, c, bk, out.SessionID)
-			assert.Equal(t, ssm.MsgChannelClosed, c.nextNonAck(map[int64]bool{}).MessageType)
+			tt.end(t, c, bk, out.SessionID, stop)
 
-			got := <-done
-			assert.Equal(t, out.SessionID, got.id)
-			assert.Equal(t, tt.want, string(got.body))
+			if tt.wantMsg {
+				assert.Equal(t, ssm.MsgChannelClosed, c.nextNonAck(map[int64]bool{}).MessageType)
+			}
+
+			select {
+			case got := <-done:
+				assert.Equal(t, out.SessionID, got.id)
+				assert.Equal(t, tt.want, string(got.body))
+				assert.Equal(t, int32(1), calls.Load())
+			case <-time.After(10 * time.Second):
+				require.FailNow(t, "OnEnd was never called")
+			}
 		})
 	}
 }

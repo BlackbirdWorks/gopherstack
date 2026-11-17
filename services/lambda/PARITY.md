@@ -59,7 +59,7 @@ schemas), telemetry-api (destinations, buffering), runtimes-logs-api (Logs API 2
   reaches the listener at the subscribing container's address (request remote address) instead of
   sandbox.localdomain. Buffers are flushed before SHUTDOWN is sent.
 - Events: platform.initStart/initRuntimeDone/initReport (replayed to late subscribers), start, runtimeDone (status
-  success|error|timeout, metrics, responseLatency/responseDuration spans and, once the runtime calls next, the runtimeOverhead span; published with platform.report at that call, tracing), report (durationMs,
+  success|error|timeout, metrics, responseLatency/responseDuration spans and, once the runtime calls next, the runtimeOverhead span; published when the runtime calls next, before it waits for extensions; report follows once they are idle, tracing), report (durationMs,
   billedDurationMs, memorySizeMB, maxMemoryUsedMB read from the container cgroup, initDurationMs on the cold start),
   extension, telemetrySubscription, logsDropped, function and extension lines (JSON object records for LogFormat JSON
   on schema 2022-12-13+). Logs API: platform.start/end/report/extension/logsSubscription/logsDropped and runtimeDone

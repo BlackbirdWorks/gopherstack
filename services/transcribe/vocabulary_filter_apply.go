@@ -42,7 +42,7 @@ func (s jobSpec) filterSet(ctx context.Context, deps pipelineDeps) map[string]st
 
 	if s.FilterURI != "" && deps.reader != nil {
 		if bucket, key, ok := parseMediaURI(s.FilterURI); ok {
-			if data, err := deps.reader.GetObject(ctx, bucket, key); err == nil {
+			if data, err := readFilterFile(ctx, deps.reader, bucket, key); err == nil {
 				for _, w := range parseFilterFile(data) {
 					set[w] = struct{}{}
 				}
@@ -51,6 +51,14 @@ func (s jobSpec) filterSet(ctx context.Context, deps pipelineDeps) map[string]st
 	}
 
 	return set
+}
+
+func readFilterFile(ctx context.Context, r MediaReader, bucket, key string) ([]byte, error) {
+	if lr, ok := r.(LimitedMediaReader); ok {
+		return lr.GetObjectLimit(ctx, bucket, key, maxFilterFileBytes)
+	}
+
+	return r.GetObject(ctx, bucket, key)
 }
 
 // parseFilterFile reads one word per line; oversized files and lines beyond the caps are ignored.
