@@ -215,3 +215,16 @@ func AccessAnalyzerFilterForTest(v any) map[string]accessanalyzerbackend.FilterC
 
 // StackInstancesErrorCode exposes stackInstancesErrorCode to the external tests.
 func StackInstancesErrorCode(err error) string { return stackInstancesErrorCode(err) }
+
+// SetStackInstanceStatusForTest forces a stack instance's Status.
+func (b *InMemoryBackend) SetStackInstanceStatusForTest(stackSetName, account, region, status string) {
+	b.mu.Lock("SetStackInstanceStatusForTest")
+	defer b.mu.Unlock()
+
+	for i := range b.stackInstances[stackSetName] {
+		inst := &b.stackInstances[stackSetName][i]
+		if inst.Account == account && inst.Region == region {
+			inst.Status = status
+		}
+	}
+}

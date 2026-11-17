@@ -54,10 +54,10 @@ func newUpdateFixture(t *testing.T, accounts, regions []string) *cloudformation.
 	return b
 }
 
-func instanceStack(t *testing.T, b *cloudformation.InMemoryBackend, account, region string) *cloudformation.Stack {
+func instanceStack(t *testing.T, b *cloudformation.InMemoryBackend, account string) *cloudformation.Stack {
 	t.Helper()
 
-	inst, err := b.DescribeStackInstance(updSetName, account, region)
+	inst, err := b.DescribeStackInstance(updSetName, account, updRegion1)
 	require.NoError(t, err)
 
 	stack, err := b.DescribeStack(inst.StackID)
@@ -135,7 +135,7 @@ func TestUpdateStackSet_UpdatesInstanceStacks(t *testing.T) {
 			assert.Equal(t, "SUCCEEDED", op.Status)
 
 			for acct, want := range tt.wantTemplate {
-				stack := instanceStack(t, b, acct, updRegion1)
+				stack := instanceStack(t, b, acct)
 				assert.Equal(t, want, stack.TemplateBody, "template of %s", acct)
 				assert.Equal(t, tt.wantEnv[acct], stackEnv(stack), "Env of %s", acct)
 
@@ -266,7 +266,7 @@ func TestUpdateStackInstances_ParameterOverrides(t *testing.T) {
 				b.WaitForStackSetOperations()
 
 				for acct, want := range step.wantEnv {
-					assert.Equal(t, want, stackEnv(instanceStack(t, b, acct, updRegion1)), "step %d Env of %s", i, acct)
+					assert.Equal(t, want, stackEnv(instanceStack(t, b, acct)), "step %d Env of %s", i, acct)
 				}
 
 				inst, err := b.DescribeStackInstance(updSetName, a1, updRegion1)
@@ -675,7 +675,7 @@ func TestRealClient_StackSetUpdateWire(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "wire-set-op", aws.ToString(setOut.OperationId))
-	assert.JSONEq(t, updTemplateV2, instanceStack(t, b, acct, updRegion1).TemplateBody)
+	assert.JSONEq(t, updTemplateV2, instanceStack(t, b, acct).TemplateBody)
 
 	errCases := []struct {
 		call func() error

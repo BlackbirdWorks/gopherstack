@@ -34,6 +34,8 @@ func (b *InMemoryBackend) UpdateStackSet(
 		return nil, "", err
 	}
 
+	units = b.withoutInoperable(name, units)
+
 	settings.salt = updateSetSalt(description, templateBody, opts, settings.targets)
 	key := opRequestKey("UPDATE", false, units, settings)
 
@@ -95,6 +97,16 @@ func (b *InMemoryBackend) updateSetUnits(ss *StackSet, spec *stackSetTargetSpec)
 	}
 
 	return b.existingInstanceUnits(ss, spec.accounts, spec.ouIDs, spec.regions, spec.filterType)
+}
+
+// withoutInoperable drops INOPERABLE instances: they are excluded from UpdateStackSet
+// (cloudformation@v1.82.0 types.StackInstance.Status).
+func (b *InMemoryBackend) withoutInoperable(stackSetName string, units []stackSetUnit) []stackSetUnit {
+	return slices.DeleteFunc(units, func(u stackSetUnit) bool {
+		i := b.instanceIndexLocked(stackSetName, u)
+
+		return i >= 0 && b.stackInstances[stackSetName][i].Status == statusInoperable
+	})
 }
 
 // existingInstanceUnits resolves targets and requires each (account, region) to be an existing instance.

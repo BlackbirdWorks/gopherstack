@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -22,6 +23,7 @@ var errSetBoom = errors.New("boom")
 
 // fakeSets is an in-memory StackSetEngine.
 type fakeSets struct {
+	probe        func()
 	err          error
 	updateErr    error
 	sets         map[string][]servicecatalog.StackSetInstance
@@ -34,6 +36,12 @@ type fakeSets struct {
 	mu           sync.Mutex
 }
 
+func (f *fakeSets) enter() {
+	if f.probe != nil {
+		f.probe()
+	}
+}
+
 func newFakeSets() *fakeSets {
 	return &fakeSets{
 		sets: map[string][]servicecatalog.StackSetInstance{}, status: "SUCCEEDED", updateStatus: "SUCCEEDED",
@@ -44,6 +52,8 @@ func (f *fakeSets) CreateStackSet(
 	_ context.Context,
 	req servicecatalog.StackSetRequest,
 ) (servicecatalog.StackSetResult, error) {
+	f.enter()
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -72,6 +82,8 @@ func (f *fakeSets) UpdateStackSet(
 	_ context.Context,
 	req servicecatalog.StackSetUpdateRequest,
 ) (servicecatalog.StackSetResult, error) {
+	f.enter()
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -89,6 +101,8 @@ func (f *fakeSets) UpdateStackSet(
 func (f *fakeSets) PreviewStackSet(
 	_ context.Context, name, _ string, _ map[string]string,
 ) ([]servicecatalog.PlanChange, error) {
+	f.enter()
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -105,6 +119,8 @@ func (f *fakeSets) PreviewStackSet(
 }
 
 func (f *fakeSets) DeleteStackSet(_ context.Context, name string) error {
+	f.enter()
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -115,6 +131,8 @@ func (f *fakeSets) DeleteStackSet(_ context.Context, name string) error {
 }
 
 func (f *fakeSets) StackSetInstances(_ context.Context, name string) ([]servicecatalog.StackSetInstance, error) {
+	f.enter()
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -599,4 +617,91 @@ func TestStackSetPlans(t *testing.T) {
 			assert.Empty(t, f.engine.deletedChangeSets(), "a stack set plan has no change set to delete")
 		})
 	}
+}
+
+func TestStackSetEngineCalledWithoutBackendLock(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture(t)
+	sets := newFakeSets()
+
+	var contended, calls atomic.Int32
+
+	sets.probe = func() {
+		calls.Add(1)
+
+		if f.backend.LockContended() {
+			contended.Add(1)
+		}
+	}
+
+	f.backend.SetStackSetEngine(sets)
+
+	c, cat := stackSetCatalog(t, f)
+	ctx := t.Context()
+
+	out, err := provisionStackSet(t, c, cat, nil)
+	require.NoError(t, err)
+
+	ppID := out.RecordDetail.ProvisionedProductId
+	params := []sctypes.UpdateProvisioningParameter{{Key: aws.String("Size"), Value: aws.String("m")}}
+
+	_, err = c.UpdateProvisionedProduct(ctx, &sdk.UpdateProvisionedProductInput{
+		UpdateToken: aws.String(token(t)), ProvisionedProductId: ppID, ProvisioningParameters: params,
+	})
+	require.NoError(t, err)
+
+	plan, err := c.CreateProvisionedProductPlan(ctx, &sdk.CreateProvisionedProductPlanInput{
+		PlanName: aws.String("p"), PlanType: sctypes.ProvisionedProductPlanTypeCloudformation,
+		ProductId: aws.String(cat.productID), ProvisionedProductName: aws.String("ss"),
+		ProvisioningArtifactId: aws.String(cat.artifactID), IdempotencyToken: aws.String(token(t)),
+		ProvisioningParameters: params,
+	})
+	require.NoError(t, err)
+
+	_, err = c.ExecuteProvisionedProductPlan(ctx, &sdk.ExecuteProvisionedProductPlanInput{
+		PlanId: plan.PlanId, IdempotencyToken: aws.String(token(t)),
+	})
+	require.NoError(t, err)
+
+	_, err = c.TerminateProvisionedProduct(ctx, &sdk.TerminateProvisionedProductInput{
+		TerminateToken: aws.String(token(t)), ProvisionedProductId: ppID,
+	})
+	require.NoError(t, err)
+
+	assert.GreaterOrEqual(t, calls.Load(), int32(5))
+	assert.Zero(t, contended.Load(), "the Service Catalog lock was held across a CloudFormation call")
+}
+
+func TestStackSetPlanSurvivesSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture(t)
+	sets := newFakeSets()
+	f.backend.SetStackSetEngine(sets)
+	c, cat := stackSetCatalog(t, f)
+	ctx := t.Context()
+
+	plan, err := c.CreateProvisionedProductPlan(ctx, &sdk.CreateProvisionedProductPlanInput{
+		PlanName: aws.String("p"), PlanType: sctypes.ProvisionedProductPlanTypeCloudformation,
+		ProductId: aws.String(cat.productID), ProvisionedProductName: aws.String("ss"),
+		ProvisioningArtifactId: aws.String(cat.artifactID), IdempotencyToken: aws.String(token(t)),
+		ProvisioningParameters: []sctypes.UpdateProvisioningParameter{
+			{Key: aws.String("Size"), Value: aws.String("m")},
+		},
+	})
+	require.NoError(t, err)
+
+	restored := servicecatalog.NewInMemoryBackend(testAccount, "us-east-1")
+	restored.SetStackEngine(f.engine)
+	restored.SetStackSetEngine(sets)
+	require.NoError(t, restored.Restore(ctx, f.backend.Snapshot(ctx)))
+
+	rc := (&fixture{backend: restored, engine: f.engine, clock: f.clock, url: serve(t, restored)}).client(t)
+
+	_, err = rc.ExecuteProvisionedProductPlan(ctx, &sdk.ExecuteProvisionedProductPlanInput{
+		PlanId: plan.PlanId, IdempotencyToken: aws.String(token(t)),
+	})
+	require.NoError(t, err)
+	assert.Len(t, sets.created, 1, "a restored stack set plan must create the stack set, not execute a change set")
 }

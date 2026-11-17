@@ -18,7 +18,7 @@ const (
 
 	replacementTrue          = "True"
 	replacementFalse         = "False"
-	replacementConditionally = "Conditionally"
+	replacementConditionally = "Conditional"
 
 	scopeProperties = "Properties"
 	scopeTags       = "Tags"
