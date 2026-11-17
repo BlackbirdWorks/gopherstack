@@ -2,6 +2,7 @@ package azurearm
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"slices"
 	"strconv"
@@ -582,14 +583,7 @@ func configValueProblem(def flexConfigDef, value string) string {
 
 	switch def.dataType {
 	case cfgInteger, cfgNumeric:
-		lo, hi := def.bounds()
-
-		f, err := strconv.ParseFloat(value, 64)
-		if err == nil && def.dataType == cfgInteger {
-			_, err = strconv.ParseInt(value, 10, 64)
-		}
-
-		if err != nil || f < lo || f > hi {
+		if !def.validNumber(value) {
 			return "allowed values are " + def.allowedValues()
 		}
 	case cfgBoolean, cfgEnum:
@@ -607,6 +601,34 @@ func configValueProblem(def flexConfigDef, value string) string {
 	}
 
 	return ""
+}
+
+func (c flexConfigDef) validNumber(value string) bool {
+	lo, hi := c.bounds()
+
+	f, err := strconv.ParseFloat(value, 64)
+	if err == nil && c.dataType == cfgInteger {
+		_, err = strconv.ParseInt(value, 10, 64)
+	}
+
+	return err == nil && !math.IsNaN(f) && f >= lo && f <= hi
+}
+
+// engineValue is the value as the engine takes it: numbers in plain decimal ("+5", "007", "1e3" and hex floats
+// are valid for the catalogue but not for SET).
+func (c flexConfigDef) engineValue(v string) string {
+	switch c.dataType {
+	case cfgInteger:
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			return strconv.FormatInt(n, 10)
+		}
+	case cfgNumeric:
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return strconv.FormatFloat(f, 'f', -1, 64)
+		}
+	}
+
+	return v
 }
 
 func (c flexConfigDef) allowedValues() string {

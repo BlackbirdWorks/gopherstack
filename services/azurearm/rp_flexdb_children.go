@@ -3,6 +3,7 @@ package azurearm
 import (
 	"context"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -367,15 +368,19 @@ func (p *FlexDBProvider) currentParams(key string, defs []flexConfigDef) []FlexP
 			continue
 		}
 
-		v, set := rec.Config[d.name]
-		if !set {
-			v = p.configDefault(rec, d)
-		}
-
-		out = append(out, FlexParam{Name: d.name, Value: v, Reset: v == "", Static: d.static})
+		out = append(out, p.paramFor(rec, d))
 	}
 
 	return out
+}
+
+func (p *FlexDBProvider) paramFor(rec *flexServer, d flexConfigDef) FlexParam {
+	v, set := rec.Config[d.name]
+	if !set {
+		v = p.configDefault(rec, d)
+	}
+
+	return FlexParam{Name: d.name, Value: d.engineValue(v), Reset: v == "", Static: d.static}
 }
 
 // pushConfig applies the stored values of defs to the running engine. Pushes to one server are serialised and each
@@ -403,7 +408,7 @@ func (p *FlexDBProvider) pushConfig(
 	}
 
 	if err = eng.ApplyParameters(p.ctx, key, params); err != nil {
-		p.revertConfig(key, params, prev)
+		p.restoreConfig(eng, key, defs, params, prev)
 
 		return flexEngineError()
 	}
@@ -411,17 +416,45 @@ func (p *FlexDBProvider) pushConfig(
 	return nil
 }
 
-func (p *FlexDBProvider) revertConfig(key string, params []FlexParam, prev map[string]flexConfigPrev) {
+// restoreConfig rolls the stored values of a refused push back to prev, except where a newer write replaced them,
+// and puts the engine back on the stored state: it may have applied part of params before refusing one.
+func (p *FlexDBProvider) restoreConfig(
+	eng FlexEngine, key string, defs []flexConfigDef, params []FlexParam, prev map[string]flexConfigPrev,
+) {
+	reverted := p.revertConfig(key, defs, params, prev)
+	if len(reverted) == 0 {
+		return
+	}
+
+	back := p.currentParams(key, slices.DeleteFunc(slices.Clone(defs), func(d flexConfigDef) bool {
+		return !reverted[d.name]
+	}))
+	if len(back) > 0 {
+		_ = eng.ApplyParameters(p.ctx, key, back)
+	}
+}
+
+func (p *FlexDBProvider) revertConfig(
+	key string, defs []flexConfigDef, params []FlexParam, prev map[string]flexConfigPrev,
+) map[string]bool {
 	p.mu.Lock("revertConfig")
 	defer p.mu.Unlock()
 
 	rec, ok := p.res[key]
 	if !ok {
-		return
+		return nil
 	}
 
+	reverted := map[string]bool{}
+
 	for _, q := range params {
+		i := slices.IndexFunc(defs, func(d flexConfigDef) bool { return d.name == q.Name })
+		if i < 0 || p.paramFor(rec, defs[i]) != q {
+			continue
+		}
+
 		old := prev[q.Name]
+		reverted[q.Name] = true
 
 		if old.set {
 			rec.Config[q.Name] = old.value
@@ -439,6 +472,8 @@ func (p *FlexDBProvider) revertConfig(key string, params []FlexParam, prev map[s
 			delete(rec.Pending, q.Name)
 		}
 	}
+
+	return reverted
 }
 
 const flexSourceDefault = "system-default"

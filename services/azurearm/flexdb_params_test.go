@@ -1,6 +1,7 @@
 package azurearm_test
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -12,6 +13,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/mysqlengine"
+	"github.com/blackbirdworks/gopherstack/pkgs/pgengine"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 )
 
@@ -281,7 +284,11 @@ func TestFlexRestartWithFailover(t *testing.T) {
 			http.StatusAccepted,
 		},
 		{"pg bad mode", pgNS, `{"restartWithFailover":true,"failoverMode":"Sideways"}`, "1", http.StatusBadRequest},
+		{"pg false", pgNS, `{"restartWithFailover":false}`, "1", http.StatusAccepted},
 		{"mysql plain", myNS, `{}`, "1", http.StatusAccepted},
+		{"mysql disabled", myNS, `{"restartWithFailover":"Disabled"}`, "1", http.StatusAccepted},
+		{"mysql bad value", myNS, `{"restartWithFailover":"yes"}`, "1", http.StatusBadRequest},
+		{"mysql bad type", myNS, `{"restartWithFailover":[1]}`, "1", http.StatusBadRequest},
 		{"mysql failover", myNS, `{"restartWithFailover":"Enabled","maxFailoverSeconds":60}`, "2", http.StatusAccepted},
 		{
 			"mysql negative",
@@ -316,14 +323,33 @@ func TestFlexRestartWithFailover(t *testing.T) {
 func TestFlexRestartWithFailoverNeedsHA(t *testing.T) {
 	t.Parallel()
 
-	eng := newFakeFlexEngine()
-	s := newFlexStack(t, eng)
-	s.pgCreate(t, "plain")
+	tests := []struct {
+		name string
+		ns   string
+		api  string
+		body string
+	}{
+		{"postgres", pgNS, flexAPIPG, `{"restartWithFailover":true}`},
+		{"mysql", myNS, flexAPIMy, `{"restartWithFailover":"Enabled"}`},
+	}
 
-	status, resp := s.raw(t, http.MethodPost, flexServerPath(pgNS, "plain")+"/restart",
-		`{"restartWithFailover":true}`, flexAPIPG)
-	assert.Equal(t, http.StatusBadRequest, status)
-	assert.Equal(t, "InvalidParameterValue", flexErrCode(resp))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := newFlexStack(t, newFakeFlexEngine())
+
+			if tt.ns == pgNS {
+				s.pgCreate(t, "plain")
+			} else {
+				s.myCreate(t, "plain")
+			}
+
+			status, resp := s.raw(t, http.MethodPost, flexServerPath(tt.ns, "plain")+"/restart", tt.body, tt.api)
+			assert.Equal(t, http.StatusBadRequest, status)
+			assert.Equal(t, "InvalidParameterValue", flexErrCode(resp))
+		})
+	}
 }
 
 func TestFlexStopStartFollowTheBackendClock(t *testing.T) {
@@ -406,4 +432,193 @@ func createHA(t *testing.T, s *flexStack, ns, name string) {
 	require.NoError(t, err)
 	_, err = p.PollUntilDone(t.Context(), pollFast())
 	require.NoError(t, err)
+}
+
+func TestFlexRefusedChangeKeepsNewerConcurrentValue(t *testing.T) {
+	t.Parallel()
+
+	for _, c := range flexParamCases() {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			eng := newFakeFlexEngine()
+			s := newFlexStack(t, eng)
+			c.create(t, s, "srv")
+
+			provider := s.pg
+			if c.ns == myNS {
+				provider = s.my
+			}
+
+			waited := make(chan struct{}, 1)
+			provider.SetGateWaitHook(func(string) { waited <- struct{}{} })
+
+			eng.mu.Lock()
+			eng.applyEntered, eng.applyRelease, eng.applyFirstFails = make(chan struct{}, 1), make(chan struct{}), true
+			entered, release := eng.applyEntered, eng.applyRelease
+			eng.mu.Unlock()
+
+			ctx := t.Context()
+			first := make(chan int, 1)
+
+			go func() {
+				first <- putStatus(ctx, s, c, c.dynamic, valueBody(c.dynValue))
+			}()
+
+			<-entered
+
+			second := make(chan int, 1)
+
+			go func() {
+				second <- putStatus(ctx, s, c, c.dynamic, valueBody(c.dynDef+"0"))
+			}()
+
+			<-waited
+			close(release)
+
+			assert.Equal(t, http.StatusServiceUnavailable, <-first)
+			assert.Less(t, <-second, 300)
+
+			assert.Equal(
+				t,
+				c.dynDef+"0",
+				c.get(t, s, c.dynamic)["value"],
+				"the newer write survives the refusal of the older",
+			)
+
+			got, ok := eng.param(flexKey(c.ns, "srv"), c.dynamic)
+			require.True(t, ok)
+			assert.Equal(t, c.dynDef+"0", got.Value, "the engine ends on the stored value")
+		})
+	}
+}
+
+func TestFlexNumericParametersReachTheEngineInPlainDecimal(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		param  string
+		in     string
+		want   string
+		status int
+		c      int
+	}{
+		{"work_mem", "+8192", "8192", http.StatusOK, 0},
+		{"work_mem", "0008192", "8192", http.StatusOK, 0},
+		{"random_page_cost", "1e1", "10", http.StatusOK, 0},
+		{"random_page_cost", "NaN", "", http.StatusBadRequest, 0},
+		{"random_page_cost", "Inf", "", http.StatusBadRequest, 0},
+		{"wait_timeout", "0100", "100", http.StatusOK, 1},
+		{"long_query_time", "1e1", "10", http.StatusOK, 1},
+		{"long_query_time", "NaN", "", http.StatusBadRequest, 1},
+	}
+
+	cases := flexParamCases()
+
+	for _, tt := range tests {
+		t.Run(tt.param+" "+tt.in, func(t *testing.T) {
+			t.Parallel()
+
+			c := cases[tt.c]
+			eng := newFakeFlexEngine()
+			s := newFlexStack(t, eng)
+			c.create(t, s, "srv")
+
+			status, _ := c.put(t, s, tt.param, valueBody(tt.in))
+			require.Equal(t, tt.status, status)
+
+			got, ok := eng.param(flexKey(c.ns, "srv"), tt.param)
+			assert.Equal(t, tt.status == http.StatusOK, ok)
+			assert.Equal(t, tt.want, got.Value)
+		})
+	}
+}
+
+func TestFlexCatalogueKeepsTheEngineUnderEmulatorControl(t *testing.T) {
+	t.Parallel()
+
+	pgDangerous := []string{
+		"archive_command", "restore_command", "ssl_passphrase_command", "shared_preload_libraries",
+		"dynamic_library_path", "local_preload_libraries", "session_preload_libraries", "log_directory",
+		"log_filename", "data_directory", "hba_file", "listen_addresses", "port", "unix_socket_directories",
+		"standard_conforming_strings", "default_transaction_read_only",
+	}
+	myDangerous := []string{
+		"secure_file_priv", "plugin_dir", "init_file", "general_log_file", "slow_query_log_file", "local_infile",
+		"port", "bind_address", "log_bin", "log_bin_basename", "datadir", "read_only", "super_read_only",
+		"skip_grant_tables", "ssl_ca", "plugin_load_add",
+	}
+
+	for _, c := range flexParamCases() {
+		dangerous := pgDangerous
+		if c.ns == myNS {
+			dangerous = myDangerous
+		}
+
+		for _, name := range dangerous {
+			t.Run(c.name+" "+name, func(t *testing.T) {
+				t.Parallel()
+
+				eng := newFakeFlexEngine()
+				s := newFlexStack(t, eng)
+				c.create(t, s, "srv")
+
+				status, _ := c.put(t, s, name, valueBody("x"))
+				assert.Equal(t, http.StatusNotFound, status, "a setting that is not in the catalogue cannot be written")
+
+				status, _ = s.raw(t, http.MethodGet, flexServerPath(c.ns, "srv")+"/configurations/"+name, "", c.api)
+				assert.Equal(t, http.StatusNotFound, status)
+
+				_, ok := eng.param(flexKey(c.ns, "srv"), name)
+				assert.False(t, ok)
+			})
+		}
+
+		t.Run(c.name+" every catalogue parameter is accepted by the engine layer", func(t *testing.T) {
+			t.Parallel()
+
+			p := s0Provider(t, c.ns)
+			require.NotEmpty(t, p.EngineBoundParameters())
+
+			for _, name := range p.EngineBoundParameters() {
+				if c.ns == pgNS {
+					assert.NoError(t, pgengine.CheckParameter(name, "1", false), name)
+				} else {
+					assert.NoError(t, mysqlengine.CheckVariable(name), name)
+				}
+			}
+		})
+	}
+}
+
+func s0Provider(t *testing.T, ns string) *azurearm.FlexDBProvider {
+	t.Helper()
+
+	s := newFlexStack(t, nil)
+	if ns == pgNS {
+		return s.pg
+	}
+
+	return s.my
+}
+
+// putStatus sends a configuration PUT without test assertions, for use off the test goroutine.
+func putStatus(ctx context.Context, s *flexStack, c flexParamCase, param, body string) int {
+	u := s.url + flexServerPath(c.ns, "srv") + "/configurations/" + param + "?api-version=" + c.api
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, u, strings.NewReader(body))
+	if err != nil {
+		return 0
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return 0
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	return resp.StatusCode
 }

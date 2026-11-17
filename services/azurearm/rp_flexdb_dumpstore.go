@@ -11,18 +11,35 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 const (
-	flexDumpMaxBytes = 256 << 20
-	flexDumpDirMode  = 0o700
-	flexDumpFileMode = 0o600
-	flexDumpIDBytes  = 12
-	flexDumpSuffix   = ".dump"
+	flexDumpMaxBytes  = 256 << 20
+	flexDumpDirMode   = 0o700
+	flexDumpFileMode  = 0o600
+	flexDumpIDBytes   = 12
+	flexInstanceBytes = 4
+	flexDumpSuffix    = ".dump"
 )
+
+// flexDumpNameRE is the only shape of file name the store creates: <kind>-<instance>-<24 hex>.dump.
+var flexDumpNameRE = regexp.MustCompile(`^[a-z]{1,16}-[0-9a-f]{8}-[0-9a-f]{24}\.dump$`)
+
+var flexInstanceRE = regexp.MustCompile(`^[0-9a-f]{8}$`)
+
+// newFlexInstanceID names one provider's dumps so another emulator sharing the directory never sweeps them.
+func newFlexInstanceID() string {
+	b := make([]byte, flexInstanceBytes)
+	_, _ = rand.Read(b)
+
+	return hex.EncodeToString(b)
+}
+
+func validFlexDumpName(name string) bool { return flexDumpNameRE.MatchString(name) }
 
 var (
 	errFlexDumpTooLarge = errors.New("azurearm: the database dump exceeds the size limit")
@@ -104,7 +121,8 @@ func (c *capWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// write creates a new dump file named with prefix and fills it; the size cap is enforced while fill streams.
+// write creates a new dump file named with prefix and fills it; the size cap is enforced while fill streams. The
+// file stays pinned against sweep until the caller calls release.
 func (s *flexDumpStore) write(prefix string, fill func(io.Writer) error) (flexDumpRef, error) {
 	root, err := s.open()
 	if err != nil {
@@ -121,7 +139,6 @@ func (s *flexDumpStore) write(prefix string, fill func(io.Writer) error) (flexDu
 	}
 
 	s.setLive(name, true)
-	defer s.setLive(name, false)
 
 	sum := sha256.New()
 	cw := &capWriter{w: io.MultiWriter(f, sum), left: s.max}
@@ -134,12 +151,16 @@ func (s *flexDumpStore) write(prefix string, fill func(io.Writer) error) (flexDu
 
 	if err != nil {
 		_ = root.Remove(name)
+		s.setLive(name, false)
 
 		return flexDumpRef{}, err
 	}
 
 	return flexDumpRef{File: name, SHA256: hex.EncodeToString(sum.Sum(nil)), Bytes: s.max - cw.left}, nil
 }
+
+// release unpins a file returned by write once it is recorded in a backup or no longer needed.
+func (s *flexDumpStore) release(name string) { s.setLive(name, false) }
 
 func (s *flexDumpStore) setLive(name string, on bool) {
 	s.mu.Lock("setLive")
@@ -190,7 +211,7 @@ func hashFile(f *os.File) (string, error) {
 
 // read returns the dump after checking its checksum; the caller checks Verify again once the data was consumed.
 func (s *flexDumpStore) read(ref flexDumpRef) (*verifiedDump, error) {
-	if ref.File == "" || strings.ContainsAny(ref.File, `/\`) {
+	if !validFlexDumpName(ref.File) {
 		return nil, errFlexDumpName
 	}
 
@@ -227,7 +248,7 @@ func (s *flexDumpStore) read(ref flexDumpRef) (*verifiedDump, error) {
 }
 
 func (s *flexDumpStore) remove(name string) {
-	if name == "" || strings.ContainsAny(name, `/\`) {
+	if !validFlexDumpName(name) {
 		return
 	}
 
@@ -236,7 +257,8 @@ func (s *flexDumpStore) remove(name string) {
 	}
 }
 
-// sweep removes the files named with prefix that keep does not list.
+// sweep removes the store's own files named with prefix (which includes the owning instance) that keep does not
+// list; files of another instance sharing the directory have another prefix and are left alone.
 func (s *flexDumpStore) sweep(prefix string, keep map[string]bool) {
 	root, err := s.open()
 	if err != nil {
@@ -254,7 +276,7 @@ func (s *flexDumpStore) sweep(prefix string, keep map[string]bool) {
 
 	for _, e := range entries {
 		n := e.Name()
-		if strings.HasPrefix(n, prefix+"-") && strings.HasSuffix(n, flexDumpSuffix) && !keep[n] && !live[n] {
+		if validFlexDumpName(n) && strings.HasPrefix(n, prefix+"-") && !keep[n] && !live[n] {
 			_ = root.Remove(n)
 		}
 	}
@@ -276,7 +298,7 @@ func (s *flexDumpStore) close() {
 }
 
 func (s *flexDumpStore) exists(name string) bool {
-	if name == "" || strings.ContainsAny(name, `/\`) {
+	if !validFlexDumpName(name) {
 		return false
 	}
 

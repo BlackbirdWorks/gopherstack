@@ -260,3 +260,22 @@ func (g *TestGate) Held() int {
 
 	return len(g.g.held)
 }
+
+// DumpPrefix is the file name prefix of the provider's own database dumps.
+func (p *FlexDBProvider) DumpPrefix() string { return p.dumpPrefix() }
+
+// SetGateWaitHook reports each time work starts waiting on a held topology or configuration gate.
+func (p *FlexDBProvider) SetGateWaitHook(f func(key string)) { p.gate.onWait = f }
+
+// EngineBoundParameters lists the server parameters the provider pushes to the running engine.
+func (p *FlexDBProvider) EngineBoundParameters() []string {
+	var out []string
+
+	for _, c := range p.flavor.configs {
+		if !c.engineless && !c.readOnly {
+			out = append(out, c.name)
+		}
+	}
+
+	return out
+}

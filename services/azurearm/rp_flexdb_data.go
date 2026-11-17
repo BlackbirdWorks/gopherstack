@@ -46,13 +46,21 @@ func (p *FlexDBProvider) dumpStore() *flexDumpStore {
 	return p.dumps
 }
 
+// dumpToStore dumps into a new file; the caller calls release once the file is recorded or no longer needed.
 func (p *FlexDBProvider) dumpToStore(
 	ctx context.Context,
 	eng FlexEngine,
 	key string,
 	dbs []string,
 ) (flexDumpRef, error) {
-	return p.dumpStore().write(p.flavor.kind, func(w io.Writer) error { return eng.Dump(ctx, key, dbs, w) })
+	return p.dumpStore().write(p.dumpPrefix(), func(w io.Writer) error { return eng.Dump(ctx, key, dbs, w) })
+}
+
+func (p *FlexDBProvider) dumpPrefix() string {
+	p.mu.RLock("dumpPrefix")
+	defer p.mu.RUnlock()
+
+	return p.flavor.kind + "-" + p.instance
 }
 
 func (p *FlexDBProvider) dumpDatabases(rec *flexServer) []string {
@@ -119,6 +127,8 @@ func (p *FlexDBProvider) takeBackup(ctx context.Context, key, name, source strin
 		return flexBackup{}, flexBackupError(err)
 	}
 
+	defer p.dumpStore().release(ref.File)
+
 	b.File, b.SHA256, b.Bytes = ref.File, ref.SHA256, ref.Bytes
 
 	if err = p.recordBackup(key, created, b); err != nil {
@@ -184,6 +194,7 @@ func (p *FlexDBProvider) attachDump(ctx context.Context, key, name string) error
 	if err != nil {
 		return err
 	}
+	defer p.dumpStore().release(ref.File)
 
 	p.mu.Lock("attachDump")
 
@@ -431,7 +442,10 @@ func (p *FlexDBProvider) loadSeed(ctx context.Context, eng FlexEngine, key strin
 		if ref, err = p.dumpToStore(ctx, eng, seed.srcKey, dbs); err != nil {
 			return err
 		}
-		defer p.dropFiles([]string{ref.File})
+		defer func() {
+			p.dropFiles([]string{ref.File})
+			p.dumpStore().release(ref.File)
+		}()
 	}
 
 	rd, err := p.dumpStore().read(ref)

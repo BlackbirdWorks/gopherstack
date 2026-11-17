@@ -117,21 +117,22 @@ type flexResult struct {
 // servers (one instance per namespace). ARM keeps the server metadata and child resources; with an engine
 // wired, real database servers run behind the FlexEngine seam.
 type FlexDBProvider struct {
-	now     func() time.Time
-	flavor  *flexFlavor
-	engine  FlexEngine
-	network *NetworkProvider
-	mu      *lockmetrics.RWMutex
-	opMu    *lockmetrics.RWMutex
-	res     map[string]*flexServer
-	ops     map[string]*flexOp
-	ctx     context.Context
-	cancel  context.CancelFunc
-	dumps   *flexDumpStore
-	gate    *flexGate
-	opOrder []string
-	wg      sync.WaitGroup
-	janitor sync.Once
+	now      func() time.Time
+	flavor   *flexFlavor
+	engine   FlexEngine
+	network  *NetworkProvider
+	mu       *lockmetrics.RWMutex
+	opMu     *lockmetrics.RWMutex
+	res      map[string]*flexServer
+	ops      map[string]*flexOp
+	ctx      context.Context
+	cancel   context.CancelFunc
+	dumps    *flexDumpStore
+	gate     *flexGate
+	instance string
+	opOrder  []string
+	wg       sync.WaitGroup
+	janitor  sync.Once
 }
 
 func newFlexDBProvider(f *flexFlavor) *FlexDBProvider {
@@ -141,6 +142,7 @@ func newFlexDBProvider(f *flexFlavor) *FlexDBProvider {
 		now: time.Now, flavor: f, mu: lockmetrics.New("azurearm.flexdb." + f.kind),
 		opMu: lockmetrics.New("azurearm.flexdb.ops." + f.kind), res: map[string]*flexServer{},
 		ops: map[string]*flexOp{}, ctx: ctx, cancel: cancel, dumps: newFlexDumpStore("", 0), gate: newFlexGate(),
+		instance: newFlexInstanceID(),
 	}
 }
 

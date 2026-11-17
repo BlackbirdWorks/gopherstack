@@ -2,9 +2,12 @@ package azurearm_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -638,14 +641,120 @@ func TestFlexBackupsSurviveSnapshotRestore(t *testing.T) {
 func TestFlexRestoreSweepsUnreferencedDumps(t *testing.T) {
 	t.Parallel()
 
+	const tail = "-0123456789abcdef01234567.dump"
+
 	d := newFlexDataStack(t)
-	stray := filepath.Join(d.dir, "postgres-deadbeef.dump")
-	other := filepath.Join(d.dir, "mysql-deadbeef.dump")
-	require.NoError(t, os.WriteFile(stray, []byte("x"), 0o600))
-	require.NoError(t, os.WriteFile(other, []byte("x"), 0o600))
+	own := filepath.Join(d.dir, d.pg.DumpPrefix()+tail)
+	foreign := filepath.Join(d.dir, "postgres-0badc0de"+tail)
+	otherKind := filepath.Join(d.dir, d.my.DumpPrefix()+tail)
+	unrelated := filepath.Join(d.dir, "notes.txt")
+
+	for _, f := range []string{own, foreign, otherKind, unrelated} {
+		require.NoError(t, os.WriteFile(f, []byte("x"), 0o600))
+	}
 
 	require.NoError(t, d.handler.Restore(t.Context(), d.handler.Snapshot(t.Context())))
 
-	assert.NoFileExists(t, stray)
-	assert.NoFileExists(t, other)
+	assert.NoFileExists(t, own, "an unreferenced dump of this provider is removed")
+	assert.NoFileExists(t, otherKind, "the same for the other provider's own dumps")
+	assert.FileExists(t, foreign, "a dump of another emulator instance sharing the directory is never touched")
+	assert.FileExists(t, unrelated)
+}
+
+func TestFlexRestoreRefusesHostileDumpReferences(t *testing.T) {
+	t.Parallel()
+
+	for _, kind := range flexKindCases() {
+		for _, file := range []string{"../escape.dump", "sub/x.dump", `a\b.dump`, ".", "..", "notes.txt", "x.dump"} {
+			t.Run(kind.name+" "+file, func(t *testing.T) {
+				t.Parallel()
+
+				d := newFlexDataStack(t)
+				srcID := kind.create(t, d.flexStack, "src")
+				stored := d.files(t)[0]
+				planted := []byte("|planted")
+				require.NoError(t, os.WriteFile(filepath.Join(d.dir, "notes.txt"), planted, 0o600))
+				require.NoError(t, os.WriteFile(filepath.Join(d.dir, "x.dump"), planted, 0o600))
+
+				sum := sha256.Sum256(planted)
+				snap := strings.NewReplacer(
+					`"file":"`+stored+`"`, `"file":"`+strings.ReplaceAll(file, `\`, `\\`)+`"`,
+				).Replace(string(d.handler.Snapshot(t.Context())))
+
+				snap = regexp.MustCompile(`"sha256":"[0-9a-f]{64}"`).
+					ReplaceAllString(snap, `"sha256":"`+hex.EncodeToString(sum[:])+`"`)
+
+				require.NoError(t, d.handler.Restore(t.Context(), []byte(snap)))
+
+				err := kind.restore(t, d.flexStack, "rst", srcID, d.clk.Now())
+				require.Error(t, err)
+				assert.Empty(
+					t,
+					d.eng.loadedData(flexKey(kind.ns, "rst")),
+					"a file the store did not create is never loaded",
+				)
+			})
+		}
+	}
+}
+
+func TestFlexTopologyGateHoldsBackSecondDump(t *testing.T) {
+	t.Parallel()
+
+	for _, kind := range flexKindCases() {
+		t.Run(kind.name, func(t *testing.T) {
+			t.Parallel()
+
+			d := newFlexDataStack(t)
+			srcID := kind.create(t, d.flexStack, "src")
+
+			waited := make(chan string, 4)
+			hold := make(chan struct{})
+			entered := make(chan string, 4)
+			overlap := make(chan struct{})
+
+			d.pg.SetGateWaitHook(func(key string) { waited <- key })
+			d.my.SetGateWaitHook(func(key string) { waited <- key })
+
+			d.eng.mu.Lock()
+			d.eng.dumpHold, d.eng.dumpEntered, d.eng.overlap = hold, entered, overlap
+			d.eng.mu.Unlock()
+
+			body := `{"location":"x","properties":{"createMode":"Replica","sourceServerResourceId":"` + srcID + `"}}`
+
+			status, _ := d.raw(t, http.MethodPut, flexServerPath(kind.ns, "repa"), body, kind.api)
+			require.Equal(t, http.StatusAccepted, status)
+			require.Equal(t, flexKey(kind.ns, "src"), <-entered, "the first replica is dumping the source")
+
+			status, _ = d.raw(t, http.MethodPut, flexServerPath(kind.ns, "repb"), body, kind.api)
+			require.Equal(t, http.StatusAccepted, status)
+
+			select {
+			case key := <-waited:
+				assert.Contains(
+					t,
+					key,
+					flexKey(kind.ns, "src"),
+					"the second replica waits on the source's topology gate",
+				)
+			case <-overlap:
+				t.Fatal("two dumps of one source ran at once")
+			}
+
+			close(hold)
+		})
+	}
+}
+
+func TestFlexSnapshotCarriesTheDumpInstance(t *testing.T) {
+	t.Parallel()
+
+	a := newFlexDataStack(t)
+	b := newFlexDataStack(t)
+
+	require.NotEqual(t, a.pg.DumpPrefix(), b.pg.DumpPrefix(), "every emulator starts with its own dump namespace")
+	require.NoError(t, b.handler.Restore(t.Context(), a.handler.Snapshot(t.Context())))
+
+	assert.Equal(t, a.pg.DumpPrefix(), b.pg.DumpPrefix(), "a restored emulator owns the dumps of the snapshot")
+	assert.Equal(t, a.my.DumpPrefix(), b.my.DumpPrefix())
 }

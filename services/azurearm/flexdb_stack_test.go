@@ -151,21 +151,32 @@ func flexServerPath(ns, name string) string {
 }
 
 type fakeFlexEngine struct {
-	dbs         map[string][]string
-	pw          map[string]string
-	live        map[string]bool
-	data        map[string]string
-	loaded      map[string]string
-	readOnly    map[string]bool
-	params      map[string]map[string]azurearm.FlexParam
-	calls       []string
-	mu          sync.Mutex
-	failEnsure  bool
-	failApply   bool
-	failRestore bool
-	failDump    bool
-	inDump      int
-	maxDump     int
+	dbs      map[string][]string
+	pw       map[string]string
+	live     map[string]bool
+	data     map[string]string
+	loaded   map[string]string
+	readOnly map[string]bool
+	params   map[string]map[string]azurearm.FlexParam
+	// dumpHold, when set, parks every dump until it is closed; dumpEntered then receives the dumped server and
+	// overlap is closed the moment two dumps run at once.
+	dumpHold    chan struct{}
+	dumpEntered chan string
+	overlap     chan struct{}
+	// applyEntered and applyRelease park the first ApplyParameters call, which then fails when applyFirstFails.
+	applyEntered    chan struct{}
+	applyRelease    chan struct{}
+	calls           []string
+	overlapOnce     sync.Once
+	mu              sync.Mutex
+	inDump          int
+	maxDump         int
+	applyCalls      int
+	failEnsure      bool
+	failApply       bool
+	failRestore     bool
+	failDump        bool
+	applyFirstFails bool
 }
 
 func newFakeFlexEngine() *fakeFlexEngine {
@@ -175,11 +186,29 @@ func newFakeFlexEngine() *fakeFlexEngine {
 	}
 }
 
-func (f *fakeFlexEngine) ApplyParameters(_ context.Context, id string, ps []azurearm.FlexParam) error {
+func (f *fakeFlexEngine) ApplyParameters(ctx context.Context, id string, ps []azurearm.FlexParam) error {
 	f.record("apply")
 
 	if f.failApply {
 		return io.ErrUnexpectedEOF
+	}
+
+	f.mu.Lock()
+	f.applyCalls++
+	first, entered, release, fails := f.applyCalls == 1, f.applyEntered, f.applyRelease, f.applyFirstFails
+	f.mu.Unlock()
+
+	if first && entered != nil {
+		entered <- struct{}{}
+
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+
+		if fails {
+			return io.ErrUnexpectedEOF
+		}
 	}
 
 	f.mu.Lock()
@@ -211,7 +240,7 @@ func (f *fakeFlexEngine) setData(id, data string) {
 	f.mu.Unlock()
 }
 
-func (f *fakeFlexEngine) Dump(_ context.Context, id string, dbs []string, w io.Writer) error {
+func (f *fakeFlexEngine) Dump(ctx context.Context, id string, dbs []string, w io.Writer) error {
 	f.record("dump")
 
 	if f.failDump {
@@ -222,7 +251,22 @@ func (f *fakeFlexEngine) Dump(_ context.Context, id string, dbs []string, w io.W
 	data := f.data[id]
 	f.inDump++
 	f.maxDump = max(f.maxDump, f.inDump)
+	hold, entered, overlap := f.dumpHold, f.dumpEntered, f.overlap
+	overlapping := f.inDump > 1
 	f.mu.Unlock()
+
+	if overlapping && overlap != nil {
+		f.overlapOnce.Do(func() { close(overlap) })
+	}
+
+	if hold != nil {
+		entered <- id
+
+		select {
+		case <-hold:
+		case <-ctx.Done():
+		}
+	}
 
 	runtime.Gosched()
 

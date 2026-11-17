@@ -1001,10 +1001,17 @@ func restartFailover(body map[string]any) (bool, error) {
 	var want bool
 
 	switch v := body["restartWithFailover"].(type) {
+	case nil:
 	case bool:
 		want = v
 	case string:
-		want = strings.EqualFold(v, flexEnabled)
+		if v != flexEnabled && v != flexDisabled {
+			return false, flexInvalid("restartWithFailover must be %s or %s.", flexEnabled, flexDisabled)
+		}
+
+		want = v == flexEnabled
+	default:
+		return false, flexInvalid("restartWithFailover is not valid.")
 	}
 
 	if mode, ok := flexStr(body, "failoverMode"); ok && mode != "" && !slices.Contains(flexFailoverModes(), mode) {

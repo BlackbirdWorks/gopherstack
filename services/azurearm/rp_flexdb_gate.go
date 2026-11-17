@@ -12,6 +12,8 @@ import (
 type flexGate struct {
 	mu   *lockmetrics.RWMutex
 	held map[string]chan struct{}
+	// onWait is a test hook called when a caller starts waiting for a held key.
+	onWait func(key string)
 }
 
 func newFlexGate() *flexGate {
@@ -38,6 +40,10 @@ func (g *flexGate) acquire(ctx context.Context, key string) (func(), error) {
 		}
 
 		g.mu.Unlock()
+
+		if g.onWait != nil {
+			g.onWait(key)
+		}
 
 		select {
 		case <-wait:
