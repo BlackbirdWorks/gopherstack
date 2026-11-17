@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 44 (44 ok) |
 | Feature families | 9 (9 ok) |
-| Known gaps | 5 |
+| Known gaps | 3 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -17,9 +17,7 @@
 ### Known gaps
 
 - PromQL: native histograms are queryable only through a bare selector (histogram_count/sum/avg/stddev/stdvar/quantile/fraction(metric) and the selector itself); rate, increase, sum, arithmetic and subqueries over native histograms are not implemented and treat them as absent; custom-bucket (NHCB, schema -53) histograms are rejected; the quantile, stddev and fraction maths follow the Prometheus histogram documentation from memory and are unverified against a real Prometheus; limit_ratio samples by an FNV hash of the label set, not Prometheus' hash, so the selected series differ from Prometheus (the positive/negative ratio complement property holds).
-- AlertManagerDefinition: only sns_configs receivers deliver (AMP supports nothing else); sigv4 settings are accepted and ignored; the `templates` list is not consulted (every template_files entry is loaded); the dispatcher keeps no notification log across restarts, so a restart renotifies firing alerts
 - Scraper: stored with a real ACTIVE lifecycle but nothing scrapes the EKS or VPC source; the EKS emulator exposes no pod or node metrics endpoints to scrape, so there is no in-process target
-- RemoteWrite: exemplars keep the newest 100 per series (emulator choice; Prometheus uses one circular buffer of max_exemplars=100000 across all series) and over-128-rune exemplars are silently dropped; per-workspace ingestion-rate and active-series quotas (default active series up to 1.5 billion, rate 1/30 of that) and the 1-hour sample-age refusal are not enforced
 - Authorization: with --validate-sigv4 the data plane requires an aps-scoped SigV4 signature checked against --sigv4-secret and evaluates the workspace resource policy by account only (the IAM evaluator ignores Principal); not published: checked AMP APIReference CommonErrors.html and the user guide troubleshooting page, which list IncompleteSignature and AccessDeniedException but not the data-plane codes for a missing or mis-scoped signature (emulator answers MissingAuthenticationToken and IncompleteSignatureException, 403); cross-account callers resolve workspaces in their own account, so a cross-account allow still answers 404
 
 ### Structural gaps

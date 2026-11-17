@@ -9,18 +9,17 @@
 | --- | --- |
 | PARITY entries audited | 12 (12 ok) |
 | Feature families | 2 (1 ok, 1 deferred) |
-| Known gaps | 5 |
+| Known gaps | 4 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Query engine: no geospatial functions -- the Timestream LiveAnalytics SQL reference (SELECT, subqueries, SHOW, DESCRIBE, UNLOAD) documents none, so none are emulated; typeof is not implemented: the date/time function page gives one example result ('interval day to second' for typeof(parse_duration('42.8ms'))) and no table of type names (parse_duration and interval-typed columns report INTERVAL_DAY_TO_SECOND, syntactically like booleans, for a top-level or aliased parse_duration call only; interval year to month results are not produced).
-- Time-series functions: not published (checked timeseries-specific-constructs.functions.interpolation, .derivatives, .correlation and the integral, filter and reduce pages): outputs or edge behaviour of interpolate_*, derivative_*, integral_trapezoidal and correlate_*; the emulator omits interpolate_linear and spline_cubic targets outside the observed range, omits interpolate_locf times before the first sample and emits one derivative_linear point per sample after the first. filter/reduce lambdas are recognised only when the body reads the element as p.value/p.time, and an aggregate used directly as the timeseries argument (instead of a CTE column) is unsupported.
+- Query engine typeof: the engine is SQLite, so typeof returns SQLite storage names (integer/text/real/null) rather than the Timestream names listed in supported-data-types.html (bigint, double, varchar, boolean, timestamp, date, time, interval, unknown); values carry no static type at the UDF boundary (ts_funcs.go), so a correct typeof needs the static type inference the engine lacks
+- Time-series lambdas: filter/reduce lambdas are recognised only when the body reads the element as p.value/p.time, and an aggregate used directly as the timeseries argument (instead of a CTE column) is unsupported
 - Query engine: result ColumnInfo types for non-boolean expressions are inferred from values (BIGINT/DOUBLE/VARCHAR/TIMESTAMP) and an empty result reports VARCHAR for computed non-boolean columns. Boolean typing (ts_boolean.go) is syntactic: a CASE/CAST wrapping booleans, or a boolean function outside the known list, still reports its engine type. Plain column references keep their declared type.
-- Query engine: SELECT * column order (dimensions in first-seen order, measure_name, time, measure_value::T sorted by type, multi attributes in first-seen order) is not published (checked the Developer Guide sample-queries.devops-scenarios and timeseries pages)
-- ScheduledQuery: the exact SNS notification JSON casing (lower camelCase keys, epoch-second times) and the RecentlyFailedRuns depth (5) are not published (scheduledqueries-notification gives only field names and types); the error-report object key embeds the query name here, while scheduledqueries-errorreport shows <prefix>/<last ARN segment>/<InvocationTime>/<Auto|Manual>/<trigger time> with an ARN segment of the form <name>-<12 random characters> (the emulator ARN carries the bare name); run QueryInsightsResponse is omitted and ScheduledQueryExecutionRoleArn is never assumed. The AUTO disable-on-non-recoverable-error rule follows scheduledqueries-notification.
+- ScheduledQuery: run QueryInsightsResponse is omitted (no query-insights data model in the engine)
 
 ### Structural gaps
 
