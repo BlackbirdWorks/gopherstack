@@ -8,16 +8,15 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 8 (5 ok, 2 partial, 1 gap) |
-| Known gaps | 7 |
+| Known gaps | 6 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
 - Load balancing: service attachments, certificate maps and regional TCP/SSL certificates managed by Certificate Manager are stored without effect; Cloud Armor aggregatedList, listPreconfiguredExpressionSets, regional and organization policies, associations, edge/backend bucket attachment and adaptive protection are not routed; backend bucket existence is not checked against gcpstorage (lb_backend.go prepBackendBucket; the Compute reference does not say whether insert validates the bucket, so it was not wired).
-- Instance groups: listErrors and instanceFlexibilityPolicy are not implemented, and instance creation errors fail the whole call instead of surfacing as group errors (mig_reconcile.go). Stateful policy: ephemeral external IPs are kept by reserving them under a name chosen here, and per-instance config disks and IPs apply only when the instance is (re)created.
-- Instance templates from sourceInstance in another project are 404-class unsupported, DEFAULT disk instantiation does not create a custom image (template_source.go), and regional-only fields beyond the stored properties are not modelled; GRPC_WITH_TLS health checks and regional composite health checks are not modelled.
-- Interconnects and interconnect attachments (so HA VPN over Cloud Interconnect), shared VPC, licenses, instant snapshot groups, regional disk async replication and policies, machine image encryption and future/aggregate reservations are not routed (404). Network peering supports the CONSENSUS strategy for deletion only, not for updatePeering proposals (updateStatus is always IN_SYNC), and peering routes are not added to routes.list. Resource policy schedules (snapshot schedules and instance start/stop schedules, respolicy.go) are validated and stored but never run, and resourceStatus.instanceSchedulePolicy run times are not computed.
+- Instance templates: regional-only fields beyond the stored properties are not modelled; GRPC_WITH_TLS health checks and regional composite health checks are not modelled.
+- Interconnects and interconnect attachments (so HA VPN over Cloud Interconnect), shared VPC, licenses, instant snapshot groups, regional disk async replication and policies, machine image encryption and future/aggregate reservations are not routed (404). Network peering supports the CONSENSUS strategy for deletion only, not for updatePeering proposals (updateStatus is always IN_SYNC), and peering routes are not added to routes.list.
 - Instances: GPUs at insert are rejected or stored without effect; aliasIpv6Ranges and BYOIP subnet prefixes are 400; Local SSD for series outside the machine catalog and the N1 T4-GPU count limit are not modelled; instances.update uses a modelled field classification (see Instances.Update).
 - Only a fixed set of 15 regions, 46 zones, 9 image families, e2/n2/n1-standard machine types and 3 persistent disk types exist; region quotas and Project usage quotas are not modelled.
 - The emulator does not enforce IAM or return permission errors.
