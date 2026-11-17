@@ -49,6 +49,9 @@ const (
 	argAddDrop   = "--add-drop-database"
 	argDatabases = "--databases"
 	argSingleTx  = "--single-transaction"
+	argEvents    = "--events"
+	argTriggers  = "--triggers"
+	argGtidOff   = "--set-gtid-purged=OFF"
 )
 
 var (
@@ -688,7 +691,7 @@ func (s *Server) DumpDatabases(ctx context.Context, dbs []string) ([]byte, error
 
 	cmd := append([]string{
 		mysqldumpBin, "-u" + RootUser, argSingleTx, argRoutines,
-		argAddDrop, "--set-gtid-purged=OFF", "-r", dumpMount + "/dump.sql", argDatabases,
+		argAddDrop, argGtidOff, "-r", dumpMount + "/dump.sql", argDatabases,
 	}, dbs...)
 
 	if err := s.run(ctx, "mysqldump", cmd, s.pwdEnv()); err != nil {
