@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 26 (26 ok) |
 | Feature families | 5 (4 ok, 1 partial) |
-| Known gaps | 6 |
+| Known gaps | 5 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -19,8 +19,7 @@
 - CalculatedSpend: RI_UTILIZATION and RI_COVERAGE are computed from EC2 reservations, but nothing seeds EC2 ReservedInstancesOfferings (services/ec2/reserved_instances.go:112) so no reservation can be purchased through the API (seeding the catalogue is an EC2 backend change); SAVINGS_PLANS_UTILIZATION and SAVINGS_PLANS_COVERAGE report 0 PERCENTAGE because no Savings Plans service exists
 - Alerting: topic policies granting budgets.amazonaws.com are not checked (evaluating a resource policy is IAM policy evaluation, out of scope); evaluator cadence is 1 minute versus the documented up to three updates a day 8 to 12 hours apart (cost-management userguide budgets-managing-costs), kept so alarms fire inside a test run
 - ExecuteBudgetAction: ExecutionRoleArn must exist in IAM when the action runs (a missing role fails the execution) but its trust policy is never evaluated or assumed (trust policy evaluation is IAM policy evaluation, out of scope); SSM actions start AWS-Stop*/Start* automation documents through the SSM backend
-- BillingViewArn: format-checked only and HealthStatus is always HEALTHY, because no billing view service exists under services/ (ls services/ has only bcmdataexports and cur) to resolve the ARN or report a status
-- AccessDeniedException (needs IAM policy evaluation, out of scope) and BillingViewHealthStatusException (no billing view service under services/ to report a view health status, and a new service is not permitted): never raised
+- AccessDeniedException is never raised (needs IAM policy evaluation, out of scope)
 
 ## More
 

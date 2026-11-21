@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 38 (38 ok) |
 | Feature families | 7 (7 ok) |
-| Known gaps | 3 |
+| Known gaps | 2 |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -18,7 +18,6 @@
 
 - RCP owner for single-account backends: KMS and Secrets Manager hold one account's resources (backend accountID), so a key or secret named by ID/name belongs to the default (management) account and RCPs do not apply to it; RCPs apply when the request names a member-account ARN. SQS (per-account queue scopes), S3 (bucket creator) and STS (role ARN account) resolve real owners. SimulateCustomPolicy does not report OrganizationsDecisionDetail: it takes no principal, so there is no account whose SCPs apply (docs only describe SCP evaluation for principal simulations; unverified for CallerArn).
 - Member-account root: SCP/RCP restriction is proven at the middleware level; the emulator's STS GetSessionToken mints root sessions only for the default (management) account, so an SDK-driven member-root session cannot be created.
-- RCP implicit-deny AccessDenied text ('because no resource control policy allows the <action> action') is not published: checked troubleshoot_access-denied.html, which documents only the explicit-deny RCP wording (the emulator derives the implicit-deny text from the SCP and identity patterns)
 
 ### Structural gaps
 

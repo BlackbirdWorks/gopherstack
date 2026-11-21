@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 16 (16 ok) |
 | Feature families | 4 (4 ok) |
-| Known gaps | 8 |
+| Known gaps | 7 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -18,7 +18,6 @@
 
 - Data plane opt-in (DSQL_ENGINE=docker, or --engines=auto/docker with a reachable runtime; default stub keeps the control plane only). The cluster endpoint <id>.dsql.<region>.on.aws is not resolvable and clients cannot assume port 5432: connect to host/port from GET /_gopherstack/dsql/clusters/{id}; tokens are generated for the control-plane endpoint (also accepted: endpoint:port, loopback:port). The CA is served at /_gopherstack/dsql/ca.pem.
 - Cluster data is ephemeral: each data plane is a fresh postgres container with no volume, so a restart or snapshot restore re-creates clusters (CREATING until up) with an empty database.
-- Not published (checked the troubleshooting, unsupported-features and authentication-authorization User Guide pages): the SQLSTATE of the login failure (28P01 used) and the text and SQLSTATE of unsupported-feature rejections (0A000 '<feature> is not supported in Aurora DSQL'; the guide gives only 'Error: Not supported') and the full text of the plain CREATE INDEX rejection (the guide titles it 'use CREATE INDEX ASYNC instead')
 - Unsupported-feature rejection covers CREATE TRIGGER, DROP TRIGGER, ALTER TABLE ... DISABLE/ENABLE TRIGGER, isolation levels other than repeatable read, temporary tables, TRUNCATE, VACUUM, CREATE TABLESPACE, CREATE DATABASE and LANGUAGE plpgsql functions at the statement start only (not inside multi-statement strings or DO blocks). Foreign keys and sequences are accepted: the current User Guide documents both as supported (the bd issue text predates that). Plain CREATE INDEX is rejected (ASYNC required). The unsupported set matches the migration guide (no triggers, temporary tables, TRUNCATE, VACUUM, tablespaces or extra databases; SQL functions but no PL/pgSQL).
 - CREATE INDEX ASYNC runs a plain (blocking) CREATE INDEX in a background job: CONCURRENTLY deadlocks with a session in sys.wait_for_job, so a failed unique build leaves no INVALID index (DSQL leaves one). Old completed/failed rows are pruned on the next submit as documented; job_id is 26 base32 characters as in the docs, object_id is the index oid once built.
 - Transaction rules are enforced inside PostgreSQL (event + statement triggers with transition tables), so they hold on both wire protocols. Still open, each with its blocker: the 5 minute transaction age limit ('transaction age limit of 300s exceeded') needs a hook at commit or a timer inside the server, and stock PostgreSQL has neither (a statement-time check would not fire for an idle transaction, and a test would need a 5 minute wait); the 1 KiB combined index key size limit ('key size too large') needs per-index key bytes of every written row, which the statement-level transition-table guard in services/dsql/bootstrap.go (gs_dml_ins) does not compute; the 128 MiB per-query memory limit ('query requires too much temp space, out of memory', 53200) has no PostgreSQL setting with that behaviour.

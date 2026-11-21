@@ -9,13 +9,9 @@
 | --- | --- |
 | PARITY entries audited | 1 (1 ok) |
 | Feature families | 6 (4 ok, 2 partial) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Deferred items | 0 |
 | Resource leaks | unknown |
-
-### Known gaps
-
-- API key restrictions (HTTP referrer, IP, Android/iOS app and API target restrictions) are not enforced: the emulator has no API key service to hold them.
 
 ## More
 

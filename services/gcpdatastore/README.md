@@ -9,13 +9,9 @@
 | --- | --- |
 | PARITY entries audited | 13 (10 ok, 3 partial) |
 | Feature families | 8 (3 ok, 5 partial) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- IndexOperationMetadata.progress_entities is never populated for index builds (index_ops.go startIndexOpLocked).
 
 ## More
 
