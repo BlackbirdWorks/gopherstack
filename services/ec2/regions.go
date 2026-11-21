@@ -43,6 +43,7 @@ func (h *Handler) buildPeer(ctx context.Context, home *InMemoryBackend, region s
 	p.Region = region
 	p.svcCtx = pctx
 	p.imds = h.imds
+	p.hooks = h.hooks
 	p.stop = stop
 
 	if h.janitor != nil {

@@ -52,7 +52,12 @@ func validatePolicyDetails(details map[string]any, defaultPolicy string) error {
 		return nil
 	}
 
-	if pt, _ := details["PolicyType"].(string); pt != "" && pt != policyTypeEBSSnapshot {
+	pt, _ := details["PolicyType"].(string)
+	if pt == policyTypeEventBased {
+		return validateEventPolicy(details)
+	}
+
+	if pt != "" && pt != policyTypeEBSSnapshot {
 		return nil
 	}
 

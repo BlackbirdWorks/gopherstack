@@ -48,6 +48,12 @@ func (b *InMemoryBackend) runPolicy(ctx context.Context, p *storedPolicy, now ti
 		p.LastEvaluated = map[string]time.Time{}
 	}
 
+	if policyDetailsPolicyType(p.PolicyDetails) == policyTypeEventBased {
+		b.runEventPolicy(ctx, p, now)
+
+		return
+	}
+
 	enabled := p.State == stateEnabled
 	extend := policyExtendsDeletion(p.PolicyDetails)
 

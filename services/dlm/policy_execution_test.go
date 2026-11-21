@@ -41,6 +41,7 @@ func newExecEnv(t *testing.T) *execEnv {
 	dlmBk := dlm.NewInMemoryBackend("000000000000", "us-east-1")
 	dlmH := dlm.NewHandler(dlmBk)
 	dlmH.SetCompute(dlm.NewEC2Compute(ec2H))
+	ec2H.SetSnapshotSharedListener(dlmH.OnSnapshotShared)
 
 	e := echo.New()
 	registry := service.NewRegistry()
