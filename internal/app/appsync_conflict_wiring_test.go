@@ -33,6 +33,8 @@ type Mutation {
   putItem(id: ID!, title: String, tags: [String], labels: [String], v: Int): Item
   updateItem(id: ID!, title: String, v: Int): Item
   deleteItem(id: ID!, v: Int): Item
+  rawPut(id: ID!, attrs: String, v: Int): Item
+  rawUpdate(id: ID!, expr: String, names: String, vals: String, v: Int): Item
 }`
 	asCFKey = `"key":{"id":$util.dynamodb.toDynamoDBJson($ctx.args.id)}`
 	asCFPre = `{"version":"2018-05-29",`
@@ -127,6 +129,11 @@ func newASCFFixture(t *testing.T, sync *astypes.SyncConfig, lambda appsyncbacken
 		"updateItem": asCFPre + `"operation":"UpdateItem",` + asCFKey + `,"update":{"expression":"SET title = :t",` +
 			`"expressionValues":{":t":$util.dynamodb.toDynamoDBJson($ctx.args.title)}},"_version":$util.toJson($ctx.args.v)}`,
 		"deleteItem": asCFPre + `"operation":"DeleteItem",` + asCFKey + `,"_version":$util.toJson($ctx.args.v)}`,
+		"rawPut": asCFPre + `"operation":"PutItem",` + asCFKey + `,"attributeValues":$ctx.args.attrs,` +
+			`"_version":$util.toJson($ctx.args.v)}`,
+		"rawUpdate": asCFPre + `"operation":"UpdateItem",` + asCFKey + `,"update":{"expression":` +
+			`$util.toJson($ctx.args.expr),"expressionNames":$ctx.args.names,"expressionValues":$ctx.args.vals},` +
+			`"_version":$util.toJson($ctx.args.v)}`,
 	}
 
 	for field, req := range resolvers {

@@ -15,6 +15,7 @@ type StorageBackend interface {
 	// Domain operations
 	CreateDomain(input CreateDomainInput) (*Domain, error)
 	DeleteDomain(name string) (*Domain, error)
+	DeleteDomainNow(name string) error
 	DescribeDomain(name string) (*Domain, error)
 	DescribeDomains(names []string) ([]*Domain, error)
 	ListDomainNames() []string

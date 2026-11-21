@@ -104,6 +104,8 @@ func endpointHost(endpoint string) string {
 func (a appsyncOpenSearch) domainFor(ctx context.Context, endpoint string) (string, error) {
 	host := endpointHost(endpoint)
 
+	a.sweepMirrors(ctx)
+
 	if name, ok, err := a.elasticsearchDomain(ctx, host); ok || err != nil {
 		return name, err
 	}
@@ -122,6 +124,64 @@ func (a appsyncOpenSearch) domainFor(ctx context.Context, endpoint string) (stri
 	}
 
 	return "", fmt.Errorf("%w: %q", errNoOpenSearchDomain, endpoint)
+}
+
+// sweepMirrors deletes the engine domains this wiring created for Elasticsearch domains that no longer exist or
+// were recreated. A domain without the mirror tag is never touched.
+func (a appsyncOpenSearch) sweepMirrors(ctx context.Context) {
+	if a.es == nil {
+		return
+	}
+
+	bk := a.handler.Backend
+
+	for _, name := range bk.ListDomainNames() {
+		od, err := bk.DescribeDomain(name)
+		if err != nil {
+			continue
+		}
+
+		tags, _ := bk.ListTags(od.ARN)
+
+		have, mirrored := tags[esMirrorTag]
+		if !mirrored {
+			continue
+		}
+
+		if d, derr := a.es.Backend.DescribeDomain(ctx, name); derr == nil && !d.Deleted && mirrorStamp(d) == have {
+			continue
+		}
+
+		_ = bk.DeleteDomainNow(name)
+	}
+}
+
+func mirrorStamp(d *elasticsearchbackend.Domain) string {
+	return d.ARN + "|" + strconv.FormatInt(d.CreatedAt.UnixNano(), 10)
+}
+
+// ReleaseOpenSearch deletes the engine domain mirroring the Elasticsearch domain at endpoint.
+func (a appsyncOpenSearch) ReleaseOpenSearch(ctx context.Context, endpoint string) {
+	if a.es == nil {
+		return
+	}
+
+	host := endpointHost(endpoint)
+
+	for _, n := range a.es.Backend.ListDomainNames(ctx) {
+		d, err := a.es.Backend.DescribeDomain(ctx, n)
+		if err != nil || d.Endpoint != host {
+			continue
+		}
+
+		if od, oerr := a.handler.Backend.DescribeDomain(d.Name); oerr == nil {
+			if tags, _ := a.handler.Backend.ListTags(od.ARN); tags[esMirrorTag] != "" {
+				_ = a.handler.Backend.DeleteDomainNow(d.Name)
+			}
+		}
+	}
+
+	a.sweepMirrors(ctx)
 }
 
 func (a appsyncOpenSearch) elasticsearchDomain(ctx context.Context, host string) (string, bool, error) {
@@ -144,7 +204,7 @@ func (a appsyncOpenSearch) elasticsearchDomain(ctx context.Context, host string)
 // ensureEngineDomain backs an Elasticsearch domain with an engine domain, replacing one left by an earlier
 // domain of the same name.
 func (a appsyncOpenSearch) ensureEngineDomain(d *elasticsearchbackend.Domain) error {
-	stamp := d.ARN + "|" + strconv.FormatInt(d.CreatedAt.UnixNano(), 10)
+	stamp := mirrorStamp(d)
 	bk := a.handler.Backend
 
 	if existing, err := bk.DescribeDomain(d.Name); err == nil {
@@ -155,7 +215,7 @@ func (a appsyncOpenSearch) ensureEngineDomain(d *elasticsearchbackend.Domain) er
 			return nil
 		}
 
-		if _, err = bk.DeleteDomain(d.Name); err != nil {
+		if err = bk.DeleteDomainNow(d.Name); err != nil {
 			return fmt.Errorf("replace stale engine domain: %w", err)
 		}
 	}

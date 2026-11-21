@@ -149,3 +149,11 @@ func (b *InMemoryBackend) SetBackupHook(fn func()) {
 
 	b.backupHook = fn
 }
+
+// SetBackupCap lowers the bytes of backup data the backend retains.
+func (b *InMemoryBackend) SetBackupCap(n int64) {
+	b.mu.Lock("SetBackupCap")
+	defer b.mu.Unlock()
+
+	b.backupCap = n
+}

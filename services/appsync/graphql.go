@@ -86,7 +86,7 @@ func newGraphQLError(err error) graphqlError {
 
 func ddbErrorType(code string) string {
 	switch code {
-	case errCodeConflictUnhandled, errCodeConflictError, errCodeMaxConflicts, errCodeDeltaSyncWrite:
+	case errCodeBadRequest, errCodeConflictUnhandled, errCodeConflictError, errCodeMaxConflicts, errCodeDeltaSyncWrite:
 		return code
 	}
 
@@ -748,7 +748,8 @@ func invokeDynamoDBDataSource(
 	ctx = withRegion(ctx, firstNonEmpty(ds.DynamoDBConfig.AWSRegion, backend.region))
 
 	env := conflictEnv{
-		sync: mu.Sync, lambda: backend.lambdaFn, identity: mu.callIdentity(), args: args, region: backend.region,
+		sync: mu.Sync, lambda: backend.lambdaFn, now: backend.now, identity: mu.callIdentity(), args: args,
+		region:     backend.region,
 		parentType: firstNonEmpty(mu.callInfo("parentTypeName"), mu.TypeName),
 		field:      firstNonEmpty(mu.callInfo("fieldName"), mu.FieldName),
 	}

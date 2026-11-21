@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"encoding/binary"
 	"fmt"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -320,6 +321,7 @@ type InMemoryBackend struct {
 	sourceAssocs           *store.Table[SourceAPIAssociation]
 	introspections         *store.Table[DataSourceIntrospection]
 	lambdaFn               LambdaInvoker
+	now                    func() time.Time
 	webACLs                WebACLResolver
 	ddbBackend             DynamoDBBackend
 	ebPutter               EventBridgePutter
@@ -380,6 +382,11 @@ func (b *InMemoryBackend) Reset() {
 
 	b.registry.ResetAll()
 	b.apiKeys = make(map[string]map[string]*APIKey)
+}
+
+// SetClock replaces the clock stamping _lastChangedAt, delta records and sync start times; nil restores time.Now.
+func (b *InMemoryBackend) SetClock(now func() time.Time) {
+	b.now = now
 }
 
 // SetLambdaInvoker configures the Lambda invoker for LAMBDA data sources.

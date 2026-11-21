@@ -33,6 +33,7 @@ type fakeEmulator struct {
 	sqls      []string
 	headers   []string
 	dropped   []string
+	reads     []string
 	mu        sync.Mutex
 }
 
@@ -309,6 +310,7 @@ func (s fakeSpanner) Read(_ context.Context, in *spannerpb.ReadRequest) (*spanne
 	defer s.f.mu.Unlock()
 
 	rs := &spannerpb.ResultSet{}
+	s.f.reads = append(s.f.reads, in.GetTable())
 
 	for _, t := range s.f.tables[dbOfSession(in.GetSession())] {
 		if t.name == in.GetTable() {
@@ -395,6 +397,13 @@ func (f *fakeEmulator) failCommits(table string, code codes.Code) {
 	}
 
 	f.failing[table] = code
+}
+
+func (f *fakeEmulator) tablesRead() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return append([]string(nil), f.reads...)
 }
 
 func (f *fakeEmulator) deletedTables() []string {

@@ -47,6 +47,7 @@ type InMemoryBackend struct {
 	keys         cmek.Checker
 	optimizeHook func()
 	backupHook   func()
+	backupCap    int64
 	etagSeq      uint64
 	dumpTimeout  time.Duration
 }

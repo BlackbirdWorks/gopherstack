@@ -380,8 +380,13 @@ func (b *InMemoryBackend) dropBackup(name string) {
 // captureData reads the rows of a database, as of at when given. Without a data plane the rows are the ones
 // restored from a snapshot that no emulator has loaded yet.
 func (b *InMemoryBackend) captureData(
-	ctx context.Context, db *databasepb.Database, at *timestamppb.Timestamp,
+	ctx context.Context, db *databasepb.Database, at *timestamppb.Timestamp, ddlBytes int64,
 ) (dbDataSnap, error) {
+	room := b.backupRoom() - ddlBytes
+	if room <= 0 {
+		return dbDataSnap{}, errExhausted("Backups of the emulator hold at most %d bytes.", b.backupLimit())
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, backupBudget)
 	defer cancel()
 
@@ -390,7 +395,8 @@ func (b *InMemoryBackend) captureData(
 	switch {
 	case err == nil:
 		data, derr := dumpDatabaseAt(
-			ctx, spannerpb.NewSpannerClient(cc), db.GetName(), databaseIsPostgres(db), &dumpBudgetState{}, at,
+			ctx, spannerpb.NewSpannerClient(cc), db.GetName(), databaseIsPostgres(db),
+			&dumpBudgetState{maxBytes: int(min(room, maxBackupBytes))}, at,
 		)
 		if errors.Is(derr, errPersistLimit) {
 			return dbDataSnap{}, errExhausted("The database is too large to back up in the emulator: %v", derr)
@@ -414,7 +420,7 @@ func (b *InMemoryBackend) finishBackup(
 		hook()
 	}
 
-	data, err := b.captureData(context.Background(), db, at)
+	data, err := b.captureData(context.Background(), db, at, b.ddlBytes(name))
 	if err != nil {
 		b.dropBackup(name)
 
@@ -431,10 +437,10 @@ func (b *InMemoryBackend) finishBackup(
 
 	size := backupSize(rec.ddl, data)
 
-	if b.retainedBytesLocked()+size > maxBackupBytes {
+	if b.retainedBytesLocked()+size > b.backupLimitLocked() {
 		b.dropBackupLocked(name)
 
-		return nil, errExhausted("Backups of the emulator hold at most %d bytes.", maxBackupBytes)
+		return nil, errExhausted("Backups of the emulator hold at most %d bytes.", b.backupLimitLocked())
 	}
 
 	rec.data = data
@@ -442,6 +448,41 @@ func (b *InMemoryBackend) finishBackup(
 	rec.pb.State = databasepb.Backup_READY
 
 	return b.backupView(rec), nil
+}
+
+func (b *InMemoryBackend) backupLimitLocked() int64 {
+	if b.backupCap > 0 {
+		return b.backupCap
+	}
+
+	return maxBackupBytes
+}
+
+func (b *InMemoryBackend) backupLimit() int64 {
+	b.mu.RLock("backupLimit")
+	defer b.mu.RUnlock()
+
+	return b.backupLimitLocked()
+}
+
+// backupRoom is how many bytes of backup data the backend can still retain.
+func (b *InMemoryBackend) backupRoom() int64 {
+	b.mu.RLock("backupRoom")
+	defer b.mu.RUnlock()
+
+	return b.backupLimitLocked() - b.retainedBytesLocked()
+}
+
+func (b *InMemoryBackend) ddlBytes(name string) int64 {
+	b.mu.RLock("ddlBytes")
+	defer b.mu.RUnlock()
+
+	rec, err := b.backupLocked(name)
+	if err != nil {
+		return 0
+	}
+
+	return backupSize(rec.ddl, dbDataSnap{})
 }
 
 func (b *InMemoryBackend) backupHookFn() func() {
@@ -649,10 +690,10 @@ func (b *InMemoryBackend) finishCopy(source, dest string) (proto.Message, error)
 	}
 
 	size := backupSize(src.ddl, src.data)
-	if b.retainedBytesLocked()+size > maxBackupBytes {
+	if b.retainedBytesLocked()+size > b.backupLimitLocked() {
 		b.dropBackupLocked(dest)
 
-		return nil, errExhausted("Backups of the emulator hold at most %d bytes.", maxBackupBytes)
+		return nil, errExhausted("Backups of the emulator hold at most %d bytes.", b.backupLimitLocked())
 	}
 
 	rec.ddl, rec.data = cloneDDL(src.ddl), src.data

@@ -207,7 +207,7 @@ func ddbSync(ctx context.Context, vs versionedSource, req map[string]any) (any, 
 		return nil, err
 	}
 
-	startedAt := time.Now().UnixMilli()
+	startedAt := vs.conflict.clock().UnixMilli()
 	if st.StartedAt != 0 {
 		startedAt = st.StartedAt
 	}

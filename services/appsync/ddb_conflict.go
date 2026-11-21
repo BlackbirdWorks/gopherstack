@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
+	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
@@ -26,7 +29,49 @@ const (
 	errCodeConflictError = "ConflictError"
 
 	maxMergeDepth = 32
+
+	maxLambdaPayload = 6 << 20
+	maxItemBytes     = 400 * 1024
 )
+
+// itemBytes approximates the DynamoDB size of an item in typed form: attribute names plus values.
+func itemBytes(item map[string]any) int {
+	n := 0
+
+	for k, v := range item {
+		n += len(k) + attrBytes(v)
+	}
+
+	return n
+}
+
+func attrBytes(v any) int {
+	tag, val, ok := attrParts(v)
+	if !ok {
+		return 0
+	}
+
+	switch t := val.(type) {
+	case string:
+		return len(t)
+	case []any:
+		n := 0
+
+		for _, e := range t {
+			if tag == "L" {
+				n += 1 + attrBytes(e)
+			} else if s, isStr := e.(string); isStr {
+				n += len(s)
+			}
+		}
+
+		return n
+	case map[string]any:
+		return itemBytes(t)
+	}
+
+	return 1
+}
 
 // conflictEnv carries what a versioned write needs to resolve a version mismatch.
 type conflictEnv struct {
@@ -34,9 +79,18 @@ type conflictEnv struct {
 	lambda     LambdaInvoker
 	identity   any
 	args       map[string]any
+	now        func() time.Time
 	region     string
 	parentType string
 	field      string
+}
+
+func (e conflictEnv) clock() time.Time {
+	if e.now == nil {
+		return time.Now().UTC()
+	}
+
+	return e.now().UTC()
 }
 
 const jsCtxKeyIdentity = "identity"
@@ -80,7 +134,24 @@ func validateSyncConfig(c *SyncConfig) error {
 		return fmt.Errorf("%w: conflictHandler LAMBDA requires lambdaConflictHandlerConfig", ErrValidation)
 	}
 
+	if cfg := c.LambdaConflictHandlerConfig; cfg != nil && cfg.LambdaConflictHandlerARN != "" &&
+		!isLambdaFunctionARN(cfg.LambdaConflictHandlerARN) {
+		return fmt.Errorf("%w: lambdaConflictHandlerArn must be a Lambda function ARN", ErrValidation)
+	}
+
 	return nil
+}
+
+const lambdaARNFields = 7
+
+func isLambdaFunctionARN(s string) bool {
+	if !arn.HasService(s, "lambda") {
+		return false
+	}
+
+	p := strings.Split(s, ":")
+
+	return len(p) >= lambdaARNFields && p[3] != "" && p[4] != "" && p[5] == "function" && p[6] != ""
 }
 
 func conflictFailure(msg string) error {
@@ -247,12 +318,20 @@ func (vs versionedSource) lambdaResolve(
 		return res, conflictFailure("the conflict handler payload is not serializable: " + err.Error())
 	}
 
+	if len(payload) > maxLambdaPayload {
+		return res, conflictFailure("the conflict handler payload exceeds the Lambda payload limit")
+	}
+
 	out, _, err := env.lambda.InvokeFunction(
 		withRegion(ctx, env.region), env.sync.LambdaConflictHandlerConfig.LambdaConflictHandlerARN,
 		lambdaInvokeSync, payload,
 	)
 	if err != nil {
 		return res, conflictFailure("cannot invoke the Lambda conflict handler: " + err.Error())
+	}
+
+	if len(out) > maxLambdaPayload {
+		return res, conflictFailure("the Lambda conflict handler response exceeds the Lambda payload limit")
 	}
 
 	if err = json.Unmarshal(out, &res, jsonx.V1()); err != nil {
@@ -344,6 +423,10 @@ func (vs versionedSource) resolveConflict(
 		}
 
 		maps.Copy(item, mapOf(req["key"]))
+
+		if itemBytes(item) > maxItemBytes {
+			return nil, conflictFailure("the item returned by the Lambda conflict handler exceeds 400 KB")
+		}
 
 		return item, nil
 	}

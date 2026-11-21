@@ -1,6 +1,7 @@
 package appsync
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"slices"
@@ -121,18 +122,35 @@ func (b *InMemoryBackend) ListDataSources(apiID string) ([]*DataSource, error) {
 // DeleteDataSource deletes a data source.
 // Returns an error if any resolver in the API still references this data source.
 func (b *InMemoryBackend) DeleteDataSource(apiID, name string) error {
+	release, err := b.removeDataSource(apiID, name)
+	if err != nil || release == "" {
+		return err
+	}
+
+	b.mu.RLock("DeleteDataSource")
+	requester := b.osRequester
+	b.mu.RUnlock()
+
+	if r, ok := requester.(OpenSearchReleaser); ok {
+		r.ReleaseOpenSearch(context.Background(), release)
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) removeDataSource(apiID, name string) (string, error) {
 	b.mu.Lock("DeleteDataSource")
 	defer b.mu.Unlock()
 
 	ds, ok := b.datasources.Get(datasourceKey(apiID, name))
 	if !ok {
-		return fmt.Errorf("%w: datasource %s not found", ErrNotFound, name)
+		return "", fmt.Errorf("%w: datasource %s not found", ErrNotFound, name)
 	}
 
 	// Prevent deletion if any UNIT resolver references this data source.
 	for _, r := range b.resolversByAPI.Get(apiID) {
 		if r.DataSourceName == name {
-			return fmt.Errorf(
+			return "", fmt.Errorf(
 				"%w: data source %s is still referenced by resolver %s.%s",
 				ErrValidation,
 				name,
@@ -145,7 +163,7 @@ func (b *InMemoryBackend) DeleteDataSource(apiID, name string) error {
 	// Prevent deletion if any function references this data source.
 	for _, fn := range b.functionsByAPI.Get(apiID) {
 		if fn.DataSourceName == name {
-			return fmt.Errorf(
+			return "", fmt.Errorf(
 				"%w: data source %s is still referenced by function %s",
 				ErrValidation,
 				name,
@@ -160,7 +178,23 @@ func (b *InMemoryBackend) DeleteDataSource(apiID, name string) error {
 		ds.Tags.Close()
 	}
 
-	return nil
+	return b.unusedSearchEndpoint(ds), nil
+}
+
+// unusedSearchEndpoint returns the search endpoint of ds when no remaining data source uses it.
+func (b *InMemoryBackend) unusedSearchEndpoint(ds *DataSource) string {
+	endpoint := searchEndpoint(ds)
+	if endpoint == "" {
+		return ""
+	}
+
+	for _, other := range b.datasources.All() {
+		if searchEndpoint(other) == endpoint {
+			return ""
+		}
+	}
+
+	return endpoint
 }
 
 // UpdateDataSource updates an existing data source.

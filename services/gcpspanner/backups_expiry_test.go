@@ -1,6 +1,7 @@
 package gcpspanner_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func TestBackup_ExpiredBackupsAreDeleted(t *testing.T) {
@@ -59,4 +61,38 @@ func TestBackup_ExpiredBackupsAreDeleted(t *testing.T) {
 			assert.Equal(t, []string{keep.GetName()}, names)
 		})
 	}
+}
+
+func TestBackup_SizeCapStopsCaptureEarly(t *testing.T) {
+	t.Parallel()
+
+	e := newBackupEnv(t)
+
+	big := make([][]*structpb.Value, 200)
+	for i := range big {
+		big[i] = []*structpb.Value{sv("1"), sv(strings.Repeat("x", 40))}
+	}
+
+	e.fake.seed(bkDB,
+		fakeTable{name: "A", columns: []string{"id", "name"}, rows: big},
+		fakeTable{name: "B", columns: []string{"id", "name"}, rows: bkTables()[0].rows},
+		fakeTable{name: "C", columns: []string{"id", "name"}, rows: bkTables()[0].rows},
+	)
+	e.handler.Backend.SetBackupCap(400)
+
+	op, err := e.databases.CreateBackup(t.Context(), &databasepb.CreateBackupRequest{
+		Parent: bkInst, BackupId: "big",
+		Backup: &databasepb.Backup{Database: bkDB, ExpireTime: e.expire(48 * time.Hour)},
+	})
+	require.NoError(t, err)
+
+	_, err = op.Wait(t.Context())
+	require.Error(t, err)
+	assert.Equal(t, codes.ResourceExhausted, status.Code(err))
+
+	assert.NotContains(t, e.fake.tablesRead(), "B", "capture stops at the table that exceeds the cap")
+	assert.NotContains(t, e.fake.tablesRead(), "C")
+
+	_, err = e.databases.GetBackup(t.Context(), &databasepb.GetBackupRequest{Name: bkInst + "/backups/big"})
+	assert.Equal(t, codes.NotFound, status.Code(err), "the partial backup is removed")
 }

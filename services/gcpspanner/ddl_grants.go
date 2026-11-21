@@ -8,6 +8,9 @@ import (
 const (
 	grantKindRole      = "ROLE GRANT"
 	grantKindAllTables = "ALL TABLES IN SCHEMA"
+	grantKindAllViews  = "ALL VIEWS IN SCHEMA"
+	grantKindAllStream = "ALL CHANGE STREAMS IN SCHEMA"
+	grantKindAllSeqs   = "ALL SEQUENCES IN SCHEMA"
 
 	privSelect  = "SELECT"
 	privInsert  = "INSERT"
@@ -30,6 +33,24 @@ var grantPrivs = map[string][]string{ //nolint:gochecknoglobals // immutable cat
 	kindModel:          {privExecute},
 	kindSchema:         {privUsage},
 	grantKindAllTables: {privSelect, privInsert, privUpdate, kwDelete},
+	grantKindAllViews:  {privSelect},
+	grantKindAllStream: {privSelect},
+	grantKindAllSeqs:   {privSelect, privUpdate},
+}
+
+// bulkGrantKinds are the ALL <objects> IN SCHEMA forms of the DDL references.
+func bulkGrantKinds() []string {
+	return []string{grantKindAllTables, grantKindAllViews, grantKindAllStream, grantKindAllSeqs}
+}
+
+func bulkGrantKind(toks []ddlTok) (string, bool) {
+	for _, k := range bulkGrantKinds() {
+		if hasPrefix(toks, strings.Fields(k)...) {
+			return k, true
+		}
+	}
+
+	return "", false
 }
 
 // grantObjectKinds maps the words after ON to the schema kind that must hold the object.
@@ -209,11 +230,17 @@ func parsePrivs(stmt string, toks []ddlTok) ([]grantPriv, error) {
 	return out, nil
 }
 
+func isBulkGrant(toks []ddlTok) bool {
+	_, ok := bulkGrantKind(toks)
+
+	return ok
+}
+
 func parseGrantObjects(stmt string, toks []ddlTok, at int, postgres bool, g *grantStmt) (int, error) {
 	switch {
-	case postgres && hasPrefix(toks[at:], "ALL", "TABLES", "IN", "SCHEMA"):
-		g.kind = grantKindAllTables
-		at += posType + 1
+	case isBulkGrant(toks[at:]):
+		g.kind, _ = bulkGrantKind(toks[at:])
+		at += len(strings.Fields(g.kind))
 	case hasPrefix(toks[at:], "CHANGE", "STREAM"):
 		g.kind, at = kindChangeStream, at+posName
 	case hasPrefix(toks[at:], "TABLE", "FUNCTION"):
@@ -292,16 +319,26 @@ func (s *ddlSchema) checkRole(name string) error {
 	return nil
 }
 
+// isDefaultSchema reports the schema every database has: public in PostgreSQL, _default in GoogleSQL.
+func (s *ddlSchema) isDefaultSchema(name string) bool {
+	k := s.key(name)
+
+	return k == "public" || !s.postgres && (k == "_default" || k == "default")
+}
+
 func (s *ddlSchema) checkGrantObject(g *grantStmt, obj string) error {
-	switch g.kind {
-	case grantKindAllTables:
-		if s.find(kindSchema, obj) < 0 && s.key(obj) != "public" {
+	bare := identNameText(obj)
+
+	if slices.Contains(bulkGrantKinds(), g.kind) {
+		if s.find(kindSchema, bare) < 0 && !s.isDefaultSchema(bare) {
 			return errNotFound("Schema not found: %s.", obj)
 		}
 
 		return nil
-	case kindTableFunc:
-		stream, ok := strings.CutPrefix(foldKey(obj), "read_")
+	}
+
+	if g.kind == kindTableFunc {
+		stream, ok := strings.CutPrefix(foldKey(bare), "read_")
 		if !ok || s.find(kindChangeStream, stream) < 0 {
 			return errNotFound("Table function not found: %s.", obj)
 		}
@@ -311,7 +348,11 @@ func (s *ddlSchema) checkGrantObject(g *grantStmt, obj string) error {
 
 	kind := grantObjectKinds[g.kind]
 
-	i := s.find(kind, obj)
+	if kind == kindSchema && s.isDefaultSchema(bare) {
+		return nil
+	}
+
+	i := s.find(kind, bare)
 	if i < 0 {
 		return errNotFound("%s not found: %s.", g.kind, obj)
 	}

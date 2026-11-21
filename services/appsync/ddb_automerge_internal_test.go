@@ -96,6 +96,13 @@ func TestAutomergeBoundsRecursion(t *testing.T) {
 	})
 }
 
+func lambdaSync(arn string) *SyncConfig {
+	return &SyncConfig{
+		ConflictHandler:             "LAMBDA",
+		LambdaConflictHandlerConfig: &LambdaConflictHandlerConfig{LambdaConflictHandlerARN: arn},
+	}
+}
+
 func TestValidateSyncConfig(t *testing.T) {
 	t.Parallel()
 
@@ -109,6 +116,14 @@ func TestValidateSyncConfig(t *testing.T) {
 		{name: "bad detection", cfg: &SyncConfig{ConflictDetection: "TIME"}, wantErr: true},
 		{name: "bad handler", cfg: &SyncConfig{ConflictHandler: "LAST_WRITER"}, wantErr: true},
 		{name: "lambda without config", cfg: &SyncConfig{ConflictHandler: "LAMBDA"}, wantErr: true},
+		{name: "lambda arn not an arn", cfg: lambdaSync("function:f"), wantErr: true},
+		{name: "lambda arn of another service", cfg: lambdaSync("arn:aws:s3:::bucket"), wantErr: true},
+		{name: "lambda layer arn", cfg: lambdaSync("arn:aws:lambda:us-east-1:000000000000:layer:l:1"), wantErr: true},
+		{
+			name: "lambda arn without a name", cfg: lambdaSync("arn:aws:lambda:us-east-1:000000000000:function:"),
+			wantErr: true,
+		},
+		{name: "lambda arn with a qualifier", cfg: lambdaSync("arn:aws:lambda:us-east-1:000000000000:function:f:live")},
 		{
 			name: "lambda with arn",
 			cfg: &SyncConfig{ConflictHandler: "LAMBDA", LambdaConflictHandlerConfig: &LambdaConflictHandlerConfig{

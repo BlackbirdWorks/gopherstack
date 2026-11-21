@@ -61,6 +61,11 @@ type OpenSearchRequester interface {
 	OpenSearchRequest(ctx context.Context, req OpenSearchRequest) (int, []byte, error)
 }
 
+// OpenSearchReleaser is implemented by an OpenSearchRequester that holds resources per endpoint.
+type OpenSearchReleaser interface {
+	ReleaseOpenSearch(ctx context.Context, endpoint string)
+}
+
 // RDSStatement is one RDS Data API ExecuteStatement call.
 type RDSStatement struct {
 	Variables map[string]any

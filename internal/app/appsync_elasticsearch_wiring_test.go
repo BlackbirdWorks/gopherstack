@@ -3,6 +3,7 @@ package app
 import (
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/appsync"
@@ -171,5 +172,151 @@ func TestAppSyncElasticsearchMirrorConcurrentFirstUse(t *testing.T) {
 
 	for _, e := range errs {
 		assert.NoError(t, e)
+	}
+}
+
+type esMirrorEnv struct {
+	f      *asDSFixture
+	es     *elasticsearchservice.Client
+	mirror appsyncOpenSearch
+}
+
+func newESMirrorEnv(t *testing.T) *esMirrorEnv {
+	t.Helper()
+
+	f := newASDSFixture(t)
+
+	osH, ok := serviceByName(f.fx.services)["OpenSearch"].(*opensearchbackend.Handler)
+	require.True(t, ok)
+
+	esH, ok := serviceByName(f.fx.services)["Elasticsearch"].(*elasticsearchbackend.Handler)
+	require.True(t, ok)
+
+	return &esMirrorEnv{
+		f: f, es: elasticsearchservice.NewFromConfig(f.fx.cfg), mirror: appsyncOpenSearch{handler: osH, es: esH},
+	}
+}
+
+func (e *esMirrorEnv) createES(t *testing.T, name string) string {
+	t.Helper()
+
+	_, err := e.es.CreateElasticsearchDomain(t.Context(), &elasticsearchservice.CreateElasticsearchDomainInput{
+		DomainName: aws.String(name),
+	})
+	require.NoError(t, err)
+
+	dom, err := e.es.DescribeElasticsearchDomain(t.Context(), &elasticsearchservice.DescribeElasticsearchDomainInput{
+		DomainName: aws.String(name),
+	})
+	require.NoError(t, err)
+
+	return "https://" + aws.ToString(dom.DomainStatus.Endpoint)
+}
+
+func (e *esMirrorEnv) deleteES(t *testing.T, name string) {
+	t.Helper()
+
+	_, err := e.es.DeleteElasticsearchDomain(t.Context(), &elasticsearchservice.DeleteElasticsearchDomainInput{
+		DomainName: aws.String(name),
+	})
+	require.NoError(t, err)
+}
+
+func (e *esMirrorEnv) engineHasBooks() bool {
+	_, err := e.mirror.handler.Backend.DescribeDomain("books")
+
+	return err == nil
+}
+
+func TestAppSyncElasticsearchMirrorLifecycle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		check func(t *testing.T, e *esMirrorEnv)
+		name  string
+	}{
+		{
+			name: "recreate settles at once despite an engine delete delay",
+			check: func(t *testing.T, e *esMirrorEnv) {
+				t.Helper()
+
+				bk, ok := e.mirror.handler.Backend.(*opensearchbackend.InMemoryBackend)
+				require.True(t, ok)
+				bk.SetProcessingDelay(time.Hour)
+
+				endpoint := e.createES(t, "books")
+				_, err := e.mirror.domainFor(t.Context(), endpoint)
+				require.NoError(t, err)
+
+				e.deleteES(t, "books")
+
+				endpoint = e.createES(t, "books")
+				_, err = e.mirror.domainFor(t.Context(), endpoint)
+				require.NoError(t, err)
+			},
+		},
+		{
+			name: "mirror goes with the elasticsearch domain",
+			check: func(t *testing.T, e *esMirrorEnv) {
+				t.Helper()
+
+				endpoint := e.createES(t, "books")
+				_, err := e.mirror.domainFor(t.Context(), endpoint)
+				require.NoError(t, err)
+				require.True(t, e.engineHasBooks())
+
+				e.deleteES(t, "books")
+				e.createES(t, "other")
+
+				_, err = e.mirror.domainFor(t.Context(), "https://unknown.example")
+				require.Error(t, err)
+				assert.False(t, e.engineHasBooks(), "the stale mirror is removed")
+			},
+		},
+		{
+			name: "release removes the mirror",
+			check: func(t *testing.T, e *esMirrorEnv) {
+				t.Helper()
+
+				endpoint := e.createES(t, "books")
+				_, err := e.mirror.domainFor(t.Context(), endpoint)
+				require.NoError(t, err)
+
+				e.mirror.ReleaseOpenSearch(t.Context(), endpoint)
+				assert.False(t, e.engineHasBooks())
+			},
+		},
+		{
+			name: "a user opensearch domain without the stamp is never touched",
+			check: func(t *testing.T, e *esMirrorEnv) {
+				t.Helper()
+
+				_, err := e.mirror.handler.Backend.CreateDomain(opensearchbackend.CreateDomainInput{Name: "books"})
+				require.NoError(t, err)
+
+				endpoint := e.createES(t, "books")
+				name, err := e.mirror.domainFor(t.Context(), endpoint)
+				require.NoError(t, err)
+				assert.Equal(t, "books", name)
+
+				e.mirror.ReleaseOpenSearch(t.Context(), endpoint)
+				e.deleteES(t, "books")
+				endpoint = e.createES(t, "books")
+
+				_, err = e.mirror.domainFor(t.Context(), endpoint)
+				require.NoError(t, err)
+				e.mirror.ReleaseOpenSearch(t.Context(), endpoint)
+
+				assert.True(t, e.engineHasBooks(), "the user domain survives")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tt.check(t, newESMirrorEnv(t))
+		})
 	}
 }

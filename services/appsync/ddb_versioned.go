@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -24,6 +25,7 @@ const (
 	attrIndexPK     = "gsi_ds_pk"
 	attrIndexSK     = "gsi_ds_sk"
 
+	errCodeBadRequest        = "BadRequest"
 	errCodeConflictUnhandled = "ConflictUnhandled"
 	errCodeMaxConflicts      = "MaxConflicts"
 	errCodeDeltaSyncWrite    = "DeltaSyncWriteError"
@@ -233,9 +235,21 @@ func stamp(item map[string]any, ver int64, at time.Time) {
 	item[attrLastChanged] = numAttr(at.UnixMilli())
 }
 
+func metadataWriteError(name string) error {
+	return &DynamoDBError{Code: errCodeBadRequest, Message: "the sync metadata field " + name + " cannot be written"}
+}
+
 func versionedWrite(ctx context.Context, vs versionedSource, req map[string]any, op string) (any, error) {
 	if _, err := deltaLayoutOf(req); err != nil {
 		return nil, err
+	}
+
+	if op == ddbOpPutItem {
+		for name := range ddbPutItem(req) {
+			if isMetadataAttr(name) {
+				return nil, metadataWriteError(name)
+			}
+		}
 	}
 
 	var (
@@ -296,7 +310,7 @@ func versionedPutOnce(ctx context.Context, vs versionedSource, req map[string]an
 		return nil, false, err
 	}
 
-	item := ddbPutItem(req)
+	item := maps.Clone(ddbPutItem(req))
 
 	if conflict {
 		if item, err = vs.resolveConflict(ctx, ddbOpPutItem, req, cur); err != nil {
@@ -311,7 +325,7 @@ func versionedPutOnce(ctx context.Context, vs versionedSource, req map[string]an
 func (vs versionedSource) putStamped(
 	ctx context.Context, req, cur map[string]any, ver int64, has bool, item map[string]any,
 ) (any, bool, error) {
-	now := time.Now().UTC()
+	now := vs.conflict.clock()
 	stamp(item, ver+1, now)
 
 	err := vs.ddb.PutItemRaw(ctx, vs.cfg.TableName, item, versionGuard(condOf(req), has, ver))
@@ -349,6 +363,10 @@ func versionedUpdateOnce(ctx context.Context, vs versionedSource, req map[string
 		return nil, false, err
 	}
 
+	if name, bad := vs.updatesMetadata(cur, update); bad {
+		return nil, false, metadataWriteError(name)
+	}
+
 	if conflict {
 		merged, rerr := vs.resolveConflict(ctx, ddbOpUpdateItem, req, cur)
 		if rerr != nil {
@@ -358,7 +376,7 @@ func versionedUpdateOnce(ctx context.Context, vs versionedSource, req map[string
 		return vs.putStamped(ctx, req, cur, ver, has, merged)
 	}
 
-	now := time.Now().UTC()
+	now := vs.conflict.clock()
 	update.Names, update.Values = maps.Clone(update.Names), maps.Clone(update.Values)
 
 	if update.Names == nil {
@@ -391,6 +409,22 @@ func versionedUpdateOnce(ctx context.Context, vs versionedSource, req map[string
 	return ddbPlainItem(item), false, nil
 }
 
+// updatesMetadata reports a sync metadata attribute the update expression would change on the stored item.
+func (vs versionedSource) updatesMetadata(cur map[string]any, update DDBExpression) (string, bool) {
+	after, err := vs.ddb.ApplyUpdateRaw(cur, update)
+	if err != nil {
+		return "", false
+	}
+
+	for _, name := range []string{attrVersion, attrLastChanged, attrDeleted, attrTTL} {
+		if !reflect.DeepEqual(cur[name], after[name]) {
+			return name, true
+		}
+	}
+
+	return "", false
+}
+
 func versionedDeleteOnce(ctx context.Context, vs versionedSource, req map[string]any) (any, bool, error) {
 	cur, ver, has, conflict, err := vs.read(ctx, req)
 	if err != nil {
@@ -411,7 +445,7 @@ func versionedDeleteOnce(ctx context.Context, vs versionedSource, req map[string
 
 	key := mapOf(req["key"])
 	guard := versionGuard(condOf(req), has, ver)
-	now := time.Now().UTC()
+	now := vs.conflict.clock()
 
 	var item map[string]any
 

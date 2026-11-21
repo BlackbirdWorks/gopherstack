@@ -53,10 +53,18 @@ type dbDataSnap struct {
 	Tables []tableSnap `json:"tables"`
 }
 
-type dumpBudgetState struct{ rows, bytes int }
+type dumpBudgetState struct{ rows, bytes, maxBytes int }
+
+func (d *dumpBudgetState) limit() int {
+	if d.maxBytes > 0 {
+		return min(d.maxBytes, maxPersistBytes)
+	}
+
+	return maxPersistBytes
+}
 
 func (d *dumpBudgetState) take(rows, bytes int) bool {
-	if d.rows+rows > maxPersistRows || d.bytes+bytes > maxPersistBytes {
+	if d.rows+rows > maxPersistRows || d.bytes+bytes > d.limit() {
 		return false
 	}
 
@@ -164,7 +172,7 @@ func dumpDatabaseAt(
 		rows, rerr := c.Read(ctx, &spannerpb.ReadRequest{
 			Session: sess.GetName(), Transaction: sel, Table: tables[i].Name, Columns: tables[i].Columns,
 			KeySet: &spannerpb.KeySet{All: true}, Limit: int64(maxPersistRows - budget.rows + 1),
-		}, grpc.MaxCallRecvMsgSize(maxPersistBytes-budget.bytes+recvSlack))
+		}, grpc.MaxCallRecvMsgSize(budget.limit()-budget.bytes+recvSlack))
 		if status.Code(rerr) == codes.ResourceExhausted {
 			return dbDataSnap{}, fmt.Errorf("%w: %s", errPersistLimit, tables[i].Name)
 		}

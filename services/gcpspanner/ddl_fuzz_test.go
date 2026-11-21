@@ -121,3 +121,43 @@ func TestOpFilter_FuzzNeverPanicsOrStalls(t *testing.T) {
 
 	assert.Less(t, time.Since(start), 10*time.Second)
 }
+
+func TestDDL_HostileStatementsAreBounded(t *testing.T) {
+	t.Parallel()
+
+	huge := "CREATE TABLE t (" + strings.Repeat("a", 1<<20) + " INT64) PRIMARY KEY (a)"
+
+	tests := []struct {
+		name string
+		stmt string
+	}{
+		{"one mebibyte statement", huge},
+		{"ten thousand nested parentheses", "CREATE TABLE t (id INT64 DEFAULT (" + strings.Repeat("(", 10_000) + "1" +
+			strings.Repeat(")", 10_000) + ")) PRIMARY KEY (id)"},
+		{"unterminated single quote", "CREATE TABLE t (id INT64 DEFAULT ('abc) PRIMARY KEY (id)"},
+		{"unterminated double quote", `CREATE TABLE "t (id bigint PRIMARY KEY)`},
+		{"unterminated backtick", "CREATE TABLE `t (id INT64) PRIMARY KEY (id)"},
+		{"unterminated block comment", "CREATE TABLE t (id INT64) /* PRIMARY KEY (id)"},
+		{"nul bytes", "CREATE TABLE t\x00 (id\x00 INT64) PRIMARY KEY (id)"},
+		{"nul in grant", "GRANT SELECT ON TABLE t\x00 TO ROLE r\x00"},
+		{"nul in rename", "ALTER TABLE t RENAME TO \x00"},
+		{"deep alter", "ALTER TABLE t ADD ROW DELETION POLICY (" + strings.Repeat("(", 10_000)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			start := time.Now()
+
+			for _, postgres := range []bool{false, true} {
+				assert.NotPanics(t, func() {
+					_, _ = gcpspanner.FoldDDL([]string{fuzzSeedTable}, []string{tt.stmt}, postgres)
+					_, _ = gcpspanner.FoldDDL(nil, []string{tt.stmt}, postgres)
+				})
+			}
+
+			assert.Less(t, time.Since(start), 10*time.Second)
+		})
+	}
+}
