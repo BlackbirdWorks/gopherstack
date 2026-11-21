@@ -71,7 +71,12 @@ func TestViewsAndDDL(t *testing.T) {
 	require.ErrorAs(t, err, &gerr)
 	assert.Equal(t, http.StatusNotFound, gerr.Code)
 
-	env.exec(t, "CREATE TABLE ddl.base (a INT64)")
+	dup, err := env.client.Query("CREATE TABLE ddl.base (a INT64)").Run(ctx)
+	require.NoError(t, err)
+
+	_, err = dup.Wait(ctx)
+	require.ErrorAs(t, err, &gerr)
+	assert.Equal(t, http.StatusConflict, gerr.Code)
 
 	it := ds.Table("v").Read(ctx)
 
