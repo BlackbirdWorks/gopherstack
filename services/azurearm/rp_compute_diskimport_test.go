@@ -1,7 +1,10 @@
 package azurearm_test
 
 import (
+	"bytes"
 	"encoding/binary"
+	"math"
+	"net/http"
 	"sync"
 	"testing"
 
@@ -18,18 +21,26 @@ const (
 	importAcID = "/subscriptions/" + aciSub + "/resourceGroups/" + netRG +
 		"/providers/Microsoft.Storage/storageAccounts/" + importAcct
 	gib = int64(1) << 30
+	mib = int64(1) << 20
 )
 
 type fakeDiskBlobs struct {
-	blobs map[string]azurearm.BlobProbe
-	mu    sync.Mutex
+	blobs  map[string]azurearm.BlobProbe
+	probed []azurearm.BlobRef
+	mu     sync.Mutex
 }
 
-func (f *fakeDiskBlobs) ProbeBlob(container, blob string) (azurearm.BlobProbe, error) {
+func (f *fakeDiskBlobs) ProbeBlob(ref azurearm.BlobRef) (azurearm.BlobProbe, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	if p, ok := f.blobs[container+"/"+blob]; ok {
+	f.probed = append(f.probed, ref)
+
+	if ref.Query == "sig=denied" {
+		return azurearm.BlobProbe{}, azurearm.ErrDiskBlobDenied
+	}
+
+	if p, ok := f.blobs[ref.Container+"/"+ref.Blob]; ok {
 		return p, nil
 	}
 
@@ -39,6 +50,9 @@ func (f *fakeDiskBlobs) ProbeBlob(container, blob string) (azurearm.BlobProbe, e
 func vhdFooter(virtual int64, diskType uint32) []byte {
 	f := make([]byte, 512)
 	copy(f, "conectix")
+	binary.BigEndian.PutUint32(f[8:], 2)
+	binary.BigEndian.PutUint32(f[12:], 0x00010000)
+	binary.BigEndian.PutUint64(f[16:], math.MaxUint64)
 	binary.BigEndian.PutUint64(f[48:], uint64(virtual))
 	binary.BigEndian.PutUint32(f[60:], diskType)
 
@@ -53,6 +67,18 @@ func vhdFooter(virtual int64, diskType uint32) []byte {
 	binary.BigEndian.PutUint32(f[64:], ^sum)
 
 	return f
+}
+
+func fixChecksum(f []byte) {
+	var sum uint32
+
+	for i, b := range f {
+		if i < 64 || i >= 68 {
+			sum += uint32(b)
+		}
+	}
+
+	binary.BigEndian.PutUint32(f[64:], ^sum)
 }
 
 func fixedVHD(virtual int64) azurearm.BlobProbe {
@@ -76,13 +102,29 @@ func TestComputeSDK_DiskImport(t *testing.T) {
 	badSum := fixedVHD(gib)
 	badSum.Footer[64] ^= 0xff
 
+	noFeatures, badVersion, badOffset := fixedVHD(gib), fixedVHD(gib), fixedVHD(gib)
+	for _, mut := range []struct {
+		p      *azurearm.BlobProbe
+		off    int
+		length int
+	}{{&noFeatures, 8, 4}, {&badVersion, 12, 4}, {&badOffset, 16, 8}} {
+		mut.p.Footer = bytes.Clone(mut.p.Footer)
+		clear(mut.p.Footer[mut.off : mut.off+mut.length])
+		fixChecksum(mut.p.Footer)
+	}
+
 	blobs := map[string]azurearm.BlobProbe{
-		"vhds/os.vhd":    fixedVHD(2*gib + 512),
+		"vhds/os.vhd":    fixedVHD(2*gib + mib),
 		"vhds/small.vhd": fixedVHD(gib),
 		"vhds/block.vhd": {PageBlob: false, Size: gib + 512},
 		"vhds/dyn.vhd":   {PageBlob: true, Size: gib + 512, Footer: vhdFooter(gib, 3)},
 		"vhds/sum.vhd":   badSum,
 		"vhds/odd.vhd":   {PageBlob: true, Size: gib + 700, Footer: vhdFooter(gib, 2)},
+		"vhds/mib.vhd":   fixedVHD(gib + 512),
+		"vhds/feat.vhd":  noFeatures,
+		"vhds/ver.vhd":   badVersion,
+		"vhds/off.vhd":   badOffset,
+		"vhds/tiny.vhd":  {PageBlob: true, Size: 512, Footer: make([]byte, 512)},
 		"vhds/huge.vhd":  fixedVHD(40 * 1024 * gib),
 		"vhds/guest.vmgs": {
 			PageBlob: false, Size: 1024,
@@ -90,10 +132,13 @@ func TestComputeSDK_DiskImport(t *testing.T) {
 	}
 
 	tests := []struct {
-		build    func() armcompute.Disk
-		name     string
-		wantCode string
-		wantGB   int32
+		build       func() armcompute.Disk
+		name        string
+		wantCode    string
+		wantQuery   string
+		wantGB      int32
+		noAccount   bool
+		wantNoProbe bool
 	}{
 		{name: "fixed vhd rounds up", wantGB: 3, build: func() armcompute.Disk {
 			return importDisk(armcompute.DiskCreateOptionImport, nil)
@@ -171,6 +216,78 @@ func TestComputeSDK_DiskImport(t *testing.T) {
 				c.StorageAccountID = new("/subscriptions/x/resourceGroups/y/providers/Microsoft.Compute/disks/z")
 			})
 		}},
+		{name: "unaligned to mib", wantCode: "InvalidParameter", build: func() armcompute.Disk {
+			return importDisk(armcompute.DiskCreateOptionImport, func(c *armcompute.CreationData) {
+				c.SourceURI = new(importHost + "mib.vhd")
+			})
+		}},
+		{name: "footer without reserved feature", wantCode: "InvalidParameter", build: func() armcompute.Disk {
+			return importDisk(armcompute.DiskCreateOptionImport, func(c *armcompute.CreationData) {
+				c.SourceURI = new(importHost + "feat.vhd")
+			})
+		}},
+		{name: "footer bad version", wantCode: "InvalidParameter", build: func() armcompute.Disk {
+			return importDisk(armcompute.DiskCreateOptionImport, func(c *armcompute.CreationData) {
+				c.SourceURI = new(importHost + "ver.vhd")
+			})
+		}},
+		{name: "footer bad data offset", wantCode: "InvalidParameter", build: func() armcompute.Disk {
+			return importDisk(armcompute.DiskCreateOptionImport, func(c *armcompute.CreationData) {
+				c.SourceURI = new(importHost + "off.vhd")
+			})
+		}},
+		{name: "tiny blob", wantCode: "InvalidParameter", build: func() armcompute.Disk {
+			return importDisk(armcompute.DiskCreateOptionImport, func(c *armcompute.CreationData) {
+				c.SourceURI = new(importHost + "tiny.vhd")
+			})
+		}},
+		{name: "unknown storage account", wantCode: "InvalidParameter", noAccount: true, wantNoProbe: true,
+			build: func() armcompute.Disk { return importDisk(armcompute.DiskCreateOptionImport, nil) }},
+		{name: "storage account id in other resource group", wantCode: "InvalidParameter", wantNoProbe: true,
+			build: func() armcompute.Disk {
+				return importDisk(armcompute.DiskCreateOptionImport, func(c *armcompute.CreationData) {
+					c.StorageAccountID = new("/subscriptions/" + aciSub +
+						"/resourceGroups/elsewhere/providers/Microsoft.Storage/storageAccounts/" + importAcct)
+				})
+			}},
+		{name: "sas query is forwarded", wantGB: 1, wantQuery: "sig=ok", build: func() armcompute.Disk {
+			return importDisk(armcompute.DiskCreateOptionImport, func(c *armcompute.CreationData) {
+				c.SourceURI = new(importHost + "small.vhd?sig=ok")
+			})
+		}},
+		{name: "blob service denies read", wantCode: "InvalidParameter", build: func() armcompute.Disk {
+			return importDisk(armcompute.DiskCreateOptionImport, func(c *armcompute.CreationData) {
+				c.SourceURI = new(importHost + "small.vhd?sig=denied")
+			})
+		}},
+		{name: "userinfo in uri", wantCode: "InvalidParameter", wantNoProbe: true, build: func() armcompute.Disk {
+			return importDisk(armcompute.DiskCreateOptionImport, func(c *armcompute.CreationData) {
+				c.SourceURI = new("https://user:pw@" + importAcct + ".blob.core.windows.net/vhds/small.vhd")
+			})
+		}},
+		{name: "dot dot segment", wantCode: "InvalidParameter", wantNoProbe: true, build: func() armcompute.Disk {
+			return importDisk(armcompute.DiskCreateOptionImport, func(c *armcompute.CreationData) {
+				c.SourceURI = new(importHost + "../vhds/small.vhd")
+			})
+		}},
+		{name: "encoded slash in container", wantCode: "InvalidParameter", wantNoProbe: true,
+			build: func() armcompute.Disk {
+				return importDisk(armcompute.DiskCreateOptionImport, func(c *armcompute.CreationData) {
+					c.SourceURI = new("https://" + importAcct + ".blob.core.windows.net/vh%2Fds/small.vhd")
+				})
+			}},
+		{name: "foreign path style host", wantCode: "InvalidParameter", wantNoProbe: true,
+			build: func() armcompute.Disk {
+				return importDisk(armcompute.DiskCreateOptionImport, func(c *armcompute.CreationData) {
+					c.SourceURI = new("https://evil.example.com/" + importAcct + "/vhds/small.vhd")
+				})
+			}},
+		{name: "bad account name", wantCode: "InvalidParameter", wantNoProbe: true, build: func() armcompute.Disk {
+			return importDisk(armcompute.DiskCreateOptionImport, func(c *armcompute.CreationData) {
+				c.StorageAccountID = nil
+				c.SourceURI = new("https://a_b.blob.core.windows.net/vhds/small.vhd")
+			})
+		}},
 		{name: "secure", wantGB: 3, build: func() armcompute.Disk {
 			return importDisk(armcompute.DiskCreateOptionImportSecure, func(c *armcompute.CreationData) {
 				c.SecurityDataURI = new(importHost + "guest.vmgs")
@@ -198,9 +315,22 @@ func TestComputeSDK_DiskImport(t *testing.T) {
 			t.Parallel()
 
 			s := newCmpStack(t)
-			s.handler.Registry.SetDiskBlobs(&fakeDiskBlobs{blobs: blobs})
+			fake := &fakeDiskBlobs{blobs: blobs}
+			s.handler.Registry.SetDiskBlobs(fake)
+
+			if !tt.noAccount {
+				s.putImportAccount(t)
+			}
 
 			got, err := s.putDisk(t, "imp", tt.build())
+
+			fake.mu.Lock()
+			defer fake.mu.Unlock()
+
+			if tt.wantNoProbe {
+				assert.Empty(t, fake.probed)
+			}
+
 			if tt.wantCode != "" {
 				require.Error(t, err)
 				assert.Equal(t, tt.wantCode, sdkErrCode(err))
@@ -209,11 +339,26 @@ func TestComputeSDK_DiskImport(t *testing.T) {
 			}
 
 			require.NoError(t, err)
+
+			if tt.wantQuery != "" {
+				require.NotEmpty(t, fake.probed)
+				assert.Equal(t, tt.wantQuery, fake.probed[0].Query)
+				assert.Equal(t, importAcct, fake.probed[0].Account)
+			}
+
 			assert.Equal(t, tt.wantGB, *got.Properties.DiskSizeGB)
 			assert.Equal(t, "Unattached", string(*got.Properties.DiskState))
 			assert.NotEmpty(t, *got.Properties.CreationData.SourceURI)
 		})
 	}
+}
+
+func (s *cmpStack) putImportAccount(t *testing.T) {
+	t.Helper()
+
+	code, _ := s.rawJSON(t, http.MethodPut, importAcID+"?api-version=2023-01-01",
+		`{"location":"westus","kind":"StorageV2","sku":{"name":"Standard_LRS"}}`)
+	require.Less(t, code, 300)
 }
 
 func TestComputeSDK_DiskImportUnwired(t *testing.T) {
@@ -230,6 +375,7 @@ func TestComputeSDK_SnapshotImport(t *testing.T) {
 
 	s := newCmpStack(t)
 	s.handler.Registry.SetDiskBlobs(&fakeDiskBlobs{blobs: map[string]azurearm.BlobProbe{"vhds/os.vhd": fixedVHD(gib)}})
+	s.putImportAccount(t)
 
 	pl, err := s.cf.NewSnapshotsClient().BeginCreateOrUpdate(t.Context(), netRG, "snap", armcompute.Snapshot{
 		Location: new("westus"),
@@ -250,6 +396,7 @@ func TestComputeSDK_DiskImportReplayKeepsDisk(t *testing.T) {
 	s := newCmpStack(t)
 	blobs := &fakeDiskBlobs{blobs: map[string]azurearm.BlobProbe{"vhds/os.vhd": fixedVHD(gib)}}
 	s.handler.Registry.SetDiskBlobs(blobs)
+	s.putImportAccount(t)
 
 	_, err := s.putDisk(t, "imp", importDisk(armcompute.DiskCreateOptionImport, nil))
 	require.NoError(t, err)

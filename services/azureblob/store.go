@@ -418,7 +418,8 @@ func (b *InMemoryBackend) ReadTail(container, blob string, n int64) (BlobInfo, [
 
 	info := stored.info(b.now())
 	size := stored.length()
-	start := max(size-n, 0)
+	n = min(max(n, 0), size)
+	start := size - n
 	out := make([]byte, size-start)
 
 	if stored.BlobType != BlobTypePage {

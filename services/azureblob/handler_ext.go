@@ -4,7 +4,9 @@ import (
 	"encoding/base64"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -167,6 +169,34 @@ func (h *Handler) denyAnonymous(c *echo.Context, container, blob string) (bool, 
 	}
 
 	return true, h.writeAPIError(c, errResourceNotFound())
+}
+
+// ErrBlobReadDenied is returned by AuthorizeRead when the blob service would refuse the read.
+var ErrBlobReadDenied = errors.New("azureblob: blob read denied")
+
+// AuthorizeRead applies the blob service's own read authorization (SAS signature, public access level) to an
+// in-process read of a blob addressed by a URL whose query is rawQuery.
+func (h *Handler) AuthorizeRead(account, container, blob, rawQuery string) error {
+	r := &http.Request{
+		Method: http.MethodGet,
+		URL:    &url.URL{Path: "/" + account + "/" + container + "/" + blob, RawQuery: rawQuery},
+		Header: http.Header{},
+	}
+
+	if apiErr := h.authorize(r, account, container, blob); apiErr != nil {
+		return fmt.Errorf("%w: %s", ErrBlobReadDenied, apiErr.message)
+	}
+
+	if r.URL.Query().Get("sig") != "" || (!h.EnforcePublicAccess && !h.VerifySignatures) {
+		return nil
+	}
+
+	info, err := h.Backend.GetContainer(container)
+	if err != nil || info.PublicAccess == "" {
+		return fmt.Errorf("%w: the blob is not publicly readable and the URI carries no SAS", ErrBlobReadDenied)
+	}
+
+	return nil
 }
 
 func anonymousReadAllowed(c *echo.Context, access string, blobLevel bool) bool {

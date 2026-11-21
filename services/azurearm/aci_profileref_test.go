@@ -1,6 +1,7 @@
 package azurearm_test
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -146,4 +147,65 @@ func TestACIContainerGroupProfileReference(t *testing.T) {
 				got["properties"].(map[string]any)["containerGroupProfile"])
 		})
 	}
+}
+
+func TestACIContainerGroupProfileReferenceRevisionInput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		revision   string
+		wantStatus int
+	}{
+		{name: "valid", revision: `1`, wantStatus: http.StatusOK},
+		{name: "null means latest", revision: `null`, wantStatus: http.StatusOK},
+		{name: "zero", revision: `0`, wantStatus: http.StatusNotFound},
+		{name: "negative", revision: `-1`, wantStatus: http.StatusNotFound},
+		{name: "huge", revision: `99999999999999999999999`, wantStatus: http.StatusBadRequest},
+		{name: "string", revision: `"1"`, wantStatus: http.StatusBadRequest},
+		{name: "fraction", revision: `1.5`, wantStatus: http.StatusBadRequest},
+		{name: "object", revision: `{}`, wantStatus: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := newACIStack(t)
+
+			status, _ := s.rest(t, http.MethodPut, aciProfilesBase+"/prof1"+aciProfileAPI,
+				`{"location":"westus","properties":{"osType":"Linux","containers":[{"name":"c1","properties":`+
+					`{"image":"img:1","resources":{"requests":{"cpu":1,"memoryInGB":1}}}}]}}`)
+			require.Equal(t, http.StatusCreated, status)
+
+			status, body := s.rest(t, http.MethodPut, aciGroupsBase+"/g1"+aciProfileAPI,
+				refGroup(`{"id":"`+aciProfileRefID+`","revision":`+tt.revision+`}`, ""))
+			assert.Equal(t, tt.wantStatus, status, "%v", body)
+		})
+	}
+}
+
+func TestACIContainerGroupProfileReferenceKeepsSecretsOut(t *testing.T) {
+	t.Parallel()
+
+	const secret = "s3cr3t-value-9f2"
+
+	s := newACIStack(t)
+
+	status, pbody := s.rest(t, http.MethodPut, aciProfilesBase+"/prof1"+aciProfileAPI,
+		`{"location":"westus","properties":{"osType":"Linux","imageRegistryCredentials":[`+
+			`{"server":"r.io","username":"u","password":"`+secret+`"}],"containers":[{"name":"c1","properties":`+
+			`{"image":"img:1","environmentVariables":[{"name":"K","secureValue":"`+secret+`"}],`+
+			`"resources":{"requests":{"cpu":1,"memoryInGB":1}}}}]}}`)
+	require.Equal(t, http.StatusCreated, status)
+	assert.NotContains(t, fmt.Sprint(pbody), secret)
+
+	status, body := s.rest(t, http.MethodPut, aciGroupsBase+"/g1"+aciProfileAPI,
+		refGroup(`{"id":"`+aciProfileRefID+`"}`, ""))
+	require.Equal(t, http.StatusOK, status, "%v", body)
+	assert.NotContains(t, fmt.Sprint(body), secret)
+
+	status, got := s.rest(t, http.MethodGet, aciGroupsBase+"/g1"+aciProfileAPI, "")
+	require.Equal(t, http.StatusOK, status)
+	assert.NotContains(t, fmt.Sprint(got), secret)
 }

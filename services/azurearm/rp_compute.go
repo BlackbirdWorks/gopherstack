@@ -119,6 +119,8 @@ type ComputeProvider struct {
 	ids     *identityService
 	items   map[string]*cmpRes
 	blobs   DiskBlobs
+	// hasAccount reports whether an ARM storage account exists (in resource group rg, if non-empty).
+	hasAccount func(name, rg string) bool
 }
 
 var _ ResourceProvider = (*ComputeProvider)(nil)

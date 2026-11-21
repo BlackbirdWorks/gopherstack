@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
@@ -18,23 +19,27 @@ func wireAzureDisks(byName map[string]service.Registerable) {
 	}
 
 	if blobH, blobOk := byName["AzureBlob"].(*azureblob.Handler); blobOk {
-		armH.Registry.SetDiskBlobs(azureDiskBlobs{backend: blobH.Backend})
+		armH.Registry.SetDiskBlobs(azureDiskBlobs{handler: blobH})
 	}
 }
 
 // azureDiskBlobs adapts the Blob backend to services/azurearm.DiskBlobs.
 type azureDiskBlobs struct {
-	backend azureblob.StorageBackend
+	handler *azureblob.Handler
 }
 
 var _ azurearm.DiskBlobs = azureDiskBlobs{}
 
-func (d azureDiskBlobs) ProbeBlob(container, blob string) (azurearm.BlobProbe, error) {
-	if d.backend == nil {
+func (d azureDiskBlobs) ProbeBlob(ref azurearm.BlobRef) (azurearm.BlobProbe, error) {
+	if d.handler == nil || d.handler.Backend == nil {
 		return azurearm.BlobProbe{}, errBlobBackendUnavailable
 	}
 
-	info, tail, err := d.backend.ReadTail(container, blob, vhdFooterBytes)
+	if err := d.handler.AuthorizeRead(ref.Account, ref.Container, ref.Blob, ref.Query); err != nil {
+		return azurearm.BlobProbe{}, fmt.Errorf("%w: %w", azurearm.ErrDiskBlobDenied, err)
+	}
+
+	info, tail, err := d.handler.Backend.ReadTail(ref.Container, ref.Blob, vhdFooterBytes)
 	if errors.Is(err, azureblob.ErrBlobNotFound) || errors.Is(err, azureblob.ErrContainerNotFound) {
 		return azurearm.BlobProbe{}, azurearm.ErrDiskBlobNotFound
 	}

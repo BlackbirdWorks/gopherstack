@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"math"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
 )
@@ -16,7 +18,13 @@ const (
 	vhdFooterSize       = 512
 	vhdFixedType        = 2
 	vhdCookie           = "conectix"
+	vhdFeatures         = 8
+	vhdVersion          = 12
+	vhdDataOffset       = 16
 	vhdCurrentSize      = 48
+	vhdFeatureReserved  = 2
+	vhdFormatVersion    = 0x00010000
+	vhdMiB              = 1 << 20
 	vhdDiskType         = 60
 	vhdChecksumAt       = 64
 	vhdChecksumEnd      = 68
@@ -38,9 +46,18 @@ type BlobProbe struct {
 	PageBlob bool
 }
 
-// DiskBlobs reads blobs for disk and snapshot Import. Implementations must not call back into the ARM provider.
+// BlobRef addresses a blob by the URI an Import names; Query is the URI's raw query (a SAS token, if any).
+type BlobRef struct {
+	Account, Container, Blob, Query string
+}
+
+// ErrDiskBlobDenied is returned by DiskBlobs when the Blob service would refuse the read.
+var ErrDiskBlobDenied = errors.New("disk blob access denied")
+
+// DiskBlobs reads blobs for disk and snapshot Import. Implementations must authorize the read as the Blob service
+// would and must not call back into the ARM provider.
 type DiskBlobs interface {
-	ProbeBlob(container, blob string) (BlobProbe, error)
+	ProbeBlob(ref BlobRef) (BlobProbe, error)
 }
 
 // SetDiskBlobs gives the Compute provider the Blob data plane used by Import and ImportSecure.
@@ -53,6 +70,7 @@ func (r *Registry) SetDiskBlobs(b DiskBlobs) {
 	if cp, cpOk := p.(*ComputeProvider); cpOk {
 		cp.mu.Lock("SetDiskBlobs")
 		cp.blobs = b
+		cp.hasAccount = r.storageAccountLookup()
 		cp.mu.Unlock()
 	}
 }
@@ -64,65 +82,111 @@ type diskImport struct {
 	gb  int
 }
 
-type blobRef struct {
-	account, container, blob string
-}
-
-func parseBlobURI(field, raw string) (blobRef, error) {
+func parseBlobURI(field, raw string) (BlobRef, error) {
 	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != acaSchemeHTTPS && u.Scheme != acaScaleHTTP) || u.Host == "" {
-		return blobRef{}, cmpInvalid("The creationData.%s '%s' is not a valid blob URI.", field, raw)
+	if err != nil || (u.Scheme != acaSchemeHTTPS && u.Scheme != acaScaleHTTP) || u.Host == "" || u.User != nil {
+		return BlobRef{}, cmpInvalid("The creationData.%s '%s' is not a valid blob URI.", field, raw)
 	}
 
-	segs := strings.Split(strings.TrimPrefix(u.EscapedPath(), "/"), "/")
-	labels := strings.Split(u.Hostname(), ".")
-
-	var account string
-
-	if len(labels) > 2 && strings.EqualFold(labels[1], "blob") {
-		account = labels[0]
-	} else {
-		if len(segs) < 1 {
-			return blobRef{}, cmpInvalid("The creationData.%s '%s' is not a valid blob URI.", field, raw)
-		}
-
-		account, segs = segs[0], segs[1:]
+	account, segs, ok := splitBlobPath(u)
+	if !ok || !validStorageAccountName(account) {
+		return BlobRef{}, cmpInvalid("The creationData.%s '%s' is not a valid blob URI.", field, raw)
 	}
 
 	if len(segs) < 2 || segs[0] == "" || strings.Join(segs[1:], "/") == "" {
-		return blobRef{}, cmpInvalid("The creationData.%s '%s' must name a container and a blob.", field, raw)
+		return BlobRef{}, cmpInvalid("The creationData.%s '%s' must name a container and a blob.", field, raw)
 	}
 
-	blob, err := url.PathUnescape(strings.Join(segs[1:], "/"))
-	if err != nil {
-		return blobRef{}, cmpInvalid("The creationData.%s '%s' is not a valid blob URI.", field, raw)
+	container, blob, ok := cleanBlobSegments(segs)
+	if !ok {
+		return BlobRef{}, cmpInvalid("The creationData.%s '%s' is not a valid blob URI.", field, raw)
 	}
 
-	return blobRef{account: strings.ToLower(account), container: segs[0], blob: blob}, nil
+	return BlobRef{Account: strings.ToLower(account), Container: container, Blob: blob, Query: u.RawQuery}, nil
 }
 
-func storageAccountName(id string) (string, bool) {
+// splitBlobPath returns the account and the remaining path segments of an emulator blob URI, in the virtual-host
+// (account.blob.suffix) or path-style form.
+func splitBlobPath(u *url.URL) (string, []string, bool) {
+	segs := strings.Split(strings.TrimPrefix(u.EscapedPath(), "/"), "/")
+	labels := strings.Split(u.Hostname(), ".")
+
+	switch {
+	case len(labels) > 2 && strings.EqualFold(labels[1], "blob"):
+		return labels[0], segs, true
+	case isPathStyleHost(u.Hostname()):
+		return segs[0], segs[1:], true
+	}
+
+	return "", nil, false
+}
+
+// cleanBlobSegments unescapes the container and blob segments; dot segments, encoded slashes and backslashes are
+// refused so a name cannot address anything but one blob.
+func cleanBlobSegments(segs []string) (string, string, bool) {
+	dec := make([]string, len(segs))
+
+	for i, seg := range segs {
+		d, err := url.PathUnescape(seg)
+		if err != nil || d == "." || d == ".." || strings.ContainsAny(d, "/\\") {
+			return "", "", false
+		}
+
+		dec[i] = d
+	}
+
+	return dec[0], strings.Join(dec[1:], "/"), true
+}
+
+// isPathStyleHost reports whether host is a form the emulator serves path-style blob URIs on: an IP literal,
+// localhost, or a single-label name. Any other host is not an emulator storage endpoint.
+func isPathStyleHost(host string) bool {
+	if _, err := netip.ParseAddr(host); err == nil {
+		return true
+	}
+
+	return !strings.Contains(host, ".") || strings.EqualFold(host, "localhost")
+}
+
+func validStorageAccountName(name string) bool {
+	const minLen, maxLen = 3, 24
+
+	if len(name) < minLen || len(name) > maxLen {
+		return false
+	}
+
+	for _, c := range name {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') {
+			return false
+		}
+	}
+
+	return true
+}
+
+func storageAccountRef(id string) (string, string, bool) {
 	parsed, err := ParseGenericResourcePath("/" + strings.TrimPrefix(id, "/"))
 	if err != nil || !strings.EqualFold(parsed.Namespace, namespaceMicrosoftStorage) ||
 		len(parsed.Types) != 1 || !strings.EqualFold(parsed.Types[0], "storageAccounts") || len(parsed.Names) != 1 {
-		return "", false
+		return "", "", false
 	}
 
-	return strings.ToLower(parsed.Names[0]), true
+	return strings.ToLower(parsed.Names[0]), parsed.ResourceGroup, true
 }
 
-func (p *ComputeProvider) diskBlobs() DiskBlobs {
-	p.mu.RLock("diskBlobs")
+func (p *ComputeProvider) diskSeams() (DiskBlobs, func(name, rg string) bool) {
+	p.mu.RLock("diskSeams")
 	defer p.mu.RUnlock()
 
-	return p.blobs
+	return p.blobs, p.hasAccount
 }
 
-func (p *ComputeProvider) probeRef(blobs DiskBlobs, field string, ref blobRef) (BlobProbe, error) {
-	got, err := blobs.ProbeBlob(ref.container, ref.blob)
-	if errors.Is(err, ErrDiskBlobNotFound) {
-		return BlobProbe{}, cmpInvalid("The creationData.%s blob '%s/%s' does not exist in storage account '%s'.",
-			field, ref.container, ref.blob, ref.account)
+func (p *ComputeProvider) probeRef(blobs DiskBlobs, field string, ref BlobRef) (BlobProbe, error) {
+	got, err := blobs.ProbeBlob(ref)
+	if errors.Is(err, ErrDiskBlobNotFound) || errors.Is(err, ErrDiskBlobDenied) {
+		return BlobProbe{}, cmpInvalid(
+			"The creationData.%s blob '%s/%s' does not exist in storage account '%s' or is not accessible.",
+			field, ref.Container, ref.Blob, ref.Account)
 	}
 
 	if err != nil {
@@ -144,8 +208,16 @@ func vhdVirtualBytes(got BlobProbe) (int64, error) {
 			"and include the %d-byte footer.", got.Size, vhdSectorSize, vhdFooterSize)
 	}
 
+	virt := got.Size - vhdFooterSize
+	if virt%vhdMiB != 0 {
+		return 0, cmpInvalid("The source VHD virtual size %d is not aligned to 1 MiB.", virt)
+	}
+
 	f := got.Footer
 	if !bytes.Equal(f[:len(vhdCookie)], []byte(vhdCookie)) ||
+		binary.BigEndian.Uint32(f[vhdFeatures:])&vhdFeatureReserved == 0 ||
+		binary.BigEndian.Uint32(f[vhdVersion:]) != vhdFormatVersion ||
+		binary.BigEndian.Uint64(f[vhdDataOffset:]) != math.MaxUint64 ||
 		binary.BigEndian.Uint32(f[vhdDiskType:]) != vhdFixedType ||
 		binary.BigEndian.Uint64(f[vhdCurrentSize:]) != uint64(got.Size-vhdFooterSize) ||
 		binary.BigEndian.Uint32(f[vhdChecksumAt:]) != vhdChecksum(f) {
@@ -194,13 +266,13 @@ func (p *ComputeProvider) importDisk(cd map[string]any, secure, snapshot bool) (
 		return 0, err
 	}
 
-	if err = checkImportAccount(cd, secure, src); err != nil {
-		return 0, err
-	}
-
-	blobs := p.diskBlobs()
+	blobs, hasAccount := p.diskSeams()
 	if blobs == nil {
 		return 0, cmpInvalid("Import is not available: the Blob service is not wired to this provider.")
+	}
+
+	if err = checkImportAccount(cd, secure, src, hasAccount); err != nil {
+		return 0, err
 	}
 
 	if secure {
@@ -227,30 +299,38 @@ func (p *ComputeProvider) importDisk(cd map[string]any, secure, snapshot bool) (
 	return gb, nil
 }
 
-func checkImportAccount(cd map[string]any, secure bool, src blobRef) error {
+func checkImportAccount(
+	cd map[string]any, secure bool, src BlobRef, hasAccount func(name, rg string) bool,
+) error {
 	id := strOf(cd, cmpFieldStorageAcct)
 	if id == "" && secure {
 		return cmpInvalid("Required parameter 'creationData.storageAccountId' is missing (null).")
 	}
 
-	if id == "" {
-		return nil
+	var rg string
+
+	if id != "" {
+		acct, acctRG, ok := storageAccountRef(id)
+		if !ok {
+			return cmpInvalid("The creationData.storageAccountId '%s' is not a storage account resource id.", id)
+		}
+
+		if acct != src.Account {
+			return cmpInvalid("The creationData.sourceUri is in storage account '%s' but storageAccountId names '%s'.",
+				src.Account, acct)
+		}
+
+		rg = acctRG
 	}
 
-	acct, ok := storageAccountName(id)
-	if !ok {
-		return cmpInvalid("The creationData.storageAccountId '%s' is not a storage account resource id.", id)
-	}
-
-	if acct != src.account {
-		return cmpInvalid("The creationData.sourceUri is in storage account '%s' but storageAccountId names '%s'.",
-			src.account, acct)
+	if hasAccount == nil || !hasAccount(src.Account, rg) {
+		return cmpInvalid("The storage account '%s' named by creationData.sourceUri does not exist.", src.Account)
 	}
 
 	return nil
 }
 
-func (p *ComputeProvider) checkSecureBlobs(blobs DiskBlobs, cd map[string]any, src blobRef) error {
+func (p *ComputeProvider) checkSecureBlobs(blobs DiskBlobs, cd map[string]any, src BlobRef) error {
 	for _, f := range []string{cmpFieldSecData, cmpFieldSecMeta} {
 		raw := strOf(cd, f)
 		if raw == "" {
@@ -266,7 +346,7 @@ func (p *ComputeProvider) checkSecureBlobs(blobs DiskBlobs, cd map[string]any, s
 			return err
 		}
 
-		if ref.account != src.account {
+		if ref.Account != src.Account {
 			return cmpInvalid("The creationData.%s must be in the same storage account as sourceUri.", f)
 		}
 

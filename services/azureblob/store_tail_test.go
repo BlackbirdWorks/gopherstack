@@ -1,6 +1,7 @@
 package azureblob_test
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -49,6 +50,30 @@ func TestInMemoryBackend_ReadTail(t *testing.T) {
 				page := make([]byte, 512)
 				copy(page[510:], "XY")
 				_, err = b.PutPage("c", "p", 512, 1023, page, false)
+				require.NoError(t, err)
+			},
+		},
+		{
+			name: "negative n", blob: "b", n: -1, want: "", wantLen: 6,
+			setup: func(t *testing.T, b *azureblob.InMemoryBackend) {
+				t.Helper()
+				_, err := b.PutBlobWith("c", "b", []byte("abcdef"), azureblob.BlobAttrs{})
+				require.NoError(t, err)
+			},
+		},
+		{
+			name: "min int64 n", blob: "b", n: math.MinInt64, want: "", wantLen: 6,
+			setup: func(t *testing.T, b *azureblob.InMemoryBackend) {
+				t.Helper()
+				_, err := b.PutBlobWith("c", "b", []byte("abcdef"), azureblob.BlobAttrs{})
+				require.NoError(t, err)
+			},
+		},
+		{
+			name: "zero n", blob: "b", n: 0, want: "", wantLen: 6,
+			setup: func(t *testing.T, b *azureblob.InMemoryBackend) {
+				t.Helper()
+				_, err := b.PutBlobWith("c", "b", []byte("abcdef"), azureblob.BlobAttrs{})
 				require.NoError(t, err)
 			},
 		},

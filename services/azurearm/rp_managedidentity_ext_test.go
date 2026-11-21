@@ -4,6 +4,7 @@ import (
 	"encoding/json/v2"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v9"
@@ -65,7 +66,16 @@ func TestManagedIdentity_AssignmentRestrictions(t *testing.T) {
 			require.Equal(t, http.StatusCreated, status, "%v", body)
 
 			ar := body["properties"].(map[string]any)["assignmentRestrictions"].(map[string]any)
-			assert.Len(t, ar["providers"], len(ar["providers"].([]any)))
+
+			var wantProviders []string
+			require.NoError(t, json.Unmarshal([]byte(tt.providers), &wantProviders, jsonx.V1()))
+
+			gotProviders, _ := ar["providers"].([]any)
+			require.Len(t, gotProviders, len(wantProviders))
+
+			for i, w := range wantProviders {
+				assert.Equal(t, w, gotProviders[i])
+			}
 
 			status, got := s.msiRaw(t, http.MethodGet, msiBase+"restricted"+msiNew, "")
 			require.Equal(t, http.StatusOK, status)
@@ -242,6 +252,93 @@ func TestManagedIdentity_FlexibleFederatedCredential(t *testing.T) {
 			status, again := dst.msiRaw(t, http.MethodGet, path, "")
 			require.Equal(t, http.StatusOK, status)
 			assert.Equal(t, got["properties"], again["properties"])
+		})
+	}
+}
+
+func TestManagedIdentity_RestrictionsApplyToEveryPath(t *testing.T) {
+	t.Parallel()
+
+	const (
+		envPath = "/subscriptions/" + aciSub + "/resourceGroups/" + netRG +
+			"/providers/Microsoft.App/managedEnvironments/env1?api-version=2024-03-01"
+		aciPath = "/subscriptions/" + aciSub + "/resourceGroups/" + netRG +
+			"/providers/Microsoft.ContainerInstance/containerGroups/grp1?api-version=2023-05-01"
+		aciBody = `"properties":{"osType":"Linux","containers":[{"name":"c","properties":{"image":"img",` +
+			`"resources":{"requests":{"cpu":1,"memoryInGB":1}}}}]}`
+	)
+
+	tests := []struct {
+		body func(id string) string
+		name string
+		aci  bool
+	}{
+		{name: "container apps environment", body: func(id string) string {
+			return `{"location":"westus","identity":{"type":"UserAssigned","userAssignedIdentities":{"` + id +
+				`":{}}},"properties":{}}`
+		}},
+		{name: "container group", aci: true, body: func(id string) string {
+			return `{"location":"westus","identity":{"type":"UserAssigned","userAssignedIdentities":{"` + id +
+				`":{}}},` + aciBody + `}`
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := newCmpStack(t)
+
+			status, body := s.msiRaw(t, http.MethodPut, msiBase+"restricted"+msiNew,
+				restrictedIdentity(`["Microsoft.Storage"]`))
+			require.Equal(t, http.StatusCreated, status, "%v", body)
+
+			id, _ := body["id"].(string)
+
+			path := envPath
+			if tt.aci {
+				path = aciPath
+			}
+
+			status, got := s.msiRaw(t, http.MethodPut, path, tt.body(id))
+			assert.Equal(t, http.StatusBadRequest, status, "%v", got)
+
+			errBody, _ := got["error"].(map[string]any)
+			assert.Equal(t, "FailedIdentityOperation", errBody["code"])
+			assert.Contains(t, errBody["message"], "assignmentRestrictions")
+		})
+	}
+}
+
+func TestManagedIdentity_RestrictionsSurviveIDSpelling(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		id   func(string) string
+		name string
+	}{
+		{name: "upper case", id: strings.ToUpper},
+		{name: "lower case", id: strings.ToLower},
+		{name: "trailing slash", id: func(s string) string { return s + "/" }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := newCmpStack(t)
+
+			status, body := s.msiRaw(t, http.MethodPut, msiBase+"restricted"+msiNew,
+				restrictedIdentity(`["Microsoft.Storage"]`))
+			require.Equal(t, http.StatusCreated, status, "%v", body)
+
+			id, _ := body["id"].(string)
+			vm := linuxVM(s.newNIC(t, "nic"))
+			vm.Identity = vmIdentity(armcompute.ResourceIdentityTypeUserAssigned, tt.id(id))
+
+			_, err := s.putVM(t, netRG, "vm", vm)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "assignmentRestrictions")
 		})
 	}
 }

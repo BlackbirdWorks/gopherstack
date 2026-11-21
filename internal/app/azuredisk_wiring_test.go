@@ -1,7 +1,9 @@
 package app
 
 import (
+	"cmp"
 	"encoding/binary"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -23,6 +25,9 @@ import (
 func diskFooter(virtual int64) []byte {
 	f := make([]byte, 512)
 	copy(f, "conectix")
+	binary.BigEndian.PutUint32(f[8:], 2)
+	binary.BigEndian.PutUint32(f[12:], 0x00010000)
+	binary.BigEndian.PutUint64(f[16:], math.MaxUint64)
 	binary.BigEndian.PutUint64(f[48:], uint64(virtual))
 	binary.BigEndian.PutUint32(f[60:], 2)
 
@@ -54,15 +59,20 @@ func TestAzureDiskImportReadsBlobService(t *testing.T) {
 	blobH := azureblob.NewHandler(azureblob.NewInMemoryBackend())
 	wireAzureDisks(map[string]pkgservice.Registerable{"AzureARM": armSvc, "AzureBlob": blobH})
 
-	_, err = blobH.Backend.CreateContainerWith("vhds", azureblob.ContainerOptions{})
-	require.NoError(t, err)
+	blobH.EnforcePublicAccess = true
 
-	_, err = blobH.Backend.PutBlobWith("vhds", "os.vhd", nil, azureblob.BlobAttrs{
-		BlobType: azureblob.BlobTypePage, PageLength: virtual + 512,
-	})
-	require.NoError(t, err)
-	_, err = blobH.Backend.PutPage("vhds", "os.vhd", virtual, virtual+511, diskFooter(virtual), false)
-	require.NoError(t, err)
+	for container, access := range map[string]string{"vhds": azureblob.AccessBlob, "private": ""} {
+		_, err = blobH.Backend.CreateContainerWith(container, azureblob.ContainerOptions{PublicAccess: access})
+		require.NoError(t, err)
+
+		_, err = blobH.Backend.PutBlobWith(container, "os.vhd", nil, azureblob.BlobAttrs{
+			BlobType: azureblob.BlobTypePage, PageLength: virtual + 512,
+		})
+		require.NoError(t, err)
+		_, err = blobH.Backend.PutPage(container, "os.vhd", virtual, virtual+511, diskFooter(virtual), false)
+		require.NoError(t, err)
+	}
+
 	_, err = blobH.Backend.PutBlobWith("vhds", "plain.vhd", []byte("not a vhd"), azureblob.BlobAttrs{})
 	require.NoError(t, err)
 
@@ -93,12 +103,27 @@ func TestAzureDiskImportReadsBlobService(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, rgResp.Body.Close())
 
+	acctReq, err := http.NewRequestWithContext(t.Context(), http.MethodPut,
+		srv.URL+"/subscriptions/"+sub+"/resourceGroups/"+rg+
+			"/providers/Microsoft.Storage/storageAccounts/acct?api-version=2023-01-01",
+		strings.NewReader(`{"location":"westus","kind":"StorageV2","sku":{"name":"Standard_LRS"}}`))
+	require.NoError(t, err)
+	acctReq.Header.Set("Content-Type", "application/json")
+
+	acctResp, err := srv.Client().Do(acctReq)
+	require.NoError(t, err)
+	require.NoError(t, acctResp.Body.Close())
+	require.Less(t, acctResp.StatusCode, 300)
+
 	tests := []struct {
-		name    string
-		blob    string
-		wantErr bool
+		name      string
+		container string
+		blob      string
+		query     string
+		wantErr   bool
 	}{
 		{name: "uploaded vhd", blob: "os.vhd"},
+		{name: "private container without sas", container: "private", blob: "os.vhd", wantErr: true},
 		{name: "block blob", blob: "plain.vhd", wantErr: true},
 		{name: "missing blob", blob: "gone.vhd", wantErr: true},
 	}
@@ -107,11 +132,14 @@ func TestAzureDiskImportReadsBlobService(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			pl, perr := cf.NewDisksClient().BeginCreateOrUpdate(t.Context(), rg, "d-"+tt.blob, armcompute.Disk{
+			diskName := "d-" + strings.ReplaceAll(tt.name, " ", "-")
+			src := "https://acct.blob.core.windows.net/" + cmp.Or(tt.container, "vhds") + "/" + tt.blob + tt.query
+
+			pl, perr := cf.NewDisksClient().BeginCreateOrUpdate(t.Context(), rg, diskName, armcompute.Disk{
 				Location: new("westus"),
 				Properties: &armcompute.DiskProperties{CreationData: &armcompute.CreationData{
 					CreateOption: new(armcompute.DiskCreateOptionImport),
-					SourceURI:    new("https://acct.blob.core.windows.net/vhds/" + tt.blob),
+					SourceURI:    new(src),
 				}},
 			}, nil)
 			if perr == nil {
