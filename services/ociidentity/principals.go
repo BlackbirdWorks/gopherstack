@@ -427,6 +427,10 @@ func (b *InMemoryBackend) DeleteGroup(id, ifMatch string) error {
 		}
 	}
 
+	if b.groupHasMapping(id) {
+		return errConflict("Conflict", "Group "+id+" is mapped to an identity provider group; delete the mapping first")
+	}
+
 	delete(b.groups, id)
 
 	return nil

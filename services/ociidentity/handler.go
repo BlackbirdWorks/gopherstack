@@ -95,7 +95,12 @@ func (h *Handler) ExtractOperation(c *echo.Context) string { return parseRoute(c
 
 // ExtractResource returns the addressed resource id for metrics.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	for _, k := range []string{"compartmentId", "userId", "groupId", "policyId", "dynamicGroupId", "tagNamespaceId"} {
+	keys := []string{
+		"compartmentId", "userId", "groupId", "policyId", "dynamicGroupId", "tagNamespaceId", "networkSourceId",
+		"identityProviderId",
+	}
+
+	for _, k := range keys {
 		if v := parseRoute(c.Request()).params[k]; v != "" {
 			return v
 		}

@@ -109,7 +109,7 @@ func crud(base, idParam, create, get, list, update, del string) []restroute.Rout
 	return routes
 }
 
-const routeCap = 104
+const routeCap = 130
 
 func routeTable() []restroute.Route {
 	routes := make([]restroute.Route, 0, routeCap)
@@ -117,6 +117,9 @@ func routeTable() []restroute.Route {
 	routes = append(routes,
 		rt(http.MethodGet, "/tenancies/{tenancyId}", opGetTenancy),
 		rt(http.MethodGet, "/tenancies/{tenancyId}/regionSubscriptions", opListRegionSubs),
+		rt(http.MethodPost, "/tenancies/{tenancyId}/regionSubscriptions", opCreateRegionSub),
+		rt(http.MethodGet, "/authenticationPolicies/{compartmentId}", opGetAuthPolicy),
+		rt(http.MethodPut, "/authenticationPolicies/{compartmentId}", opUpdateAuthPolicy),
 		rt(http.MethodGet, "/regions", opListRegions),
 		rt(http.MethodGet, "/availabilityDomains", opListADs),
 		rt(http.MethodGet, "/faultDomains", opListFDs),
@@ -139,6 +142,9 @@ func routeTable() []restroute.Route {
 		rt(http.MethodGet, "/workRequests", opListWorkRequests),
 		rt(http.MethodPost, "/tagNamespaces/{tagNamespaceId}/actions/changeCompartment", opChangeTagNSComp),
 		rt(http.MethodPost, "/tagNamespaces/{tagNamespaceId}/actions/cascadeDelete", opCascadeDeleteNS),
+		rt(http.MethodPost, "/tags/actions/bulkDelete", opBulkDeleteTags),
+		rt(http.MethodPost, "/tags/actions/bulkEdit", opBulkEditTags),
+		rt(http.MethodGet, "/tags/bulkEditResourceTypes", opListBulkEditTypes),
 		rt(http.MethodGet, "/taggingWorkRequests", opListTaggingWR),
 		rt(http.MethodGet, "/taggingWorkRequests/{workRequestId}", opGetTaggingWR),
 		rt(http.MethodGet, "/taggingWorkRequests/{workRequestId}/errors", opListTaggingWRErr),
@@ -158,6 +164,12 @@ func routeTable() []restroute.Route {
 		opUpdatePolicy, opDeletePolicy)...)
 	routes = append(routes, crud("/tagNamespaces", "tagNamespaceId", opCreateTagNS, opGetTagNS, opListTagNS,
 		opUpdateTagNS, opDeleteTagNS)...)
+	routes = append(routes, crud("/networkSources", "networkSourceId", opCreateNetworkSource, opGetNetworkSource,
+		opListNetworkSources, opUpdateNetworkSource, opDeleteNetworkSource)...)
+	routes = append(routes, crud("/identityProviders", "identityProviderId", opCreateIDP, opGetIDP, opListIDPs,
+		opUpdateIDP, opDeleteIDP)...)
+	routes = append(routes, crud("/identityProviders/{identityProviderId}/groupMappings", "mappingId",
+		opCreateIdpMapping, opGetIdpMapping, opListIdpMappings, opUpdateIdpMapping, opDeleteIdpMapping)...)
 	routes = append(routes, crud("/tagDefaults", "tagDefaultId", opCreateTagDefault, opGetTagDefault,
 		opListTagDefaults, opUpdateTagDefault, opDeleteTagDefault)...)
 	routes = append(routes, crud("/users/{userId}/authTokens", "authTokenId", opCreateAuthTok, "", opListAuthToks,

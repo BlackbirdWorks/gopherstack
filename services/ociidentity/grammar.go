@@ -401,7 +401,7 @@ func (p *parser) location() error {
 		return nil
 	}
 
-	if err := p.expect("compartment"); err != nil {
+	if err := p.expect(rtCompartment); err != nil {
 		return fmt.Errorf("%w: expected tenancy or compartment", ErrGrammar)
 	}
 
@@ -485,7 +485,7 @@ func (p *parser) define() error {
 		return err
 	}
 
-	if !containsFold([]string{"tenancy", "group", "dynamic-group", "user", "compartment"}, kind.text) {
+	if !containsFold([]string{"tenancy", rtGroup, "dynamic-group", rtUser, rtCompartment}, kind.text) {
 		return fmt.Errorf("%w: cannot define %q", ErrGrammar, kind.text)
 	}
 

@@ -114,7 +114,7 @@ func (b *InMemoryBackend) CascadeDeleteTagNamespace(id, ifMatch, token string) (
 }
 
 func isTaggingOp(op string) bool {
-	return slices.Contains([]string{wrDeleteTagDef, wrDeleteNonEmptyNS}, op)
+	return slices.Contains([]string{wrDeleteTagDef, wrDeleteNonEmptyNS, wrBulkDeleteTags, wrBulkEditTags}, op)
 }
 
 // GetTaggingWorkRequest returns one tagging work request.
@@ -178,6 +178,10 @@ func (b *InMemoryBackend) TaggingWorkRequestLogs(id string, o ListOpts) (page.Pa
 		return page.Page[TaggingWRLogWire]{}, errNotFound(id)
 	}
 
+	if wr.Bulk != nil {
+		return page.New(b.bulkLogs(wr), o.Page, o.Limit, defaultListLimit), nil
+	}
+
 	logs := []TaggingWRLogWire{{Timestamp: wr.Accepted, Message: wr.Operation + " work request accepted"}}
 	if !wr.FinishAt.After(b.nowUTC()) {
 		logs = append(logs, TaggingWRLogWire{Timestamp: wr.FinishAt, Message: wr.Operation + " work request succeeded"})
@@ -222,11 +226,9 @@ func (h *Handler) listTaggingWorkRequests(q *req) error {
 }
 
 func (h *Handler) listTaggingWorkRequestErrors(q *req) error {
-	if _, err := h.Backend.GetTaggingWorkRequest(q.param("workRequestId")); err != nil {
-		return err
-	}
+	pg, err := h.Backend.TaggingWorkRequestErrors(q.param("workRequestId"), q.listOpts())
 
-	return q.json(http.StatusOK, []struct{}{}, "")
+	return listReply(q, pg, err)
 }
 
 func (h *Handler) listTaggingWorkRequestLogs(q *req) error {

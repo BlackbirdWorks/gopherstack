@@ -25,7 +25,16 @@ func tenancyOps() map[string]opFunc {
 	return map[string]opFunc{
 		opGetTenancy: (*Handler).getTenancy, opListRegions: (*Handler).listRegions,
 		opListRegionSubs: (*Handler).listRegionSubscriptions, opListADs: (*Handler).listAvailabilityDomains,
-		opListFDs: (*Handler).listFaultDomains,
+		opListFDs: (*Handler).listFaultDomains, opCreateRegionSub: (*Handler).createRegionSubscription,
+		opGetAuthPolicy: (*Handler).getAuthenticationPolicy, opUpdateAuthPolicy: (*Handler).updateAuthenticationPolicy,
+		opCreateNetworkSource: (*Handler).createNetworkSource, opGetNetworkSource: (*Handler).getNetworkSource,
+		opListNetworkSources: (*Handler).listNetworkSources, opUpdateNetworkSource: (*Handler).updateNetworkSource,
+		opDeleteNetworkSource: (*Handler).deleteNetworkSource,
+		opCreateIDP:           (*Handler).createIdentityProvider, opGetIDP: (*Handler).getIdentityProvider,
+		opListIDPs: (*Handler).listIdentityProviders, opUpdateIDP: (*Handler).updateIdentityProvider,
+		opDeleteIDP: (*Handler).deleteIdentityProvider, opCreateIdpMapping: (*Handler).createIdpGroupMapping,
+		opGetIdpMapping: (*Handler).getIdpGroupMapping, opListIdpMappings: (*Handler).listIdpGroupMappings,
+		opUpdateIdpMapping: (*Handler).updateIdpGroupMapping, opDeleteIdpMapping: (*Handler).deleteIdpGroupMapping,
 	}
 }
 
@@ -89,6 +98,8 @@ func tagOps() map[string]opFunc {
 		opGetTaggingWR:     (*Handler).getTaggingWorkRequest, opListTaggingWR: (*Handler).listTaggingWorkRequests,
 		opListTaggingWRErr: (*Handler).listTaggingWorkRequestErrors,
 		opListTaggingWRLog: (*Handler).listTaggingWorkRequestLogs,
+		opBulkDeleteTags:   (*Handler).bulkDeleteTags, opBulkEditTags: (*Handler).bulkEditTags,
+		opListBulkEditTypes: (*Handler).listBulkEditTagsResourceTypes,
 	}
 }
 

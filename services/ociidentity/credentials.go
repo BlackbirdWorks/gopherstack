@@ -125,6 +125,11 @@ func (k APIKey) view(userID string) apiKeyWire {
 
 // UploadAPIKey registers an RSA public key for a user and with the shared signature registry.
 func (b *InMemoryBackend) UploadAPIKey(userID, pemKey string) (apiKeyWire, string, error) {
+	return b.UploadAPIKeyWithToken(userID, pemKey, "")
+}
+
+// UploadAPIKeyWithToken is UploadAPIKey with opc-retry-token replay: the same token returns the same key.
+func (b *InMemoryBackend) UploadAPIKeyWithToken(userID, pemKey, token string) (apiKeyWire, string, error) {
 	if strings.TrimSpace(pemKey) == "" {
 		return apiKeyWire{}, "", errMissing("key is required")
 	}
@@ -151,6 +156,17 @@ func (b *InMemoryBackend) UploadAPIKey(userID, pemKey string) (apiKeyWire, strin
 		return apiKeyWire{}, "", aerr
 	}
 
+	scope := "UploadApiKey/" + userID
+	if v, ok := b.retry.Lookup(scope, token, b.nowUTC()); ok {
+		for _, k := range u.APIKeys {
+			if k.Fingerprint == v {
+				return k.view(userID), newEtag(), nil
+			}
+		}
+
+		return apiKeyWire{}, "", errInvalidatedToken()
+	}
+
 	if !u.Capabilities.CanUseAPIKeys {
 		return apiKeyWire{}, "", errState("The user is not allowed to use API keys")
 	}
@@ -171,6 +187,7 @@ func (b *InMemoryBackend) UploadAPIKey(userID, pemKey string) (apiKeyWire, strin
 
 	k := APIKey{TimeCreated: b.nowUTC(), Fingerprint: fp, PEM: pemKey}
 	u.APIKeys = append(u.APIKeys, k)
+	b.retry.Remember(scope, token, fp, b.nowUTC())
 
 	return k.view(userID), newEtag(), nil
 }
@@ -248,7 +265,7 @@ func validCredText(kind credKind, text string) *APIError {
 }
 
 // CreateCredential creates a credential and returns it with the secret, which is never retrievable again.
-func (b *InMemoryBackend) CreateCredential(userID string, kind credKind, text string) (credWire, string, error) {
+func (b *InMemoryBackend) CreateCredential(userID string, kind credKind, text, token string) (credWire, string, error) {
 	if aerr := validCredText(kind, text); aerr != nil {
 		return credWire{}, "", aerr
 	}
@@ -262,6 +279,18 @@ func (b *InMemoryBackend) CreateCredential(userID string, kind credKind, text st
 	}
 
 	slot := kind.slot(u)
+
+	scope := "CreateCredential/" + kind.name + "/" + userID
+	if v, ok := b.retry.Lookup(scope, token, b.nowUTC()); ok {
+		if i := slices.IndexFunc(*slot, func(c Credential) bool { return c.ID == v }); i >= 0 {
+			if secret, held := b.replaySecret(kind, &(*slot)[i]); held {
+				return (*slot)[i].view(userID, kind, secret), newEtag(), nil
+			}
+		}
+
+		return credWire{}, "", errInvalidatedToken()
+	}
+
 	if len(*slot) >= maxSecretsPerUser {
 		return credWire{}, "", errLimit("A user can have at most 2 " + kind.name + "s")
 	}
@@ -271,14 +300,19 @@ func (b *InMemoryBackend) CreateCredential(userID string, kind credKind, text st
 
 	switch kind.name {
 	case kindSecretKey:
-		c.ID = hex.EncodeToString(randBytes(accessKeyBytes))
+		c.ID, c.Secret = hex.EncodeToString(randBytes(accessKeyBytes)), secret
 	case kindSMTP:
-		c.Username = userID + "@" + TenancyID + "." + smtpDomainTag + ".com"
+		c.Username, c.Secret = userID+"@"+TenancyID+"."+smtpDomainTag+".com", secret
 	case kindAuthToken:
 		c.Salt, c.Digest = hashAuthToken(secret)
 	}
 
 	*slot = append(*slot, c)
+	b.retry.Remember(scope, token, c.ID, b.nowUTC())
+
+	if token != "" && kind.name == kindAuthToken {
+		b.authReplay[c.ID] = replaySecret{secret: secret, at: b.nowUTC()}
+	}
 
 	return c.view(userID, kind, secret), newEtag(), nil
 }
@@ -368,12 +402,30 @@ func newUIPassword() string {
 
 // ResetUIPassword generates a console password; it is returned only here.
 func (b *InMemoryBackend) ResetUIPassword(userID string) (uiPasswordWire, string, error) {
+	return b.ResetUIPasswordWithToken(userID, "")
+}
+
+// ResetUIPasswordWithToken is ResetUIPassword with opc-retry-token replay; a token whose password has since
+// been replaced is invalidated.
+func (b *InMemoryBackend) ResetUIPasswordWithToken(userID, token string) (uiPasswordWire, string, error) {
 	b.mu.Lock("ResetUIPassword")
 	defer b.mu.Unlock()
 
 	u, aerr := b.userByID(userID)
 	if aerr != nil {
 		return uiPasswordWire{}, "", aerr
+	}
+
+	scope := "CreateOrResetUIPassword/" + userID
+	if _, ok := b.retry.Lookup(scope, token, b.nowUTC()); ok {
+		r, held := b.authReplay[scope+"|"+token]
+		if !held || u.UIPasswordCreated == nil || !uiPasswordMatches(u, r.secret) {
+			return uiPasswordWire{}, "", errInvalidatedToken()
+		}
+
+		return uiPasswordWire{
+			TimeCreated: *u.UIPasswordCreated, UserID: userID, LifecycleState: stateActive, Password: r.secret,
+		}, newEtag(), nil
 	}
 
 	if !u.Capabilities.CanUseConsolePassword {
@@ -384,6 +436,12 @@ func (b *InMemoryBackend) ResetUIPassword(userID string) (uiPasswordWire, string
 	u.UIPasswordCreated = &now
 
 	pw := newUIPassword()
+	u.UIPasswordSalt, u.UIPasswordDigest = hashAuthToken(pw)
+	b.retry.Remember(scope, token, userID, now)
+
+	if token != "" {
+		b.authReplay[scope+"|"+token] = replaySecret{secret: pw, at: now}
+	}
 
 	return uiPasswordWire{TimeCreated: now, UserID: userID, LifecycleState: stateActive, Password: pw}, newEtag(), nil
 }
@@ -414,7 +472,7 @@ func (h *Handler) uploadAPIKey(q *req) error {
 		return err
 	}
 
-	v, etag, err := h.Backend.UploadAPIKey(q.param("userId"), in.Key)
+	v, etag, err := h.Backend.UploadAPIKeyWithToken(q.param("userId"), in.Key, q.r.Header.Get(headerRetry))
 
 	return reply(q, v, etag, err)
 }
@@ -458,7 +516,7 @@ func (h *Handler) createCred(q *req, kind credKind) error {
 		return err
 	}
 
-	v, etag, err := h.Backend.CreateCredential(q.param("userId"), kind, in.text(kind))
+	v, etag, err := h.Backend.CreateCredential(q.param("userId"), kind, in.text(kind), q.r.Header.Get(headerRetry))
 
 	return reply(q, v, etag, err)
 }
@@ -510,7 +568,7 @@ func (h *Handler) deleteSMTP(q *req) error {
 }
 
 func (h *Handler) resetUIPassword(q *req) error {
-	v, etag, err := h.Backend.ResetUIPassword(q.param("userId"))
+	v, etag, err := h.Backend.ResetUIPasswordWithToken(q.param("userId"), q.r.Header.Get(headerRetry))
 
 	return reply(q, v, etag, err)
 }
