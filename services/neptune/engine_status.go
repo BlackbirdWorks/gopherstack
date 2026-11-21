@@ -340,19 +340,20 @@ func parseLabMode(v string) map[string]string {
 	return out
 }
 
-func (b *InMemoryBackend) datetimeMillisecondEnabled(lb *liveCluster) bool {
-	b.mu.RLock("neptuneLabDatetime")
-	defer b.mu.RUnlock()
+// syncLabModesLocked pushes each cluster's DatetimeMillisecond lab mode to its graph so queries never take b.mu.
+func (b *InMemoryBackend) syncLabModesLocked() {
+	for _, c := range b.clusters.All() {
+		g, ok := b.graphs[regionKey(c.region, c.DBClusterIdentifier)]
+		if !ok {
+			continue
+		}
 
-	c, ok := b.clusterGet(lb.region, lb.id)
-	if !ok {
-		return false
+		params := describeParameters(
+			neptuneClusterParameterCatalog(),
+			b.clusterParameterOverrides[regionKey(c.region, c.DBClusterParameterGroupName)],
+		)
+
+		lab := parseLabMode(paramValue(params, "neptune_lab_mode", ""))
+		g.SetExtendedDatetime(lab[labDatetimeMillisecond] == statusEnabled)
 	}
-
-	params := describeParameters(
-		neptuneClusterParameterCatalog(),
-		b.clusterParameterOverrides[regionKey(lb.region, c.DBClusterParameterGroupName)],
-	)
-
-	return parseLabMode(paramValue(params, "neptune_lab_mode", ""))[labDatetimeMillisecond] == statusEnabled
 }

@@ -33,6 +33,10 @@ func (x *exec) parsePropSpec(args []any, t *trav) (propSpec, error) {
 		return propSpec{}, invalidArg("property() requires a key and a value")
 	}
 
+	if len(args)%2 != 0 {
+		return propSpec{}, malformed("The provided key/value array must be a multiple of two")
+	}
+
 	val := args[1]
 
 	if tr, ok := val.(*Traversal); ok {
@@ -133,6 +137,10 @@ func stepProperty(x *exec, s *Step, t *trav) ([]*trav, error) {
 	spec, err := x.parsePropSpec(s.Args, t)
 	if err != nil {
 		return nil, err
+	}
+
+	if p, ok := t.v.(*Prop); ok && p.VP {
+		return []*trav{t}, nil
 	}
 
 	if k, ok := spec.key.(Token); ok {

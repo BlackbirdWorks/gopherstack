@@ -1,7 +1,6 @@
 package opencypher_test
 
 import (
-	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -93,10 +92,7 @@ func TestExtendedDatetime(t *testing.T) {
 
 			g := opencypher.NewGraph()
 
-			var on atomic.Bool
-
-			on.Store(tt.enabled)
-			g.SetExtendedDatetime(on.Load)
+			g.SetExtendedDatetime(tt.enabled)
 
 			got, err := run(t, g, tt.query, tt.params)
 			if tt.wantErr != "" {

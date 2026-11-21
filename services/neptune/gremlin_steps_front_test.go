@@ -102,16 +102,12 @@ func TestGremlinGoTree(t *testing.T) {
 	assert.IsType(t, map[any]any{}, rs[0].GetInterface())
 }
 
-func TestGremlinGoSubgraphNeedsGraphSON(t *testing.T) {
+func TestGremlinGoSubgraphSideEffect(t *testing.T) {
 	t.Parallel()
 
 	_, c := newEmbeddedBackend(t)
 	g := gremlinG(t, c)
 	seedGremlin(t, g)
-
-	_, err := g.E().HasLabel("knows").Subgraph("sg").Cap("sg").ToList()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "GraphBinary")
 
 	n, err := g.E().HasLabel("knows").Subgraph("sg").Count().ToList()
 	require.NoError(t, err)

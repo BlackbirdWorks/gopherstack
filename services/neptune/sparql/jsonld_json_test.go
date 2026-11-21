@@ -78,6 +78,21 @@ func TestParseJSONLDJSONAndDirection(t *testing.T) {
 			wantVal: "hi",
 		},
 		{
+			name:    "json with language",
+			input:   `{` + ctx + `"p":{"@value":"x","@type":"@json","@language":"en"}}`,
+			wantErr: "invalid value object",
+		},
+		{
+			name:    "json with direction",
+			input:   `{` + ctx + `"p":{"@value":"x","@type":"@json","@direction":"ltr"}}`,
+			wantErr: "invalid value object",
+		},
+		{
+			name:    "typed with language",
+			input:   `{` + ctx + `"p":{"@value":"x","@type":"http://x/y","@language":"en"}}`,
+			wantErr: "invalid value object",
+		},
+		{
 			name:    "bad direction",
 			input:   `{` + ctx + `"p":{"@value":"hi","@direction":"up"}}`,
 			wantErr: "invalid base direction",
@@ -102,4 +117,26 @@ func TestParseJSONLDJSONAndDirection(t *testing.T) {
 			assert.Equal(t, tt.wantLang, qs[0].O.Lang)
 		})
 	}
+}
+
+func TestParseJSONLDJSONListContainer(t *testing.T) {
+	t.Parallel()
+
+	const ex = "http://example.org/"
+
+	in := `{"@context":{"jl":{"@id":"` + ex + `jl","@type":"@json","@container":"@list"}},"@id":"` + ex + `s","jl":[1,2]}`
+
+	qs, err := sparql.ParseRDF(sparql.FormatJSONLD, []byte(in), sparql.ParseOptions{})
+	require.NoError(t, err)
+
+	var firsts []string
+
+	for _, q := range qs {
+		if q.P.Value == sparql.RDFFirst {
+			firsts = append(firsts, q.O.Value)
+			assert.Equal(t, sparql.NSRDF+"JSON", q.O.Datatype)
+		}
+	}
+
+	assert.Equal(t, []string{"[1,2]"}, firsts)
 }

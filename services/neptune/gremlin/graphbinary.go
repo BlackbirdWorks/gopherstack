@@ -24,6 +24,7 @@ const (
 	gbEdge        = 0x0d
 	gbPath        = 0x0e
 	gbProperty    = 0x0f
+	gbGraph       = 0x10
 	gbVertex      = 0x11
 	gbVertexProp  = 0x12
 	gbBinding     = 0x14
@@ -598,8 +599,56 @@ func (w *bbWriter) element(v any) {
 		w.property(t)
 	case *Path:
 		w.path(t)
+	case *SubGraph:
+		w.graph(t)
 	default:
 		w.fqString(keyOf(v))
+	}
+}
+
+// graph writes the TinkerPop GraphSerializer layout (DataType.GRAPH 0x10, gremlin-core 3.7.3 GraphSerializer.java).
+func (w *bbWriter) graph(g *SubGraph) {
+	w.head(gbGraph)
+	w.i32(len(g.Vertices))
+
+	for _, v := range g.Vertices {
+		w.fqString(v.ID)
+		w.str(v.Label)
+
+		n := 0
+		for _, p := range v.Props {
+			n += len(p.Vals)
+		}
+
+		w.i32(n)
+
+		for _, p := range v.Props {
+			for i, val := range p.Vals {
+				w.head(gbLong)
+				w.i64(p.IDs[i])
+				w.str(p.Key)
+				w.fq(val)
+				w.null()
+				w.i32(0)
+			}
+		}
+	}
+
+	w.i32(len(g.Edges))
+
+	for _, e := range g.Edges {
+		w.fqString(e.Edge.ID)
+		w.str(e.Edge.Label)
+		w.fqString(e.Edge.InID)
+		w.null()
+		w.fqString(e.Edge.OutID)
+		w.null()
+		w.null()
+		w.i32(len(e.Props))
+
+		for _, p := range e.Props {
+			w.property(&Property{Key: p.Key, Val: p.Vals[0]})
+		}
 	}
 }
 

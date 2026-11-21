@@ -1,5 +1,7 @@
 package neptune
 
+import "github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
+
 // ClusterCount returns the number of clusters in the backend across all regions.
 func ClusterCount(b *InMemoryBackend) int {
 	b.mu.RLock("ClusterCount")
@@ -124,4 +126,19 @@ func HoldIndexRebuilds(b *InMemoryBackend, region, cluster string) func() {
 	r.rebuilds.mu.Unlock()
 
 	return func() { close(ch) }
+}
+
+// HoldBackendLock write-locks the backend until the returned release is called.
+func HoldBackendLock(b *InMemoryBackend) func() {
+	b.mu.Lock("HoldBackendLock")
+
+	return b.mu.Unlock
+}
+
+// ClusterGraph returns the cluster's openCypher graph.
+func ClusterGraph(b *InMemoryBackend, id string) *opencypher.Graph {
+	b.mu.RLock("ClusterGraph")
+	defer b.mu.RUnlock()
+
+	return b.graphs[regionKey(b.region, id)]
 }

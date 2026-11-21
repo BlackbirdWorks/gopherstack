@@ -50,7 +50,6 @@ type Path struct {
 
 // Graph is a thread-safe in-memory property graph with an openCypher executor.
 type Graph struct {
-	extDatetime atomic.Pointer[func() bool]
 	funcs       map[string]scalarFunc
 	sem         chan struct{}
 	stream      *streamlog.Log
@@ -59,6 +58,7 @@ type Graph struct {
 	out         map[string][]*Rel
 	in          map[string][]*Rel
 	seq         int
+	extDatetime atomic.Bool
 }
 
 // NewGraph returns an empty graph.

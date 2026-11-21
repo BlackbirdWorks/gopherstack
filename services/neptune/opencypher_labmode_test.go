@@ -64,3 +64,54 @@ func TestOpenCypherDatetimeMillisecondLabMode(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "enabled", lab["DatetimeMillisecond"])
 }
+
+func TestOpenCypherDatetimeDoesNotNeedBackendLock(t *testing.T) {
+	t.Parallel()
+
+	rt := &upstreamRuntime{fakeEngineRuntime: &fakeEngineRuntime{}}
+	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
+	b.EnableEngine(neptune.EngineConfig{
+		Runtime: rt, Probe: func(context.Context, string) error { return nil },
+		StartTimeout: time.Minute, OpenCypher: true,
+	})
+	t.Cleanup(b.Close)
+
+	_, err := b.CreateDBCluster(t.Context(), "c1", "", 0, neptune.DBClusterCreateOptions{EngineVersion: "1.3.2.0"})
+	require.NoError(t, err)
+
+	waitCluster(t, b, "c1", "available")
+
+	g := neptune.ClusterGraph(b, "c1")
+	require.NotNil(t, g)
+
+	release := neptune.HoldBackendLock(b)
+	released := false
+
+	t.Cleanup(func() {
+		if !released {
+			release()
+		}
+	})
+
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+
+	done := make(chan error, 1)
+
+	go func() {
+		_, execErr := g.Execute(t.Context(), "RETURN datetime('2024-04-01T23:59:59Z') AS d", nil)
+		done <- execErr
+	}()
+
+	select {
+	case err = <-done:
+	case <-ctx.Done():
+		err = ctx.Err()
+	}
+
+	release()
+
+	released = true
+
+	require.NoError(t, err, "a query must not wait on the backend lock")
+}

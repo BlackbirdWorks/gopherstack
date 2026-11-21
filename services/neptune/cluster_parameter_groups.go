@@ -175,6 +175,7 @@ func (b *InMemoryBackend) ModifyDBClusterParameterGroup(
 			}
 		}
 	}
+	b.syncLabModesLocked()
 	cp := *pg
 
 	return &cp, nil
@@ -254,6 +255,7 @@ func (b *InMemoryBackend) ResetDBClusterParameterGroup(
 	); err != nil {
 		return nil, err
 	}
+	b.syncLabModesLocked()
 	cp := *pg
 
 	return &cp, nil

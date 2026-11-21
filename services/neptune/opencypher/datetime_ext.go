@@ -18,15 +18,13 @@ const (
 	offsetColonLen    = 5
 )
 
-// SetExtendedDatetime installs the per-call check for the DatetimeMillisecond lab mode (Neptune 1.3.2.0+).
-func (g *Graph) SetExtendedDatetime(enabled func() bool) {
-	g.extDatetime.Store(&enabled)
+// SetExtendedDatetime switches the DatetimeMillisecond lab mode (Neptune 1.3.2.0+) for this graph.
+func (g *Graph) SetExtendedDatetime(enabled bool) {
+	g.extDatetime.Store(enabled)
 }
 
 func (g *Graph) extendedDatetime() bool {
-	f := g.extDatetime.Load()
-
-	return f != nil && *f != nil && (*f)()
+	return g.extDatetime.Load()
 }
 
 func datetimeExtDateLayouts(utc bool) []string {
