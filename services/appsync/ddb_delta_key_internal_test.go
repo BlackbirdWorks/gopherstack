@@ -63,3 +63,45 @@ func TestDeltaSortKeyOrdersCompositeKey(t *testing.T) {
 		})
 	}
 }
+
+func TestDeltaSortKeyIsCollisionFree(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+
+	tests := []struct {
+		a, b map[string]any
+		name string
+	}{
+		{
+			name: "separator inside hash value",
+			a:    map[string]any{"h": strAttr("a#b"), "r": strAttr("c")},
+			b:    map[string]any{"h": strAttr("a"), "r": strAttr("b#c")},
+		},
+		{
+			name: "escape character inside value",
+			a:    map[string]any{"h": strAttr(`a\`), "r": strAttr("#c")},
+			b:    map[string]any{"h": strAttr("a"), "r": strAttr(`\##c`)},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			sortKey := func(key map[string]any) any {
+				ddb := &schemaDDB{schema: []string{"h", "r"}}
+				vs := versionedSource{ddb: ddb, dsName: "ds", cfg: &DynamoDBDataSourceConfig{
+					TableName: "base", DeltaSyncConfig: &DeltaSyncConfig{DeltaSyncTableName: "delta"},
+				}}
+
+				item := map[string]any{attrVersion: numAttr(1)}
+				require.NoError(t, vs.logDelta(t.Context(), key, item, at, deltaLayout{}))
+
+				return ddb.put[attrDeltaSK]
+			}
+
+			assert.NotEqual(t, sortKey(tt.a), sortKey(tt.b))
+		})
+	}
+}

@@ -179,8 +179,13 @@ type KeySchemaReader interface {
 	KeyAttributeNames(ctx context.Context, tableName string) ([]string, error)
 }
 
-// keyString joins the key attribute values with "#", hash key before range key when the backend reports the
-// table's key schema, otherwise in attribute-name order.
+func escapeKeyPart(v string) string {
+	return strings.NewReplacer(`\`, `\\`, "#", `\#`).Replace(v)
+}
+
+// keyString joins the key attribute values with "#" (a "#" or "\" inside a value is backslash-escaped so distinct
+// keys never collide), hash key before range key when the backend reports the table's key schema, otherwise in
+// attribute-name order.
 func (vs versionedSource) keyString(ctx context.Context, key map[string]any) string {
 	var names []string
 
@@ -200,7 +205,7 @@ func (vs versionedSource) keyString(ctx context.Context, key map[string]any) str
 
 	parts := make([]string, len(names))
 	for i, n := range names {
-		parts[i] = fmt.Sprint(ddbPlain(key[n]))
+		parts[i] = escapeKeyPart(fmt.Sprint(ddbPlain(key[n])))
 	}
 
 	return strings.Join(parts, "#")

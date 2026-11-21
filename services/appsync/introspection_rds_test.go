@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -244,4 +245,144 @@ func TestHandlerIntrospectionPagingAndSDL(t *testing.T) {
 
 	code, _ = get("?nextToken=not-base64!")
 	assert.Equal(t, http.StatusBadRequest, code)
+}
+
+type recordingRDS struct {
+	inner appsync.RDSDataExecutor
+	sqls  []string
+}
+
+func (r *recordingRDS) ExecuteRDSStatement(ctx context.Context, st appsync.RDSStatement) (map[string]any, error) {
+	r.sqls = append(r.sqls, st.SQL)
+
+	return r.inner.ExecuteRDSStatement(ctx, st)
+}
+
+func TestIntrospectionRequestValuesNeverReachSQL(t *testing.T) {
+	t.Parallel()
+
+	hostile := []string{`db'; DROP TABLE users; --`, `db" OR 1=1 /*`, "db\x00;--"}
+
+	for _, name := range hostile {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := &recordingRDS{inner: postgresCatalog()}
+			b := appsync.NewInMemoryBackend("000000000000", "us-east-1", "")
+			b.SetRDSData(rec)
+
+			_, err := b.StartDataSourceIntrospection(t.Context(), &appsync.RDSDataAPIConfig{
+				DatabaseName: name,
+				ResourceARN:  name,
+				SecretARN:    name,
+			})
+			require.NoError(t, err)
+			require.NotEmpty(t, rec.sqls)
+
+			for _, sql := range rec.sqls {
+				assert.NotContains(t, sql, "DROP")
+				assert.NotContains(t, sql, "OR 1=1")
+			}
+		})
+	}
+}
+
+func TestIntrospectionSQLiteTableNamesAreQuoted(t *testing.T) {
+	t.Parallel()
+
+	rec := &recordingRDS{inner: &catalogRDS{rules: []rdsRule{
+		{match: "SELECT version()", fail: true},
+		{match: "sqlite_version", rows: []rdsRow{{str("3.45.0")}}},
+		{match: "FROM sqlite_master", rows: []rdsRow{{str("t');DROP TABLE x;--")}}},
+	}}}
+	b := appsync.NewInMemoryBackend("000000000000", "us-east-1", "")
+	b.SetRDSData(rec)
+
+	startIntrospection(t, b)
+
+	var found bool
+
+	for _, sql := range rec.sqls {
+		if strings.Contains(sql, "DROP") {
+			found = true
+
+			assert.Contains(t, sql, "('t'');DROP TABLE x;--')")
+		}
+	}
+
+	assert.True(t, found)
+}
+
+func TestIntrospectionStartResponseOmitsOutcome(t *testing.T) {
+	t.Parallel()
+
+	b := appsync.NewInMemoryBackend("000000000000", "us-east-1", "")
+	b.SetRDSData(&catalogRDS{err: errBoom})
+
+	started := startIntrospection(t, b)
+	assert.Equal(t, appsync.DataSourceIntrospectionStatusProcessing, started.IntrospectionStatus)
+	assert.Empty(t, started.IntrospectionStatusDetail)
+	assert.Nil(t, started.IntrospectionResult)
+
+	got, err := b.GetDataSourceIntrospection(started.IntrospectionID)
+	require.NoError(t, err)
+	assert.Equal(t, appsync.DataSourceIntrospectionStatusFailed, got.IntrospectionStatus)
+	assert.Contains(t, got.IntrospectionStatusDetail, "boom")
+}
+
+func TestIntrospectionJobsAreBounded(t *testing.T) {
+	t.Parallel()
+
+	b := appsync.NewInMemoryBackend("000000000000", "us-east-1", "")
+	b.SetRDSData(postgresCatalog())
+
+	var tick int64
+
+	b.SetClock(func() time.Time {
+		tick++
+
+		return time.Unix(0, tick)
+	})
+
+	first := startIntrospection(t, b)
+
+	var last *appsync.DataSourceIntrospection
+
+	for range 100 {
+		last = startIntrospection(t, b)
+	}
+
+	_, err := b.GetDataSourceIntrospection(first.IntrospectionID)
+	require.ErrorIs(t, err, appsync.ErrNotFound)
+
+	_, err = b.GetDataSourceIntrospection(last.IntrospectionID)
+	require.NoError(t, err)
+}
+
+func TestIntrospectionScalarMapping(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct{ sqlType, want string }{
+		{"integer", "Int"}, {"smallint", "Int"}, {"tinyint", "Int"}, {"serial", "Int"},
+		{"interval", "String"}, {"point", "String"}, {"bigint", "Float"}, {"text", "String"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.sqlType, func(t *testing.T) {
+			t.Parallel()
+
+			b := appsync.NewInMemoryBackend("000000000000", "us-east-1", "")
+			b.SetRDSData(&catalogRDS{rules: []rdsRule{
+				{match: "SELECT version()", rows: []rdsRow{{str("PostgreSQL 16")}}},
+				{match: "information_schema.columns", rows: []rdsRow{
+					{str("t"), str("c"), str(tt.sqlType), str("YES"), nil},
+				}},
+			}})
+
+			got, err := b.GetDataSourceIntrospection(startIntrospection(t, b).IntrospectionID)
+			require.NoError(t, err)
+			require.NotNil(t, got.IntrospectionResult)
+			assert.Equal(t, tt.want, got.IntrospectionResult.Models[0].Fields[0].Type.Name)
+		})
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -19,6 +20,13 @@ const (
 	indexRowWidth = 3
 	colOrder      = " ORDER BY c.table_name, c.ordinal_position"
 )
+
+const (
+	maxIntrospectionModels  = 1000
+	maxIntrospectionColumns = 20000
+)
+
+var errIntrospectionTooLarge = errors.New("the database is too large to introspect")
 
 var errUnsupportedEngine = errors.New("the database engine could not be identified")
 
@@ -170,7 +178,13 @@ func introspectRDS(
 		return nil, err
 	}
 
-	return cat.models(), nil
+	models := cat.models()
+	if len(models) > maxIntrospectionModels {
+		return nil, fmt.Errorf("%w: %d tables (limit %d)",
+			errIntrospectionTooLarge, len(models), maxIntrospectionModels)
+	}
+
+	return models, nil
 }
 
 func (in rdsIntrospector) readCatalog(ctx context.Context) (*catalog, error) {
@@ -196,6 +210,11 @@ func (in rdsIntrospector) readCatalog(ctx context.Context) (*catalog, error) {
 			table: cellString(r[0]), name: cellString(r[1]), sqlType: cellString(r[2]),
 			notNull: strings.EqualFold(cellString(r[3]), "NO"), length: cellInt(r[4]),
 		})
+	}
+
+	if len(cat.columns) > maxIntrospectionColumns {
+		return nil, fmt.Errorf("%w: %d columns (limit %d)",
+			errIntrospectionTooLarge, len(cat.columns), maxIntrospectionColumns)
 	}
 
 	if cat.pk, err = in.indexRows(ctx, d.pk); err != nil {
@@ -420,7 +439,8 @@ func graphQLScalar(sqlType string) string {
 	case strings.Contains(t, "bigint"), strings.Contains(t, "decimal"), strings.Contains(t, "numeric"),
 		strings.Contains(t, "float"), strings.Contains(t, "double"), strings.Contains(t, "real"):
 		return "Float"
-	case strings.Contains(t, "int"), strings.Contains(t, "serial"):
+	case slices.Contains([]string{"int", "integer", "tinyint", "smallint", "mediumint"}, t),
+		strings.HasSuffix(t, "serial"):
 		return "Int"
 	default:
 		return gqlString

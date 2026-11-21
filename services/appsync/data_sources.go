@@ -1,15 +1,20 @@
 package appsync
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
+
+// maxIntrospectionJobs bounds the stored introspection jobs; the oldest are dropped first.
+const maxIntrospectionJobs = 100
 
 // isValidDataSourceType returns true if the given data source type is valid.
 func isValidDataSourceType(t DataSourceType) bool {
@@ -286,13 +291,42 @@ func (b *InMemoryBackend) StartDataSourceIntrospection(
 	}
 
 	b.mu.Lock("StartDataSourceIntrospection")
+	rec.CreatedAt = b.clock().UnixNano()
 	b.introspections.Put(rec)
+	b.pruneIntrospections()
 	b.mu.Unlock()
 
 	cp := *rec
 	cp.IntrospectionStatus = DataSourceIntrospectionStatusProcessing
+	cp.IntrospectionStatusDetail = ""
+	cp.IntrospectionResult = nil
 
 	return &cp, nil
+}
+
+func (b *InMemoryBackend) clock() time.Time {
+	if b.now != nil {
+		return b.now()
+	}
+
+	return time.Now()
+}
+
+// pruneIntrospections drops the oldest jobs beyond maxIntrospectionJobs; the caller holds b.mu.
+func (b *InMemoryBackend) pruneIntrospections() {
+	excess := b.introspections.Len() - maxIntrospectionJobs
+	if excess <= 0 {
+		return
+	}
+
+	jobs := b.introspections.All()
+	slices.SortFunc(jobs, func(x, y *DataSourceIntrospection) int {
+		return cmp.Or(cmp.Compare(x.CreatedAt, y.CreatedAt), cmp.Compare(x.IntrospectionID, y.IntrospectionID))
+	})
+
+	for _, j := range jobs[:excess] {
+		b.introspections.Delete(j.IntrospectionID)
+	}
 }
 
 func (b *InMemoryBackend) introspect(
