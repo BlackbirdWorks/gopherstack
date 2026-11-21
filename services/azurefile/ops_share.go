@@ -37,7 +37,7 @@ func metadataFromHeaders(h http.Header) (map[string]string, *apiError) {
 
 func setMetadataHeaders(h http.Header, md map[string]string) {
 	for k, v := range md {
-		h.Set("X-Ms-Meta-"+k, v)
+		h["x-ms-meta-"+k] = []string{v}
 	}
 }
 
