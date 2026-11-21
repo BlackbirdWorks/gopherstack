@@ -49,6 +49,10 @@ func (b *InMemoryBackend) CreateResolver(apiID, typeName string, r *Resolver) (*
 		return nil, fmt.Errorf("%w: dataSourceName is required for UNIT resolvers", ErrValidation)
 	}
 
+	if err := validateSyncConfig(r.SyncConfig); err != nil {
+		return nil, err
+	}
+
 	key := resolverTableKey(apiID, typeName, r.FieldName)
 	if b.resolvers.Has(key) {
 		return nil, fmt.Errorf("%w: resolver %s.%s already exists", ErrAlreadyExists, typeName, r.FieldName)
@@ -171,6 +175,10 @@ func (b *InMemoryBackend) UpdateResolver(apiID, typeName string, r *Resolver) (*
 	}
 
 	if r.SyncConfig != nil {
+		if err := validateSyncConfig(r.SyncConfig); err != nil {
+			return nil, err
+		}
+
 		existing.SyncConfig = r.SyncConfig
 	}
 

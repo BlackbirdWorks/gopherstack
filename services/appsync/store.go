@@ -122,6 +122,8 @@ type DynamoDBBackend interface {
 	// TransactWriteItemsRaw applies all items atomically. A cancelled
 	// transaction returns a *DynamoDBError whose Cancellations are set.
 	TransactWriteItemsRaw(ctx context.Context, items []DDBTransactWrite) error
+	// ApplyUpdateRaw returns a copy of item with update applied; nothing is stored.
+	ApplyUpdateRaw(item map[string]any, update DDBExpression) (map[string]any, error)
 }
 
 // StorageBackend defines the interface for AppSync storage operations.

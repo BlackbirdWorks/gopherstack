@@ -10,12 +10,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
+	elasticsearchbackend "github.com/blackbirdworks/gopherstack/services/elasticsearch"
 	eventbridgebackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
@@ -42,7 +44,8 @@ func wireAppSyncDataSources(byName map[string]service.Registerable) {
 	}
 
 	if h, hok := byName["OpenSearch"].(*opensearchbackend.Handler); hok {
-		asBk.SetOpenSearch(appsyncOpenSearch{handler: h})
+		es, _ := byName["Elasticsearch"].(*elasticsearchbackend.Handler)
+		asBk.SetOpenSearch(appsyncOpenSearch{handler: h, es: es})
 	}
 
 	if h, hok := byName["RDSData"].(*rdsdatabackend.Handler); hok {
@@ -80,12 +83,29 @@ func (a appsyncEventBridge) PutEvents(
 	return out, nil
 }
 
-type appsyncOpenSearch struct{ handler *opensearchbackend.Handler }
+type appsyncOpenSearch struct {
+	handler *opensearchbackend.Handler
+	es      *elasticsearchbackend.Handler
+}
 
-func (a appsyncOpenSearch) domainFor(endpoint string) (string, error) {
-	host := endpoint
+const esMirrorTag = "gopherstack:elasticsearch-domain"
+
+func endpointHost(endpoint string) string {
 	if u, err := url.Parse(endpoint); err == nil && u.Host != "" {
-		host = u.Host
+		return u.Host
+	}
+
+	return endpoint
+}
+
+// domainFor resolves a data source endpoint to the OpenSearch engine domain that serves it. An endpoint of a
+// domain created through the Elasticsearch API is served by an engine domain of the same name, as in AWS where
+// both APIs manage the same domains.
+func (a appsyncOpenSearch) domainFor(ctx context.Context, endpoint string) (string, error) {
+	host := endpointHost(endpoint)
+
+	if name, ok, err := a.elasticsearchDomain(ctx, host); ok || err != nil {
+		return name, err
 	}
 
 	names := a.handler.Backend.ListDomainNames()
@@ -102,6 +122,53 @@ func (a appsyncOpenSearch) domainFor(endpoint string) (string, error) {
 	}
 
 	return "", fmt.Errorf("%w: %q", errNoOpenSearchDomain, endpoint)
+}
+
+func (a appsyncOpenSearch) elasticsearchDomain(ctx context.Context, host string) (string, bool, error) {
+	if a.es == nil {
+		return "", false, nil
+	}
+
+	for _, n := range a.es.Backend.ListDomainNames(ctx) {
+		d, err := a.es.Backend.DescribeDomain(ctx, n)
+		if err != nil || d.Deleted || d.Endpoint != host {
+			continue
+		}
+
+		return d.Name, true, a.ensureEngineDomain(d)
+	}
+
+	return "", false, nil
+}
+
+// ensureEngineDomain backs an Elasticsearch domain with an engine domain, replacing one left by an earlier
+// domain of the same name.
+func (a appsyncOpenSearch) ensureEngineDomain(d *elasticsearchbackend.Domain) error {
+	stamp := d.ARN + "|" + strconv.FormatInt(d.CreatedAt.UnixNano(), 10)
+	bk := a.handler.Backend
+
+	if existing, err := bk.DescribeDomain(d.Name); err == nil {
+		tags, _ := bk.ListTags(existing.ARN)
+
+		have, mirrored := tags[esMirrorTag]
+		if !mirrored || have == stamp {
+			return nil
+		}
+
+		if _, err = bk.DeleteDomain(d.Name); err != nil {
+			return fmt.Errorf("replace stale engine domain: %w", err)
+		}
+	}
+
+	_, err := bk.CreateDomain(opensearchbackend.CreateDomainInput{
+		Name: d.Name, EngineVersion: "Elasticsearch_" + d.ElasticsearchVersion,
+		Tags: map[string]string{esMirrorTag: stamp},
+	})
+	if err != nil {
+		return fmt.Errorf("create engine domain for %s: %w", d.Name, err)
+	}
+
+	return nil
 }
 
 // emulatorPath maps a real OpenSearch REST path onto the emulator's domain-scoped data plane.
@@ -129,7 +196,7 @@ func emulatorPath(domain, method, path string) (string, string) {
 func (a appsyncOpenSearch) OpenSearchRequest(
 	ctx context.Context, req appsyncbackend.OpenSearchRequest,
 ) (int, []byte, error) {
-	domain, err := a.domainFor(req.Endpoint)
+	domain, err := a.domainFor(ctx, req.Endpoint)
 	if err != nil {
 		return 0, nil, err
 	}

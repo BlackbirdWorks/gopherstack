@@ -51,10 +51,11 @@ func isCondFailed(err error) bool {
 // returns the plain-JSON result AppSync exposes as $ctx.result.
 func executeDDBRequest(
 	ctx context.Context, ddb DynamoDBBackend, cfg *DynamoDBDataSourceConfig, dsName string, req map[string]any,
+	env conflictEnv,
 ) (any, error) {
 	operation, _ := req["operation"].(string)
 
-	vs := versionedSource{ddb: ddb, cfg: cfg, dsName: dsName}
+	vs := versionedSource{ddb: ddb, cfg: cfg, dsName: dsName, conflict: env}
 	if res, handled, err := executeVersioned(ctx, vs, operation, req); handled {
 		return res, err
 	}
