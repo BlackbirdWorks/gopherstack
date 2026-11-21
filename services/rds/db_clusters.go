@@ -26,10 +26,11 @@ func (b *InMemoryBackend) CreateDBCluster(
 	if err := validateCreateDBClusterInput(id, engine, serverlessV2Cfg, opts); err != nil {
 		return nil, err
 	}
+	quota := b.quotaLimit(quotaDBClusters)
 	b.mu.Lock("CreateDBCluster")
 	defer b.mu.Unlock()
-	if _, exists := b.clusters.Get(normalizeID(id)); exists {
-		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, id)
+	if err := b.checkNewClusterLocked(id, quota); err != nil {
+		return nil, err
 	}
 
 	var replicationSource *DBCluster

@@ -64,7 +64,18 @@ func toCandidate(src SourceResource, queryRegion, queryAccount string) (*candida
 	return c, true
 }
 
+//nolint:gochecknoglobals // immutable lookup table
+var elbSubtypes = map[string]bool{"app": true, "net": true, "gwy": true}
+
+// splitResource derives the Resource Explorer type and id of an ARN's resource part; load balancers and
+// listeners of ELBv2 carry their flavour (loadbalancer/net) in the type.
 func splitResource(svc, res string) (string, string) {
+	if svc == "elasticloadbalancing" {
+		if typ, id, ok := splitELBResource(res); ok {
+			return typ, id
+		}
+	}
+
 	if i := strings.IndexAny(res, "/:"); i >= 0 {
 		return res[:i], res[i+1:]
 	}
@@ -85,4 +96,18 @@ func sortedKeys(m map[string]string) []string {
 	slices.Sort(keys)
 
 	return keys
+}
+
+func splitELBResource(res string) (string, string, bool) {
+	kind, rest, found := strings.Cut(res, "/")
+	if !found || (kind != "loadbalancer" && kind != "listener" && kind != "listener-rule") {
+		return "", "", false
+	}
+
+	flavour, id, found := strings.Cut(rest, "/")
+	if !found || !elbSubtypes[flavour] {
+		return "", "", false
+	}
+
+	return kind + "/" + flavour, id, true
 }

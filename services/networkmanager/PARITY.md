@@ -271,8 +271,7 @@ families:
   resource_policy: {status: ok, note: "3 ops, real JSON-document store with JSON-validity checking on Put"}
   tagging: {status: ok, note: "3 ops, standard ARN-keyed tag store shared across all 9 taggable resource kinds. STALE NOTE CORRECTED 2026-08-13 (gopherstack-jqh2 pass 2): this family's routing previously needed a MatchPriority workaround for a bedrockagent bug (see gaps: history below); that workaround was reverted in ef896bcf1 once bedrockagent's real bug was fixed -- handler.go now returns the plain service.PriorityPathVersioned, no custom priority constant. Re-verified via TestExtractOperation_SDKRouteTable."}
 gaps: []
-items_still_open:
-  - "Change sets cover 13 of the 14 ChangeType values; SEGMENTS_CONFIGURATION is not emitted: the SDK and the Cloud WAN policy pages (cloudwan-policies-json) name the type but do not say which policy edits produce it, and segment add/modify/remove is already reported as CORE_NETWORK_SEGMENT"
+items_still_open: []
 deferred: []
 leaks: {status: clean, note: "Handler.Reset()/InMemoryBackend.Close() wiring confirmed present (store.go: Close() calls b.work.Stop(), stopping the pkgs/worker.Group backing every scheduleAdvance/scheduleRemoval timer -- global network/site/device/link/connection/core-network/attachment/connect-peer/peering/policy-changeset state machines). `go test -race -count=1 ./services/networkmanager/...` run this pass: clean."}
 structural_gaps:
@@ -1416,3 +1415,7 @@ UpdateGlobalNetwork, UpdateSite, UpdateDevice and UpdateLink now keep an omitted
 - NetworkResource.RegisteredGatewayArn is never populated and the RegisteredGatewayArn filter matches nothing: API_NetworkResource.html says only 'The ARN of the gateway' and neither it nor the SDK says which resource types are registered under a gateway.
 - AttachmentState PENDING_NETWORK_UPDATE, PENDING_TAG_ACCEPTANCE and FAILED are never entered: the SDK and API reference do not say when AWS enters them. UPDATING is entered on Update*Attachment.
 - Change-set identifier paths for the per-attachment, route and routing policy types are <ChangeType>/<id> (ATTACHMENT_ROUTE_PROPAGATION adds /<segment>); the SDK documents only the CORE_NETWORK_SEGMENT example. Attachment-policy rules are evaluated against live attachments with the conditions any, tag-value, tag-exists, tag-name, account, account-id, resource-id, region and attachment-type.
+
+## Emulator choices where the vendor is silent
+
+- Change sets cover 13 of the 14 ChangeType values; SEGMENTS_CONFIGURATION is not emitted. The SDK and the Cloud WAN policy pages (cloudwan-policies-json) name the type but do not say which policy edits produce it, and segment add/modify/remove is already reported as CORE_NETWORK_SEGMENT.

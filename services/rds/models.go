@@ -8,6 +8,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/cmek"
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
 	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -874,6 +875,7 @@ type InMemoryBackend struct {
 	secrets                   SecretsStore
 	keys                      cmek.KeyChecker
 	sgEnforcer                *sgfilter.Enforcer
+	quotaGate                 *quotalimit.Gate
 	engine                    *dbEngine
 	pause                     map[string]*pauseTracker
 	registry                  *store.Registry

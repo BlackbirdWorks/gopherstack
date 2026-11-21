@@ -61,6 +61,7 @@ func (h *Handler) handleStartBuild(
 			cbtypes.ImagePullCredentialsType(in.ImagePullCredentialsTypeOverride),
 		),
 		checkEnum("sourceTypeOverride", cbtypes.SourceType(in.SourceTypeOverride)),
+		overrideAuthErr(in.SourceAuthOverride),
 	); err != nil {
 		return nil, err
 	}
@@ -294,4 +295,12 @@ func (h *Handler) handleRetryBuild(
 	}
 
 	return &retryBuildOutput{Build: build}, nil
+}
+
+func overrideAuthErr(a *SourceAuth) error {
+	if a == nil {
+		return nil
+	}
+
+	return validateSourceAuth("sourceAuthOverride", *a)
 }

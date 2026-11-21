@@ -385,6 +385,7 @@ func elbv2ErrorCode(opErr error) (string, int) {
 		{ErrTrustStoreAssociationNotFound, "AssociationNotFound", http.StatusBadRequest},
 		{ErrRevocationIDNotFound, "RevocationIdNotFound", http.StatusBadRequest},
 		{ErrLoadBalancerAlreadyExists, "DuplicateLoadBalancerName", http.StatusBadRequest},
+		{ErrTooManyLoadBalancers, "TooManyLoadBalancers", http.StatusBadRequest},
 		{ErrTargetGroupAlreadyExists, "DuplicateTargetGroupName", http.StatusBadRequest},
 		{ErrTrustStoreAlreadyExists, "DuplicateTrustStoreName", http.StatusBadRequest},
 		{ErrDuplicateListener, "DuplicateListener", http.StatusBadRequest},

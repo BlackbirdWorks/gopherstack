@@ -148,8 +148,7 @@ families:
   persistence: {status: ok, note: "Handler.Snapshot/Restore delegate to InMemoryBackend.Snapshot/Restore, versioned (codebuildSnapshotVersion), backed by store.Registry across all store.Table-based resource maps plus a plain resourcePolicies map"}
   janitor: {status: ok, note: "janitor.tick runs sweepCompletedBuilds (TTL eviction) then advanceInProgressBuilds (status advancement) every tick. FIXED 2026-09-11 (gopherstack-9ckk): advanceInProgressBuilds used to unconditionally flip every IN_PROGRESS BuildBatch straight to SUCCEEDED, ignoring groups entirely. Now advances plain builds (batch children included) as before, then calls reconcileBatch per IN_PROGRESS batch, which starts any build-graph group whose dependencies just went terminal and derives the batch's real status from its groups."}
   tags: {status: ok, note: "REMOVED this pass: TagResource/UntagResource/ListTagsForResource were gopherstack-invented operations with no counterpart on the real aws-sdk-go-v2/service/codebuild Client (verified: the SDK module has no api_op_TagResource.go/api_op_UntagResource.go/api_op_ListTagsForResource.go, and Client's exported method set — grepped directly from api_op_*.go — has no such methods). Real AWS CodeBuild only supports tagging inline via the `tags` field on CreateProject/CreateReportGroup/CreateFleet/UpdateProject (already implemented and unaffected). Deleted services/codebuild/tags.go, handler_tags.go, tags_test.go; removed the 3 ops from GetSupportedOperations()/dispatchTable(); TestHandler_GetSupportedOperations now asserts their absence."}
-items_still_open:
-  - "Git source `auth` block: ProjectSource.auth (OAUTH, CODECONNECTIONS or SECRETS_MANAGER with a resource ARN) is stored and returned but the clone resolves credentials by serverType from ImportSourceCredentials only (engine_git.go fetchGitSource, source_credentials.go sourceToken); the secret payload format behind a SECRETS_MANAGER resource and a token source for a CODECONNECTIONS resource are not specified by the SDK documentation (types.SourceAuth) and services/codeconnections exposes no token."
+items_still_open: []
 structural_gaps:
   - "BuildBatchConfig.CombineArtifacts and BatchReportMode are round-tripped config only: no artifact store to merge into and no Git host to report status to."
   - "Default (stub) engine mode runs no build commands, so reports/test cases/coverage are only produced in docker engine mode."
@@ -1115,3 +1114,15 @@ stands in for `aws/codebuild/*`; custom images are used as-is).
 ## External effects that are recorded, not performed
 
 - reportBuildStatus/buildStatusConfig and BatchReportMode: the commit status CodeBuild would send to the Git host is logged ("would report build status", engine_status_report.go) at build start and end; no Git-host API is called.
+
+## Source auth resolution
+
+ProjectSource.auth (primary and secondary sources, StartBuild sourceAuthOverride) is validated: type is required and one of OAUTH, CODECONNECTIONS, SECRETS_MANAGER; the resource of the last two must be a connection or Secrets Manager secret ARN (ImportSourceCredentialsInput.Token docs: connectionArn / secretArn). ImportSourceCredentials with those auth types stores the ARN as SourceCredentialsInfo.resource, not as a bearer token.
+
+- SECRETS_MANAGER: the docker engine reads the secret from the emulated Secrets Manager (same account and Region as the project) and requires the documented JSON object {ServerType, AuthType (PERSONAL_ACCESS_TOKEN or BASIC_AUTH), Token, Username} (docs.aws.amazon.com/codebuild/latest/userguide/asm-create-secret.html); a mismatch fails the build in DOWNLOAD_SOURCE without echoing the token.
+- CODECONNECTIONS: the connection must exist in the emulated CodeConnections and be AVAILABLE, else the build fails in DOWNLOAD_SOURCE.
+- OAUTH: the OAuth credential is console-created (ImportSourceCredentials docs), so the clone uses the credentials imported for the source server type.
+
+## Emulator choices where the vendor is silent
+
+- A CODECONNECTIONS connection yields no provider token: neither the SDK documentation (types.SourceAuth) nor the CodeConnections API says how CodeBuild obtains one, and services/codeconnections holds none. The clone proceeds without a token after logging "would obtain a provider token from the connection".

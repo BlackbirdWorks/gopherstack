@@ -7,6 +7,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -59,6 +60,7 @@ type InMemoryBackend struct {
 	policies     *store.Table[LoadBalancerPolicy]
 	policiesByLB *store.Index[LoadBalancerPolicy]
 	mu           *lockmetrics.RWMutex
+	quotaGate    quotalimit.Gate
 	accountID    string
 	region       string
 }

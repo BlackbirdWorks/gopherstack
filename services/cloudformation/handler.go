@@ -540,6 +540,8 @@ func mapCreateStackError(err error) (string, string) {
 		return "AlreadyExistsException", err.Error()
 	case errors.Is(err, ErrInsufficientCapabilities):
 		return "InsufficientCapabilitiesException", insufficientCapabilitiesMsg
+	case errors.Is(err, ErrStackLimitExceeded):
+		return "LimitExceededException", err.Error()
 	default:
 		return errCodeValidation, err.Error()
 	}

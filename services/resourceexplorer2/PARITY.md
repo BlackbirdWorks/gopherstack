@@ -42,10 +42,7 @@ families:
   Tags: {status: ok, note: "Tags on indexes and views only."}
 gaps: []
 items_still_open:
-  - GetServiceView: not routed (UnknownOperationException); the API reference (API_ListServiceViews, API_ServiceView, API_ListStreamingAccessForServices) never says who creates service views or grants streaming access, and no public create or grant operation exists, so there is no state to read and an empty answer would be a real-looking stub
-  - ListServiceViews: not routed, same reason as GetServiceView (SDK docs give MaxResults 1-50)
-  - ListStreamingAccessForServices: not routed, same reason as GetServiceView (SDK docs give MaxResults 1-50)
-  - "Search: untagged resources appear only for services with a tagging inventory provider (AMP, AppIntegrations, CloudHSM v2, CodeGuru Reviewer, RUM, Timestream for InfluxDB, EC2 kinds); each other service wired into the tagging aggregation (about 100, each with its own TaggedResources that keeps only tagged entries, e.g. services/rum/tags.go TaggedResources/InventoryResources pair) needs its own InventoryResources in a service directory this pass does not own"
+  - "Search: untagged resources appear for S3, DynamoDB, Lambda, SQS, SNS, KMS and Secrets Manager (their tagging providers list every resource), for ECS clusters and services, RDS instances and clusters, CloudWatch Logs groups, IAM roles, users, groups and policies, CloudFormation stacks, ELBv2 load balancers and target groups and Classic load balancers (internal/app/resourceexplorer_inventory.go), for AMP, AppIntegrations, CloudHSM v2, CodeGuru Reviewer, RUM, Timestream for InfluxDB and the EC2 kinds; each other service wired into the tagging aggregation (about 90, each with its own TaggedResources that keeps only tagged entries, e.g. services/rum/tags.go TaggedResources/InventoryResources pair) still needs its own inventory source"
 structural_gaps:
   - "Indexing is instantaneous and always complete: there is no crawler, so LastReportedAt is the query time and replication lag between Regions cannot occur."
 deferred: []
@@ -76,3 +73,7 @@ Verified against docs.aws.amazon.com/resource-explorer (using-search-query-synta
 
 - GetManagedView: the two managed view names (AWSDefaultViewForSystemsManager, AWSDefaultViewForResilienceHub) and their ARN UUIDs are emulator-defined; the user guide (aws-managed-views.html) names only the Systems Manager unified-console view as AWSManagedViewForSSM and publishes no ARN
 - ConflictException: several conflict and validation cases (view without an index, aggregator rules, duplicate type update) use codes chosen from documented behaviour, not from SDK evidence
+
+## Emulator choices where the vendor is silent
+
+- GetServiceView, ListServiceViews and ListStreamingAccessForServices are not routed (UnknownOperationException). The API reference (API_ListServiceViews, API_ServiceView, API_ListStreamingAccessForServices) never says who creates service views or grants streaming access, and no public create or grant operation exists, so there is no state to read and an empty answer would be a real-looking stub. SDK docs give MaxResults 1-50 for the two list operations.

@@ -17,6 +17,8 @@ var (
 	ErrTrustStoreNotFound = awserr.New("TrustStoreNotFound", awserr.ErrNotFound)
 	// ErrLoadBalancerAlreadyExists is returned when a load balancer with that name already exists.
 	ErrLoadBalancerAlreadyExists = awserr.New("DuplicateLoadBalancerName", awserr.ErrAlreadyExists)
+	// ErrTooManyLoadBalancers is returned when the Service Quotas load balancer limit is reached.
+	ErrTooManyLoadBalancers = awserr.New("TooManyLoadBalancers", awserr.ErrConflict)
 	// ErrTargetGroupAlreadyExists is returned when a target group with that name already exists.
 	ErrTargetGroupAlreadyExists = awserr.New("DuplicateTargetGroupName", awserr.ErrAlreadyExists)
 	// ErrTrustStoreAlreadyExists is returned when a trust store with that name already exists.

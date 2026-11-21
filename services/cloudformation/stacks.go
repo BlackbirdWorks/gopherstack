@@ -231,12 +231,18 @@ func (b *InMemoryBackend) createStack(
 	opts StackOptions,
 	async bool,
 ) (*Stack, error) {
+	quota := b.quotaLimit()
+
 	b.mu.Lock("CreateStack")
 	defer b.mu.Unlock()
 
 	if err := preflightTemplateErr(
 		templateBody, params, b.typeCheckLocked(opts.DisableValidation), b.ruleSource(),
 	); err != nil {
+		return nil, err
+	}
+
+	if err := b.checkStackQuotaLocked(name, quota); err != nil {
 		return nil, err
 	}
 

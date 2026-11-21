@@ -31,6 +31,10 @@ var (
 	ErrKMSKeyNotAccessible = awserr.New("KMSKeyNotAccessibleFault", awserr.ErrInvalidParameter)
 	// ErrUnknownAction is returned for unrecognized RDS actions.
 	ErrUnknownAction = awserr.New("InvalidAction", awserr.ErrInvalidParameter)
+	// ErrInstanceQuotaExceeded is returned when the DB instances quota is reached.
+	ErrInstanceQuotaExceeded = awserr.New("InstanceQuotaExceeded", awserr.ErrConflict)
+	// ErrClusterQuotaExceeded is returned when the DB clusters quota is reached.
+	ErrClusterQuotaExceeded = awserr.New("DBClusterQuotaExceededFault", awserr.ErrConflict)
 	// ErrInvalidDBInstanceState is returned when an instance operation is invalid given its current state.
 	ErrInvalidDBInstanceState = awserr.New("InvalidDBInstanceState", awserr.ErrConflict)
 	// ErrInvalidRestore is returned when a point-in-time restore targets a time with no restorable data.

@@ -104,6 +104,8 @@ func (f projectConfigFields) validate() error {
 		errs = append(errs, checkEnum("source.type", cbtypes.SourceType(f.Source.Type)))
 	}
 
+	errs = append(errs, validateSourcesAuth(f.Source, f.SecondarySources))
+
 	if f.Artifacts != nil {
 		errs = append(errs, checkEnum("artifacts.type", cbtypes.ArtifactsType(f.Artifacts.Type)))
 	}

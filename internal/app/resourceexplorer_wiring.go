@@ -205,6 +205,8 @@ func wireResourceExplorer(byName map[string]service.Registerable) {
 		}
 	}
 
+	sources = append(sources, inventorySources(byName)...)
+
 	reH.Backend.SetResourceSource(sources)
 
 	if orgH, isOrg := byName["Organizations"].(*organizationsbackend.Handler); isOrg {

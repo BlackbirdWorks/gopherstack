@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -79,13 +80,13 @@ func vpcSecurityGroupMemberships(ids []string) []VpcSecurityGroupMembership {
 func (b *InMemoryBackend) createDBInstanceLocked(
 	id, engine, instanceClass, dbName, masterUser, paramGroupName string,
 	allocatedStorage int,
-	opts DBInstanceOptions,
+	opts DBInstanceOptions, quota quotalimit.Limit,
 ) (*DBInstance, error) {
 	b.mu.Lock("CreateDBInstance")
 	defer b.mu.Unlock()
 
 	b.reconcileInstancesLocked()
-	dbiResourceID, err := b.checkNewInstanceLocked(id, opts.PinnedDbiResourceID)
+	dbiResourceID, err := b.checkNewInstanceLocked(id, opts.PinnedDbiResourceID, quota)
 	if err != nil {
 		return nil, err
 	}
@@ -224,6 +225,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 
 	result, err := b.createDBInstanceLocked(
 		id, engine, instanceClass, dbName, masterUser, paramGroupName, allocatedStorage, opts,
+		b.quotaLimit(quotaDBInstances),
 	)
 	if err != nil {
 		return nil, err
@@ -1485,10 +1487,14 @@ func applyCreateNetworkOpts(inst *DBInstance, opts DBInstanceOptions) {
 
 var dbiResourceIDPattern = regexp.MustCompile(`^db-[A-Z0-9]{26}$`)
 
-// checkNewInstanceLocked rejects an existing identifier and returns the instance's DbiResourceId.
-func (b *InMemoryBackend) checkNewInstanceLocked(id, pinned string) (string, error) {
+// checkNewInstanceLocked rejects an existing identifier or a reached quota and returns the instance's DbiResourceId.
+func (b *InMemoryBackend) checkNewInstanceLocked(id, pinned string, quota quotalimit.Limit) (string, error) {
 	if _, exists := b.instances.Get(normalizeID(id)); exists {
 		return "", fmt.Errorf("%w: instance %s already exists", ErrInstanceAlreadyExists, id)
+	}
+
+	if quota.Reached(len(b.instances.All())) {
+		return "", quotaExceededErr(ErrInstanceQuotaExceeded, "DB instances", quota)
 	}
 
 	return b.resolveDbiResourceIDLocked(id, pinned)

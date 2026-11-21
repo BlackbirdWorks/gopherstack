@@ -9,6 +9,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -190,6 +191,7 @@ type StorageBackend interface {
 // InMemoryBackend is a concurrency-safe in-memory CloudFormation backend.
 type InMemoryBackend struct {
 	resolver            DynamicRefResolver
+	quotaGate           *quotalimit.Gate
 	orgDirectory        OrganizationsDirectory
 	stackSetOperations  map[string]map[string]*StackSetOperation
 	signals             map[string][]SignalRecord
@@ -288,6 +290,7 @@ func NewInMemoryBackendWithConfig(
 
 	b := &InMemoryBackend{
 		registry:            store.NewRegistry(),
+		quotaGate:           &quotalimit.Gate{},
 		stackIDIndex:        make(map[string]string),
 		events:              make(map[string][]StackEvent),
 		resources:           make(map[string]map[string]*StackResource),

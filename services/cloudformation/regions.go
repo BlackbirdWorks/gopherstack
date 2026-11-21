@@ -89,6 +89,7 @@ func (b *InMemoryBackend) inheritWiring(home *InMemoryBackend) {
 	b.orgDirectory = home.orgDirectory
 	b.provisionSchedule = home.provisionSchedule
 	b.provisionDelay = home.provisionDelay
+	b.quotaGate = home.quotaGate
 }
 
 // forRegion returns a creator whose backends are those serving region.

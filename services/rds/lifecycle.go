@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -13,6 +14,7 @@ import (
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		registry:                  store.NewRegistry(),
+		quotaGate:                 &quotalimit.Gate{},
 		pause:                     make(map[string]*pauseTracker),
 		instanceReadyAt:           make(map[string]time.Time),
 		tags:                      make(map[string][]Tag),

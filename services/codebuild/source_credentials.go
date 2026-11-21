@@ -31,13 +31,12 @@ func (b *InMemoryBackend) ImportSourceCredentials(
 		}
 	}
 
-	b.sourceCredentials.Put(&SourceCredentials{
-		Arn:        arnStr,
-		ServerType: serverType,
-		AuthType:   authType,
-		Username:   username,
-		Token:      token,
-	})
+	sc := &SourceCredentials{Arn: arnStr, ServerType: serverType, AuthType: authType, Username: username, Token: token}
+	if authType == authTypeCodeConnections || authType == authTypeSecretsManager {
+		sc.Resource, sc.Token = token, ""
+	}
+
+	b.sourceCredentials.Put(sc)
 
 	return arnStr, nil
 }
