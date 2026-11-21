@@ -366,6 +366,12 @@ func (b *InMemoryBackend) admitInsights(region, mode string) error {
 	b.mu.Lock("admitInsights")
 	defer b.mu.Unlock()
 
+	for r, last := range b.insightsLast {
+		if now.Sub(last) >= time.Second {
+			delete(b.insightsLast, r)
+		}
+	}
+
 	if last, ok := b.insightsLast[region]; ok && now.Sub(last) < time.Second {
 		return fmt.Errorf("%w: query insights is limited to 1 query per second", ErrThrottling)
 	}

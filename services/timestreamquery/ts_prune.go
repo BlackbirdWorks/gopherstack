@@ -79,7 +79,7 @@ func collectInstances(r *relation, tables loadedSet, insts *[]tableInst, conds *
 		collectInstances(r.left, tables, insts, conds)
 		collectInstances(r.right, tables, insts, conds)
 
-		if r.on != nil {
+		if r.on != nil && (r.joinType == "INNER" || r.joinType == "CROSS") {
 			*conds = append(*conds, splitAnd(r.on)...)
 		}
 	case relSubquery, relUnnest, relValues:
@@ -496,6 +496,10 @@ func temporalRange(scan pruneScan, recs []SourceRecord, now time.Time) int64 {
 
 	if lo == nil && len(recs) > 0 {
 		first := recs[0].Time.UnixNano()
+		for _, r := range recs[1:] {
+			first = min(first, r.Time.UnixNano())
+		}
+
 		lo = &first
 	}
 

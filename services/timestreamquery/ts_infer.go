@@ -651,7 +651,7 @@ func (inf *inferrer) inferCall(n *node, sc *scope) tsType {
 func (inf *inferrer) inferTypeof(n *node, arg tsType) tsType {
 	if arg.known() {
 		inf.edit("(CASE WHEN 0 THEN ", n.start, n.start+len(n.name))
-		inf.closeEdit(" ELSE '"+arg.typeofName()+"' END)", n.end)
+		inf.closeEdit(" ELSE '"+strings.ReplaceAll(arg.typeofName(), "'", "''")+"' END)", n.end)
 	}
 
 	return scalar(tyVarchar)

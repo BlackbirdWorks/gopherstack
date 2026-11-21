@@ -6,6 +6,7 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -106,6 +107,10 @@ func renderInt(v any) Datum {
 	case int64:
 		return ScalarDatum(strconv.FormatInt(x, 10))
 	case float64:
+		if x != math.Trunc(x) || x >= twoPow63 || x < -twoPow63 {
+			return renderDouble(x)
+		}
+
 		return ScalarDatum(strconv.FormatInt(int64(x), 10))
 	case bool:
 		if x {

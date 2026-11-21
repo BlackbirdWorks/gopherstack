@@ -14,6 +14,8 @@ var (
 	reTSText = regexp.MustCompile(`^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.(\d{3}|\d{9})$`)
 )
 
+const twoPow63 = float64(1 << 63)
+
 const (
 	kwNull  = "null"
 	kwTrue  = "true"
@@ -156,7 +158,8 @@ func readRows(rows *sql.Rows, plan []tsType) (*resultSet, error) {
 
 		var static tsType
 		if i < len(plan) {
-			static = plan[i]
+			static = reconcileStatic(plan[i], col)
+			plan[i] = static
 		}
 
 		info, typ, isStatic := columnFor(columnName(n, i), ctypes[i].DatabaseTypeName(), static, col)
@@ -181,6 +184,55 @@ func readRows(rows *sql.Rows, plan []tsType) (*resultSet, error) {
 	}
 
 	return rs, nil
+}
+
+// reconcileStatic keeps a numeric static type only while every value fits it; otherwise it widens the type
+// (32-bit overflow, a float SQLite overflowed to) or returns the zero type so value-based typing applies.
+func reconcileStatic(t tsType, col []any) tsType {
+	switch t.kind {
+	case tyInteger, tyBigint:
+		return reconcileIntegral(t, col)
+	case tyDouble:
+		for _, v := range col {
+			if s, ok := v.(string); ok {
+				if _, err := strconv.ParseFloat(s, 64); err != nil {
+					return tsType{}
+				}
+			}
+		}
+	default:
+	}
+
+	return t
+}
+
+func reconcileIntegral(t tsType, col []any) tsType {
+	out := t
+
+	for _, v := range col {
+		var n float64
+
+		switch x := v.(type) {
+		case int64:
+			n = float64(x)
+		case float64:
+			if x != math.Trunc(x) || x >= twoPow63 || x < -twoPow63 {
+				return scalar(tyDouble)
+			}
+
+			n = x
+		case string, []byte:
+			return tsType{}
+		default:
+			continue
+		}
+
+		if out.kind == tyInteger && (n > math.MaxInt32 || n < math.MinInt32) {
+			out = scalar(tyBigint)
+		}
+	}
+
+	return out
 }
 
 func scanAll(rows *sql.Rows, width int) ([][]any, error) {
