@@ -21,7 +21,7 @@ func regProject(m map[string]stepFn) {
 		return normalizeValue(s.Args[0]), nil
 	})
 	m["identity"] = func(_ *exec, _ *Step, in []*trav) ([]*trav, error) { return in, nil }
-	m["barrier"] = m["identity"]
+	m["barrier"] = stepBarrier
 	m["as"] = perTrav(func(_ *exec, s *Step, t *trav) ([]*trav, error) {
 		return []*trav{t.labeled(stringArgs(s.Args))}, nil
 	})

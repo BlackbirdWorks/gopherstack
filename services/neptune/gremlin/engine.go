@@ -79,7 +79,11 @@ func (e *Engine) runStmts(ctx context.Context, st *opencypher.Store, stmts []Stm
 
 	x := newExec(ctx, st, e.steps, e.newRand())
 
-	for _, s := range stmts {
+	for i, s := range stmts {
+		if i < len(stmts)-1 && s.Term == "" {
+			continue
+		}
+
 		root, err := x.rootFor(s.Tr)
 		if err != nil {
 			return nil, err

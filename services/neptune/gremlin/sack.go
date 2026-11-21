@@ -49,6 +49,7 @@ func (x *exec) rootFor(tr *Traversal) ([]*trav, error) {
 	}
 
 	x.sack = c
+	x.needsPath = traversalNeedsPath(tr)
 	root := rootTrav()
 	root[0].sack = c.initial
 

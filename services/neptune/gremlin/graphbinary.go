@@ -27,6 +27,7 @@ const (
 	gbGraph       = 0x10
 	gbVertex      = 0x11
 	gbVertexProp  = 0x12
+	gbBarrier     = 0x13
 	gbBinding     = 0x14
 	gbBytecode    = 0x15
 	gbCardinality = 0x16
@@ -58,6 +59,8 @@ var errShort error = &Error{
 
 func enumKind(code byte) (string, bool) {
 	switch code {
+	case gbBarrier:
+		return kindSackBarrier, true
 	case gbCardinality:
 		return kindCardinality, true
 	case gbColumn:
@@ -84,7 +87,7 @@ func enumKind(code byte) (string, bool) {
 }
 
 func enumCode(kind string) byte {
-	for c := byte(gbCardinality); c <= gbMerge; c++ {
+	for c := byte(gbBarrier); c <= gbMerge; c++ {
 		if k, ok := enumKind(c); ok && k == kind {
 			return c
 		}

@@ -33,12 +33,14 @@ func bareToken(name string) (Token, bool) {
 		return Token{Kind: kindColumn, Name: name}, true
 	case dirOut, dirIn, dirBoth:
 		return Token{Kind: kindDirection, Name: name}, true
-	case "single", cardList, cardSet:
+	case cardSingle, cardSet:
 		return Token{Kind: kindCardinality, Name: name}, true
 	case "first", "last", "all", "mixed":
 		return Token{Kind: kindPop, Name: name}, true
 	case stepSum, "sumLong", opMin, opMax, "assign", opAnd, opOr, "addAll", opMult, opDiv, opMinus:
 		return Token{Kind: kindOperator, Name: name}, true
+	case normSack:
+		return Token{Kind: kindSackBarrier, Name: name}, true
 	case "none", "any":
 		return Token{Kind: kindPick, Name: name}, true
 	}
@@ -71,7 +73,7 @@ func enumNames(kind string) (string, bool) {
 	case kindPop:
 		return " first last all mixed ", true
 	case kindCardinality:
-		return " single list set ", true
+		return " single set ", true
 	case kindOperator:
 		return " sum sumLong min max assign and or addAll mult div minus ", true
 	case kindMerge:

@@ -1,6 +1,7 @@
 package gremlin
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
@@ -27,6 +28,10 @@ func (x *exec) parsePropSpec(args []any, t *trav) (propSpec, error) {
 		if c, ok := args[0].(Token); ok && c.Kind == kindCardinality {
 			card, args = c.Name, args[1:]
 		}
+	}
+
+	if card == cardList {
+		return propSpec{}, unsupported("Cardinality list is not supported; use set or single")
 	}
 
 	if len(args) < 2 { //nolint:mnd // key and value
@@ -65,16 +70,8 @@ func (tr *Traversal) String() string {
 }
 
 func storableValue(v any) bool {
-	switch t := v.(type) {
+	switch v.(type) {
 	case string, bool, int64, float64:
-		return true
-	case []any:
-		for _, e := range t {
-			if !storableValue(e) {
-				return false
-			}
-		}
-
 		return true
 	}
 
@@ -100,8 +97,8 @@ func applyProp(el any, p propSpec) error {
 		return malformed("Property value type is not supported: %T", p.val)
 	}
 
-	if _, isVertex := el.(*opencypher.Node); isVertex && (p.card == cardList || p.card == cardSet) {
-		props[key] = appendCard(props[key], p.val, p.card)
+	if _, isVertex := el.(*opencypher.Node); isVertex && p.card != cardSingle {
+		props[key] = appendSet(props[key], p.val)
 
 		return nil
 	}
@@ -111,26 +108,25 @@ func applyProp(el any, p propSpec) error {
 	return nil
 }
 
-func appendCard(old, val any, card string) any {
-	var list []any
-
+func appendSet(old, val any) any {
 	switch t := old.(type) {
 	case nil:
+		return val
 	case []any:
-		list = append(list, t...)
-	default:
-		list = append(list, t)
-	}
-
-	if card == cardSet {
-		for _, e := range list {
+		for _, e := range t {
 			if equalValues(e, val) {
-				return list
+				return old
 			}
 		}
-	}
 
-	return append(list, val)
+		return append(append([]any(nil), t...), val)
+	default:
+		if equalValues(t, val) {
+			return old
+		}
+
+		return []any{t, val}
+	}
 }
 
 func stepProperty(x *exec, s *Step, t *trav) ([]*trav, error) {
@@ -155,9 +151,14 @@ func stepProperty(x *exec, s *Step, t *trav) ([]*trav, error) {
 }
 
 // creationProps evaluates the property() modulators of addV/addE into an id and a property map.
-func (x *exec) creationProps(s *Step, t *trav) (string, map[string]any, error) {
+func (x *exec) creationProps(s *Step, t *trav, vertex bool) (string, map[string]any, error) {
 	id := ""
 	props := map[string]any{}
+
+	var holder any = &opencypher.Rel{Props: props}
+	if vertex {
+		holder = &opencypher.Node{Props: props}
+	}
 
 	for _, m := range modsNamed(s, "property") {
 		spec, err := x.parsePropSpec(m.Args, t)
@@ -170,12 +171,16 @@ func (x *exec) creationProps(s *Step, t *trav) (string, map[string]any, error) {
 				return "", nil, malformed("Property %s cannot be set on creation", k.Name)
 			}
 
-			id = idString(spec.val)
+			str, isStr := spec.val.(string)
+			if !isStr {
+				return "", nil, invalidArg("Gremlin element IDs must be of type String, got %T", spec.val)
+			}
+
+			id = str
 
 			continue
 		}
 
-		holder := &opencypher.Node{Props: props}
 		if err = applyProp(holder, spec); err != nil {
 			return "", nil, err
 		}
@@ -214,17 +219,48 @@ func stepAddV(x *exec, s *Step, t *trav) ([]*trav, error) {
 		label = labelVertex
 	}
 
-	id, props, err := x.creationProps(s, t)
+	id, props, err := x.creationProps(s, t, true)
 	if err != nil {
 		return nil, err
 	}
 
-	n, err := x.st.AddNode(id, strings.Split(label, "::"), props)
+	labels := strings.Split(label, "::")
+
+	if n := x.st.Node(id); id != "" && n != nil && addsLabel(n, labels) {
+		mergeIntoVertex(n, labels, props)
+
+		return []*trav{t.next(n)}, nil
+	}
+
+	n, err := x.st.AddNode(id, labels, props)
 	if err != nil {
 		return nil, err
 	}
 
 	return []*trav{t.next(n)}, nil
+}
+
+func addsLabel(n *opencypher.Node, labels []string) bool {
+	return slices.ContainsFunc(labels, func(l string) bool { return !slices.Contains(n.Labels, l) })
+}
+
+func mergeIntoVertex(n *opencypher.Node, labels []string, props map[string]any) {
+	for _, l := range labels {
+		if !slices.Contains(n.Labels, l) {
+			n.Labels = append(n.Labels, l)
+		}
+	}
+
+	for k, v := range props {
+		vals, _ := v.([]any)
+		if vals == nil {
+			vals = []any{v}
+		}
+
+		for _, e := range vals {
+			n.Props[k] = appendSet(n.Props[k], e)
+		}
+	}
 }
 
 func stepAddE(x *exec, s *Step, t *trav) ([]*trav, error) {
@@ -242,7 +278,7 @@ func stepAddE(x *exec, s *Step, t *trav) ([]*trav, error) {
 		return nil, err
 	}
 
-	id, props, err := x.creationProps(s, t)
+	id, props, err := x.creationProps(s, t, false)
 	if err != nil {
 		return nil, err
 	}

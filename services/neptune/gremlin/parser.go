@@ -154,6 +154,10 @@ func (p *parser) parseChain(tr *Traversal, top bool) (string, int, error) {
 			return "", 0, err
 		}
 
+		if !top && isTerminal(name.text) {
+			return "", 0, unsupported("%s() cannot be called inside a traversal argument", name.text)
+		}
+
 		if top && isTerminal(name.text) {
 			return name.text, termCount(args), nil
 		}

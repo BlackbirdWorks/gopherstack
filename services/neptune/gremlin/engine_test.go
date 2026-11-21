@@ -191,13 +191,13 @@ func TestMutations(t *testing.T) {
 		check  string
 		want   []string
 	}{
-		{"add_property", `g.V('lop').property('lang','go')`, `g.V('lop').values('lang')`, []string{"go"}},
+		{"add_property", `g.V('lop').property(single,'lang','go')`, `g.V('lop').values('lang')`, []string{"go"}},
 		{"drop_vertex", `g.V('vadas').drop()`, `g.V().count()`, []string{"3"}},
 		{"drop_cascades", `g.V('lop').drop()`, `g.E().count()`, []string{"2"}},
 		{"drop_property", `g.V('marko').properties('age').drop()`, `g.V('marko').values('age')`, []string{}},
 		{"drop_edges", `g.E().hasLabel('knows').drop()`, `g.E().count()`, []string{"2"}},
 		{"multi_label", `g.addV('a::b').property(T.id,'ab')`, `g.V().hasLabel('b').id()`, []string{"ab"}},
-		{"list_cardinality", `g.V('lop').property(list,'tag','x').property(list,'tag','y')`,
+		{"set_cardinality", `g.V('lop').property(set,'tag','x').property(set,'tag','y')`,
 			`g.V('lop').values('tag')`, []string{"x", "y"}},
 	}
 
@@ -227,7 +227,7 @@ func TestErrors(t *testing.T) {
 		{"unknown_step", `g.V().frobnicate()`, gremlin.CodeMalformedQuery},
 		{"syntax", `g.V(`, gremlin.CodeMalformedQuery},
 		{"bad_start", `x.V()`, gremlin.CodeMalformedQuery},
-		{"duplicate_id", `g.addV('a').property(T.id,'marko')`, gremlin.CodeConstraintViolation},
+		{"duplicate_id", `g.addV('person').property(T.id,'marko')`, gremlin.CodeConstraintViolation},
 		{"out_on_edge", `g.E().out()`, gremlin.CodeMalformedQuery},
 		{"null_property", `g.V('lop').property('x', null)`, gremlin.CodeMalformedQuery},
 	}

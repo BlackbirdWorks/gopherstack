@@ -30,6 +30,7 @@ const (
 	dirIn        = "IN"
 	cardSet      = "set"
 	cardList     = "list"
+	cardSingle   = "single"
 	modTimes     = "times"
 	modUntil     = "until"
 	modEmit      = "emit"

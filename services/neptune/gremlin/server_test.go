@@ -289,7 +289,7 @@ func TestHTTPEndpoint(t *testing.T) {
 		{
 			"constraint",
 			http.MethodPost,
-			`{"gremlin":"g.addV('x').property(T.id,'lop')"}`,
+			`{"gremlin":"g.addV('software').property(T.id,'lop')"}`,
 			"",
 			"",
 			`"code":"ConstraintViolationException"`,

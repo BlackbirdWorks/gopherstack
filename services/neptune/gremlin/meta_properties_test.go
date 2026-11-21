@@ -20,7 +20,7 @@ func TestMetaPropertiesAreNotPersisted(t *testing.T) {
 	}{
 		{"property meta pair dropped", `g.V('lop').property('lang','go','src','x')`,
 			`g.V('lop').properties('lang').values('src')`, nil},
-		{"property meta keeps value", `g.V('lop').property('lang','go','src','x')`,
+		{"property meta keeps value", `g.V('lop').property(single,'lang','go','src','x')`,
 			`g.V('lop').values('lang')`, []string{"go"}},
 		{"property on vertex property", `g.V('lop').properties('lang').property('src','x')`,
 			`g.V('lop').properties('lang').properties()`, nil},
