@@ -70,6 +70,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	snap.Reservations.normalize()
 	b.datasets, b.jobs, b.seq, b.res = snap.Datasets, snap.Jobs, snap.Seq, snap.Reservations
+	b.markInterrupted()
 
 	return nil
 }

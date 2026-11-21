@@ -868,11 +868,15 @@ func (p *parser) castExpr(safe bool) (*node, error) {
 		return nil, err
 	}
 
+	args := []*node{e}
+
 	if p.acceptKw("FORMAT") {
-		return nil, syntaxErr(p.peek().pos, "CAST ... FORMAT is not supported")
+		if args, err = p.castFormatArgs(args); err != nil {
+			return nil, err
+		}
 	}
 
-	return &node{kind: nCast, safe: safe, castTo: &t, args: []*node{e}, pos: pos}, p.expectPunct(")")
+	return &node{kind: nCast, safe: safe, castTo: &t, args: args, pos: pos}, p.expectPunct(")")
 }
 
 func (p *parser) extractExpr() (*node, error) {
@@ -1174,4 +1178,33 @@ func scalarTypeKinds() map[string]Kind {
 		litGeography:  KindGeography,
 		litInterval:   KindInterval,
 	}
+}
+
+// castFormatArgs parses the format model and the optional AT TIME ZONE of CAST ... FORMAT.
+func (p *parser) castFormatArgs(args []*node) ([]*node, error) {
+	f, err := p.expr()
+	if err != nil {
+		return nil, err
+	}
+
+	args = append(args, f)
+
+	if !p.acceptKw("AT") {
+		return args, nil
+	}
+
+	if err = p.expectKw("TIME"); err != nil {
+		return nil, err
+	}
+
+	if err = p.expectKw("ZONE"); err != nil {
+		return nil, err
+	}
+
+	tz, err := p.expr()
+	if err != nil {
+		return nil, err
+	}
+
+	return append(args, tz), nil
 }

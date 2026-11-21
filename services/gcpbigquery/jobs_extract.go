@@ -16,7 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/gcpbigquery/bqsql"
 )
 
-const firstShard = "000000000000"
+const defaultExtractShardBytes int64 = 1 << 30
 
 type extractConfig struct {
 	Format      string
@@ -51,30 +51,42 @@ func decodeExtract(cfg map[string]any) extractConfig {
 	return ec
 }
 
-// execExtract runs an extract job; the caller holds the write lock.
-func (b *InMemoryBackend) execExtract(_ string, cfg map[string]any, dryRun bool) (*outcome, error) {
+type extractFile struct {
+	uri   string
+	ctype string
+	data  []byte
+	uriIx int
+	seq   int
+}
+
+// execExtract validates an extract job without writing anything (dryRun).
+func (b *InMemoryBackend) execExtract(cfg map[string]any) (*outcome, error) {
+	out, _, err := b.execExtractPlan(cfg, false)
+
+	return out, err
+}
+
+// execExtractPlan validates the job and encodes the files under the write lock; the returned func writes them to
+// Cloud Storage and must run after the lock is released.
+func (b *InMemoryBackend) execExtractPlan(cfg map[string]any, plan bool) (*outcome, func() *outcome, error) {
 	ids := refIDs(cfg, "sourceTable")
 	ec := decodeExtract(cfg)
 
 	if ids["tableId"] == "" || len(ec.URIs) == 0 {
-		return nil, errInvalid("Required parameter is missing: extract sourceTable and destinationUris")
+		return nil, nil, errInvalid("Required parameter is missing: extract sourceTable and destinationUris")
 	}
 
 	_, t, err := b.tableLocked(ids[litProjectid], ids["datasetId"], ids["tableId"])
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if t.ViewQuery != "" {
-		return nil, errInvalid("Cannot extract table %s of type VIEW", ids["tableId"])
+		return nil, nil, errInvalid("Cannot extract table %s of type VIEW", ids["tableId"])
 	}
 
 	if t.isExternal() {
-		return nil, errInvalid("Cannot extract table %s of type EXTERNAL", ids["tableId"])
-	}
-
-	if msg := badExtractURI(ec.URIs); msg != "" {
-		return (&outcome{Stats: map[string]any{}}).fail(litInvalid, msg)
+		return nil, nil, errInvalid("Cannot extract table %s of type EXTERNAL", ids["tableId"])
 	}
 
 	counts := make([]any, len(ec.URIs))
@@ -85,30 +97,134 @@ func (b *InMemoryBackend) execExtract(_ string, cfg map[string]any, dryRun bool)
 	out := &outcome{
 		Stats: map[string]any{"destinationUriFileCounts": counts, "inputBytes": strconv.FormatInt(tableBytes(t), 10)},
 	}
-	if dryRun {
-		return out, nil
+
+	if msg := badExtractURI(ec.URIs); msg != "" {
+		out.Err = &jobError{Reason: litInvalid, Message: msg}
+
+		return out, nil, nil
+	}
+
+	if !plan {
+		return out, nil, nil
 	}
 
 	if b.objects == nil {
 		out.Err = &jobError{Reason: litInvalid, Message: "Cloud Storage is not available to this BigQuery emulator"}
 
-		return out, nil
+		return out, nil, nil
 	}
 
-	data, ctype, err := encodeExtract(ec, t)
-	if err != nil {
-		return out.fail(litInvalid, err.Error())
-	}
-
-	if jerr := b.writeExtract(ec, data, ctype); jerr != nil {
+	files, jerr := b.planShards(ec, t)
+	if jerr != nil {
 		out.Err = jerr
 
-		return out, nil
+		return out, nil, nil
 	}
 
-	counts[0] = "1"
+	objs := b.objects
 
-	return out, nil
+	return out, func() *outcome { return writeShards(objs, ec, files, out) }, nil
+}
+
+// splitShards cuts the rows into shards of at most limit logical bytes (a row never splits), and into at least
+// minShards shards when there are enough rows; an empty table is one empty shard.
+func splitShards(t *Table, limit int64, minShards int) [][][]any {
+	var (
+		shards [][][]any
+		size   int64
+	)
+
+	cur := make([][]any, 0, len(t.Rows))
+
+	for _, row := range t.Rows {
+		var n int64
+		for i, f := range t.Schema {
+			n += bqsql.LogicalBytes(f, row[i])
+		}
+
+		if len(cur) > 0 && size+n > limit {
+			shards, cur, size = append(shards, cur), nil, 0
+		}
+
+		cur, size = append(cur, row), size+n
+	}
+
+	if len(cur) > 0 || len(shards) == 0 {
+		shards = append(shards, cur)
+	}
+
+	if len(shards) >= minShards || len(t.Rows) < minShards {
+		return shards
+	}
+
+	shards = make([][][]any, minShards)
+	for i := range shards {
+		shards[i] = t.Rows[i*len(t.Rows)/minShards : (i+1)*len(t.Rows)/minShards]
+	}
+
+	return shards
+}
+
+// planShards encodes shard k for URI k mod n, numbering files per URI from 000000000000. Without a wildcard a URI
+// holds one file only.
+func (b *InMemoryBackend) planShards(ec extractConfig, t *Table) ([]extractFile, *jobError) {
+	limit := b.extractShardBytes
+	if limit <= 0 {
+		limit = defaultExtractShardBytes
+	}
+
+	shards := splitShards(t, limit, len(ec.URIs))
+	files := make([]extractFile, 0, len(shards))
+
+	for k, rows := range shards {
+		uri := ec.URIs[k%len(ec.URIs)]
+		seq := k / len(ec.URIs)
+
+		if seq > 0 && !strings.Contains(uri, "*") {
+			return nil, &jobError{
+				Reason: litInvalid,
+				Message: "Table too large to be exported to a single file. " +
+					"Specify a uri including a * to shard export. URI: " + uri,
+			}
+		}
+
+		view := *t
+		view.Rows = rows
+
+		data, ctype, err := encodeExtract(ec, &view)
+		if err != nil {
+			return nil, &jobError{Reason: litInvalid, Message: err.Error()}
+		}
+
+		data, ctype = compressExtract(ec, data, ctype)
+		files = append(files, extractFile{uri: uri, uriIx: k % len(ec.URIs), seq: seq, data: data, ctype: ctype})
+	}
+
+	return files, nil
+}
+
+// writeShards stores the planned files and fills the per-URI file counts of out.
+func writeShards(objs ObjectStore, ec extractConfig, files []extractFile, out *outcome) *outcome {
+	written := make([]int, len(ec.URIs))
+
+	defer func() {
+		counts, _ := out.Stats["destinationUriFileCounts"].([]any)
+		for i, n := range written {
+			counts[i] = strconv.Itoa(n)
+		}
+	}()
+
+	for _, f := range files {
+		if jerr := writeExtract(objs, f); jerr != nil {
+			out.Err = jerr
+
+			return out
+		}
+
+		written[f.uriIx]++
+	}
+
+	return out
 }
 
 // badExtractURI applies the documented URI rules: at most one wildcard per URI and only in the file name.
@@ -132,31 +248,34 @@ func badExtractURI(uris []string) string {
 	return ""
 }
 
-func (b *InMemoryBackend) writeExtract(ec extractConfig, data []byte, ctype string) *jobError {
-	uri := ec.URIs[0]
+func compressExtract(ec extractConfig, data []byte, ctype string) ([]byte, string) {
+	if !strings.EqualFold(ec.Compression, "GZIP") || ec.Format == formatParquet || ec.Format == formatAvro {
+		return data, ctype
+	}
 
-	u, ok := parseGCSURI(uri)
+	var buf bytes.Buffer
+
+	zw := gzip.NewWriter(&buf)
+	_, _ = zw.Write(data)
+	_ = zw.Close()
+
+	return buf.Bytes(), "application/gzip"
+}
+
+func writeExtract(objs ObjectStore, f extractFile) *jobError {
+	u, ok := parseGCSURI(f.uri)
 	if !ok || u.object == "" {
-		return &jobError{Reason: litInvalid, Message: "Invalid Cloud Storage URI: " + uri}
+		return &jobError{Reason: litInvalid, Message: "Invalid Cloud Storage URI: " + f.uri}
 	}
 
-	name := strings.Replace(u.object, "*", firstShard, 1)
+	name := strings.Replace(u.object, "*", fmt.Sprintf("%012d", f.seq), 1)
 
-	if strings.EqualFold(ec.Compression, "GZIP") && ec.Format != formatParquet {
-		var buf bytes.Buffer
-
-		zw := gzip.NewWriter(&buf)
-		_, _ = zw.Write(data)
-		_ = zw.Close()
-		data, ctype = buf.Bytes(), "application/gzip"
-	}
-
-	if err := b.objects.WriteObject(u.bucket, name, data, ctype); err != nil {
+	if err := objs.WriteObject(u.bucket, name, f.data, f.ctype); err != nil {
 		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "No such") {
 			return &jobError{Reason: litNotfound, Message: "Not found: Bucket " + u.bucket}
 		}
 
-		return &jobError{Reason: "backendError", Message: "Cannot write " + uri + ": " + err.Error()}
+		return &jobError{Reason: "backendError", Message: "Cannot write " + f.uri + ": " + err.Error()}
 	}
 
 	return nil
@@ -174,6 +293,10 @@ func encodeExtract(ec extractConfig, t *Table) ([]byte, string, error) {
 		data, err := encodeParquet(ec, t)
 
 		return data, "application/octet-stream", err
+	case formatAvro:
+		data, err := encodeAvro(ec, t)
+
+		return data, "application/avro", err
 	}
 
 	return nil, "", fmt.Errorf("%w: destinationFormat %s is not supported", errLoad, ec.Format)
@@ -321,19 +444,19 @@ func parquetType(f bqsql.Field) (string, error) {
 		return "double", nil
 	case litBoolean:
 		return "boolean", nil
-	case "BYTES":
+	case litBytes:
 		return "binary", nil
-	case "NUMERIC":
+	case litNumeric:
 		return "decimal(38,9)", nil
-	case "BIGNUMERIC":
-		return "string", nil
-	case "TIMESTAMP":
+	case litBignumeric:
+		return litStringType, nil
+	case litTimestamp:
 		return "timestamp", nil
-	case "DATE":
+	case litDate:
 		return "date", nil
 	}
 
-	return "string", nil
+	return litStringType, nil
 }
 
 func parquetCell(f bqsql.Field, v any) any {
@@ -354,11 +477,11 @@ func parquetCell(f bqsql.Field, v any) any {
 		return x
 	case litBoolean:
 		return s == "true"
-	case "BYTES":
+	case litBytes:
 		raw, _ := bqsqlDecodeBase64(s)
 
 		return string(raw)
-	case "TIMESTAMP":
+	case litTimestamp:
 		if t, err := time.Parse(bqsql.TimestampLayout, s); err == nil {
 			return t.Format("2006-01-02 15:04:05.000000")
 		}
@@ -402,11 +525,4 @@ func encodeParquet(ec extractConfig, t *Table) ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
-}
-
-// fail records a job-level error and returns the outcome; the job still completes with state DONE.
-func (o *outcome) fail(reason, msg string) (*outcome, error) {
-	o.Err = &jobError{Reason: reason, Message: msg}
-
-	return o, nil
 }

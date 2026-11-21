@@ -137,7 +137,7 @@ func externalConfigFromOptions(opts map[string]string) (map[string]any, error) {
 	if p, ok := opts["hive_partition_uri_prefix"]; ok {
 		cfg[litHive] = map[string]any{
 			"mode": hiveModeAuto, "sourceUriPrefix": p,
-			"requirePartitionFilter": strings.EqualFold(opts["require_hive_partition_filter"], "true"),
+			"requirePartitionFilter": strings.EqualFold(opts["require_hive_partition_filter"], litTrue),
 		}
 	}
 
@@ -146,7 +146,7 @@ func externalConfigFromOptions(opts map[string]string) (map[string]any, error) {
 
 func optionValue(v string) any {
 	switch strings.ToLower(v) {
-	case "true":
+	case litTrue:
 		return true
 	case "false":
 		return false
@@ -528,7 +528,7 @@ func externalFileRows(sp externalSpec, schema []bqsql.Field, in loadInput) ([][]
 	lc := sp.lc
 	lc.Schema = fileFields
 
-	parsed, jerr := parseInputs(lc, fileFields, []loadInput{in})
+	parsed, _, jerr := parseInputs(lc, fileFields, []loadInput{in})
 	if jerr != nil {
 		return nil, jobErr(jerr)
 	}

@@ -15,6 +15,7 @@ import (
 const (
 	argc2 = 2
 	argc3 = 3
+	argc5 = 5
 	argc4 = 4
 )
 

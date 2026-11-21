@@ -103,6 +103,7 @@ type Job struct {
 	Config      map[string]any `json:"config"`
 	Stats       map[string]any `json:"stats"`
 	ErrorResult *jobError      `json:"errorResult,omitempty"`
+	Errors      []*jobError    `json:"errors,omitempty"`
 	Dest        *tableRef      `json:"dest,omitempty"`
 	Project     string         `json:"project"`
 	ID          string         `json:"id"`

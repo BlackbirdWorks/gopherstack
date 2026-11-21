@@ -6,13 +6,23 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 
 	"github.com/blackbirdworks/gopherstack/services/gcpbigquery/bqsql"
 )
 
 const (
+	optAddField   = "ALLOW_FIELD_ADDITION"
+	optRelaxField = "ALLOW_FIELD_RELAXATION"
+
+	maxReportedErrors = 5
+	maxLoadFiles      = 1000
+	maxLoadBytes      = 512 << 20
+
 	formatCSV     = "CSV"
 	formatJSON    = "NEWLINE_DELIMITED_JSON"
 	formatParquet = "PARQUET"
@@ -28,6 +38,7 @@ type loadConfig struct {
 	Quote       *string
 	Encoding    string
 	URIs        []string
+	SchemaOpts  []string
 	Schema      []bqsql.Field
 	SkipRows    int
 	MaxBad      int
@@ -90,6 +101,13 @@ func decodeLoadConfig(cfg map[string]any) (loadConfig, error) {
 	lc.MaxBad, _ = intOf(cfg["maxBadRecords"])
 
 	lc.URIs = append(lc.URIs, anyStrings(cfg["sourceUris"])...)
+	lc.SchemaOpts = anyStrings(cfg["schemaUpdateOptions"])
+
+	for _, o := range lc.SchemaOpts {
+		if o != optAddField && o != optRelaxField {
+			return lc, errInvalid("Invalid schemaUpdateOptions value %q", o)
+		}
+	}
 
 	var err error
 	if lc.Schema, err = decodeSchema(cfg["schema"]); err != nil {
@@ -113,37 +131,86 @@ func anyStrings(v any) []string {
 	return out
 }
 
-// execLoad runs a load job; the caller holds the write lock.
-func (b *InMemoryBackend) execLoad(_ string, cfg map[string]any, media []byte, dryRun bool) (*outcome, error) {
+// loadPre holds the inputs of a load job, read from Cloud Storage before the write lock is taken.
+type loadPre struct {
+	err    *jobError
+	inputs []loadInput
+}
+
+func (b *InMemoryBackend) validateLoad(cfg map[string]any) (loadConfig, error) {
 	lc, err := decodeLoadConfig(cfg)
+	if err != nil {
+		return lc, err
+	}
+
+	if _, ok := b.datasets[dsKey(lc.Dest.ProjectID, lc.Dest.DatasetID)]; !ok {
+		return lc, errNotFound("Not found: Dataset %s:%s", lc.Dest.ProjectID, lc.Dest.DatasetID)
+	}
+
+	return lc, nil
+}
+
+// execLoad validates a load job without running it (dryRun); the caller holds the lock.
+func (b *InMemoryBackend) execLoad(cfg map[string]any) (*outcome, error) {
+	if _, err := b.validateLoad(cfg); err != nil {
+		return nil, err
+	}
+
+	return &outcome{Stats: map[string]any{}}, nil
+}
+
+// preload reads a load job's sources without holding the backend lock.
+func (b *InMemoryBackend) preload(kind string, cfg map[string]any, media []byte) *loadPre {
+	if kind != jobLoad {
+		return nil
+	}
+
+	lc, err := decodeLoadConfig(objectOf(cfg, jobLoad))
+	if err != nil {
+		return &loadPre{err: &jobError{Reason: apiReason(err), Message: apiMessage(err)}}
+	}
+
+	b.mu.RLock("preload")
+	objs, budget := b.objects, b.newLoadBudget()
+	b.mu.RUnlock()
+
+	inputs, jerr := loadInputsFrom(objs, lc, media, budget)
+
+	return &loadPre{inputs: inputs, err: jerr}
+}
+
+// execLoadPre runs a load job over inputs read beforehand; the caller holds the write lock.
+func (b *InMemoryBackend) execLoadPre(cfg map[string]any, pre *loadPre) (*outcome, error) {
+	lc, err := b.validateLoad(cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	if _, ok := b.datasets[dsKey(lc.Dest.ProjectID, lc.Dest.DatasetID)]; !ok {
-		return nil, errNotFound("Not found: Dataset %s:%s", lc.Dest.ProjectID, lc.Dest.DatasetID)
+	if pre.err != nil {
+		return &outcome{Err: pre.err, Stats: map[string]any{}}, nil
 	}
 
-	if dryRun {
-		return &outcome{Stats: map[string]any{}}, nil
-	}
-
-	inputs, jerr := b.loadInputs(lc, media)
-	if jerr != nil {
-		return &outcome{Err: jerr, Stats: map[string]any{}}, nil
-	}
+	inputs := pre.inputs
 
 	fields, replace, jerr := b.loadSchema(lc, inputs)
 	if jerr != nil {
 		return &outcome{Err: jerr, Stats: map[string]any{}}, nil
 	}
 
-	rows, jerr := parseInputs(lc, fields, inputs)
+	rows, bad, jerr := b.loadRows(lc, cfg, &fields, inputs)
 	if jerr != nil {
-		return &outcome{Err: jerr, Stats: map[string]any{}}, nil
+		return &outcome{Err: jerr, Warnings: badWarnings(bad), Stats: map[string]any{}}, nil
 	}
 
-	out := &outcome{Dest: &lc.Dest, Stats: loadStats(inputs, fields, rows)}
+	if replace && lc.Write == writeAppend {
+		if fields, rows, jerr = b.reconcileAppend(lc, fields, rows); jerr != nil {
+			return &outcome{Err: jerr, Stats: map[string]any{}}, nil
+		}
+
+		replace = false
+	}
+
+	out := &outcome{Dest: &lc.Dest, Stats: loadStats(inputs, fields, rows, len(bad)), Warnings: badWarnings(bad)}
 	if jerr = b.writeDestination(lc.Dest, fields, rows, lc.Create, lc.Write, replace); jerr != nil {
 		out.Err, out.Dest = jerr, nil
 	}
@@ -151,7 +218,7 @@ func (b *InMemoryBackend) execLoad(_ string, cfg map[string]any, media []byte, d
 	return out, nil
 }
 
-func loadStats(in []loadInput, fields []bqsql.Field, rows [][]any) map[string]any {
+func loadStats(in []loadInput, fields []bqsql.Field, rows [][]any, bad int) map[string]any {
 	var size int64
 	for _, i := range in {
 		size += int64(len(i.data))
@@ -168,32 +235,66 @@ func loadStats(in []loadInput, fields []bqsql.Field, rows [][]any) map[string]an
 	return map[string]any{
 		"inputFiles": strconv.Itoa(len(in)), "inputFileBytes": strconv.FormatInt(size, 10),
 		"outputRows": strconv.Itoa(len(rows)), "outputBytes": strconv.FormatInt(outBytes, 10),
-		"badRecords": "0",
+		"badRecords": strconv.Itoa(bad),
 	}
 }
 
+// loadBudget bounds the files and decompressed bytes one load job may read.
+type loadBudget struct {
+	files    int
+	maxFiles int
+	bytes    int64
+	maxBytes int64
+}
+
+func (lb *loadBudget) take(name string, data []byte) ([]byte, *jobError) {
+	lb.files++
+	if lb.files > lb.maxFiles {
+		return nil, &jobError{
+			Reason: litInvalid, Message: fmt.Sprintf("Too many source files: at most %d are allowed", lb.maxFiles),
+		}
+	}
+
+	out, err := gunzipLimited(data, lb.bytes, lb.maxBytes)
+	if err != nil {
+		return nil, &jobError{Reason: litInvalid, Message: "Could not read " + name + ": " + err.Error()}
+	}
+
+	lb.bytes -= int64(len(out))
+
+	return out, nil
+}
+
 func (b *InMemoryBackend) loadInputs(lc loadConfig, media []byte) ([]loadInput, *jobError) {
+	return loadInputsFrom(b.objects, lc, media, b.newLoadBudget())
+}
+
+func loadInputsFrom(objs ObjectStore, lc loadConfig, media []byte, budget *loadBudget) ([]loadInput, *jobError) {
 	if media != nil {
-		data, err := gunzipIfNeeded(media)
-		if err != nil {
-			return nil, &jobError{Reason: litInvalid, Message: "Could not decompress the uploaded data: " + err.Error()}
+		data, jerr := budget.take("the uploaded data", media)
+		if jerr != nil {
+			return nil, jerr
 		}
 
 		return []loadInput{{name: "upload", data: data}}, nil
 	}
 
+	return loadURIInputs(objs, lc, budget)
+}
+
+func loadURIInputs(objs ObjectStore, lc loadConfig, budget *loadBudget) ([]loadInput, *jobError) {
 	if len(lc.URIs) == 0 {
 		return nil, &jobError{Reason: litInvalid, Message: "Required parameter is missing: sourceUris"}
 	}
 
-	if b.objects == nil {
+	if objs == nil {
 		return nil, &jobError{Reason: litInvalid, Message: "Cloud Storage is not available to this BigQuery emulator"}
 	}
 
 	var out []loadInput
 
 	for _, uri := range lc.URIs {
-		got, jerr := b.readURI(uri)
+		got, jerr := readURI(objs, uri, budget)
 		if jerr != nil {
 			return nil, jerr
 		}
@@ -204,7 +305,7 @@ func (b *InMemoryBackend) loadInputs(lc loadConfig, media []byte) ([]loadInput, 
 	return out, nil
 }
 
-func (b *InMemoryBackend) readURI(uri string) ([]loadInput, *jobError) {
+func readURI(objs ObjectStore, uri string, budget *loadBudget) ([]loadInput, *jobError) {
 	u, ok := parseGCSURI(uri)
 	if !ok {
 		return nil, &jobError{Reason: litInvalid, Message: "Invalid Cloud Storage URI: " + uri}
@@ -215,7 +316,7 @@ func (b *InMemoryBackend) readURI(uri string) ([]loadInput, *jobError) {
 	if strings.Contains(u.object, "*") {
 		prefix, _, _ := strings.Cut(u.object, "*")
 
-		all, err := b.objects.ListObjects(u.bucket, prefix)
+		all, err := objs.ListObjects(u.bucket, prefix)
 		if err != nil {
 			return nil, uriError(uri, err)
 		}
@@ -239,19 +340,19 @@ func (b *InMemoryBackend) readURI(uri string) ([]loadInput, *jobError) {
 	var out []loadInput
 
 	for _, n := range names {
-		data, err := b.objects.ReadObject(u.bucket, n)
+		data, err := objs.ReadObject(u.bucket, n)
 		if err != nil {
 			return nil, uriError("gs://"+u.bucket+"/"+n, err)
 		}
 
-		if data, err = gunzipIfNeeded(data); err != nil {
-			return nil, &jobError{
-				Reason:  litInvalid,
-				Message: "Could not decompress gs://" + u.bucket + "/" + n + ": " + err.Error(),
-			}
+		name := "gs://" + u.bucket + "/" + n
+
+		data, jerr := budget.take(name, data)
+		if jerr != nil {
+			return nil, jerr
 		}
 
-		out = append(out, loadInput{name: "gs://" + u.bucket + "/" + n, data: data})
+		out = append(out, loadInput{name: name, data: data})
 	}
 
 	return out, nil
@@ -265,8 +366,12 @@ func uriError(uri string, err error) *jobError {
 	return &jobError{Reason: "backendError", Message: "Cannot read " + uri + ": " + err.Error()}
 }
 
-func gunzipIfNeeded(data []byte) ([]byte, error) {
+func gunzipLimited(data []byte, limit, total int64) ([]byte, error) {
 	if len(data) < 2 || data[0] != 0x1f || data[1] != 0x8b {
+		if int64(len(data)) > limit {
+			return nil, fmt.Errorf("%w: input exceeds the %d byte limit of this emulator", errLoad, total)
+		}
+
 		return data, nil
 	}
 
@@ -276,9 +381,13 @@ func gunzipIfNeeded(data []byte) ([]byte, error) {
 	}
 	defer zr.Close()
 
-	out, err := io.ReadAll(zr)
+	out, err := io.ReadAll(io.LimitReader(zr, limit+1))
 	if err != nil {
 		return nil, fmt.Errorf("gzip: %w", err)
+	}
+
+	if int64(len(out)) > limit {
+		return nil, fmt.Errorf("%w: decompressed input exceeds the %d byte limit of this emulator", errLoad, total)
 	}
 
 	return out, nil
@@ -311,44 +420,39 @@ func (b *InMemoryBackend) loadSchema(lc loadConfig, in []loadInput) ([]bqsql.Fie
 	return fields, true, nil
 }
 
-func parseInputs(lc loadConfig, fields []bqsql.Field, in []loadInput) ([][]any, *jobError) {
+func parseInputs(lc loadConfig, fields []bqsql.Field, in []loadInput) ([][]any, []string, *jobError) {
 	rows := [][]any{}
-	bad := 0
 
-	var firstErr error
+	var bad []string
 
 	for _, input := range in {
 		got, badRows, err := parseInput(lc, fields, input)
 		if err != nil {
-			return nil, &jobError{
+			return nil, bad, &jobError{
 				Reason:  litInvalid,
 				Message: "Error while reading data, error message: " + err.Error() + "; " + input.name,
 			}
 		}
 
 		rows = append(rows, got...)
-		bad += len(badRows)
 
-		if firstErr == nil && len(badRows) > 0 {
-			firstErr = badRows[0]
+		for _, e := range badRows {
+			bad = append(bad, e.Error()+"; "+input.name)
 		}
 	}
 
-	if bad > lc.MaxBad {
-		return nil, &jobError{
+	if len(bad) > lc.MaxBad {
+		return nil, bad, &jobError{
 			Reason: litInvalid,
 			Message: fmt.Sprintf(
 				"Error while reading data, error message: processing encountered too many errors, giving up. "+
-					"Rows: %d; errors: %d; max bad: %d; error percent: 0 (%v)",
-				len(rows)+bad,
-				bad,
-				lc.MaxBad,
-				firstErr,
+					"Rows: %d; errors: %d; max bad: %d; error percent: 0",
+				len(rows)+len(bad), len(bad), lc.MaxBad,
 			),
 		}
 	}
 
-	return rows, nil
+	return rows, bad, nil
 }
 
 func parseInput(lc loadConfig, fields []bqsql.Field, in loadInput) ([][]any, []error, error) {
@@ -366,4 +470,215 @@ func parseInput(lc loadConfig, fields []bqsql.Field, in loadInput) ([][]any, []e
 	}
 
 	return nil, nil, fmt.Errorf("%w: sourceFormat %s is not supported", errLoad, lc.Format)
+}
+
+func badWarnings(bad []string) []*jobError {
+	n := min(len(bad), maxReportedErrors)
+	out := make([]*jobError, n)
+
+	for i := range n {
+		out[i] = &jobError{Reason: litInvalid, Message: "Error while reading data, error message: " + bad[i]}
+	}
+
+	return out
+}
+
+// loadRows parses the inputs into rows of *fields; with hivePartitioningOptions the partition keys of each object
+// become columns appended to *fields.
+func (b *InMemoryBackend) loadRows(
+	lc loadConfig, cfg map[string]any, fields *[]bqsql.Field, in []loadInput,
+) ([][]any, []string, *jobError) {
+	if _, ok := cfg[litHive].(map[string]any); !ok {
+		return parseInputs(lc, *fields, in)
+	}
+
+	sp := externalSpec{lc: lc}
+	if err := sp.hiveFromConfig(cfg); err != nil {
+		return nil, nil, &jobError{Reason: litInvalid, Message: apiMessage(err)}
+	}
+
+	parts, err := sp.partitionFields(in)
+	if err != nil {
+		return nil, nil, &jobError{Reason: litInvalid, Message: err.Error()}
+	}
+
+	*fields = mergePartitionFields(*fields, parts)
+	rows := [][]any{}
+
+	for _, input := range in {
+		got, rerr := externalFileRows(sp, *fields, input)
+		if rerr != nil {
+			return nil, nil, &jobError{Reason: litInvalid, Message: rerr.Error()}
+		}
+
+		for _, r := range got {
+			rows = append(rows, r[:len(r)-1])
+		}
+	}
+
+	return rows, nil, nil
+}
+
+// reconcileAppend matches the loaded schema to the existing table by column name for WRITE_APPEND and applies
+// schemaUpdateOptions (https://docs.cloud.google.com/bigquery/docs/managing-table-schemas); the table schema only
+// changes once every check passed.
+func (b *InMemoryBackend) reconcileAppend(
+	lc loadConfig, fields []bqsql.Field, rows [][]any,
+) ([]bqsql.Field, [][]any, *jobError) {
+	d := b.datasets[dsKey(lc.Dest.ProjectID, lc.Dest.DatasetID)]
+	if d == nil {
+		return fields, rows, nil
+	}
+
+	t, ok := d.live(lc.Dest.TableID)
+	if !ok || len(t.Schema) == 0 || t.ViewQuery != "" || t.isExternal() {
+		return fields, rows, nil
+	}
+
+	merged, jerr := mergeLoadSchema(lc, t.Schema, fields)
+	if jerr != nil {
+		return nil, nil, jerr
+	}
+
+	pos := make(map[string]int, len(fields))
+	for i, f := range fields {
+		pos[strs.Fold(f.Name)] = i
+	}
+
+	out := make([][]any, len(rows))
+
+	for i, r := range rows {
+		row := make([]any, len(merged))
+		for j, f := range merged {
+			if p, found := pos[strs.Fold(f.Name)]; found {
+				row[j] = r[p]
+			}
+		}
+
+		out[i] = row
+	}
+
+	if len(merged) != len(t.Schema) || !slices.Equal(modes(merged), modes(t.Schema)) {
+		t.record(nowMs())
+
+		for i, r := range t.Rows {
+			t.Rows[i] = append(slices.Clip(r), make([]any, len(merged)-len(r))...)
+		}
+
+		t.Schema = merged
+	}
+
+	return merged, out, nil
+}
+
+func modes(fs []bqsql.Field) []string {
+	out := make([]string, len(fs))
+	for i, f := range fs {
+		out[i] = f.Mode
+	}
+
+	return out
+}
+
+func mergeLoadSchema(lc loadConfig, existing, loaded []bqsql.Field) ([]bqsql.Field, *jobError) {
+	ref := lc.Dest.ProjectID + ":" + lc.Dest.DatasetID + "." + lc.Dest.TableID
+	m := schemaMerger{lc: lc, ref: ref, merged: slices.Clone(existing), seen: map[string]bool{}}
+
+	for _, p := range loaded {
+		if jerr := m.add(p); jerr != nil {
+			return nil, jerr
+		}
+	}
+
+	for _, e := range existing {
+		if e.Mode != bqsql.ModeRequired || m.seen[strs.Fold(e.Name)] {
+			continue
+		}
+
+		if !slices.Contains(lc.SchemaOpts, optRelaxField) {
+			return nil, m.mismatch("Field %s is missing in new schema", e.Name)
+		}
+
+		m.merged[m.index(e.Name)].Mode = bqsql.ModeNullable
+	}
+
+	return m.merged, nil
+}
+
+type schemaMerger struct {
+	seen   map[string]bool
+	ref    string
+	merged []bqsql.Field
+	lc     loadConfig
+}
+
+func (m *schemaMerger) mismatch(format string, a ...any) *jobError {
+	return &jobError{
+		Reason:  litInvalid,
+		Message: "Provided Schema does not match Table " + m.ref + ". " + fmt.Sprintf(format, a...),
+	}
+}
+
+func (m *schemaMerger) index(name string) int {
+	return slices.IndexFunc(m.merged, func(f bqsql.Field) bool { return strs.Equal(f.Name, name) })
+}
+
+func (m *schemaMerger) add(p bqsql.Field) *jobError {
+	m.seen[strs.Fold(p.Name)] = true
+
+	i := m.index(p.Name)
+	if i < 0 {
+		return m.addField(p)
+	}
+
+	if !strs.Equal(m.merged[i].Type, p.Type) {
+		return m.mismatch("Field %s has changed type from %s to %s", p.Name, m.merged[i].Type, p.Type)
+	}
+
+	if m.merged[i].Mode == bqsql.ModeRequired && p.Mode != bqsql.ModeRequired {
+		if !slices.Contains(m.lc.SchemaOpts, optRelaxField) {
+			return m.mismatch("Field %s has changed mode from REQUIRED to NULLABLE", p.Name)
+		}
+
+		m.merged[i].Mode = bqsql.ModeNullable
+	}
+
+	return nil
+}
+
+func (m *schemaMerger) addField(p bqsql.Field) *jobError {
+	if !slices.Contains(m.lc.SchemaOpts, optAddField) {
+		return m.mismatch("Cannot add fields (field: %s)", p.Name)
+	}
+
+	if p.Mode == bqsql.ModeRequired {
+		return m.mismatch("Cannot add required fields (field: %s)", p.Name)
+	}
+
+	m.merged = append(m.merged, p)
+
+	return nil
+}
+
+func (b *InMemoryBackend) newLoadBudget() *loadBudget {
+	lb := &loadBudget{maxFiles: maxLoadFiles, maxBytes: maxLoadBytes}
+	if b.loadMaxFiles > 0 {
+		lb.maxFiles = b.loadMaxFiles
+	}
+
+	if b.loadMaxBytes > 0 {
+		lb.maxBytes = b.loadMaxBytes
+	}
+
+	lb.bytes = lb.maxBytes
+
+	return lb
+}
+
+// SetLoadLimits sets the source file count and decompressed byte caps of a load job; zero keeps the default.
+func (b *InMemoryBackend) SetLoadLimits(files int, bytes int64) {
+	b.mu.Lock("SetLoadLimits")
+	defer b.mu.Unlock()
+
+	b.loadMaxFiles, b.loadMaxBytes = files, bytes
 }

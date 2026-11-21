@@ -146,7 +146,10 @@ func (c *compiler) structuredExpr(n *node, sc *scope) (*gx, error) {
 	return c.subquery(n, sc)
 }
 
-const maxCompileSteps = 1_000_000
+const (
+	maxCompileSteps = 1_000_000
+	castZoneArg     = 2
+)
 
 func (c *compiler) guard() error {
 	c.seq++
@@ -587,6 +590,10 @@ func (c *compiler) cast(n *node, sc *scope) (*gx, error) {
 	to := *n.castTo
 	fn := "bq_cast"
 
+	if len(n.args) > 1 {
+		return c.castFormat(n, sc, a, to)
+	}
+
 	if n.safe {
 		fn = "bq_safe_cast"
 	}
@@ -601,6 +608,35 @@ func (c *compiler) cast(n *node, sc *scope) (*gx, error) {
 
 	return &gx{
 		sql: fn + "(" + a.sql + ", " + quoteStr(to.Kind.SQLName()) + ", " + quoteStr(a.typ.Kind.SQLName()) + ")",
+		typ: to,
+	}, nil
+}
+
+func (c *compiler) castFormat(n *node, sc *scope, a *gx, to Type) (*gx, error) {
+	f, err := c.expr(n.args[1], sc)
+	if err != nil {
+		return nil, err
+	}
+
+	tz := "NULL"
+
+	if len(n.args) > castZoneArg {
+		z, zerr := c.expr(n.args[2], sc)
+		if zerr != nil {
+			return nil, zerr
+		}
+
+		tz = z.sql
+	}
+
+	fn := "bq_cast_format"
+	if n.safe {
+		fn = "bq_safe_cast_format"
+	}
+
+	return &gx{
+		sql: fn + "(" + a.sql + ", " + quoteStr(to.Kind.SQLName()) + ", " + quoteStr(a.typ.Kind.SQLName()) + ", " +
+			f.sql + ", " + tz + ")",
 		typ: to,
 	}, nil
 }
