@@ -41,3 +41,33 @@ func TestNetProberLoopbackOnly(t *testing.T) {
 		})
 	}
 }
+
+func TestNetProberGRPCTLS(t *testing.T) {
+	t.Parallel()
+
+	tlsSrv := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	t.Cleanup(tlsSrv.Close)
+
+	plain := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	t.Cleanup(plain.Close)
+
+	tests := []struct {
+		name    string
+		typ     string
+		address string
+		want    string
+	}{
+		{"tls server", protoGRPCTLS, strings.TrimPrefix(tlsSrv.URL, "https://"), healthHealthy},
+		{"plaintext server", protoGRPCTLS, strings.TrimPrefix(plain.URL, "http://"), healthTimeout},
+		{"plaintext grpc", protoGRPC, strings.TrimPrefix(plain.URL, "http://"), healthHealthy},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := newNetProber().Probe(t.Context(), HealthProbe{Type: tc.typ, Address: tc.address, Timeout: 5 * time.Second})
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}

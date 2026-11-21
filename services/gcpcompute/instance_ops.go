@@ -27,10 +27,10 @@ var (
 		platCascade, "Intel Ice Lake", "Intel Sapphire Rapids", "AMD Rome", "AMD Milan", "AMD Genoa",
 	}
 	updateSkip = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
-		jsonKind: true, "id": true, jsonSelfLink: true, "selfLinkWithId": true, jsonCreated: true, "status": true,
+		jsonKind: true, "id": true, jsonSelfLink: true, jsonSelfLinkID: true, jsonCreated: true, "status": true,
 		"statusMessage": true, "cpuPlatform": true, "lastStartTimestamp": true, "lastStopTimestamp": true,
 		"lastSuspendedTimestamp": true, "zone": true, "resourceStatus": true, "satisfiesPzi": true,
-		"satisfiesPzs": true, "startRestricted": true, jsonFingerp: true, "labelFingerprint": true,
+		"satisfiesPzs": true, "startRestricted": true, jsonFingerp: true, jsonLabelFP: true,
 	}
 	updateNoEffect = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
 		jsonDesc: true, "deletionProtection": true, jsonLabels: true, "metadata": true, "tags": true,
@@ -452,7 +452,7 @@ func (b *InMemoryBackend) applyInstanceUpdate(
 		}
 	}
 
-	if lf, ok := raw["labelFingerprint"].(string); ok && lf != "" && lf != cur.LabelFingerprint {
+	if lf, ok := raw[jsonLabelFP].(string); ok && lf != "" && lf != cur.LabelFingerprint {
 		if _, labelsGiven := raw[jsonLabels]; labelsGiven {
 			return "", errPrecondition("%s", labelsStaleDetail)
 		}
@@ -511,7 +511,7 @@ func updateComplexField(
 
 func applyUpdateLabels(next, in *computeapi.Instance, raw map[string]any) *APIError {
 	req := labelsRequest{Labels: in.Labels, LabelFingerprint: next.LabelFingerprint}
-	if lf, ok := raw["labelFingerprint"].(string); ok && lf != "" {
+	if lf, ok := raw[jsonLabelFP].(string); ok && lf != "" {
 		req.LabelFingerprint = lf
 	}
 

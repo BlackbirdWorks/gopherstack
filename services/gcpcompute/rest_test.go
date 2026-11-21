@@ -241,7 +241,7 @@ func TestAggregatedList(t *testing.T) {
 	got := getJSON[agg](t, e, "/compute/v1/projects/"+project+"/aggregated/instances", http.StatusOK)
 	assert.Equal(t, "compute#instanceAggregatedList", got.Kind)
 	assert.Equal(t, "projects/"+project+"/aggregated/instances", got.ID)
-	assert.Len(t, got.Items, 46, "every zone is a scope")
+	assert.Len(t, got.Items, 130, "every zone is a scope")
 	assert.Equal(t, []string{"alpha", "bravo", "charlie", "delta"}, names(got.Items["zones/"+zone].Items))
 	assert.Equal(t, []string{"echo"}, names(got.Items["zones/"+otherZone].Items))
 	require.NotNil(t, got.Items["zones/europe-west1-b"].Warning)

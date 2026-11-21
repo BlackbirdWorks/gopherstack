@@ -314,7 +314,7 @@ func (b *InMemoryBackend) setSubnetPrivateGoogleAccess(
 
 var subnetPatchable = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
 	jsonName: true, collNetwork: true, "ipCidrRange": true, "secondaryIpRanges": true, "privateIpGoogleAccess": true,
-	"enableFlowLogs": true, "logConfig": true, jsonDesc: true, "fingerprint": true, "region": true,
+	"enableFlowLogs": true, "logConfig": true, jsonDesc: true, "fingerprint": true, jsonRegion: true,
 	jsonKind: true, "id": true, jsonSelfLink: true, jsonCreated: true, "gatewayAddress": true, "purpose": true,
 	jsonStackType: true, "privateIpv6GoogleAccess": true, "ipv6AccessType": true,
 }

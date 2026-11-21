@@ -152,17 +152,26 @@ func TestSetMachineResources(t *testing.T) {
 		name    string
 		machine string
 		accel   string
+		reason  string
 		count   int32
 		status  int
 	}{
 		{name: "n1 with gpu", machine: "n1-standard-1", accel: "nvidia-tesla-t4", count: 1},
-		{name: "e2 rejects gpu", machine: e2Medium, accel: "nvidia-tesla-t4", count: 1, status: http.StatusBadRequest},
+		{
+			name:    "e2 rejects gpu",
+			machine: e2Medium,
+			accel:   "nvidia-tesla-t4",
+			count:   1,
+			status:  http.StatusBadRequest,
+			reason:  "invalid",
+		},
 		{
 			name:    "unknown accelerator",
 			machine: "n1-standard-1",
 			accel:   "nvidia-nope",
 			count:   1,
-			status:  http.StatusBadRequest,
+			status:  http.StatusNotFound,
+			reason:  "notFound",
 		},
 		{
 			name:    "zero count",
@@ -170,6 +179,7 @@ func TestSetMachineResources(t *testing.T) {
 			accel:   "nvidia-tesla-t4",
 			count:   0,
 			status:  http.StatusBadRequest,
+			reason:  "invalid",
 		},
 	}
 
@@ -206,7 +216,7 @@ func TestSetMachineResources(t *testing.T) {
 				},
 			})
 			if tt.status != 0 {
-				assertAPIError(t, err, tt.status, "invalid")
+				assertAPIError(t, err, tt.status, tt.reason)
 
 				return
 			}

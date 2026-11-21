@@ -818,6 +818,11 @@ func (b *InMemoryBackend) insertInstanceLocked(
 		return nil, err
 	}
 
+	accels, err := b.validateAcceleratorsLocked(project, zone, machine, sched, in.Disks, in.GuestAccelerators)
+	if err != nil {
+		return nil, err
+	}
+
 	nics, err := b.buildNICsLocked(project, zone, in)
 	if err != nil {
 		return nil, err
@@ -841,6 +846,7 @@ func (b *InMemoryBackend) insertInstanceLocked(
 
 	inst := b.assembleInstanceLocked(project, zone, in, machine, sched, nics, disks)
 	inst.ResourcePolicies = policies
+	inst.GuestAccelerators = accels
 	inst.ReservationAffinity = affinity
 	b.instances[key(project, zone, in.Name)] = &instRec{Inst: inst, Phase: phaseStart, Since: b.now().UTC()}
 

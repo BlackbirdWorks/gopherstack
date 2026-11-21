@@ -9,8 +9,8 @@ import (
 )
 
 var secPolicyPatchDrop = []string{ //nolint:gochecknoglobals // read-only lookup table
-	"rules", "type", jsonLabels, "labelFingerprint", "associations", "id", jsonKind, jsonSelfLink, jsonCreated,
-	"region", "parent", "shortName",
+	"rules", "type", jsonLabels, jsonLabelFP, "associations", "id", jsonKind, jsonSelfLink, jsonCreated,
+	jsonRegion, "parent", "shortName",
 }
 
 func rulePriority(q map[string][]string) (int64, *APIError) {
@@ -68,9 +68,9 @@ func (b *InMemoryBackend) validateSecPolicyEdit(
 	b.mu.Lock("ValidateSecurityPolicy")
 	defer b.mu.Unlock()
 
-	cur, ok := b.secPolicies[key(c.project, scopeGlobal, name)]
+	cur, ok := b.secPolicies[key(c.project, c.locKey(), name)]
 	if !ok {
-		return nil, errNotFound(relPath(c.project, scopeGlobal, "", collSecPolicy, name))
+		return nil, errNotFound(relPath(c.project, c.scope, c.loc, collSecPolicy, name))
 	}
 
 	next, err := edit(clone(cur))
@@ -203,11 +203,33 @@ func (b *InMemoryBackend) setSecPolicyLabels(c lbCtx, name string, req labelsReq
 }
 
 func (h *Handler) registerSecurityOps() {
-	g := scopeGlobal
-	sp := secPolicySpec()
+	both := []string{scopeGlobal, scopeRegion}
 
-	registerLB(h, sp, lbOpts[computeapi.SecurityPolicy]{scopes: []string{g}})
+	registerLB(h, secPolicySpec(), lbOpts[computeapi.SecurityPolicy]{scopes: both, agg: globalAndRegions()})
 
+	for _, scope := range both {
+		h.registerSecurityScope(scope)
+	}
+
+	h.reg(collSecPolicy, scopeGlobal, "listPreconfiguredExpressionSets", func(*Handler, *request) (any, error) {
+		return preconfiguredExpressionSets(), nil
+	})
+
+	regSetter(h, bsSpec(), both, "setSecurityPolicy",
+		func(cur *computeapi.BackendService, r *computeapi.SecurityPolicyReference) {
+			cur.SecurityPolicy = r.SecurityPolicy
+		})
+	regSetter(h, bsSpec(), []string{scopeGlobal}, "setEdgeSecurityPolicy",
+		func(cur *computeapi.BackendService, r *computeapi.SecurityPolicyReference) {
+			cur.EdgeSecurityPolicy = r.SecurityPolicy
+		})
+	regSetter(h, bucketSpec(), []string{scopeGlobal}, "setEdgeSecurityPolicy",
+		func(cur *computeapi.BackendBucket, r *computeapi.SecurityPolicyReference) {
+			cur.EdgeSecurityPolicy = r.SecurityPolicy
+		})
+}
+
+func (h *Handler) registerSecurityScope(g string) {
 	h.reg(collSecPolicy, g, verbPatch, func(h *Handler, rq *request) (any, error) {
 		_, raw, err := decode[computeapi.SecurityPolicy](rq)
 		if err != nil {
@@ -261,9 +283,4 @@ func (h *Handler) registerSecurityOps() {
 
 		return opResult(h.Backend.setSecPolicyLabels(ctxOf(rq), rq.rt.name, *in))
 	})
-
-	regSetter(h, bsSpec(), []string{g}, "setSecurityPolicy",
-		func(cur *computeapi.BackendService, r *computeapi.SecurityPolicyReference) {
-			cur.SecurityPolicy = r.SecurityPolicy
-		})
 }

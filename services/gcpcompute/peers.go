@@ -59,7 +59,7 @@ func (b *InMemoryBackend) MachineTypeExists(machineType string) bool {
 
 	family := strings.TrimSuffix(strings.TrimSuffix(machineType, "custom-"+tail), "-")
 	switch family {
-	case "", "n1", "n2", "n2d", "e2":
+	case "", "n1", "n2", famN2D, "e2":
 		_, _, ok := customMachine("custom-" + tail)
 
 		return ok

@@ -68,6 +68,7 @@ func bsSpec() lbSpec[computeapi.BackendService] {
 			}
 		},
 		prep: prepBackendService,
+		keep: func(old, next *computeapi.BackendService) { next.EdgeSecurityPolicy = old.EdgeSecurityPolicy },
 		view: func(v *computeapi.BackendService) {
 			for _, be := range v.Backends {
 				be.ForceSendFields = []string{"CapacityScaler"}
@@ -81,6 +82,10 @@ func bsSpec() lbSpec[computeapi.BackendService] {
 
 			if v.SecurityPolicy != "" {
 				out = append(out, v.SecurityPolicy)
+			}
+
+			if v.EdgeSecurityPolicy != "" {
+				out = append(out, v.EdgeSecurityPolicy)
 			}
 
 			return out
@@ -112,6 +117,14 @@ func bucketSpec() lbSpec[computeapi.BackendBucket] {
 			}
 		},
 		prep: prepBackendBucket,
+		keep: func(old, next *computeapi.BackendBucket) { next.EdgeSecurityPolicy = old.EdgeSecurityPolicy },
+		refs: func(v *computeapi.BackendBucket) []string {
+			if v.EdgeSecurityPolicy == "" {
+				return nil
+			}
+
+			return []string{v.EdgeSecurityPolicy}
+		},
 	}
 }
 
@@ -169,6 +182,17 @@ func prepBackendService(b *InMemoryBackend, c lbCtx, in *computeapi.BackendServi
 	if err = b.resolveBSSecurityPolicyLocked(c, in); err != nil {
 		return err
 	}
+
+	if in.EdgeSecurityPolicy != "" && c.scope != scopeGlobal {
+		return errField("resource.edgeSecurityPolicy", in.EdgeSecurityPolicy, "Edge security policies are global.")
+	}
+
+	edge, err := b.resolveEdgePolicyLocked(c.project, "resource.edgeSecurityPolicy", in.EdgeSecurityPolicy)
+	if err != nil {
+		return err
+	}
+
+	in.EdgeSecurityPolicy = edge
 
 	return b.prepBackendsLocked(c, in, raw)
 }
@@ -480,7 +504,7 @@ func defaultBalancingMode(in *computeapi.BackendService, g backendGroup) string 
 	return modeConnection
 }
 
-func prepBackendBucket(_ *InMemoryBackend, _ lbCtx, in *computeapi.BackendBucket, _ map[string]any) *APIError {
+func prepBackendBucket(b *InMemoryBackend, c lbCtx, in *computeapi.BackendBucket, _ map[string]any) *APIError {
 	if in.BucketName == "" {
 		return errRequired("resource.bucketName")
 	}
@@ -508,6 +532,13 @@ func prepBackendBucket(_ *InMemoryBackend, _ lbCtx, in *computeapi.BackendBucket
 	if in.CdnPolicy != nil && !cacheModes[in.CdnPolicy.CacheMode] {
 		return errField("resource.cdnPolicy.cacheMode", in.CdnPolicy.CacheMode, "")
 	}
+
+	edge, err := b.resolveEdgePolicyLocked(c.project, "resource.edgeSecurityPolicy", in.EdgeSecurityPolicy)
+	if err != nil {
+		return err
+	}
+
+	in.EdgeSecurityPolicy = edge
 
 	return nil
 }

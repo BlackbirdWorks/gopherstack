@@ -65,11 +65,23 @@ func (b *InMemoryBackend) insertInstantSnapshot(
 		return nil, err
 	}
 
+	s := b.newInstantSnapshot(project, scope, loc, in.Name, d)
+	s.Description, s.Labels, s.LabelFingerprint = in.Description, in.Labels, labelFP(in.Labels)
+
+	b.instantSnaps[key(project, loc, in.Name)] = s
+
+	return b.newOpLocked("insert", instantTarget(project, scope, loc, s), b.timing.Done), nil
+}
+
+func (b *InMemoryBackend) newInstantSnapshot(
+	project, scope, loc, name string,
+	d *computeapi.Disk,
+) *computeapi.InstantSnapshot {
 	s := &computeapi.InstantSnapshot{
-		Kind: "compute#instantSnapshot", Id: newID(), CreationTimestamp: b.stamp(), Name: in.Name,
-		Description: in.Description, Status: statusReady, DiskSizeGb: d.SizeGb, Architecture: d.Architecture,
-		SourceDisk: d.SelfLink, SourceDiskId: strconv.FormatUint(d.Id, 10), Labels: in.Labels,
-		LabelFingerprint: labelFP(in.Labels), SelfLink: link(project, scope, loc, collInstantSnaps, in.Name),
+		Kind: "compute#instantSnapshot", Id: newID(), CreationTimestamp: b.stamp(), Name: name,
+		Status: statusReady, DiskSizeGb: d.SizeGb, Architecture: d.Architecture,
+		SourceDisk: d.SelfLink, SourceDiskId: strconv.FormatUint(d.Id, 10),
+		LabelFingerprint: labelFP(nil), SelfLink: link(project, scope, loc, collInstantSnaps, name),
 		ResourceStatus: &computeapi.InstantSnapshotResourceStatus{},
 	}
 
@@ -79,9 +91,7 @@ func (b *InMemoryBackend) insertInstantSnapshot(
 		s.Zone = scopeURL(project, scopeZone, loc)
 	}
 
-	b.instantSnaps[key(project, loc, in.Name)] = s
-
-	return b.newOpLocked("insert", instantTarget(project, scope, loc, s), b.timing.Done), nil
+	return s
 }
 
 func (b *InMemoryBackend) getInstantSnapshot(project, scope, loc, name string) (*computeapi.InstantSnapshot, error) {

@@ -57,7 +57,7 @@ func TestZonesAndRegions(t *testing.T) {
 		count++
 	}
 
-	assert.Equal(t, 15, count)
+	assert.Equal(t, 43, count)
 }
 
 func TestMachineTypes(t *testing.T) {
@@ -79,6 +79,23 @@ func TestMachineTypes(t *testing.T) {
 		{"n2-standard-8", "n2-standard-8", 8, 32768, false, 200},
 		{"n2-highmem-2", "n2-highmem-2", 2, 16384, false, 200},
 		{"n1-standard-1", "n1-standard-1", 1, 3840, false, 200},
+		{"n1-highmem-2", "n1-highmem-2", 2, 13312, false, 200},
+		{"n1-highcpu-2", "n1-highcpu-2", 2, 1843, false, 200},
+		{"n1-standard-96", "n1-standard-96", 96, 368640, false, 200},
+		{"f1-micro", "f1-micro", 1, 614, true, 200},
+		{"g1-small", "g1-small", 1, 1740, true, 200},
+		{"n2-highmem-128 lists 864 GB", "n2-highmem-128", 128, 884736, false, 200},
+		{"n2d-standard-224", "n2d-standard-224", 224, 917504, false, 200},
+		{"n2d-highcpu-128", "n2d-highcpu-128", 128, 131072, false, 200},
+		{"n4-highcpu-8", "n4-highcpu-8", 8, 16384, false, 200},
+		{"n4-highmem-80", "n4-highmem-80", 80, 655360, false, 200},
+		{"c3-standard-22", "c3-standard-22", 22, 90112, false, 200},
+		{"c3-highmem-176", "c3-highmem-176", 176, 1441792, false, 200},
+		{"c3-highcpu-44", "c3-highcpu-44", 44, 90112, false, 200},
+		{"t2d-standard-60", "t2d-standard-60", 60, 245760, false, 200},
+		{"t2a-standard-48", "t2a-standard-48", 48, 196608, false, 200},
+		{"n2-highmem-129", "n2-highmem-129", 0, 0, false, 404},
+		{"n1-highmem-1", "n1-highmem-1", 0, 0, false, 404},
 		{"custom", "custom-6-12288", 6, 12288, false, 200},
 		{"unknown", "c9-mega-1", 0, 0, false, 404},
 		{"bad custom", "custom-3-1024", 0, 0, false, 404},
@@ -187,4 +204,46 @@ func TestProjectCommonMetadata(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "TRUE", p.GetCommonInstanceMetadata().GetItems()[0].GetValue())
 	assert.NotEqual(t, fp, p.GetCommonInstanceMetadata().GetFingerprint())
+}
+
+func TestRegionCatalogue(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		region string
+		auto   string
+		zones  []string
+	}{
+		{region: "africa-south1", auto: "10.218.0.0/20", zones: []string{"a", "b", "c"}},
+		{region: "asia-southeast3", auto: "10.232.0.0/20", zones: []string{"a", "b", "c"}},
+		{region: "me-central2", auto: "10.216.0.0/20", zones: []string{"a", "b", "c"}},
+		{region: "northamerica-south1", auto: "10.224.0.0/20", zones: []string{"a", "b", "c"}},
+		{region: "us-west4", auto: "10.182.0.0/20", zones: []string{"a", "b", "c"}},
+		{region: "europe-west1", auto: "10.132.0.0/20", zones: []string{"b", "c", "d"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.region, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t)
+
+			r, err := e.regions(t).Get(t.Context(), &computepb.GetRegionRequest{Project: project, Region: tt.region})
+			require.NoError(t, err)
+			assert.Len(t, r.GetZones(), len(tt.zones))
+
+			for _, z := range tt.zones {
+				assert.Contains(t, r.GetZones(), "https://www.googleapis.com/compute/v1/projects/"+project+
+					"/zones/"+tt.region+"-"+z)
+			}
+
+			e.network(t, "auto", true)
+
+			sub, serr := e.subnets(t).Get(t.Context(), &computepb.GetSubnetworkRequest{
+				Project: project, Region: tt.region, Subnetwork: "auto",
+			})
+			require.NoError(t, serr)
+			assert.Equal(t, tt.auto, sub.GetIpCidrRange())
+		})
+	}
 }

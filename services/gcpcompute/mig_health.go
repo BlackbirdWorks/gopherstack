@@ -65,7 +65,7 @@ func (p *netProber) Probe(ctx context.Context, hp HealthProbe) string {
 	switch hp.Type {
 	case protoHTTP, protoHTTPS, protoHTTP2:
 		return p.probeHTTP(ctx, hp)
-	case protoSSL:
+	case protoSSL, protoGRPCTLS:
 		cfg := &tls.Config{
 			MinVersion:         tls.VersionTLS12,
 			InsecureSkipVerify: true, //nolint:gosec // loopback probes only

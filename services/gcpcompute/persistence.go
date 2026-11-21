@@ -15,50 +15,55 @@ import (
 const snapshotVersion = 1
 
 type backendSnapshot struct {
-	Networks        map[string]*computeapi.Network              `json:"networks"`
-	Subnets         map[string]*computeapi.Subnetwork           `json:"subnets"`
-	Firewalls       map[string]*computeapi.Firewall             `json:"firewalls"`
-	Routes          map[string]*computeapi.Route                `json:"routes"`
-	Addresses       map[string]*computeapi.Address              `json:"addresses"`
-	Routers         map[string]*routerRec                       `json:"routers"`
-	Disks           map[string]*computeapi.Disk                 `json:"disks"`
-	Images          map[string]*computeapi.Image                `json:"images"`
-	Snapshots       map[string]*computeapi.Snapshot             `json:"snapshots"`
-	InstantSnaps    map[string]*computeapi.InstantSnapshot      `json:"instantSnapshots"`
-	MachineImages   map[string]*computeapi.MachineImage         `json:"machineImages"`
-	Reservations    map[string]*computeapi.Reservation          `json:"reservations"`
-	Instances       map[string]*instRec                         `json:"instances"`
-	Templates       map[string]*computeapi.InstanceTemplate     `json:"templates"`
-	Healths         map[string]*computeapi.HealthCheck          `json:"healthChecks"`
-	Migs            map[string]*migRec                          `json:"instanceGroupManagers"`
-	Groups          map[string]*groupRec                        `json:"instanceGroups"`
-	Scalers         map[string]*computeapi.Autoscaler           `json:"autoscalers"`
-	BackendServices map[string]*computeapi.BackendService       `json:"backendServices"`
-	BackendBuckets  map[string]*computeapi.BackendBucket        `json:"backendBuckets"`
-	URLMaps         map[string]*computeapi.UrlMap               `json:"urlMaps"`
-	HTTPProxies     map[string]*computeapi.TargetHttpProxy      `json:"targetHttpProxies"`
-	HTTPSProxies    map[string]*computeapi.TargetHttpsProxy     `json:"targetHttpsProxies"`
-	TCPProxies      map[string]*computeapi.TargetTcpProxy       `json:"targetTcpProxies"`
-	SSLProxies      map[string]*computeapi.TargetSslProxy       `json:"targetSslProxies"`
-	SSLCerts        map[string]*computeapi.SslCertificate       `json:"sslCertificates"`
-	SSLPolicies     map[string]*computeapi.SslPolicy            `json:"sslPolicies"`
-	FwdRules        map[string]*computeapi.ForwardingRule       `json:"forwardingRules"`
-	TargetPools     map[string]*computeapi.TargetPool           `json:"targetPools"`
-	TargetInstances map[string]*computeapi.TargetInstance       `json:"targetInstances"`
-	HTTPHealths     map[string]*computeapi.HttpHealthCheck      `json:"httpHealthChecks"`
-	HTTPSHealths    map[string]*computeapi.HttpsHealthCheck     `json:"httpsHealthChecks"`
-	VPNGateways     map[string]*computeapi.VpnGateway           `json:"vpnGateways"`
-	TargetVPNs      map[string]*computeapi.TargetVpnGateway     `json:"targetVpnGateways"`
-	VPNTunnels      map[string]*computeapi.VpnTunnel            `json:"vpnTunnels"`
-	ExternalVPNs    map[string]*computeapi.ExternalVpnGateway   `json:"externalVpnGateways"`
-	NEGs            map[string]*computeapi.NetworkEndpointGroup `json:"networkEndpointGroups"`
-	NEGEndpoints    map[string][]*computeapi.NetworkEndpoint    `json:"networkEndpoints"`
-	SecPolicies     map[string]*computeapi.SecurityPolicy       `json:"securityPolicies"`
-	ResPolicies     map[string]*computeapi.ResourcePolicy       `json:"resourcePolicies"`
-	SchedRuns       map[string]*schedRun                        `json:"scheduleRuns,omitempty"`
-	Ops             map[string]*opRec                           `json:"ops"`
-	Projects        map[string]*computeapi.Metadata             `json:"projects"`
-	Version         int                                         `json:"version"`
+	Networks        map[string]*computeapi.Network                `json:"networks"`
+	Subnets         map[string]*computeapi.Subnetwork             `json:"subnets"`
+	Firewalls       map[string]*computeapi.Firewall               `json:"firewalls"`
+	Routes          map[string]*computeapi.Route                  `json:"routes"`
+	Addresses       map[string]*computeapi.Address                `json:"addresses"`
+	Routers         map[string]*routerRec                         `json:"routers"`
+	Disks           map[string]*computeapi.Disk                   `json:"disks"`
+	Images          map[string]*computeapi.Image                  `json:"images"`
+	Snapshots       map[string]*computeapi.Snapshot               `json:"snapshots"`
+	InstantSnaps    map[string]*computeapi.InstantSnapshot        `json:"instantSnapshots"`
+	MachineImages   map[string]*computeapi.MachineImage           `json:"machineImages"`
+	Reservations    map[string]*computeapi.Reservation            `json:"reservations"`
+	Instances       map[string]*instRec                           `json:"instances"`
+	Templates       map[string]*computeapi.InstanceTemplate       `json:"templates"`
+	Healths         map[string]*computeapi.HealthCheck            `json:"healthChecks"`
+	Migs            map[string]*migRec                            `json:"instanceGroupManagers"`
+	Groups          map[string]*groupRec                          `json:"instanceGroups"`
+	Scalers         map[string]*computeapi.Autoscaler             `json:"autoscalers"`
+	BackendServices map[string]*computeapi.BackendService         `json:"backendServices"`
+	BackendBuckets  map[string]*computeapi.BackendBucket          `json:"backendBuckets"`
+	URLMaps         map[string]*computeapi.UrlMap                 `json:"urlMaps"`
+	HTTPProxies     map[string]*computeapi.TargetHttpProxy        `json:"targetHttpProxies"`
+	HTTPSProxies    map[string]*computeapi.TargetHttpsProxy       `json:"targetHttpsProxies"`
+	TCPProxies      map[string]*computeapi.TargetTcpProxy         `json:"targetTcpProxies"`
+	SSLProxies      map[string]*computeapi.TargetSslProxy         `json:"targetSslProxies"`
+	SSLCerts        map[string]*computeapi.SslCertificate         `json:"sslCertificates"`
+	SSLPolicies     map[string]*computeapi.SslPolicy              `json:"sslPolicies"`
+	FwdRules        map[string]*computeapi.ForwardingRule         `json:"forwardingRules"`
+	TargetPools     map[string]*computeapi.TargetPool             `json:"targetPools"`
+	TargetInstances map[string]*computeapi.TargetInstance         `json:"targetInstances"`
+	HTTPHealths     map[string]*computeapi.HttpHealthCheck        `json:"httpHealthChecks"`
+	HTTPSHealths    map[string]*computeapi.HttpsHealthCheck       `json:"httpsHealthChecks"`
+	VPNGateways     map[string]*computeapi.VpnGateway             `json:"vpnGateways"`
+	TargetVPNs      map[string]*computeapi.TargetVpnGateway       `json:"targetVpnGateways"`
+	VPNTunnels      map[string]*computeapi.VpnTunnel              `json:"vpnTunnels"`
+	ExternalVPNs    map[string]*computeapi.ExternalVpnGateway     `json:"externalVpnGateways"`
+	NEGs            map[string]*computeapi.NetworkEndpointGroup   `json:"networkEndpointGroups"`
+	NEGEndpoints    map[string][]*computeapi.NetworkEndpoint      `json:"networkEndpoints"`
+	SecPolicies     map[string]*computeapi.SecurityPolicy         `json:"securityPolicies"`
+	ResPolicies     map[string]*computeapi.ResourcePolicy         `json:"resourcePolicies"`
+	Licenses        map[string]*computeapi.License                `json:"licenses,omitempty"`
+	Interconnects   map[string]*computeapi.Interconnect           `json:"interconnects,omitempty"`
+	ICAttachments   map[string]*computeapi.InterconnectAttachment `json:"interconnectAttachments,omitempty"`
+	FutureRes       map[string]*computeapi.FutureReservation      `json:"futureReservations,omitempty"`
+	InstSnapGroups  map[string]*computeapi.InstantSnapshotGroup   `json:"instantSnapshotGroups,omitempty"`
+	SchedRuns       map[string]*schedRun                          `json:"scheduleRuns,omitempty"`
+	Ops             map[string]*opRec                             `json:"ops"`
+	Projects        map[string]*computeapi.Metadata               `json:"projects"`
+	Version         int                                           `json:"version"`
 }
 
 // Snapshot serialises the backend state.
@@ -76,7 +81,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		HTTPProxies: b.httpProxies, HTTPSProxies: b.httpsProxies, TCPProxies: b.tcpProxies,
 		SSLProxies: b.sslProxies, SSLCerts: b.sslCerts, SSLPolicies: b.sslPolicies, FwdRules: b.fwdRules,
 		NEGs: b.negs, NEGEndpoints: b.negEndpoints, SecPolicies: b.secPolicies, ResPolicies: b.resPolicies,
-		SchedRuns:   b.schedRuns,
+		SchedRuns: b.schedRuns, Licenses: b.licenses, Interconnects: b.interconnects,
+		ICAttachments: b.icAttachments, FutureRes: b.futureRes, InstSnapGroups: b.instSnapGroups,
 		TargetPools: b.targetPools, TargetInstances: b.targetInstances, HTTPHealths: b.httpHealths,
 		HTTPSHealths: b.httpsHealths, VPNGateways: b.vpnGateways, TargetVPNs: b.targetVPNs,
 		VPNTunnels: b.vpnTunnels, ExternalVPNs: b.externalVPNs,
@@ -137,6 +143,9 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		copyNonNil(b.httpsHealths, snap.HTTPSHealths), copyNonNil(b.vpnGateways, snap.VPNGateways),
 		copyNonNil(b.targetVPNs, snap.TargetVPNs), copyNonNil(b.vpnTunnels, snap.VPNTunnels),
 		copyNonNil(b.externalVPNs, snap.ExternalVPNs), copyNonNil(b.schedRuns, snap.SchedRuns),
+		copyNonNil(b.licenses, snap.Licenses), copyNonNil(b.interconnects, snap.Interconnects),
+		copyNonNil(b.icAttachments, snap.ICAttachments), copyNonNil(b.futureRes, snap.FutureRes),
+		copyNonNil(b.instSnapGroups, snap.InstSnapGroups),
 	} {
 		if err != nil {
 			b.resetMaps()

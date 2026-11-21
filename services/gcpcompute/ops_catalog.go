@@ -5,6 +5,7 @@ import (
 )
 
 func (h *Handler) registerCatalogOps() {
+	h.registerAcceleratorOps()
 	h.reg("projects", "", verbGet, func(_ *Handler, rq *request) (any, error) {
 		return h.Backend.getProject(rq.rt.name), nil
 	})
@@ -31,7 +32,7 @@ func (h *Handler) registerCatalogOps() {
 		"regions",
 		"",
 		verbGet,
-		func(_ *Handler, rq *request) (any, error) { return getRegion(rq.rt.project, rq.rt.name) },
+		func(h *Handler, rq *request) (any, error) { return h.Backend.getRegion(rq.rt.project, rq.rt.name) },
 	)
 
 	h.scopedList(

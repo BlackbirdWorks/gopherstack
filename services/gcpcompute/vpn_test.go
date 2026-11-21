@@ -125,7 +125,7 @@ func TestVPNGatewayInsert(t *testing.T) {
 			gw: &computepb.VpnGateway{Name: s("gw"), Network: s(vpcRef), GatewayIpVersion: s("IPV5")},
 		},
 		{
-			name: "interconnect", status: http.StatusBadRequest,
+			name: "missing attachment", status: http.StatusNotFound,
 			gw: &computepb.VpnGateway{
 				Name: s("gw"), Network: s(vpcRef),
 				VpnInterfaces: []*computepb.VpnGatewayVpnGatewayInterface{{InterconnectAttachment: s("x")}},
@@ -760,7 +760,7 @@ func TestRouterVPNValidation(t *testing.T) {
 			ifc:    &computepb.RouterInterface{Name: s("if0"), LinkedVpnTunnel: s(regBase + "vpnTunnels/none")},
 		},
 		{
-			name: "interconnect", status: http.StatusBadRequest,
+			name: "missing attachment", status: http.StatusNotFound,
 			ifc: &computepb.RouterInterface{Name: s("if0"), LinkedInterconnectAttachment: s("x")},
 		},
 		{

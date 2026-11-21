@@ -54,6 +54,8 @@ type lbSpec[T any] struct {
 	m    func(b *InMemoryBackend) map[string]*T
 	meta func(v *T) lbMeta
 	prep func(b *InMemoryBackend, c lbCtx, in *T, raw map[string]any) *APIError
+	// keep copies output-only fields set by dedicated actions from old to next on patch and update.
+	keep func(old, next *T)
 	refs func(v *T) []string
 	view func(v *T)
 	// viewB derives output-only fields from backend state; it runs under the backend lock.
@@ -91,6 +93,18 @@ func lbInsert[T any](
 	in *T,
 	raw map[string]any,
 ) (*computeapi.Operation, error) {
+	return lbInsertMode(b, sp, c, in, raw, false)
+}
+
+// lbInsertMode is lbInsert; with validateOnly the resource is validated but not stored.
+func lbInsertMode[T any](
+	b *InMemoryBackend,
+	sp lbSpec[T],
+	c lbCtx,
+	in *T,
+	raw map[string]any,
+	validateOnly bool,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("Insert" + sp.coll)
 	defer b.mu.Unlock()
 
@@ -108,6 +122,10 @@ func lbInsert[T any](
 
 	lbStamp(b, c, mt, sp.coll, name, sp.kind)
 
+	if sp.keep != nil {
+		sp.keep(new(T), in)
+	}
+
 	if mt.fp != nil {
 		*mt.fp = newFingerprint()
 	}
@@ -116,7 +134,9 @@ func lbInsert[T any](
 		return nil, err
 	}
 
-	m[key(c.project, c.locKey(), name)] = in
+	if !validateOnly {
+		m[key(c.project, c.locKey(), name)] = in
+	}
 
 	return b.newOpLocked(opPrefix+sp.coll+".insert", lbTargetOf(c, sp.coll, name, *mt.id), b.timing.Done), nil
 }
@@ -282,7 +302,12 @@ func lbPatch[T any](
 	raw map[string]any,
 ) (*computeapi.Operation, error) {
 	return lbMutate(b, sp, c, name, "patch", raw, func(cur *T) (*T, *APIError) {
-		return mergeInto(cur, raw)
+		next, err := mergeInto(cur, raw)
+		if err == nil && sp.keep != nil {
+			sp.keep(cur, next)
+		}
+
+		return next, err
 	})
 }
 
@@ -298,6 +323,10 @@ func lbReplace[T any](
 	return lbMutate(b, sp, c, name, "update", raw, func(cur *T) (*T, *APIError) {
 		if fp := sp.meta(in).fp; fp != nil && *fp != *sp.meta(cur).fp {
 			return nil, errPrecondition("Supplied fingerprint does not match current fingerprint.")
+		}
+
+		if sp.keep != nil {
+			sp.keep(cur, in)
 		}
 
 		return in, nil
@@ -372,6 +401,7 @@ func (b *InMemoryBackend) lbUsersLocked(self string) []string {
 	var users []string
 
 	lbCollectUsers(b, bsSpec(), self, &users)
+	lbCollectUsers(b, bucketSpec(), self, &users)
 	lbCollectUsers(b, urlMapSpec(), self, &users)
 	lbCollectUsers(b, httpProxySpec(), self, &users)
 	lbCollectUsers(b, httpsProxySpec(), self, &users)
@@ -380,6 +410,7 @@ func (b *InMemoryBackend) lbUsersLocked(self string) []string {
 	lbCollectUsers(b, fwdRuleSpec(), self, &users)
 	lbCollectUsers(b, targetPoolSpec(), self, &users)
 	lbCollectUsers(b, vpnTunnelSpec(), self, &users)
+	lbCollectUsers(b, vpnGatewaySpec(), self, &users)
 
 	for _, r := range b.routes {
 		if r.NextHopVpnTunnel == self {
@@ -402,6 +433,9 @@ func (b *InMemoryBackend) lbUsersLocked(self string) []string {
 			}
 		}
 	}
+
+	b.licenseUsersLocked(self, &users)
+	b.interconnectUsersLocked(self, &users)
 
 	slices.Sort(users)
 
