@@ -181,6 +181,14 @@ func (h *DynamoDBHandler) StartWorker(ctx context.Context) error {
 	return nil
 }
 
+// DrainDeletedTables synchronously finalises every table queued for deletion,
+// waiting out any janitor pass already in flight.
+func (h *DynamoDBHandler) DrainDeletedTables(ctx context.Context) {
+	if h.janitor != nil {
+		h.janitor.runTableCleaner(ctx)
+	}
+}
+
 // Shutdown stops the janitor worker and waits for it to exit (or until ctx expires).
 func (h *DynamoDBHandler) Shutdown(ctx context.Context) {
 	h.janitorMu.Lock()
