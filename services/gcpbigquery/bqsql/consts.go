@@ -3,6 +3,7 @@ package bqsql
 // Repeated string literals shared across the package.
 const (
 	litAnd         = "AND"
+	litOr          = "OR"
 	litArray       = "ARRAY"
 	litBignumeric  = "BIGNUMERIC"
 	litBool        = "BOOL"

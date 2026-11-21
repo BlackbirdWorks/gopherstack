@@ -232,6 +232,30 @@ func TestGeographyFunctions(t *testing.T) {
 			[][]any{{"LINESTRING(1 2, 2 3)", "POINT(1 2)", "LINESTRING(1 2, 2 3, 3 4, 4 5)"}},
 		},
 		{
+			"makeline overlap",
+			"SELECT ST_ASTEXT(ST_MAKELINE([ST_MAKELINE(ST_GEOGPOINT(1, 0), ST_GEOGPOINT(10, 0)), " +
+				"ST_MAKELINE(ST_GEOGPOINT(10, 0), ST_GEOGPOINT(5, 0)), ST_MAKELINE(ST_GEOGPOINT(5, 0), ST_GEOGPOINT(5, 4))]))",
+			[][]any{{"MULTILINESTRING((1 0, 5 0, 10 0), (5 0, 5 4))"}},
+		},
+		{
+			"makeline retrace",
+			"SELECT ST_ASTEXT(ST_MAKELINE([ST_GEOGPOINT(0, 0), ST_GEOGPOINT(2, 0), ST_GEOGPOINT(0, 0)])), " +
+				"ST_ASTEXT(ST_MAKELINE([ST_GEOGPOINT(0, 0), ST_GEOGPOINT(1, 0), ST_GEOGPOINT(0, 0), ST_GEOGPOINT(0, 1)])), " +
+				"ST_ASTEXT(ST_MAKELINE([ST_GEOGPOINT(0, 0), ST_GEOGPOINT(0, 4), ST_GEOGPOINT(0, 2), ST_GEOGPOINT(0, 6)]))",
+			[][]any{{"LINESTRING(0 0, 2 0)", "LINESTRING(1 0, 0 0, 0 1)", "LINESTRING(0 0, 0 2, 0 4, 0 6)"}},
+		},
+		{
+			"makeline touch",
+			"SELECT ST_ASTEXT(ST_MAKELINE([ST_GEOGPOINT(0, 0), ST_GEOGPOINT(2, 0), ST_GEOGPOINT(1, 1), ST_GEOGPOINT(1, 0)]))",
+			[][]any{{"LINESTRING(0 0, 2 0, 1 1, 1 0)"}},
+		},
+		{
+			"makeline null",
+			"SELECT ST_MAKELINE(ST_GEOGPOINT(1, 2), CAST(NULL AS GEOGRAPHY)), " +
+				"ST_MAKELINE([ST_GEOGPOINT(1, 2), CAST(NULL AS GEOGRAPHY)])",
+			[][]any{{nil, nil}},
+		},
+		{
 			"makepolygon",
 			"SELECT ST_ASTEXT(ST_MAKEPOLYGON(ST_GEOGFROMTEXT('LINESTRING(0 0, 1 0, 1 1, 0 0)')))",
 			[][]any{{"POLYGON((0 0, 1 0, 1 1, 0 0))"}},
@@ -708,6 +732,36 @@ func TestSearchFunctions(t *testing.T) {
 			"email custom full",
 			"SELECT SEARCH('Please use foobar@example.com as your email.', 'foobar@example.com', " +
 				"analyzer_options => '{\"delimiters\": [\" \", \"@\"]}')",
+		},
+		{
+			"true",
+			"phrase logical",
+			"SELECT SEARCH(R'foo bar', R'\"foo AND (bar OR baz)\"')",
+		},
+		{
+			"false",
+			"phrase logical miss",
+			"SELECT SEARCH(R'foo', R'\"foo AND (bar OR baz)\"')",
+		},
+		{
+			"true",
+			"phrase or",
+			"SELECT SEARCH(R'foo bar', R'\"zzz OR bar\"')",
+		},
+		{
+			"true",
+			"implicit and",
+			"SELECT SEARCH(R'foo bar baz', R'foo bar')",
+		},
+		{
+			"true",
+			"empty noop",
+			"SELECT SEARCH('', '', analyzer => 'NO_OP_ANALYZER')",
+		},
+		{
+			"false",
+			"noop phrase",
+			"SELECT SEARCH(R'foo bar baz', R'\"foo bar\"', analyzer => 'NO_OP_ANALYZER')",
 		},
 		{
 			"true",

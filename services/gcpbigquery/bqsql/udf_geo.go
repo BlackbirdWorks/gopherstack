@@ -428,7 +428,8 @@ func (g *geo) geoJSON() string {
 	return `{ "type": "GeometryCollection", "geometries": [] }`
 }
 
-// udfMakeLine concatenates the vertices of its point or linestring arguments, dropping consecutive repeats.
+// udfMakeLine concatenates the vertices of its point or linestring arguments, dropping consecutive repeats and
+// collapsing retraced or overlapping edges.
 func udfMakeLine(a []driver.Value) (driver.Value, error) {
 	if len(a) == 1 && a[0] != nil {
 		if arr, err := decodeJSONArray(a[0]); err == nil {
@@ -471,7 +472,12 @@ func udfMakeLine(a []driver.Value) (driver.Value, error) {
 		return (&geo{kind: gEmpty}).wkt(), nil
 	}
 
-	return (&geo{kind: gLine, lines: [][]lonLat{pts}}).wkt(), nil
+	lines := nodeLines(pts)
+	if len(lines) > 1 {
+		return (&geo{kind: gMultiLine, lines: lines}).wkt(), nil
+	}
+
+	return (&geo{kind: gLine, lines: lines}).wkt(), nil
 }
 
 func appendDistinct(dst []lonLat, add ...lonLat) []lonLat {
