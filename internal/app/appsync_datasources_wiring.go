@@ -164,6 +164,15 @@ func (a appsyncOpenSearch) ensureEngineDomain(d *elasticsearchbackend.Domain) er
 		Name: d.Name, EngineVersion: "Elasticsearch_" + d.ElasticsearchVersion,
 		Tags: map[string]string{esMirrorTag: stamp},
 	})
+	if errors.Is(err, opensearchbackend.ErrDomainAlreadyExists) {
+		if won, derr := bk.DescribeDomain(d.Name); derr == nil {
+			tags, _ := bk.ListTags(won.ARN)
+			if tags[esMirrorTag] == stamp {
+				return nil
+			}
+		}
+	}
+
 	if err != nil {
 		return fmt.Errorf("create engine domain for %s: %w", d.Name, err)
 	}

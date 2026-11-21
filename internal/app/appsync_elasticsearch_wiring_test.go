@@ -1,6 +1,7 @@
 package app
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -9,6 +10,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/elasticsearchservice"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	elasticsearchbackend "github.com/blackbirdworks/gopherstack/services/elasticsearch"
+	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 )
 
 func (f *asDSFixture) addESDataSource(t *testing.T, endpoint string) {
@@ -125,5 +129,47 @@ func TestAppSyncElasticsearchDataSource(t *testing.T) {
 
 			tt.check(t, f, es, endpoint)
 		})
+	}
+}
+
+func TestAppSyncElasticsearchMirrorConcurrentFirstUse(t *testing.T) {
+	t.Parallel()
+
+	f := newASDSFixture(t)
+	es := elasticsearchservice.NewFromConfig(f.fx.cfg)
+
+	_, err := es.CreateElasticsearchDomain(t.Context(), &elasticsearchservice.CreateElasticsearchDomainInput{
+		DomainName: aws.String("books"),
+	})
+	require.NoError(t, err)
+
+	dom, err := es.DescribeElasticsearchDomain(t.Context(), &elasticsearchservice.DescribeElasticsearchDomainInput{
+		DomainName: aws.String("books"),
+	})
+	require.NoError(t, err)
+
+	osH, ok := serviceByName(f.fx.services)["OpenSearch"].(*opensearchbackend.Handler)
+	require.True(t, ok)
+
+	esH, ok := serviceByName(f.fx.services)["Elasticsearch"].(*elasticsearchbackend.Handler)
+	require.True(t, ok)
+
+	mirror := appsyncOpenSearch{handler: osH, es: esH}
+	endpoint := "https://" + aws.ToString(dom.DomainStatus.Endpoint)
+
+	const workers = 16
+
+	errs := make([]error, workers)
+
+	var wg sync.WaitGroup
+
+	for i := range workers {
+		wg.Go(func() { _, errs[i] = mirror.domainFor(t.Context(), endpoint) })
+	}
+
+	wg.Wait()
+
+	for _, e := range errs {
+		assert.NoError(t, e)
 	}
 }

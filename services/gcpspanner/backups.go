@@ -346,6 +346,23 @@ func (b *InMemoryBackend) insertBackup(instance, id string, r *backupRec) error 
 	return nil
 }
 
+// sweepExpiredBackups deletes READY backups past their expire_time that no restored database or copy refers to.
+func (b *InMemoryBackend) sweepExpiredBackups() {
+	b.mu.Lock("sweepExpiredBackups")
+	defer b.mu.Unlock()
+
+	now := b.now()
+
+	for _, r := range b.instances {
+		for id, bk := range r.backups {
+			if bk.pb.GetState() == databasepb.Backup_READY && !bk.pb.GetExpireTime().AsTime().After(now) &&
+				len(bk.pb.GetReferencingDatabases()) == 0 && len(bk.pb.GetReferencingBackups()) == 0 {
+				delete(r.backups, id)
+			}
+		}
+	}
+}
+
 func (b *InMemoryBackend) dropBackup(name string) {
 	inst, id, err := parseBackup(name)
 	if err != nil {
@@ -519,6 +536,8 @@ func (b *InMemoryBackend) copyEncryption(
 }
 
 func (b *InMemoryBackend) copyInto(in *databasepb.CopyBackupRequest, id string) (*backupRec, error) {
+	b.sweepExpiredBackups()
+
 	b.mu.RLock("CopyBackup")
 
 	destInst, derr := b.instanceLocked(in.GetParent())
@@ -653,6 +672,8 @@ func (b *InMemoryBackend) dropBackupLocked(name string) {
 
 // GetBackup returns a backup.
 func (b *InMemoryBackend) GetBackup(name string) (*databasepb.Backup, error) {
+	b.sweepExpiredBackups()
+
 	b.mu.RLock("GetBackup")
 	defer b.mu.RUnlock()
 
@@ -686,6 +707,8 @@ func (b *InMemoryBackend) UpdateBackup(in *databasepb.UpdateBackupRequest) (*dat
 		}
 	}
 
+	b.sweepExpiredBackups()
+
 	b.mu.Lock("UpdateBackup")
 	defer b.mu.Unlock()
 
@@ -710,6 +733,8 @@ func (b *InMemoryBackend) UpdateBackup(in *databasepb.UpdateBackupRequest) (*dat
 
 // DeleteBackup deletes a backup that no restored database or copy still refers to.
 func (b *InMemoryBackend) DeleteBackup(name string) (*emptypb.Empty, error) {
+	b.sweepExpiredBackups()
+
 	b.mu.Lock("DeleteBackup")
 	defer b.mu.Unlock()
 
@@ -769,6 +794,8 @@ func (b *InMemoryBackend) ListBackups(in *databasepb.ListBackupsRequest) (*datab
 	if err := page.ValidateToken(in.GetPageToken()); err != nil {
 		return nil, errInvalid("Invalid page_token.")
 	}
+
+	b.sweepExpiredBackups()
 
 	b.mu.RLock("ListBackups")
 

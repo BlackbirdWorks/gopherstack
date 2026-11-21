@@ -81,6 +81,8 @@ func (b *InMemoryBackend) validateRestore(
 
 // restoreSource returns a copy of the READY backup a restore reads.
 func (b *InMemoryBackend) restoreSource(name string) (*backupRec, error) {
+	b.sweepExpiredBackups()
+
 	b.mu.RLock("RestoreDatabase")
 	defer b.mu.RUnlock()
 
