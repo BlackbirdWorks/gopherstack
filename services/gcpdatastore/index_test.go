@@ -79,32 +79,38 @@ func TestCompositeIndexEnforcement(t *testing.T) {
 		{
 			datastore.NewQuery("Task").FilterField("Done", "=", true).Order("Priority"),
 			"equality and sort",
-			[]*adminpb.Index_IndexedProperty{prop("Done", false), prop("Priority", false)}, adminpb.Index_NONE, true,
+			[]*adminpb.Index_IndexedProperty{prop("Done", false), prop("Priority", false)},
+			adminpb.Index_NONE, true,
 		},
 		{
 			datastore.NewQuery("Task").Order("Done").Order("-Priority"),
 			"two sorts",
-			[]*adminpb.Index_IndexedProperty{prop("Done", false), prop("Priority", true)}, adminpb.Index_NONE, true,
+			[]*adminpb.Index_IndexedProperty{prop("Done", false), prop("Priority", true)},
+			adminpb.Index_NONE, true,
 		},
 		{
 			datastore.NewQuery("Task").FilterField("Done", "=", true).FilterField("Priority", ">", 1),
 			"equality and inequality",
-			[]*adminpb.Index_IndexedProperty{prop("Done", false), prop("Priority", false)}, adminpb.Index_NONE, true,
+			[]*adminpb.Index_IndexedProperty{prop("Done", false), prop("Priority", false)},
+			adminpb.Index_NONE, true,
 		},
 		{
 			datastore.NewQuery("Task").Ancestor(parent).FilterField("Priority", ">", 1),
 			"ancestor and inequality",
-			[]*adminpb.Index_IndexedProperty{prop("Priority", false)}, adminpb.Index_ALL_ANCESTORS, true,
+			[]*adminpb.Index_IndexedProperty{prop("Priority", false)},
+			adminpb.Index_ALL_ANCESTORS, true,
 		},
 		{
 			datastore.NewQuery("Task").FilterField("Priority", ">", 1).FilterField("Score", "<", 5.0),
 			"inequalities on two properties",
-			[]*adminpb.Index_IndexedProperty{prop("Priority", false), prop("Score", false)}, adminpb.Index_NONE, true,
+			[]*adminpb.Index_IndexedProperty{prop("Priority", false), prop("Score", false)},
+			adminpb.Index_NONE, true,
 		},
 		{
 			datastore.NewQuery("Task").Order("-__key__"),
 			"descending key",
-			[]*adminpb.Index_IndexedProperty{prop("__key__", true)}, adminpb.Index_NONE, true,
+			[]*adminpb.Index_IndexedProperty{prop("__key__", true)},
+			adminpb.Index_NONE, true,
 		},
 	}
 

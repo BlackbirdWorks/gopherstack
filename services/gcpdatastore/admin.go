@@ -5,14 +5,11 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"cloud.google.com/go/datastore/admin/apiv1/adminpb"
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/gcplro"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -119,28 +116,7 @@ func sameDefinition(a, b *adminpb.Index) bool {
 	return true
 }
 
-func (b *InMemoryBackend) indexOp(
-	project string, op adminpb.OperationType, idx *adminpb.Index,
-) (*longrunningpb.Operation, error) {
-	now := timestamppb.New(b.wallLocked())
-	meta := &adminpb.IndexOperationMetadata{
-		Common: &adminpb.CommonMetadata{
-			StartTime: now, EndTime: now, OperationType: op, State: adminpb.CommonMetadata_SUCCESSFUL,
-		},
-		IndexId: idx.GetIndexId(),
-	}
-
-	name := "projects/" + project + "/operations/" + strconv.FormatInt(time.Now().UnixNano(), 36) + idx.GetIndexId()
-
-	o, err := gcplro.Done(name, meta, idx)
-	if err != nil {
-		return nil, errInvalid("%v", err)
-	}
-
-	return b.ops.Put(o), nil
-}
-
-// CreateIndex registers a composite index; it is READY immediately.
+// CreateIndex registers a composite index in CREATING state; the operation finishes after the build delay.
 func (b *InMemoryBackend) CreateIndex(in *adminpb.CreateIndexRequest) (*longrunningpb.Operation, error) {
 	if err := validateIndex(in.GetProjectId(), in.GetIndex()); err != nil {
 		return nil, err
@@ -172,13 +148,14 @@ func (b *InMemoryBackend) CreateIndex(in *adminpb.CreateIndexRequest) (*longrunn
 	idx := cloneIndex(in.GetIndex())
 	idx.ProjectId = in.GetProjectId()
 	idx.IndexId = strconv.FormatInt(indexIDBase+b.nextIndex, 10)
-	idx.State = adminpb.Index_READY
-	b.indexes[indexKey(idx.GetProjectId(), idx.GetIndexId())] = idx
+	idx.State = adminpb.Index_CREATING
+	key := indexKey(idx.GetProjectId(), idx.GetIndexId())
+	b.indexes[key] = idx
 
-	return b.indexOp(idx.GetProjectId(), adminpb.OperationType_CREATE_INDEX, cloneIndex(idx))
+	return b.startIndexOpLocked(idx.GetProjectId(), key, false, cloneIndex(idx))
 }
 
-// DeleteIndex removes a composite index.
+// DeleteIndex moves a composite index to DELETING; it is removed when the operation finishes.
 func (b *InMemoryBackend) DeleteIndex(in *adminpb.DeleteIndexRequest) (*longrunningpb.Operation, error) {
 	if in.GetProjectId() == "" || in.GetIndexId() == "" {
 		return nil, errInvalid("project_id and index_id are required.")
@@ -194,12 +171,14 @@ func (b *InMemoryBackend) DeleteIndex(in *adminpb.DeleteIndexRequest) (*longrunn
 		return nil, errNotFound("Index %s not found.", in.GetIndexId())
 	}
 
-	delete(b.indexes, k)
+	if idx.GetState() == adminpb.Index_CREATING || idx.GetState() == adminpb.Index_DELETING {
+		return nil, errPrecondition("Index %s is %s; wait for its operation to finish.",
+			in.GetIndexId(), idx.GetState())
+	}
 
-	out := cloneIndex(idx)
-	out.State = adminpb.Index_DELETING
+	idx.State = adminpb.Index_DELETING
 
-	return b.indexOp(in.GetProjectId(), adminpb.OperationType_DELETE_INDEX, out)
+	return b.startIndexOpLocked(in.GetProjectId(), k, true, cloneIndex(idx))
 }
 
 // GetIndex returns one composite index.

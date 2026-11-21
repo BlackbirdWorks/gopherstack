@@ -115,7 +115,7 @@ func logUnary(log debugLogger) grpc.UnaryServerInterceptor {
 func (h *Handler) registerServers(srv *grpc.Server) {
 	datastorepb.RegisterDatastoreServer(srv, &server{b: h.Backend})
 	adminpb.RegisterDatastoreAdminServer(srv, &adminServer{b: h.Backend})
-	longrunningpb.RegisterOperationsServer(srv, h.Backend.ops)
+	longrunningpb.RegisterOperationsServer(srv, opsServer{Store: h.Backend.ops, b: h.Backend})
 }
 
 // StartWorker binds the dedicated listener synchronously so a port conflict is returned to the caller.
@@ -150,6 +150,8 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 
 // Shutdown stops the listener, forcing a close after a short grace period.
 func (h *Handler) Shutdown(ctx context.Context) {
+	h.Backend.stopPendingIndexOps()
+
 	h.srvMu.Lock("Shutdown")
 	srv := h.srv
 	h.srv = nil

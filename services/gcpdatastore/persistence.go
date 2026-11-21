@@ -8,6 +8,8 @@ import (
 
 	"cloud.google.com/go/datastore/admin/apiv1/adminpb"
 	"cloud.google.com/go/datastore/apiv1/datastorepb"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -134,10 +136,14 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
+	b.ops.AbortPending(status.New(codes.Aborted, "The operation did not survive a restart."))
+	b.stopPendingIndexOps()
+
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
 	b.ents, b.indexes = ents, indexes
+	b.failInFlightIndexesLocked()
 	b.txns = make(map[string]*txnRec)
 	b.changes = nil
 	b.lastCommit, b.nextIndex = snap.LastCommit, snap.NextIndex
