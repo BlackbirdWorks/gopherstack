@@ -378,7 +378,7 @@ func (b *InMemoryBackend) CompleteBackupJob(jobID string) error {
 		}
 	}
 
-	snapshot, snapErr := b.captureSnapshotLocked(job)
+	snapshot, resolvedType, snapErr := b.captureSnapshotLocked(job)
 
 	if job, ok = b.jobs.Get(jobID); !ok || (job.State != statusCreated && job.State != statusRunning) {
 		return nil // settled by a concurrent caller while the lock was released
@@ -392,6 +392,7 @@ func (b *InMemoryBackend) CompleteBackupJob(jobID string) error {
 		return nil
 	}
 
+	job.ResourceType = resolvedType
 	job.State = statusCompleted
 	job.CompletionTime = &now
 	job.PercentDone = "100.0"

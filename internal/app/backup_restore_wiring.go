@@ -25,6 +25,7 @@ func wireBackupResources(byName map[string]service.Registerable) {
 	wireBackupEFS(byName["Backup"], byName["EFS"])
 	wireBackupRDS(byName["Backup"], byName["RDS"])
 	wireBackupTables(byName["Backup"], byName["TimestreamWrite"])
+	wireBackupClusters(byName)
 }
 
 // wireBackupDynamoDB lets Backup snapshot DynamoDB tables at backup time and recreate them on restore.

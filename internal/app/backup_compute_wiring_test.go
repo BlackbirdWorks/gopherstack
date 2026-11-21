@@ -2,6 +2,7 @@ package app
 
 import (
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -204,7 +205,7 @@ func TestBackupWiring_RestoreRecreatesComputeResources(t *testing.T) {
 func backupRecoveryPointFor(t *testing.T, b *backupbk.InMemoryBackend, resourceArn, resourceType string) string {
 	t.Helper()
 
-	vault, err := b.CreateBackupVault("v-"+resourceType, "", "", nil)
+	vault, err := b.CreateBackupVault("v-"+strings.ReplaceAll(resourceType, " ", "-"), "", "", nil)
 	require.NoError(t, err)
 
 	job, err := b.StartBackupJob(vault.BackupVaultName, resourceArn, backupWiringRole, resourceType, nil, 0)

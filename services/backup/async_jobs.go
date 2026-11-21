@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json/jsontext"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -104,22 +105,34 @@ func (b *InMemoryBackend) restoreResourceLocked(job *RestoreJob) (string, error)
 		":restored/" + job.RestoreJobID, nil
 }
 
-// captureSnapshotLocked snapshots the backed-up resource when an engine is wired for its type.
-func (b *InMemoryBackend) captureSnapshotLocked(job *Job) (jsontext.Value, error) {
-	engine := b.engines[job.ResourceType]
-	if engine == nil {
-		return nil, nil
+// captureSnapshotLocked snapshots the backed-up resource when an engine is wired for its type. A cluster ARN
+// resolves to whichever cluster service owns it, and the returned type is the resolved ResourceType.
+func (b *InMemoryBackend) captureSnapshotLocked(job *Job) (jsontext.Value, string, error) {
+	candidates := []string{job.ResourceType}
+	if slices.Contains(clusterResourceTypes(), job.ResourceType) {
+		candidates = clusterResourceTypes()
 	}
 
 	resourceArn := job.ResourceArn
 
-	b.mu.Unlock()
-	data, err := engine.capture(context.Background(), resourceArn)
-	b.mu.Lock("captureSnapshot")
+	for _, resourceType := range candidates {
+		engine := b.engines[resourceType]
+		if engine == nil {
+			continue
+		}
 
-	if err != nil {
-		return nil, fmt.Errorf("snapshot %s: %w", job.ResourceArn, err)
+		b.mu.Unlock()
+		data, err := engine.capture(context.Background(), resourceArn)
+		b.mu.Lock("captureSnapshot")
+
+		if err != nil {
+			return nil, "", fmt.Errorf("snapshot %s: %w", job.ResourceArn, err)
+		}
+
+		if len(data) > 0 {
+			return data, resourceType, nil
+		}
 	}
 
-	return data, nil
+	return nil, job.ResourceType, nil
 }
