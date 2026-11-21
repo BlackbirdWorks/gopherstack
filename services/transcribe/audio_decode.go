@@ -2,6 +2,7 @@ package transcribe
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -17,6 +18,8 @@ import (
 const (
 	engineSampleRate  = 16000
 	maxAudioSeconds   = 4 * 3600
+	maxDecodedBytes   = 64 << 20
+	maxIdleReads      = 1 << 12
 	decodeChunkFrames = 4096
 	mp3FrameBytes     = 4
 	mp3ScanLimit      = 1 << 16
@@ -112,9 +115,13 @@ func decodable(format string) bool {
 }
 
 // decodeAudio streams src into 16 kHz 16-bit PCM, downmixing to one channel when mono is set;
-// more than maxSeconds of source audio yields errAudioLength.
-func decodeAudio(src audioSource, mono bool, maxSeconds int) (decodedAudio, error) {
+// more than maxSeconds of source audio, or maxDecodedBytes of output, yields errAudioLength.
+func decodeAudio(ctx context.Context, src audioSource, mono bool, maxSeconds int) (decodedAudio, error) {
 	srcCh := src.channels()
+	if srcCh < 1 || srcCh > dualChannel || src.rate() < 1 {
+		return decodedAudio{}, fmt.Errorf("%w: %d channels at %d Hz", errDecode, srcCh, src.rate())
+	}
+
 	outCh := srcCh
 
 	if mono {
@@ -130,9 +137,16 @@ func decodeAudio(src audioSource, mono bool, maxSeconds int) (decodedAudio, erro
 	buf := make([]int16, decodeChunkFrames*srcCh)
 	limit := int64(maxSeconds) * int64(src.rate())
 
-	var total int64
+	var (
+		total int64
+		idle  int
+	)
 
 	for {
+		if ctx.Err() != nil {
+			return decodedAudio{}, ctx.Err()
+		}
+
 		var n int
 
 		err := safely(func() error {
@@ -146,8 +160,12 @@ func decodeAudio(src audioSource, mono bool, maxSeconds int) (decodedAudio, erro
 		mix.push(buf, n)
 
 		total += int64(n)
-		if total > limit {
+		if total > limit || mix.size() > maxDecodedBytes {
 			return decodedAudio{}, errAudioLength
+		}
+
+		if idle = nextIdle(idle, n); idle > maxIdleReads {
+			return decodedAudio{}, fmt.Errorf("%w: decoder made no progress", errDecode)
 		}
 
 		if errors.Is(err, io.EOF) {
@@ -162,12 +180,29 @@ func decodeAudio(src audioSource, mono bool, maxSeconds int) (decodedAudio, erro
 	return decodedAudio{channels: mix.out, millis: int(total * millisPerSecond / int64(src.rate()))}, nil
 }
 
+func nextIdle(idle, n int) int {
+	if n > 0 {
+		return 0
+	}
+
+	return idle + 1
+}
+
 // mixer resamples interleaved frames into per-channel output, averaging channels when mono.
 type mixer struct {
 	rs    []resampler
 	out   [][]byte
 	srcCh int
 	mono  bool
+}
+
+func (m *mixer) size() int {
+	total := 0
+	for _, o := range m.out {
+		total += len(o)
+	}
+
+	return total
 }
 
 func (m *mixer) push(buf []int16, frames int) {
@@ -258,6 +293,10 @@ func appendClamped(dst []byte, v float64) []byte {
 }
 
 func clampInt16(v float64) int16 {
+	if math.IsNaN(v) {
+		return 0
+	}
+
 	return int16(math.Max(math.MinInt16, math.Min(math.MaxInt16, math.Round(v))))
 }
 
@@ -474,6 +513,10 @@ type mp3Source struct {
 }
 
 func openMP3(data []byte) (audioSource, error) {
+	if id3v2Size(data) > len(data) {
+		return nil, fmt.Errorf("%w: ID3v2 tag larger than the file", errDecode)
+	}
+
 	dec, err := mp3.NewDecoder(struct{ io.Reader }{bytes.NewReader(data)})
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errDecode, err)
@@ -535,16 +578,7 @@ func mp3IsMono(data []byte) bool {
 		versionBad = 0x18
 	)
 
-	pos := 0
-
-	if len(data) >= id3v2HeaderLen && bytes.HasPrefix(data, []byte("ID3")) {
-		size := 0
-		for _, b := range data[6:id3v2HeaderLen] {
-			size = size<<syncsafeBits | int(b&syncsafeMask)
-		}
-
-		pos = id3v2HeaderLen + size
-	}
+	pos := id3v2Size(data)
 
 	end := min(len(data)-headerLen, pos+mp3ScanLimit)
 
@@ -558,6 +592,20 @@ func mp3IsMono(data []byte) bool {
 	return false
 }
 
+// id3v2Size is the length of a leading ID3v2 tag including its header, or 0 when there is none.
+func id3v2Size(data []byte) int {
+	if len(data) < id3v2HeaderLen || !bytes.HasPrefix(data, []byte("ID3")) {
+		return 0
+	}
+
+	size := 0
+	for _, b := range data[6:id3v2HeaderLen] {
+		size = size<<syncsafeBits | int(b&syncsafeMask)
+	}
+
+	return id3v2HeaderLen + size
+}
+
 type oggSource struct {
 	rd     *oggvorbis.Reader
 	buf    []float32
@@ -565,6 +613,10 @@ type oggSource struct {
 }
 
 func openOGG(data []byte) (audioSource, error) {
+	if err := guardVorbisHeaders(data); err != nil {
+		return nil, fmt.Errorf("%w: %w", errDecode, err)
+	}
+
 	rd, err := oggvorbis.NewReader(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errDecode, err)

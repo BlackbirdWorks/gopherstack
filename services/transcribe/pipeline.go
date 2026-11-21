@@ -116,11 +116,17 @@ func inspectMedia(ctx context.Context, deps pipelineDeps, spec jobSpec) ([]byte,
 	return data, format, outcome{}
 }
 
-// openSource decodes the container header and applies the header-derived checks.
-func openSource(format string, data []byte, spec jobSpec) (audioSource, outcome) {
+// openSource decodes the container header and applies the header-derived checks. Without a
+// recognizer only a malformed WAV or a header that contradicts the job fails; an encoding the
+// decoders cannot open leaves src nil and the job completes as it did before decoding existed.
+func openSource(format string, data []byte, spec jobSpec, recognizing bool) (audioSource, outcome) {
 	src, err := openAudio(format, data)
 	if err != nil {
-		return nil, failf("%s", failUnsupportedFormat)
+		if recognizing {
+			return nil, failf("%s", failUnsupportedFormat)
+		}
+
+		return nil, legacyWAVCheck(format, data, spec)
 	}
 
 	if src.channels() > dualChannel {
@@ -132,6 +138,26 @@ func openSource(format string, data []byte, spec jobSpec) (audioSource, outcome)
 	}
 
 	return src, outcome{}
+}
+
+// legacyWAVCheck applies the WAV header checks that predate decoding to a file the decoders rejected.
+func legacyWAVCheck(format string, data []byte, spec jobSpec) outcome {
+	if format != mediaWAV {
+		return outcome{}
+	}
+
+	info, err := parseWAV(data)
+
+	switch {
+	case err != nil:
+		return failf("%s", failUnsupportedFormat)
+	case info.channels > dualChannel:
+		return failf("%s", failChannels)
+	case spec.SampleRate != 0 && info.sampleRate != 0 && int(spec.SampleRate) != info.sampleRate:
+		return failf("%s", failSampleRate)
+	}
+
+	return outcome{}
 }
 
 // recognize decodes the media and runs the engine over the channels the job needs.
@@ -156,7 +182,7 @@ func recognize(
 
 	mono := !spec.IdentifyChannels && spec.Kind != kindCallAnalytics
 
-	audio, err := decodeAudio(src, mono, maxAudioSeconds)
+	audio, err := decodeAudio(ctx, src, mono, maxAudioSeconds)
 	if errors.Is(err, errAudioLength) {
 		return nil, 0, failf("%s", failFileSize)
 	}
@@ -200,17 +226,21 @@ func runPipeline(ctx context.Context, deps pipelineDeps, spec jobSpec) outcome {
 		duration int
 	)
 
+	recognizing := deps.engine != nil && deps.reader != nil
+
 	if decodable(format) {
-		if src, bad = openSource(format, data, spec); bad.failure != "" {
+		if src, bad = openSource(format, data, spec, recognizing); bad.failure != "" {
 			return bad
 		}
 
-		if n := src.frames(); n >= 0 {
-			duration = int(n * millisPerSecond / int64(src.rate()))
+		if src != nil {
+			if n := src.frames(); n >= 0 {
+				duration = int(n * millisPerSecond / int64(src.rate()))
+			}
 		}
 	}
 
-	if deps.engine != nil && deps.reader != nil {
+	if recognizing {
 		var decoded int
 
 		if channels, decoded, bad = recognize(ctx, deps, spec, src, format); bad.failure != "" {
@@ -406,6 +436,12 @@ func (b *InMemoryBackend) settleLocked(v jobView) {
 	}
 
 	b.finishLocked(v, runPipeline(context.Background(), b.deps(), v.spec))
+}
+
+func (b *InMemoryBackend) cancelRunLocked(kind jobKind, name string) {
+	if cancel, ok := b.inflight[runKey(kind, name)]; ok {
+		cancel()
+	}
 }
 
 func (b *InMemoryBackend) launchRunLocked(v jobView) {

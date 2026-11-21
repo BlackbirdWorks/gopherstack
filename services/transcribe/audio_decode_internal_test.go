@@ -153,7 +153,7 @@ func decodeBytes(t *testing.T, media []byte, format string, mono bool) (audioSou
 	src, err := openAudio(format, media)
 	require.NoError(t, err)
 
-	audio, err := decodeAudio(src, mono, maxAudioSeconds)
+	audio, err := decodeAudio(t.Context(), src, mono, maxAudioSeconds)
 	require.NoError(t, err)
 
 	return src, audio
@@ -497,7 +497,7 @@ func TestDecodeCorruptInputs(t *testing.T) {
 
 			require.NoError(t, openErr)
 
-			_, decErr := decodeAudio(src, true, maxAudioSeconds)
+			_, decErr := decodeAudio(t.Context(), src, true, maxAudioSeconds)
 			require.ErrorIs(t, decErr, errDecode)
 		})
 	}
@@ -527,7 +527,7 @@ func TestDecodeAudioBoundaries(t *testing.T) {
 	t.Run("panic becomes error", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := decodeAudio(panicSource{}, true, maxAudioSeconds)
+		_, err := decodeAudio(t.Context(), panicSource{}, true, maxAudioSeconds)
 		require.ErrorIs(t, err, errDecode)
 		assert.Contains(t, err.Error(), "decoder exploded")
 	})
@@ -535,7 +535,7 @@ func TestDecodeAudioBoundaries(t *testing.T) {
 	t.Run("duration cap", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := decodeAudio(endlessSource{rateHz: 8000}, true, 2)
+		_, err := decodeAudio(t.Context(), endlessSource{rateHz: 8000}, true, 2)
 		require.ErrorIs(t, err, errAudioLength)
 	})
 
@@ -546,7 +546,7 @@ func TestDecodeAudioBoundaries(t *testing.T) {
 		src, err := openAudio(mediaWAV, media)
 		require.NoError(t, err)
 
-		audio, err := decodeAudio(src, true, 2)
+		audio, err := decodeAudio(t.Context(), src, true, 2)
 		require.NoError(t, err)
 		assert.Equal(t, 2000, audio.millis)
 	})
@@ -684,14 +684,37 @@ func TestRunPipelineWithoutEngineValidatesHeaders(t *testing.T) {
 	t.Parallel()
 
 	flac16 := encodeFLAC(t, 16000, 16, [][]int32{intTone(16000, 0.5, 16)})
+	short := intTone(16000, 0.1, 16)
+	flac3ch := encodeFLAC(t, 16000, 16, [][]int32{short, short, short})
+	adpcm := buildWAV(wavSpec{tag: 1, bits: 16, channels: 1, rate: 8000}, toneSamples(8000, 0.1))
+	binary.LittleEndian.PutUint16(adpcm[20:], 2)
+	wav3ch := buildWAV(wavSpec{tag: 1, bits: 16, channels: 3, rate: 8000}, toneSamples(8000, 0.1))
+	wav20 := buildWAV(wavSpec{tag: 1, bits: 16, channels: 1, rate: 8000}, toneSamples(8000, 0.1))
+	binary.LittleEndian.PutUint16(wav20[34:], 20)
 
 	tests := []struct {
-		name     string
-		wantFail string
-		media    []byte
+		name       string
+		format     string
+		wantFail   string
+		media      []byte
+		sampleRate int32
 	}{
-		{name: "valid flac", media: flac16},
-		{name: "corrupt flac header", media: append([]byte("fLaC"), 0xFF, 0xFF), wantFail: failUnsupportedFormat},
+		{name: "valid flac", format: "flac", media: flac16},
+		{name: "flac three channels", format: "flac", media: flac3ch, wantFail: failChannels},
+		{name: "flac rate mismatch", format: "flac", media: flac16, sampleRate: 44100, wantFail: failSampleRate},
+		{name: "placeholder flac completes", format: "flac", media: append([]byte("fLaC"), 0xFF, 0xFF)},
+		{name: "placeholder mp3 completes", format: "mp3", media: []byte("ID3 placeholder media")},
+		{name: "placeholder ogg completes", format: "ogg", media: []byte("OggS placeholder media")},
+		{name: "wav adpcm completes", format: "wav", media: adpcm},
+		{name: "wav 20 bit completes", format: "wav", media: wav20},
+		{name: "wav adpcm three channels", format: "wav", media: wav3ch, wantFail: failChannels},
+		{name: "wav adpcm rate mismatch", format: "wav", media: adpcm, sampleRate: 16000, wantFail: failSampleRate},
+		{
+			name:     "malformed wav",
+			format:   "wav",
+			media:    []byte("RIFF\x00\x00\x00\x00WAVEjunk"),
+			wantFail: failUnsupportedFormat,
+		},
 	}
 
 	for _, tt := range tests {
@@ -700,7 +723,8 @@ func TestRunPipelineWithoutEngineValidatesHeaders(t *testing.T) {
 
 			deps := pipelineDeps{reader: filterMedia{"b/a": tt.media}, accountID: "1"}
 			spec := jobSpec{
-				Kind: kindTranscription, Name: "j", Language: "en-US", MediaURI: "s3://b/a", MediaFormat: "flac",
+				Kind: kindTranscription, Name: "j", Language: "en-US", MediaURI: "s3://b/a", MediaFormat: tt.format,
+				SampleRate: tt.sampleRate,
 			}
 			out := runPipeline(t.Context(), deps, spec)
 
