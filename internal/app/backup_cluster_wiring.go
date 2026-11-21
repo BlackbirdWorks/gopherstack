@@ -165,7 +165,11 @@ func (a redshiftClusterAdapter) CreateSnapshot(_ context.Context, snapshotID, cl
 }
 
 func (a redshiftClusterAdapter) RestoreSnapshot(_ context.Context, snapshotID, clusterID string) (string, error) {
-	c, err := a.bk.RestoreFromClusterSnapshot(clusterID, snapshotID, redshiftbackend.RestoreFromClusterSnapshotOptions{})
+	c, err := a.bk.RestoreFromClusterSnapshot(
+		clusterID,
+		snapshotID,
+		redshiftbackend.RestoreFromClusterSnapshotOptions{},
+	)
 	if err != nil {
 		return "", err //nolint:wrapcheck // surfaced as the restore job's StatusMessage
 	}

@@ -125,7 +125,11 @@ func backupDocDBRestore(t *testing.T, backup *backupbk.InMemoryBackend, byName m
 	rp := backupRecoveryPointFor(t, backup, src.DBClusterArn, "DocumentDB")
 	assert.Equal(t, "DocumentDB", recoveryPointType(t, backup, "v-DocumentDB", rp))
 
-	_, err = h.Backend.DeleteDBCluster(t.Context(), "docs", &docdbbackend.DeleteDBClusterOptions{SkipFinalSnapshot: true})
+	_, err = h.Backend.DeleteDBCluster(
+		t.Context(),
+		"docs",
+		&docdbbackend.DeleteDBClusterOptions{SkipFinalSnapshot: true},
+	)
 	require.NoError(t, err)
 
 	job := restoreFromPoint(t, backup, rp, "DocumentDB", map[string]string{"DBClusterIdentifier": "docs-copy"})
