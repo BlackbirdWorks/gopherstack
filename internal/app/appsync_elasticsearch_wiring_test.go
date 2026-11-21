@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	elasticsearchbackend "github.com/blackbirdworks/gopherstack/services/elasticsearch"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 )
@@ -223,9 +225,13 @@ func (e *esMirrorEnv) deleteES(t *testing.T, name string) {
 }
 
 func (e *esMirrorEnv) engineHasBooks() bool {
-	_, err := e.mirror.handler.Backend.DescribeDomain("books")
+	for _, n := range e.mirror.handler.Backend.ListDomainNames() {
+		if strings.HasPrefix(n, "es_") && strings.HasSuffix(n, "_books") {
+			return true
+		}
+	}
 
-	return err == nil
+	return false
 }
 
 func TestAppSyncElasticsearchMirrorLifecycle(t *testing.T) {
@@ -297,7 +303,7 @@ func TestAppSyncElasticsearchMirrorLifecycle(t *testing.T) {
 				endpoint := e.createES(t, "books")
 				name, err := e.mirror.domainFor(t.Context(), endpoint)
 				require.NoError(t, err)
-				assert.Equal(t, "books", name)
+				assert.NotEqual(t, "books", name, "the engine domain of the user is not the mirror")
 
 				e.mirror.ReleaseOpenSearch(t.Context(), endpoint)
 				e.deleteES(t, "books")
@@ -307,7 +313,8 @@ func TestAppSyncElasticsearchMirrorLifecycle(t *testing.T) {
 				require.NoError(t, err)
 				e.mirror.ReleaseOpenSearch(t.Context(), endpoint)
 
-				assert.True(t, e.engineHasBooks(), "the user domain survives")
+				_, err = e.mirror.handler.Backend.DescribeDomain("books")
+				assert.NoError(t, err, "the user domain survives")
 			},
 		},
 	}
@@ -319,4 +326,59 @@ func TestAppSyncElasticsearchMirrorLifecycle(t *testing.T) {
 			tt.check(t, newESMirrorEnv(t))
 		})
 	}
+}
+
+func (e *esMirrorEnv) searchIn(t *testing.T, endpoint, method, path, body string) string {
+	t.Helper()
+
+	_, out, err := e.mirror.OpenSearchRequest(t.Context(), appsyncbackend.OpenSearchRequest{
+		Endpoint: endpoint, Method: method, Path: path, Body: []byte(body),
+	})
+	require.NoError(t, err)
+
+	return string(out)
+}
+
+func TestAppSyncElasticsearchMirrorsAreScopedByRegion(t *testing.T) {
+	t.Parallel()
+
+	e := newESMirrorEnv(t)
+	other := elasticsearchservice.NewFromConfig(e.f.fx.cfg, func(o *elasticsearchservice.Options) {
+		o.Region = "eu-west-1"
+	})
+
+	_, err := other.CreateElasticsearchDomain(t.Context(), &elasticsearchservice.CreateElasticsearchDomainInput{
+		DomainName: aws.String("books"),
+	})
+	require.NoError(t, err)
+
+	dom, err := other.DescribeElasticsearchDomain(t.Context(), &elasticsearchservice.DescribeElasticsearchDomainInput{
+		DomainName: aws.String("books"),
+	})
+	require.NoError(t, err)
+
+	home := e.createES(t, "books")
+	away := "https://" + aws.ToString(dom.DomainStatus.Endpoint)
+	require.NotEqual(t, home, away)
+
+	for _, ep := range []struct{ endpoint, doc string }{{home, "home"}, {away, "away"}} {
+		e.searchIn(t, ep.endpoint, "PUT", "/idx", "")
+		e.searchIn(t, ep.endpoint, "PUT", "/idx/_doc/1", `{"where":"`+ep.doc+`"}`)
+	}
+
+	for _, ep := range []struct{ endpoint, doc string }{{home, "home"}, {away, "away"}} {
+		out := e.searchIn(t, ep.endpoint, "POST", "/idx/_search", `{"query":{"match_all":{}}}`)
+		assert.Contains(t, out, `"where":"`+ep.doc+`"`)
+		assert.NotContains(t, out, `"where":"`+map[string]string{"home": "away", "away": "home"}[ep.doc]+`"`)
+	}
+
+	_, err = other.DeleteElasticsearchDomain(t.Context(), &elasticsearchservice.DeleteElasticsearchDomainInput{
+		DomainName: aws.String("books"),
+	})
+	require.NoError(t, err)
+
+	e.mirror.ReleaseOpenSearch(t.Context(), away)
+
+	out := e.searchIn(t, home, "POST", "/idx/_search", `{"query":{"match_all":{}}}`)
+	assert.Contains(t, out, `"where":"home"`, "deleting the other region's domain leaves this data intact")
 }

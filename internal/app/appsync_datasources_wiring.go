@@ -126,6 +126,59 @@ func (a appsyncOpenSearch) domainFor(ctx context.Context, endpoint string) (stri
 	return "", fmt.Errorf("%w: %q", errNoOpenSearchDomain, endpoint)
 }
 
+// endpointRegion reads the region out of an Elasticsearch endpoint host (<label>.<region>.es.<domain>).
+func endpointRegion(host string) string {
+	labels := strings.Split(host, ".")
+
+	for i := 1; i+1 < len(labels); i++ {
+		if labels[i+1] == "es" {
+			return labels[i]
+		}
+	}
+
+	return ""
+}
+
+func esScope(ctx context.Context, region string) context.Context {
+	if region == "" {
+		return ctx
+	}
+
+	return elasticsearchbackend.WithRegion(ctx, region)
+}
+
+// engineName is the engine domain mirroring an Elasticsearch domain. Account and region lead it, joined with
+// underscores that Elasticsearch names, regions and account ids cannot contain, so no two Elasticsearch domains
+// share an engine name.
+func engineName(d *elasticsearchbackend.Domain) string {
+	const (
+		regionField  = 3
+		accountField = 4
+	)
+
+	parts := strings.Split(d.ARN, ":")
+	if len(parts) <= accountField {
+		return "es_" + d.Name
+	}
+
+	return "es_" + parts[accountField] + "_" + parts[regionField] + "_" + d.Name
+}
+
+// stampOwner splits a mirror stamp into the ARN of the Elasticsearch domain it mirrors.
+func stampOwner(stamp string) (string, string, string, bool) {
+	owner, _, _ := strings.Cut(stamp, "|")
+	parts := strings.Split(owner, ":")
+
+	const resourceField = 5
+
+	name, ok := strings.CutPrefix(parts[len(parts)-1], "domain/")
+	if len(parts) <= resourceField || !ok {
+		return "", "", "", false
+	}
+
+	return parts[3], parts[4], name, true
+}
+
 // sweepMirrors deletes the engine domains this wiring created for Elasticsearch domains that no longer exist or
 // were recreated. A domain without the mirror tag is never touched.
 func (a appsyncOpenSearch) sweepMirrors(ctx context.Context) {
@@ -148,8 +201,12 @@ func (a appsyncOpenSearch) sweepMirrors(ctx context.Context) {
 			continue
 		}
 
-		if d, derr := a.es.Backend.DescribeDomain(ctx, name); derr == nil && !d.Deleted && mirrorStamp(d) == have {
-			continue
+		region, _, esName, ok := stampOwner(have)
+		if ok {
+			d, derr := a.es.Backend.DescribeDomain(esScope(ctx, region), esName)
+			if derr == nil && !d.Deleted && mirrorStamp(d) == have && engineName(d) == name {
+				continue
+			}
 		}
 
 		_ = bk.DeleteDomainNow(name)
@@ -160,23 +217,33 @@ func mirrorStamp(d *elasticsearchbackend.Domain) string {
 	return d.ARN + "|" + strconv.FormatInt(d.CreatedAt.UnixNano(), 10)
 }
 
-// ReleaseOpenSearch deletes the engine domain mirroring the Elasticsearch domain at endpoint.
-func (a appsyncOpenSearch) ReleaseOpenSearch(ctx context.Context, endpoint string) {
+// esDomainAt finds the Elasticsearch domain serving host.
+func (a appsyncOpenSearch) esDomainAt(ctx context.Context, host string) (*elasticsearchbackend.Domain, bool) {
 	if a.es == nil {
-		return
+		return nil, false
 	}
 
-	host := endpointHost(endpoint)
+	scoped := esScope(ctx, endpointRegion(host))
 
-	for _, n := range a.es.Backend.ListDomainNames(ctx) {
-		d, err := a.es.Backend.DescribeDomain(ctx, n)
-		if err != nil || d.Endpoint != host {
-			continue
+	for _, n := range a.es.Backend.ListDomainNames(scoped) {
+		d, err := a.es.Backend.DescribeDomain(scoped, n)
+		if err == nil && !d.Deleted && d.Endpoint == host {
+			return d, true
 		}
+	}
 
-		if od, oerr := a.handler.Backend.DescribeDomain(d.Name); oerr == nil {
-			if tags, _ := a.handler.Backend.ListTags(od.ARN); tags[esMirrorTag] != "" {
-				_ = a.handler.Backend.DeleteDomainNow(d.Name)
+	return nil, false
+}
+
+// ReleaseOpenSearch deletes the engine domain mirroring the Elasticsearch domain at endpoint.
+func (a appsyncOpenSearch) ReleaseOpenSearch(ctx context.Context, endpoint string) {
+	if d, ok := a.esDomainAt(ctx, endpointHost(endpoint)); ok {
+		bk := a.handler.Backend
+		name := engineName(d)
+
+		if od, err := bk.DescribeDomain(name); err == nil {
+			if tags, _ := bk.ListTags(od.ARN); tags[esMirrorTag] == mirrorStamp(d) {
+				_ = bk.DeleteDomainNow(name)
 			}
 		}
 	}
@@ -185,47 +252,44 @@ func (a appsyncOpenSearch) ReleaseOpenSearch(ctx context.Context, endpoint strin
 }
 
 func (a appsyncOpenSearch) elasticsearchDomain(ctx context.Context, host string) (string, bool, error) {
-	if a.es == nil {
+	d, ok := a.esDomainAt(ctx, host)
+	if !ok {
 		return "", false, nil
 	}
 
-	for _, n := range a.es.Backend.ListDomainNames(ctx) {
-		d, err := a.es.Backend.DescribeDomain(ctx, n)
-		if err != nil || d.Deleted || d.Endpoint != host {
-			continue
-		}
-
-		return d.Name, true, a.ensureEngineDomain(d)
-	}
-
-	return "", false, nil
+	return engineName(d), true, a.ensureEngineDomain(d)
 }
 
-// ensureEngineDomain backs an Elasticsearch domain with an engine domain, replacing one left by an earlier
-// domain of the same name.
+// ensureEngineDomain backs an Elasticsearch domain with an engine domain, replacing a mirror left by an earlier
+// domain of the same name. An engine domain that is not this domain's mirror is never replaced.
 func (a appsyncOpenSearch) ensureEngineDomain(d *elasticsearchbackend.Domain) error {
 	stamp := mirrorStamp(d)
+	name := engineName(d)
 	bk := a.handler.Backend
 
-	if existing, err := bk.DescribeDomain(d.Name); err == nil {
+	if existing, err := bk.DescribeDomain(name); err == nil {
 		tags, _ := bk.ListTags(existing.ARN)
 
 		have, mirrored := tags[esMirrorTag]
-		if !mirrored || have == stamp {
+		if !mirrored {
+			return fmt.Errorf("%w: engine domain %s is not a mirror", errNoOpenSearchDomain, name)
+		}
+
+		if have == stamp {
 			return nil
 		}
 
-		if err = bk.DeleteDomainNow(d.Name); err != nil {
+		if err = bk.DeleteDomainNow(name); err != nil {
 			return fmt.Errorf("replace stale engine domain: %w", err)
 		}
 	}
 
 	_, err := bk.CreateDomain(opensearchbackend.CreateDomainInput{
-		Name: d.Name, EngineVersion: "Elasticsearch_" + d.ElasticsearchVersion,
+		Name: name, EngineVersion: "Elasticsearch_" + d.ElasticsearchVersion,
 		Tags: map[string]string{esMirrorTag: stamp},
 	})
 	if errors.Is(err, opensearchbackend.ErrDomainAlreadyExists) {
-		if won, derr := bk.DescribeDomain(d.Name); derr == nil {
+		if won, derr := bk.DescribeDomain(name); derr == nil {
 			tags, _ := bk.ListTags(won.ARN)
 			if tags[esMirrorTag] == stamp {
 				return nil
