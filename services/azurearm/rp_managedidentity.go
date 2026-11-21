@@ -3,7 +3,6 @@ package azurearm
 import (
 	"context"
 	"net/http"
-	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -28,27 +27,29 @@ var (
 func msiAPIVersions() []string {
 	return []string{
 		"2015-08-31-preview", "2018-11-30", "2021-09-30-preview", "2022-01-31-preview", "2023-01-31",
-		"2023-07-31-preview", "2024-11-30",
+		"2023-07-31-preview", "2024-11-30", "2025-01-31-preview", "2025-05-31-preview",
 	}
 }
 
 type storedFederated struct {
-	Name      string   `json:"name"`
-	Issuer    string   `json:"issuer"`
-	Subject   string   `json:"subject"`
-	Audiences []string `json:"audiences"`
+	Claims    *storedFlexClaims `json:"claimsMatchingExpression,omitempty"`
+	Name      string            `json:"name"`
+	Issuer    string            `json:"issuer"`
+	Subject   string            `json:"subject"`
+	Audiences []string          `json:"audiences"`
 }
 
 type storedIdentity struct {
-	Tags           map[string]string  `json:"tags,omitempty"`
-	Name           string             `json:"name"`
-	Subscription   string             `json:"subscription,omitempty"`
-	ResourceGrp    string             `json:"resourceGroup"`
-	Location       string             `json:"location"`
-	PrincipalID    string             `json:"principalId"`
-	ClientID       string             `json:"clientId"`
-	IsolationScope string             `json:"isolationScope,omitempty"`
-	Federated      []*storedFederated `json:"federated,omitempty"`
+	Tags           map[string]string   `json:"tags,omitempty"`
+	Name           string              `json:"name"`
+	Subscription   string              `json:"subscription,omitempty"`
+	ResourceGrp    string              `json:"resourceGroup"`
+	Location       string              `json:"location"`
+	PrincipalID    string              `json:"principalId"`
+	ClientID       string              `json:"clientId"`
+	IsolationScope string              `json:"isolationScope,omitempty"`
+	Restrictions   *storedRestrictions `json:"assignmentRestrictions,omitempty"`
+	Federated      []*storedFederated  `json:"federated,omitempty"`
 }
 
 // ManagedIdentityProvider implements ResourceProvider for Microsoft.ManagedIdentity user-assigned identities.
@@ -132,6 +133,10 @@ func (p *ManagedIdentityProvider) identityBody(id ResourceID, i *storedIdentity)
 		props["isolationScope"] = i.IsolationScope
 	}
 
+	if i.Restrictions != nil {
+		props["assignmentRestrictions"] = i.Restrictions.body()
+	}
+
 	out := map[string]any{
 		netFieldID:      id.ARMID(),
 		fieldName:       i.Name,
@@ -163,12 +168,18 @@ func msiIsolationScope(props map[string]any) (string, error) {
 }
 
 func federatedBody(id ResourceID, f *storedFederated) map[string]any {
+	props := map[string]any{"issuer": f.Issuer, "audiences": f.Audiences}
+
+	if f.Claims != nil {
+		props[msiFlexKey] = map[string]any{fieldValue: f.Claims.Value, "languageVersion": f.Claims.LanguageVersion}
+	} else {
+		props["subject"] = f.Subject
+	}
+
 	return map[string]any{
 		netFieldID: id.ARMID(), fieldName: f.Name,
-		fieldType: namespaceMicrosoftManagedIdentity + "/" + msiIdentitiesType + "/" + msiFederatedType,
-		fieldProperties: map[string]any{
-			"issuer": f.Issuer, "subject": f.Subject, "audiences": f.Audiences,
-		},
+		fieldType:       namespaceMicrosoftManagedIdentity + "/" + msiIdentitiesType + "/" + msiFederatedType,
+		fieldProperties: props,
 	}
 }
 
@@ -214,8 +225,14 @@ func (p *ManagedIdentityProvider) putIdentity(id ResourceID, body map[string]any
 		return nil, err
 	}
 
+	restrictions, err := msiRestrictions(propsOf(body))
+	if err != nil {
+		return nil, err
+	}
+
 	rec := &storedIdentity{
-		Name: name, Subscription: id.SubscriptionID, ResourceGrp: id.ResourceGroup, Location: loc,
+		Restrictions: restrictions,
+		Name:         name, Subscription: id.SubscriptionID, ResourceGrp: id.ResourceGroup, Location: loc,
 		Tags: stringTags(body[fieldTags]), PrincipalID: uuid.NewString(), ClientID: uuid.NewString(),
 		IsolationScope: scope,
 	}
@@ -246,31 +263,13 @@ func (p *ManagedIdentityProvider) putFederated(id ResourceID, body map[string]an
 				"start with a letter or digit.", name)
 	}
 
-	props := propsOf(body)
-	f := &storedFederated{
-		Name:      name,
-		Issuer:    strOf(props, "issuer"),
-		Subject:   strOf(props, "subject"),
-		Audiences: strList(props["audiences"]),
+	f, err := parseFederated(name, propsOf(body))
+	if err != nil {
+		return nil, err
 	}
 
-	if u, err := url.Parse(f.Issuer); err != nil || u.Scheme != "https" || u.Host == "" {
-		return nil, netErr(http.StatusBadRequest, msiCodeBad, "properties.issuer must be an https URL.")
-	}
-
-	if f.Subject == "" {
-		return nil, netErr(http.StatusBadRequest, msiCodeBad, "properties.subject is required.")
-	}
-
-	if len(f.Audiences) != 1 {
-		return nil, netErr(http.StatusBadRequest, msiCodeBad, "properties.audiences must contain exactly one value.")
-	}
-
-	for _, o := range parent.Federated {
-		if !strings.EqualFold(o.Name, name) && o.Issuer == f.Issuer && o.Subject == f.Subject {
-			return nil, netErr(http.StatusConflict, "Conflict",
-				"A federated identity credential with the same issuer and subject already exists on this identity.")
-		}
+	if err = checkFederatedDuplicate(parent, f); err != nil {
+		return nil, err
 	}
 
 	replaced := false

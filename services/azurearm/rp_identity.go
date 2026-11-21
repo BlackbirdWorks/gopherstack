@@ -109,7 +109,12 @@ func normIdentityType(t string) (string, bool) {
 
 // apply computes the identity a PUT/PATCH leaves behind. present=false (no identity key) keeps prev; type None clears
 // it; a system-assigned principal survives re-application and is regenerated only after removal.
-func (s *identityService) apply(raw any, present bool, prev resourceIdentity) (resourceIdentity, error) {
+func (s *identityService) apply(
+	resType string,
+	raw any,
+	present bool,
+	prev resourceIdentity,
+) (resourceIdentity, error) {
 	if !present {
 		return prev, nil
 	}
@@ -127,7 +132,7 @@ func (s *identityService) apply(raw any, present bool, prev resourceIdentity) (r
 		return resourceIdentity{}, nil
 	}
 
-	ua, err := s.userAssigned(typ, m[fieldUserAssigned])
+	ua, err := s.userAssigned(resType, typ, m[fieldUserAssigned])
 	if err != nil {
 		return resourceIdentity{}, err
 	}
@@ -146,7 +151,7 @@ func (s *identityService) apply(raw any, present bool, prev resourceIdentity) (r
 	return out, nil
 }
 
-func (s *identityService) userAssigned(typ string, raw any) ([]string, error) {
+func (s *identityService) userAssigned(resType, typ string, raw any) ([]string, error) {
 	uai, _ := raw.(map[string]any)
 	wantsUser := typ == identityUser || typ == identityBoth
 
@@ -166,6 +171,12 @@ func (s *identityService) userAssigned(typ string, raw any) ([]string, error) {
 		if _, _, found := s.lookup(id); !found {
 			return nil, identityErr(identityCodeFailed,
 				"Identity operation for the resource failed: the user assigned identity '%s' was not found.", id)
+		}
+
+		if !s.msi.restrictionsOf(id).allows(resType) {
+			return nil, identityErr(identityCodeFailed,
+				"Identity operation for the resource failed: the user assigned identity '%s' cannot be assigned to "+
+					"resources of type '%s' (properties.assignmentRestrictions).", id, resType)
 		}
 
 		ids = append(ids, id)

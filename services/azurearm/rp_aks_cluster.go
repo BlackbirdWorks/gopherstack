@@ -186,7 +186,12 @@ func (p *ContainerServiceProvider) buildCluster(
 
 	_, hasIdentity := body[fieldIdentity]
 
-	ident, err := p.ids.apply(body[fieldIdentity], hasIdentity, prevIdentity)
+	ident, err := p.ids.apply(
+		namespaceMicrosoftContainerService+"/"+aksClusterType,
+		body[fieldIdentity],
+		hasIdentity,
+		prevIdentity,
+	)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -208,7 +208,12 @@ func (p *ContainerAppsProvider) parseApp(id ResourceID, body map[string]any, pre
 	}
 
 	_, hasIdent := body[fieldIdentity]
-	if req.ident, err = p.ids.apply(body[fieldIdentity], hasIdent, prevIdent); err != nil {
+	if req.ident, err = p.ids.apply(
+		namespaceMicrosoftApp+"/"+acaAppType,
+		body[fieldIdentity],
+		hasIdent,
+		prevIdent,
+	); err != nil {
 		return req, err
 	}
 

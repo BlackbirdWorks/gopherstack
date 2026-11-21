@@ -23,6 +23,7 @@ const (
 	aciMaxRevisions    = 1000
 	aciProfileMaxNames = 63
 	aciRevisionDepth   = 2
+	aciKeyRevision     = "revision"
 )
 
 var aciProfileNameRe = regexp.MustCompile(`^[a-zA-Z0-9]$|^[a-zA-Z0-9][-_a-zA-Z0-9]{0,61}[a-zA-Z0-9]$`)
@@ -82,8 +83,8 @@ func splitProfileProps(raw any) (any, aciProfileExtra, error) {
 
 	for k, v := range props {
 		switch k {
-		case "revision", "registeredRevisions":
-		case "subnetIds", "dnsConfig":
+		case aciKeyRevision, "registeredRevisions":
+		case "subnetIds", "dnsConfig", aciKeyContainerGroupProfile, "standbyPoolProfile":
 			return nil, extra, aciUnsupported("property " + k + " on a container group profile")
 		case "shutdownGracePeriod", "timeToLive", "useKrypton", "securityContext":
 			buf, err := json.Marshal(map[string]any{k: v}, jsonx.V1())
@@ -189,8 +190,8 @@ func aciProfileBody(id ResourceID, rec *storedACIProfile, idx int) map[string]an
 	}
 
 	props := map[string]any{
-		"containers": conts, "osType": pp.OSType, "restartPolicy": pp.RestartPolicy,
-		"revision": rev.Number, "registeredRevisions": registered,
+		fieldContainers: conts, "osType": pp.OSType, "restartPolicy": pp.RestartPolicy,
+		aciKeyRevision: rev.Number, "registeredRevisions": registered,
 	}
 
 	if len(pp.Volumes) > 0 {

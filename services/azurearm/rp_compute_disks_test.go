@@ -99,7 +99,7 @@ func TestComputeSDK_DiskCreation(t *testing.T) {
 			},
 		},
 		{
-			name: "import unsupported", wantCode: "InvalidParameter",
+			name: "import without source", wantCode: "InvalidParameter",
 			build: func(*cmpStack) armcompute.Disk {
 				return armcompute.Disk{Location: new("westus"), Properties: &armcompute.DiskProperties{
 					CreationData: &armcompute.CreationData{CreateOption: new(armcompute.DiskCreateOptionImport)},

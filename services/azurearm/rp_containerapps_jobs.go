@@ -224,7 +224,7 @@ func (p *ContainerAppsProvider) putJob(id ResourceID, body map[string]any) (map[
 
 	_, hasIdent := body[fieldIdentity]
 
-	ident, err := p.ids.apply(body[fieldIdentity], hasIdent, prevIdent)
+	ident, err := p.ids.apply(namespaceMicrosoftApp+"/"+acaJobType, body[fieldIdentity], hasIdent, prevIdent)
 	if err != nil {
 		return nil, err
 	}

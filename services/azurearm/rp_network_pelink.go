@@ -88,6 +88,10 @@ func cosmosGroups() map[string]peGroup {
 	return out
 }
 
+func eventGridGroup(zonePub, pub string) peGroup {
+	return grp(zonePub, pub, func(name, loc string) []string { return []string{name + "." + loc + "-1." + pub} })
+}
+
 func single(group string, g peGroup) map[string]peGroup { return map[string]peGroup{group: g} }
 
 // peTargets maps a lowercase "namespace/type" to its private-link sub-resources. Group ids are from Learn's
@@ -97,6 +101,27 @@ func single(group string, g peGroup) map[string]peGroup { return map[string]peGr
 var peTargets = map[string]peTarget{
 	"microsoft.storage/storageaccounts":     {groups: storageGroups(), actionKey: "actionRequired"},
 	"microsoft.network/privatelinkservices": {actionKey: propActionsRequired, plain: true},
+	"microsoft.eventgrid/topics": {
+		groups: single(
+			"topic",
+			eventGridGroup("eventgrid.azure.net", "eventgrid.azure.net"),
+		),
+		actionKey: propActionsRequired,
+	},
+	"microsoft.eventgrid/domains": {
+		groups: single(
+			"domain",
+			eventGridGroup("eventgrid.azure.net", "eventgrid.azure.net"),
+		),
+		actionKey: propActionsRequired,
+	},
+	"microsoft.eventgrid/namespaces": {
+		groups: map[string]peGroup{
+			"topic":      eventGridGroup("eventgrid.azure.net", "eventgrid.azure.net"),
+			"topicSpace": eventGridGroup("ts.eventgrid.azure.net", "ts.eventgrid.azure.net"),
+		},
+		actionKey: propActionsRequired,
+	},
 	"microsoft.keyvault/vaults": {
 		groups:    single("vault", grp("vaultcore.azure.net", "vault.azure.net", plainFQDN("vault.azure.net"))),
 		actionKey: propActionsRequired,
@@ -538,4 +563,40 @@ func isPrivateLinkChild(segs []string) bool {
 	}
 
 	return strings.EqualFold(segs[plChildIdx], pecTypeName) || strings.EqualFold(segs[plChildIdx], plrTypeName)
+}
+
+// disconnectTargets turns every endpoint connection whose target matches gone into Disconnected, as happens when
+// the private link resource is deleted.
+func (p *NetworkProvider) disconnectTargets(gone func(ResourceID) bool) {
+	p.mu.Lock("disconnectTargets")
+	defer p.mu.Unlock()
+
+	for _, pe := range p.ofType(netPEs) {
+		changed := false
+
+		for _, key := range []string{propPEAuto, propPEManual} {
+			for _, c := range anyList(pe.Obj.Props[key]) {
+				m, _ := c.(map[string]any)
+				cn := strOf(m, fieldName)
+
+				rid, err := ParseGenericResourcePath(strOf(propsOf(m), peLinkIDKey))
+				if err != nil || pe.Obj.Aux["gone:"+cn] != "" || !gone(rid) {
+					continue
+				}
+
+				pe.Obj.Aux["gone:"+cn] = "1"
+				changed = true
+			}
+		}
+
+		if changed {
+			p.touch(pe)
+		}
+	}
+}
+
+func (r *Registry) disconnectTargetsOf(gone func(ResourceID) bool) {
+	if np := r.networkProviderFor(); np != nil {
+		np.disconnectTargets(gone)
+	}
 }

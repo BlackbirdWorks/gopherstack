@@ -114,7 +114,7 @@ func (p *ContainerAppsProvider) putEnv(id ResourceID, body map[string]any) (map[
 		}
 	}
 
-	ident, err := p.ids.apply(body[fieldIdentity], hasIdentity, prevIdentity)
+	ident, err := p.ids.apply(namespaceMicrosoftApp+"/"+acaEnvType, body[fieldIdentity], hasIdentity, prevIdentity)
 	if err != nil {
 		return nil, err
 	}

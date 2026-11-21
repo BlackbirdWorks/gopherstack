@@ -594,3 +594,61 @@ func TestNetworkSDK_PrivateEndpointZoneGroupMaxConfigs(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "at most 5")
 }
+
+func TestNetworkSDK_PrivateEndpointTargetDeleted(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		delete func(t *testing.T, e *peEnv, target string)
+		name   string
+	}{
+		{name: "target deleted", delete: func(t *testing.T, e *peEnv, target string) {
+			t.Helper()
+
+			code, _ := e.rawJSON(t, http.MethodDelete, target+"?api-version=2023-01-01", "")
+			require.Less(t, code, 300)
+		}},
+		{name: "target resource group deleted", delete: func(t *testing.T, e *peEnv, _ string) {
+			t.Helper()
+
+			code, _ := e.rawJSON(t, http.MethodDelete,
+				"/subscriptions/"+aciSub+"/resourcegroups/rg-target?api-version=2021-04-01", "")
+			require.Less(t, code, 300)
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newPEEnv(t)
+
+			code, _ := e.rawJSON(t, http.MethodPut,
+				"/subscriptions/"+aciSub+"/resourcegroups/rg-target?api-version=2021-04-01", `{"location":"westus"}`)
+			require.Less(t, code, 300)
+
+			target := "/subscriptions/" + aciSub + "/resourceGroups/rg-target/providers/Microsoft.Storage/storageAccounts/acct2"
+			code, _ = e.rawJSON(t, http.MethodPut, target+"?api-version=2023-01-01",
+				`{"location":"westus","kind":"StorageV2","sku":{"name":"Standard_LRS"}}`)
+			require.Less(t, code, 300)
+
+			_, err := e.endpoint(t, "pe-gone", false, target, "blob")
+			require.NoError(t, err)
+
+			_, err = e.endpoint(t, "pe-kept", false, e.storageID, "blob")
+			require.NoError(t, err)
+
+			tt.delete(t, e, target)
+
+			state := func(name string) string {
+				got, gerr := e.net.NewPrivateEndpointsClient().Get(t.Context(), netRG, name, nil)
+				require.NoError(t, gerr)
+
+				return *got.Properties.PrivateLinkServiceConnections[0].Properties.PrivateLinkServiceConnectionState.Status
+			}
+
+			assert.Equal(t, "Disconnected", state("pe-gone"))
+			assert.Equal(t, "Approved", state("pe-kept"))
+		})
+	}
+}

@@ -333,6 +333,10 @@ func (p *NetworkProvider) writeLink(zone *netParent, name string, body map[strin
 		return false, refMissing(vid)
 	}
 
+	if err := checkSingleLink(zone, name, vid); err != nil {
+		return false, err
+	}
+
 	prev, idx := zone.kid(netLinks, name)
 	out := takeProps(body, "virtualNetworkLinkState", fieldProvisioningState)
 	out["virtualNetwork"] = map[string]any{netFieldID: vid}

@@ -130,3 +130,37 @@ func TestPrivateDNSAutoRegistrationRules(t *testing.T) {
 
 	require.NoError(t, s.linkedZone(t, "three.internal", "plain", false), "non-registering links are unlimited")
 }
+
+func TestPrivateDNSOneLinkPerZoneAndNetwork(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		zone     string
+		link     string
+		wantCode string
+	}{
+		{name: "same link updated", zone: "a.internal", link: "first"},
+		{name: "second link to same network", zone: "a.internal", link: "second", wantCode: "Conflict"},
+		{name: "other zone same network", zone: "b.internal", link: "first"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := newCmpStack(t)
+			require.NoError(t, s.linkedZone(t, "a.internal", "first", false))
+
+			err := s.linkedZone(t, tt.zone, tt.link, false)
+			if tt.wantCode != "" {
+				require.Error(t, err)
+				assert.Equal(t, tt.wantCode, sdkErrCode(err))
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}

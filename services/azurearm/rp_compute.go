@@ -118,6 +118,7 @@ type ComputeProvider struct {
 	net     *NetworkProvider
 	ids     *identityService
 	items   map[string]*cmpRes
+	blobs   DiskBlobs
 }
 
 var _ ResourceProvider = (*ComputeProvider)(nil)
@@ -429,6 +430,8 @@ func (p *ComputeProvider) Put(_ context.Context, id ResourceID, body map[string]
 		return nil, err
 	}
 
+	imp := p.diskImportFor(id, typ, body)
+
 	p.mu.Lock("Put")
 	defer p.mu.Unlock()
 
@@ -445,9 +448,9 @@ func (p *ComputeProvider) Put(_ context.Context, id ResourceID, body map[string]
 	case cmpVMs:
 		res, err = p.putVM(id, body)
 	case cmpDisks:
-		res, err = p.putDisk(id, body, false)
+		res, err = p.putDisk(id, body, false, imp)
 	case cmpSnaps:
-		res, err = p.putDisk(id, body, true)
+		res, err = p.putDisk(id, body, true, imp)
 	case cmpAvSets:
 		res, err = p.putAvSet(id, body)
 	case cmpImages:
@@ -610,7 +613,7 @@ func (p *ComputeProvider) applyIdentity(r, old *cmpRes, body map[string]any) err
 
 	_, present := body[fieldIdentity]
 
-	ident, err := p.ids.apply(body[fieldIdentity], present, prev)
+	ident, err := p.ids.apply(namespaceMicrosoftCompute+"/"+r.Type, body[fieldIdentity], present, prev)
 	if err != nil {
 		return err
 	}

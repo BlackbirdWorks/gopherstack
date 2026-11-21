@@ -284,7 +284,11 @@ func (p *WebProvider) checkSiteWritable(id ResourceID, name string, existing *st
 }
 
 // siteIdentity applies a request's identity block on top of the identity of the existing site (nil for a new one).
-func (p *WebProvider) siteIdentity(body map[string]any, existing *storedWebSite) (resourceIdentity, error) {
+func (p *WebProvider) siteIdentity(
+	resType string,
+	body map[string]any,
+	existing *storedWebSite,
+) (resourceIdentity, error) {
 	var prev resourceIdentity
 	if existing != nil {
 		prev = existing.Managed
@@ -292,7 +296,7 @@ func (p *WebProvider) siteIdentity(body map[string]any, existing *storedWebSite)
 
 	_, present := body[fieldIdentity]
 
-	return p.ids.apply(body[fieldIdentity], present, prev)
+	return p.ids.apply(resType, body[fieldIdentity], present, prev)
 }
 
 func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[string]any) (map[string]any, error) {
@@ -328,7 +332,7 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 		return nil, err
 	}
 
-	ident, err := p.siteIdentity(body, existing)
+	ident, err := p.siteIdentity(namespaceMicrosoftWeb+"/"+webSitesType, body, existing)
 	if err != nil {
 		return nil, err
 	}

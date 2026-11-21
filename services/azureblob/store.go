@@ -404,3 +404,39 @@ func quotedHash(parts ...[]byte) string {
 
 	return `"` + hex.EncodeToString(h.Sum(nil)[:16]) + `"`
 }
+
+// ReadTail returns the blob's info and its last n bytes (fewer if the blob is shorter) without materialising the
+// rest of a page blob.
+func (b *InMemoryBackend) ReadTail(container, blob string, n int64) (BlobInfo, []byte, error) {
+	b.mu.RLock("ReadTail")
+	defer b.mu.RUnlock()
+
+	stored, err := b.readableLocked(container, blob, "", Precond{})
+	if err != nil {
+		return BlobInfo{}, nil, err
+	}
+
+	info := stored.info(b.now())
+	size := stored.length()
+	start := max(size-n, 0)
+	out := make([]byte, size-start)
+
+	if stored.BlobType != BlobTypePage {
+		copy(out, stored.Data[start:])
+
+		return info, out, nil
+	}
+
+	for _, e := range stored.Pages {
+		eEnd := e.Offset + int64(len(e.Data))
+		if eEnd <= start || e.Offset >= size {
+			continue
+		}
+
+		lo := max(e.Offset, start)
+		hi := min(eEnd, size)
+		copy(out[lo-start:], e.Data[lo-e.Offset:hi-e.Offset])
+	}
+
+	return info, out, nil
+}
