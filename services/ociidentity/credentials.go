@@ -125,11 +125,11 @@ func (k APIKey) view(userID string) apiKeyWire {
 
 // UploadAPIKey registers an RSA public key for a user and with the shared signature registry.
 func (b *InMemoryBackend) UploadAPIKey(userID, pemKey string) (apiKeyWire, string, error) {
-	return b.UploadAPIKeyWithToken(userID, pemKey, "")
+	return b.uploadAPIKeyWithToken(userID, pemKey, "")
 }
 
-// UploadAPIKeyWithToken is UploadAPIKey with opc-retry-token replay: the same token returns the same key.
-func (b *InMemoryBackend) UploadAPIKeyWithToken(userID, pemKey, token string) (apiKeyWire, string, error) {
+// uploadAPIKeyWithToken is UploadAPIKey with opc-retry-token replay: the same token returns the same key.
+func (b *InMemoryBackend) uploadAPIKeyWithToken(userID, pemKey, token string) (apiKeyWire, string, error) {
 	if strings.TrimSpace(pemKey) == "" {
 		return apiKeyWire{}, "", errMissing("key is required")
 	}
@@ -264,8 +264,8 @@ func validCredText(kind credKind, text string) *APIError {
 	return nil
 }
 
-// CreateCredential creates a credential and returns it with the secret, which is never retrievable again.
-func (b *InMemoryBackend) CreateCredential(userID string, kind credKind, text, token string) (credWire, string, error) {
+// createCredential creates a credential and returns it with the secret, which is never retrievable again.
+func (b *InMemoryBackend) createCredential(userID string, kind credKind, text, token string) (credWire, string, error) {
 	if aerr := validCredText(kind, text); aerr != nil {
 		return credWire{}, "", aerr
 	}
@@ -404,12 +404,12 @@ func newUIPassword() string {
 
 // ResetUIPassword generates a console password; it is returned only here.
 func (b *InMemoryBackend) ResetUIPassword(userID string) (uiPasswordWire, string, error) {
-	return b.ResetUIPasswordWithToken(userID, "")
+	return b.resetUIPasswordWithToken(userID, "")
 }
 
-// ResetUIPasswordWithToken is ResetUIPassword with opc-retry-token replay; a token whose password has since
+// resetUIPasswordWithToken is ResetUIPassword with opc-retry-token replay; a token whose password has since
 // been replaced is invalidated.
-func (b *InMemoryBackend) ResetUIPasswordWithToken(userID, token string) (uiPasswordWire, string, error) {
+func (b *InMemoryBackend) resetUIPasswordWithToken(userID, token string) (uiPasswordWire, string, error) {
 	b.mu.Lock("ResetUIPassword")
 	defer b.mu.Unlock()
 
@@ -480,7 +480,7 @@ func (h *Handler) uploadAPIKey(q *req) error {
 		return err
 	}
 
-	v, etag, err := h.Backend.UploadAPIKeyWithToken(q.param("userId"), in.Key, q.r.Header.Get(headerRetry))
+	v, etag, err := h.Backend.uploadAPIKeyWithToken(q.param("userId"), in.Key, q.r.Header.Get(headerRetry))
 
 	return reply(q, v, etag, err)
 }
@@ -524,7 +524,7 @@ func (h *Handler) createCred(q *req, kind credKind) error {
 		return err
 	}
 
-	v, etag, err := h.Backend.CreateCredential(q.param("userId"), kind, in.text(kind), q.r.Header.Get(headerRetry))
+	v, etag, err := h.Backend.createCredential(q.param("userId"), kind, in.text(kind), q.r.Header.Get(headerRetry))
 
 	return reply(q, v, etag, err)
 }
@@ -576,7 +576,7 @@ func (h *Handler) deleteSMTP(q *req) error {
 }
 
 func (h *Handler) resetUIPassword(q *req) error {
-	v, etag, err := h.Backend.ResetUIPasswordWithToken(q.param("userId"), q.r.Header.Get(headerRetry))
+	v, etag, err := h.Backend.resetUIPasswordWithToken(q.param("userId"), q.r.Header.Get(headerRetry))
 
 	return reply(q, v, etag, err)
 }
