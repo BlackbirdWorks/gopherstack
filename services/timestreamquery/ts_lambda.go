@@ -11,7 +11,7 @@ const placeholderPrefix = "__tsl"
 var (
 	reLambdaOne  = regexp.MustCompile(`(?s)^\s*([A-Za-z_]\w*)\s*->\s*(.*)$`)
 	reLambdaTwo  = regexp.MustCompile(`(?s)^\s*\(\s*([A-Za-z_]\w*)\s*,\s*([A-Za-z_]\w*)\s*\)\s*->\s*(.*)$`)
-	reCallStart  = regexp.MustCompile(`(?i)\b(filter|reduce|unnest)\s*\(`)
+	reCallStart  = regexp.MustCompile(`(?i)\b(ts_filter|ts_reduce|filter|reduce|unnest)\s*\(`)
 	reOrdinal    = regexp.MustCompile(`(?is)^\s+with\s+ordinality\b`)
 	reUnnestAs   = regexp.MustCompile(`(?is)^\s+as\s+([A-Za-z_]\w*)(?:\s*\(([^)]*)\))?`)
 	reUnnestBare = regexp.MustCompile(`(?is)^\s+([A-Za-z_]\w*)\s*\(([^)]*)\)`)
@@ -143,15 +143,21 @@ func replaceOutsideStrings(s, old, repl string) string {
 	return sb.String()
 }
 
+// classify recognises a timeseries lambda call: ts_-tagged calls were typed as timeseries by inference, untagged
+// ones (queries inference could not parse) are recognised by the lambda reading the element.
 func classify(name string, args []string) (seriesSub, bool) {
-	switch strings.ToLower(name) {
-	case "filter":
+	lw := strings.ToLower(name)
+	typed := strings.HasPrefix(lw, "ts_")
+	isSeries := func(p, body string) bool { return typed || seriesLambda(p, body) }
+
+	switch strings.TrimPrefix(lw, "ts_") {
+	case fnFilter:
 		if len(args) != argsTwo {
 			return seriesSub{}, false
 		}
 
 		m := reLambdaOne.FindStringSubmatch(args[1])
-		if m == nil || !seriesLambda(m[1], m[2]) {
+		if m == nil || !isSeries(m[1], m[2]) {
 			return seriesSub{}, false
 		}
 
@@ -165,7 +171,7 @@ func classify(name string, args []string) (seriesSub, bool) {
 		step := reLambdaTwo.FindStringSubmatch(args[2])
 		out := reLambdaOne.FindStringSubmatch(args[3])
 
-		if step == nil || out == nil || !seriesLambda(step[2], step[3]) {
+		if step == nil || out == nil || !isSeries(step[2], step[3]) {
 			return seriesSub{}, false
 		}
 
@@ -325,7 +331,7 @@ func rewriteUnnest(
 		return pos, false
 	}
 
-	alias, cols, end := "", []string{"time", "value"}, closeIdx+1
+	alias, cols, end := "", []string{colTime, colValue}, closeIdx+1
 
 	m := reUnnestAs.FindStringSubmatch(tail)
 	if m == nil {

@@ -53,6 +53,7 @@ type InMemoryBackend struct {
 	notifier                 Notifier
 	objects                  billingexport.ObjectStore
 	nowFn                    func() time.Time
+	insightsLast             map[string]time.Time
 	accountID                string
 	defaultRegion            string
 	queryTimeout             time.Duration
@@ -87,6 +88,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		mu:                   lockmetrics.New("timestreamquery"),
 		registry:             store.NewRegistry(),
 		accountSettings:      make(map[string]AccountSettings),
+		insightsLast:         make(map[string]time.Time),
 		clientTokens:         newClientTokenCache(queryClientTokenTTL),
 		scheduledQueryTokens: newClientTokenCache(createScheduledQueryClientTokenTTL),
 		pageStore:            newNextTokenStore(),
@@ -105,6 +107,7 @@ func (b *InMemoryBackend) Reset() {
 
 	b.registry.ResetAll()
 	b.accountSettings = make(map[string]AccountSettings)
+	b.insightsLast = make(map[string]time.Time)
 	b.clientTokens = newClientTokenCache(queryClientTokenTTL)
 	b.scheduledQueryTokens = newClientTokenCache(createScheduledQueryClientTokenTTL)
 	b.pageStore = newNextTokenStore()

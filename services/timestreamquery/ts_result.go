@@ -14,11 +14,15 @@ var (
 	reTSText = regexp.MustCompile(`^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.(\d{3}|\d{9})$`)
 )
 
-const kwNull = "null"
+const (
+	kwNull  = "null"
+	kwTrue  = "true"
+	kwFalse = "false"
+)
 
 func isLiteralName(name string) bool {
 	switch strings.ToLower(name) {
-	case kwNull, "true", "false":
+	case kwNull, kwTrue, kwFalse:
 		return true
 	}
 
@@ -28,10 +32,14 @@ func isLiteralName(name string) bool {
 // resultSet is a fully materialised query result.
 type resultSet struct {
 	cols    []ColumnInfo
+	static  []bool
+	scans   []tableScanInsight
 	rows    []Row
 	scanned int64
 	tables  int
 }
+
+func (r *resultSet) isStatic(i int) bool { return i < len(r.static) && r.static[i] }
 
 // outBytes is the size of the rendered scalar values, reported as insights OutputBytes.
 func (r *resultSet) outBytes() int64 {
@@ -39,10 +47,33 @@ func (r *resultSet) outBytes() int64 {
 
 	for _, row := range r.rows {
 		for _, d := range row.Data {
-			if d.ScalarValue != nil {
-				n += int64(len(*d.ScalarValue))
-			}
+			n += datumBytes(d)
 		}
+	}
+
+	return n
+}
+
+// datumBytes is the rendered size of a cell, counting every nested array, row and timeseries value.
+func datumBytes(d Datum) int64 {
+	var n int64
+
+	if d.ScalarValue != nil {
+		n += int64(len(*d.ScalarValue))
+	}
+
+	for _, e := range d.ArrayValue {
+		n += datumBytes(e)
+	}
+
+	if d.RowValue != nil {
+		for _, e := range d.RowValue.Data {
+			n += datumBytes(e)
+		}
+	}
+
+	for _, p := range d.TimeSeriesValue {
+		n += int64(len(p.Time)) + datumBytes(p.Value)
 	}
 
 	return n
@@ -98,7 +129,7 @@ func inferType(col []any) string {
 	return ScalarTypeVarchar
 }
 
-func readRows(rows *sql.Rows) (*resultSet, error) {
+func readRows(rows *sql.Rows, plan []tsType) (*resultSet, error) {
 	names, err := rows.Columns()
 	if err != nil {
 		return nil, err
@@ -109,24 +140,8 @@ func readRows(rows *sql.Rows) (*resultSet, error) {
 		return nil, err
 	}
 
-	var raw [][]any
-
-	for rows.Next() {
-		dest := make([]any, len(names))
-		ptrs := make([]any, len(names))
-
-		for i := range dest {
-			ptrs[i] = &dest[i]
-		}
-
-		if err = rows.Scan(ptrs...); err != nil {
-			return nil, err
-		}
-
-		raw = append(raw, dest)
-	}
-
-	if err = rows.Err(); err != nil {
+	raw, err := scanAll(rows, len(names))
+	if err != nil {
 		return nil, err
 	}
 
@@ -139,25 +154,26 @@ func readRows(rows *sql.Rows) (*resultSet, error) {
 			col[r] = raw[r][i]
 		}
 
-		if kind := complexKind(col); kind != "" {
-			types[i] = kind
-			rs.cols = append(rs.cols, complexColumnInfo(columnName(n, i), kind, col))
-
-			continue
+		var static tsType
+		if i < len(plan) {
+			static = plan[i]
 		}
 
-		t := declType(ctypes[i].DatabaseTypeName())
-		if t == "" {
-			t = inferType(col)
-		}
-
-		types[i] = t
-		rs.cols = append(rs.cols, scalarColumnInfo(columnName(n, i), t))
+		info, typ, isStatic := columnFor(columnName(n, i), ctypes[i].DatabaseTypeName(), static, col)
+		rs.cols = append(rs.cols, info)
+		rs.static = append(rs.static, isStatic)
+		types[i] = typ
 	}
 
 	for _, r := range raw {
 		data := make([]Datum, len(r))
 		for i, v := range r {
+			if rs.static[i] {
+				data[i] = renderValue(v, plan[i])
+
+				continue
+			}
+
 			data[i] = datumFor(v, types[i])
 		}
 
@@ -165,6 +181,45 @@ func readRows(rows *sql.Rows) (*resultSet, error) {
 	}
 
 	return rs, nil
+}
+
+func scanAll(rows *sql.Rows, width int) ([][]any, error) {
+	var raw [][]any
+
+	for rows.Next() {
+		dest := make([]any, width)
+		ptrs := make([]any, width)
+
+		for i := range dest {
+			ptrs[i] = &dest[i]
+		}
+
+		if err := rows.Scan(ptrs...); err != nil {
+			return nil, err
+		}
+
+		raw = append(raw, dest)
+	}
+
+	return raw, rows.Err()
+}
+
+// columnFor describes one result column: the statically inferred type when known, else one derived from the values.
+func columnFor(name, decl string, static tsType, col []any) (ColumnInfo, string, bool) {
+	if static.known() {
+		return static.columnInfo(name), "", true
+	}
+
+	if kind := complexKind(col); kind != "" {
+		return complexColumnInfo(name, kind, col), kind, false
+	}
+
+	t := declType(decl)
+	if t == "" {
+		t = inferType(col)
+	}
+
+	return scalarColumnInfo(name, t), t, false
 }
 
 func datumOf(v any, typ string) Datum {

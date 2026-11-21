@@ -146,47 +146,81 @@ func toUnit(per func(time.Time) int64) func(*sqlitedriver.FunctionContext, []dri
 	}
 }
 
+type scalarImpl = func(*sqlitedriver.FunctionContext, []driver.Value) (driver.Value, error)
+
+type scalarFunc struct {
+	impl  scalarImpl
+	name  string
+	nargs int32
+}
+
+func scalarFn(name string, nargs int32, impl scalarImpl) scalarFunc {
+	return scalarFunc{name: name, nargs: nargs, impl: impl}
+}
+
+// tsScalarFuncs lists the scalar functions this package registers with the engine.
+func tsScalarFuncs() []scalarFunc {
+	isoYear := toUnit(func(t time.Time) int64 {
+		y, _ := t.ISOWeek()
+
+		return int64(y)
+	})
+
+	return []scalarFunc{
+		scalarFn("ts_bin", argsTwo, udfBin),
+		scalarFn("ts_ago", argsTwo, udfAgo),
+		scalarFn("ts_tsdiff", argsTwo, udfTimestampDiff),
+		scalarFn("from_milliseconds", 1, unitFunc(time.UnixMilli)),
+		scalarFn("from_nanoseconds", 1, unitFunc(func(n int64) time.Time { return time.Unix(0, n) })),
+		scalarFn("to_milliseconds", 1, toUnit(func(t time.Time) int64 { return t.UnixMilli() })),
+		scalarFn("to_nanoseconds", 1, toUnit(func(t time.Time) int64 { return t.UnixNano() })),
+		scalarFn("year_of_week", 1, isoYear),
+		scalarFn("yow", 1, isoYear),
+		scalarFn("nanosecond", 1, toUnit(func(t time.Time) int64 { return int64(t.Nanosecond()) })),
+		scalarFn("parse_duration", 1, udfParseDuration),
+		scalarFn("interpolate_linear", argsTwo, udfInterpolate(linearAt)),
+		scalarFn("interpolate_spline_cubic", argsTwo, udfInterpolate(splineAt)),
+		scalarFn("interpolate_locf", argsTwo, udfInterpolate(locfAt)),
+		scalarFn("interpolate_fill", argsThree, udfInterpolateFill),
+		scalarFn("derivative_linear", argsTwo, udfDerivative(false)),
+		scalarFn("non_negative_derivative_linear", argsTwo, udfDerivative(true)),
+		scalarFn("integral_trapezoidal", -1, udfIntegral),
+		scalarFn("correlate_pearson", argsTwo, udfCorrelate(false)),
+		scalarFn("correlate_spearman", argsTwo, udfCorrelate(true)),
+		scalarFn("sequence", -1, udfSequence),
+		scalarFn("ts_series_json", 1, udfSeriesJSON),
+	}
+}
+
+// udfTimestampDiff implements timestamp - timestamp as an INTERVAL DAY TO SECOND.
+func udfTimestampDiff(_ *sqlitedriver.FunctionContext, args []driver.Value) (driver.Value, error) {
+	if args[0] == nil || args[1] == nil {
+		return nil, nil //nolint:nilnil // SQL NULL
+	}
+
+	a, okA := parseTSValue(args[0])
+	b, okB := parseTSValue(args[1])
+
+	if !okA || !okB {
+		return nil, errBadArg
+	}
+
+	return formatInterval(a.Sub(b).Nanoseconds()), nil
+}
+
 func registerTimestreamFuncs() {
 	registerFuncsOnce.Do(func() {
 		registerUnnestModule()
-		reg := sqlitedriver.MustRegisterDeterministicScalarFunction
-		reg("ts_bin", argsTwo, udfBin)
-		reg("ts_ago", argsTwo, udfAgo)
-		reg("from_milliseconds", 1, unitFunc(time.UnixMilli))
-		reg("from_nanoseconds", 1, unitFunc(func(n int64) time.Time { return time.Unix(0, n) }))
-		reg("to_milliseconds", 1, toUnit(func(t time.Time) int64 { return t.UnixMilli() }))
-		reg("to_nanoseconds", 1, toUnit(func(t time.Time) int64 { return t.UnixNano() }))
-		isoYear := toUnit(func(t time.Time) int64 {
-			y, _ := t.ISOWeek()
 
-			return int64(y)
+		for _, f := range tsScalarFuncs() {
+			sqlitedriver.MustRegisterDeterministicScalarFunction(f.name, f.nargs, f.impl)
+		}
+
+		sqlitedriver.MustRegisterFunction("create_time_series", &sqlitedriver.FunctionImpl{
+			NArgs: argsTwo,
+			MakeAggregate: func(_ fnCtx) (sqlitedriver.AggregateFunction, error) {
+				return &seriesAgg{}, nil
+			},
 		})
-		reg("year_of_week", 1, isoYear)
-		reg("yow", 1, isoYear)
-		reg("nanosecond", 1, toUnit(func(t time.Time) int64 { return int64(t.Nanosecond()) }))
-		reg("parse_duration", 1, udfParseDuration)
-		registerSeriesFuncs()
-	})
-}
-
-func registerSeriesFuncs() {
-	reg := sqlitedriver.MustRegisterDeterministicScalarFunction
-	reg("interpolate_linear", argsTwo, udfInterpolate(linearAt))
-	reg("interpolate_spline_cubic", argsTwo, udfInterpolate(splineAt))
-	reg("interpolate_locf", argsTwo, udfInterpolate(locfAt))
-	reg("interpolate_fill", argsThree, udfInterpolateFill)
-	reg("derivative_linear", argsTwo, udfDerivative(false))
-	reg("non_negative_derivative_linear", argsTwo, udfDerivative(true))
-	reg("integral_trapezoidal", -1, udfIntegral)
-	reg("correlate_pearson", argsTwo, udfCorrelate(false))
-	reg("correlate_spearman", argsTwo, udfCorrelate(true))
-	reg("sequence", -1, udfSequence)
-	reg("ts_series_json", 1, udfSeriesJSON)
-
-	sqlitedriver.MustRegisterFunction("create_time_series", &sqlitedriver.FunctionImpl{
-		NArgs: argsTwo,
-		MakeAggregate: func(_ fnCtx) (sqlitedriver.AggregateFunction, error) {
-			return &seriesAgg{}, nil
-		},
 	})
 }

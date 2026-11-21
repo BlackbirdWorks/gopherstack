@@ -287,6 +287,10 @@ func (h *Handler) handleExecuteScheduledQuery(ctx context.Context, body []byte) 
 		insightsMode = req.QueryInsights.Mode
 	}
 
+	if err := validateInsightsMode("queryInsights.mode", insightsMode); err != nil {
+		return nil, err
+	}
+
 	if err := h.Backend.ExecuteScheduledQuery(ctx, req.ScheduledQueryArn, invocationTime, insightsMode); err != nil {
 		return nil, err
 	}

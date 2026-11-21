@@ -46,9 +46,10 @@ func (b *InMemoryBackend) runScheduledQuery(
 
 	var insights *ScheduledQueryInsightsResponse
 	if withInsights {
-		q := buildQueryInsightsResponse(rs)
+		q := b.buildQueryInsightsResponse(getRegion(ctx, b.defaultRegion), rs)
 		insights = &ScheduledQueryInsightsResponse{
 			OutputRows: q.OutputRows, OutputBytes: q.OutputBytes, QueryTableCount: q.QueryTableCount,
+			QueryTemporalRange: q.TemporalRange, QuerySpatialCoverage: q.SpatialCoverage,
 		}
 	}
 

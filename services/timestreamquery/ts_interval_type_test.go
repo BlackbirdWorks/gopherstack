@@ -15,7 +15,7 @@ func TestQueryIntervalColumnType(t *testing.T) {
 		query string
 		want  []string
 	}{
-		{"direct", "SELECT parse_duration('42.8ms') AS d, 1 AS n", []string{"INTERVAL_DAY_TO_SECOND", "BIGINT"}},
+		{"direct", "SELECT parse_duration('42.8ms') AS d, 1 AS n", []string{"INTERVAL_DAY_TO_SECOND", "INTEGER"}},
 		{
 			"through an alias", "SELECT d FROM (SELECT parse_duration('1d') AS d) AS t",
 			[]string{"INTERVAL_DAY_TO_SECOND"},

@@ -59,7 +59,7 @@ func (h *Handler) handleQuery(ctx context.Context, body []byte) ([]byte, error) 
 		resp["NextToken"] = page.NextToken
 	}
 	if page.Insights != nil {
-		resp["QueryInsightsResponse"] = page.Insights
+		resp["QueryInsightsResponse"] = queryInsightsWire(page.Insights)
 	}
 
 	return json.Marshal(resp, jsonx.V1())
@@ -118,4 +118,34 @@ func (h *Handler) handleCancelQuery(ctx context.Context, body []byte) ([]byte, e
 	return json.Marshal(map[string]any{
 		"CancellationMessage": "Query has been successfully cancelled.",
 	}, jsonx.V1())
+}
+
+func queryInsightsWire(in *QueryInsightsResponse) map[string]any {
+	out := map[string]any{
+		"OutputRows":      in.OutputRows,
+		"OutputBytes":     in.OutputBytes,
+		"QueryTableCount": in.QueryTableCount,
+	}
+
+	if in.UnloadPartitionCount != 0 {
+		out["UnloadPartitionCount"] = in.UnloadPartitionCount
+	}
+
+	if in.UnloadWrittenRows != 0 {
+		out["UnloadWrittenRows"] = in.UnloadWrittenRows
+	}
+
+	if in.UnloadWrittenBytes != 0 {
+		out["UnloadWrittenBytes"] = in.UnloadWrittenBytes
+	}
+
+	if in.TemporalRange != nil {
+		out["QueryTemporalRange"] = in.TemporalRange
+	}
+
+	if in.SpatialCoverage != nil {
+		out["QuerySpatialCoverage"] = in.SpatialCoverage
+	}
+
+	return out
 }

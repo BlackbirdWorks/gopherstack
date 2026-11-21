@@ -38,8 +38,8 @@ func TestQuery_BooleanExpressionTypes(t *testing.T) {
 		},
 		{"empty result", `SELECT measure_value::double > 5 AS big FROM db.t WHERE measure_name = 'nope'`,
 			[][]string{}, []string{"big:BOOLEAN"}},
-		{"arithmetic stays bigint", `SELECT 1 + 2 AS s, CASE WHEN 1 < 2 THEN 1 ELSE 0 END AS c`,
-			[][]string{{"3", "1"}}, []string{"s:BIGINT", "c:BIGINT"}},
+		{"arithmetic stays integer", `SELECT 1 + 2 AS s, CASE WHEN 1 < 2 THEN 1 ELSE 0 END AS c`,
+			[][]string{{"3", "1"}}, []string{"s:INTEGER", "c:INTEGER"}},
 		{"string literal with operator", `SELECT 'a > b' AS s`, [][]string{{"a > b"}}, []string{"s:VARCHAR"}},
 	}
 

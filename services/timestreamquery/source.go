@@ -77,6 +77,12 @@ type SchemaSource interface {
 	TableShapes(region, database, table string) []SourceRecord
 }
 
+// PartitionKeySource is optionally implemented by a RecordSource that knows a table's customer-defined partition key:
+// the dimension names, or measure_name for a measure key, in schema order.
+type PartitionKeySource interface {
+	TablePartitionKeys(region, database, table string) []string
+}
+
 // SetRecordSource wires the record source used to execute queries and scheduled-query writes.
 // It also serves as the table catalog.
 func (b *InMemoryBackend) SetRecordSource(s RecordSource) {
