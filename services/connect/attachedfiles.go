@@ -438,6 +438,11 @@ func (b *Backend) StartAttachedFileUpload(
 
 		b.attachedFiles.put(rec)
 
+		if casesARNPattern.MatchString(rec.Resource) {
+			logger.Load(ctx).InfoContext(ctx, "connect: would attach the file to the Cases case (no Cases service)",
+				"instance", inst, "file", rec.FileID, "case", rec.Resource)
+		}
+
 		return &AttachedFileCreated{
 			FileArn: rec.Arn, FileID: rec.FileID, CreationTime: rec.CreationTime, FileStatus: rec.Status,
 			CreatedBy: rec.CreatedBy, UploadURLMetadata: upload,
