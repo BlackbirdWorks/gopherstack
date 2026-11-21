@@ -391,7 +391,7 @@ func (p *LogicProvider) sendHTTP(ctx context.Context, r *logicHTTPRequest) (*log
 
 	req.Header = r.header.Clone()
 
-	client := p.http
+	client := p.http.Load()
 
 	if r.cert != nil {
 		client = p.certClient(r.cert)

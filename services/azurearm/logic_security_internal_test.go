@@ -123,28 +123,33 @@ func TestLogicLocaleMeridiemFoldsCase(t *testing.T) {
 	}
 }
 
-func TestLogicLocalHostName(t *testing.T) {
+func TestLogicValidBase(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		host string
+		base string
 		want bool
 	}{
-		{"127.0.0.1", true},
-		{"::1", true},
-		{"localhost", true},
-		{"LOCALHOST", true},
-		{"gopherstack", true},
-		{"evil.example.com", false},
-		{"203.0.113.9", false},
+		{"https://127.0.0.1:8443", true},
+		{"https://[::1]:8443", true},
+		{"https://localhost:10006", true},
+		{"https://host.docker.internal:4566", true},
+		{"https://gopherstack.default.svc.cluster.local:443", true},
+		{"https://user@evil.example.com:443", false},
+		{"https://evil.example.com:443/x", false},
+		{"https://evil.example.com:443?x=1", false},
+		{"https://evil.example.com:99999", false},
+		{"https://evil exam.com:443", false},
+		{"http://evil.example.com:443", false},
+		{"https://:443", false},
 		{"", false},
 	}
 
 	for _, tc := range tests {
-		t.Run(tc.host, func(t *testing.T) {
+		t.Run(tc.base, func(t *testing.T) {
 			t.Parallel()
 
-			assert.Equal(t, tc.want, localHostName(tc.host))
+			assert.Equal(t, tc.want, validBase(tc.base))
 		})
 	}
 }

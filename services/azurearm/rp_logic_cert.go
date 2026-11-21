@@ -109,9 +109,7 @@ func (p *LogicProvider) certClient(cert *tls.Certificate) *http.Client {
 func (p *LogicProvider) SetOutboundRootCAs(pool *x509.CertPool) {
 	p.roots.Store(pool)
 
-	p.mu.Lock("SetOutboundRootCAs")
-	p.http = p.newHTTPClient()
-	p.mu.Unlock()
+	p.http.Store(p.newHTTPClient())
 }
 
 func sameOrigin(a, b string) bool {

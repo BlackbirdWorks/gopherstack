@@ -182,7 +182,75 @@ func TestLogicPollRetryAfter(t *testing.T) {
 	}
 }
 
-func TestLogicWebhookCallbackIgnoresForeignHost(t *testing.T) {
+func (s *logicStack) postWithHost(t *testing.T, path, host string) {
+	t.Helper()
+
+	full := s.url + "/subscriptions/" + aciSub + "/resourceGroups/" + logicRG +
+		"/providers/Microsoft.Logic" + path + "?api-version=2019-05-01"
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, full, nil)
+	require.NoError(t, err)
+
+	req.Host = host
+
+	resp, err := s.client.Do(req)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
+func TestLogicWebhookCallbackHost(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		host     string
+		wantBase string
+	}{
+		{
+			name: "service fqdn", host: "gopherstack.default.svc.cluster.local:443",
+			wantBase: "https://gopherstack.default.svc.cluster.local:443",
+		},
+		{name: "docker host", host: "host.docker.internal:4566", wantBase: "https://host.docker.internal:4566"},
+		{name: "userinfo refused", host: "user@evil.example.com:443"},
+		{name: "bad characters refused", host: "evil.example.com/x:443"},
+		{name: "bad port refused", host: "evil.example.com:99999"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := newLogicStack(t)
+			b := &hookBackend{}
+			srv := httptest.NewServer(b)
+			t.Cleanup(srv.Close)
+
+			s.create(t, "hooked", webhookDef(srv.URL, ""))
+			s.waitRuns(t)
+
+			_, err := s.factory.NewWorkflowsClient().Disable(t.Context(), logicRG, "hooked", nil)
+			require.NoError(t, err)
+			s.waitRuns(t)
+			s.postWithHost(t, "/workflows/hooked/enable", tc.host)
+			s.waitRuns(t)
+
+			calls := b.seen()
+			require.Len(t, calls, 3, "subscribe, unsubscribe, subscribe")
+
+			if tc.wantBase != "" {
+				assert.True(t, strings.HasPrefix(calls[2].callback, tc.wantBase+"/_logic/workflows/"),
+					calls[2].callback)
+
+				return
+			}
+
+			assert.True(t, strings.HasPrefix(calls[2].callback, s.url+"/_logic/workflows/"),
+				"a refused host keeps the base of the workflow's earlier write: %s", calls[2].callback)
+		})
+	}
+}
+
+func TestLogicWebhookCallbackHostIsPerWorkflow(t *testing.T) {
 	t.Parallel()
 
 	s := newLogicStack(t)
@@ -191,28 +259,21 @@ func TestLogicWebhookCallbackIgnoresForeignHost(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	s.create(t, "hooked", webhookDef(srv.URL, ""))
+	s.create(t, "other", logicDef(requestTrigger(nil), la{"Mark": compose("1", nil)}))
 	s.waitRuns(t)
 
-	wc := s.factory.NewWorkflowsClient()
-	_, err := wc.Disable(t.Context(), logicRG, "hooked", nil)
+	_, err := s.factory.NewWorkflowsClient().Disable(t.Context(), logicRG, "hooked", nil)
 	require.NoError(t, err)
 	s.waitRuns(t)
 
-	full := s.url + "/subscriptions/" + aciSub + "/resourceGroups/" + logicRG +
-		"/providers/Microsoft.Logic/workflows/hooked/enable?api-version=2019-05-01"
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, full, nil)
-	require.NoError(t, err)
+	s.postWithHost(t, "/workflows/other/disable", "evil.example.com:443")
 
-	req.Host = "evil.example.com:443"
-
-	resp, err := s.client.Do(req)
+	_, err = s.factory.NewWorkflowsClient().Enable(t.Context(), logicRG, "hooked", nil)
 	require.NoError(t, err)
-	require.NoError(t, resp.Body.Close())
-	require.Equal(t, http.StatusOK, resp.StatusCode)
 	s.waitRuns(t)
 
 	calls := b.seen()
-	require.Len(t, calls, 3, "subscribe, unsubscribe, subscribe")
+	require.Len(t, calls, 3)
 	assert.True(t, strings.HasPrefix(calls[2].callback, s.url+"/_logic/workflows/"), calls[2].callback)
 }
 

@@ -68,9 +68,8 @@ func (p *LogicProvider) pollPlanLocked(wfKey, trigger string, scheduled time.Tim
 // pollState is a run state for the trigger's outbound call: it has its own lock so the call never holds the
 // provider's.
 func (p *LogicProvider) pollState(plan logicPollPlan, clock func() time.Time) *logicRunState {
-	scratch := &LogicProvider{
-		mu: lockmetrics.New("azurearm.logicpoll"), clock: p.currentClock(), http: p.http,
-	}
+	scratch := &LogicProvider{mu: lockmetrics.New("azurearm.logicpoll"), clock: p.currentClock()}
+	scratch.http.Store(p.http.Load())
 
 	return &logicRunState{
 		p: scratch, ctx: p.rootCtx, run: &logicRunRec{}, params: plan.params, vars: map[string]*logicVar{},

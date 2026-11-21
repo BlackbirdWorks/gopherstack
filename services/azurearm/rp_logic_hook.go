@@ -9,15 +9,17 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
+	logicMaxPort     = 65535
+	logicMaxHostLen  = 253
 	logicTrigWebhook = "httpwebhook"
 	logicKSubscribe  = "subscribe"
 )
@@ -89,57 +91,65 @@ func hookFingerprint(def map[string]any) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// setBase remembers the address callers reach the emulator on, for the callback URLs handed to webhook
-// subscribers. A Host header naming anything but this machine is ignored: any caller could otherwise steer the
-// signed callback to a host of its choice.
-func (p *LogicProvider) setBase(base string, port int) {
-	p.mu.Lock("setBase")
+// noteBase remembers the address the caller that wrote this workflow reached the emulator on; webhook callback
+// URLs for the workflow are built from it, so one caller's Host header only affects the resource it just wrote.
+// A base that is not a plain https host[:port] is ignored.
+func (p *LogicProvider) noteBase(wfKey, base string, port int) {
+	p.mu.Lock("noteBase")
 	defer p.mu.Unlock()
 
-	if u, err := url.Parse(base); err == nil && localHostName(u.Hostname()) {
-		p.hookBase = base
+	p.hookPort = port
 
-		return
-	}
+	if validBase(base) {
+		if p.hookBases == nil {
+			p.hookBases = map[string]string{}
+		}
 
-	if p.hookBase == "" {
-		p.hookBase = "https://" + net.JoinHostPort("localhost", strconv.Itoa(port))
+		p.hookBases[wfKey] = base
 	}
 }
 
-// localHostName reports whether host names this machine: loopback, a local interface address, the hostname, or a
-// single-label name such as a compose service.
-func localHostName(host string) bool {
-	if host == "" {
+func (p *LogicProvider) baseForLocked(wfKey string) string {
+	if b, ok := p.hookBases[wfKey]; ok {
+		return b
+	}
+
+	return "https://" + net.JoinHostPort("localhost", strconv.Itoa(p.hookPort))
+}
+
+// validBase accepts only https://host[:port] with a DNS name or IP literal host: no userinfo, path or query.
+func validBase(base string) bool {
+	u, err := url.Parse(base)
+	if err != nil || u.Scheme != logicSchemeHTTPS || u.User != nil || u.Path != "" || u.RawQuery != "" ||
+		u.Fragment != "" || u.Opaque != "" {
 		return false
 	}
 
-	if ip := net.ParseIP(host); ip != nil {
-		return ip.IsLoopback() || localInterfaceIP(ip)
-	}
+	return validPort(u.Port()) && validHostName(u.Hostname())
+}
 
-	if strings.EqualFold(host, "localhost") || !strings.Contains(host, ".") {
+func validPort(port string) bool {
+	if port == "" {
 		return true
 	}
 
-	own, err := os.Hostname()
+	n, err := strconv.Atoi(port)
 
-	return err == nil && strings.EqualFold(host, own)
+	return err == nil && n >= 1 && n <= logicMaxPort
 }
 
-func localInterfaceIP(ip net.IP) bool {
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
+func validHostName(host string) bool {
+	if host == "" || len(host) > logicMaxHostLen {
 		return false
 	}
 
-	for _, a := range addrs {
-		if n, ok := a.(*net.IPNet); ok && n.IP.Equal(ip) {
-			return true
-		}
+	if net.ParseIP(host) != nil {
+		return true
 	}
 
-	return false
+	return !strings.ContainsFunc(host, func(r rune) bool {
+		return r != '.' && r != '-' && r != '_' && !unicode.IsDigit(r) && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z')
+	})
 }
 
 func (p *LogicProvider) queueHookLocked(j *logicHookJob) {
@@ -164,7 +174,7 @@ func (p *LogicProvider) hookJobLocked(w *logicWorkflow, name string, subscribe b
 
 	if subscribe {
 		j.call, _ = objectOf(in[logicKSubscribe])
-		j.callback, _ = w.callbackURL(p.hookBase, name, "Primary", nil)["value"].(string)
+		j.callback, _ = w.callbackURL(p.baseForLocked(w.key()), name, "Primary", nil)["value"].(string)
 
 		return j
 	}

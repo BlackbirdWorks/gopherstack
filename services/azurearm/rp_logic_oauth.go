@@ -56,7 +56,7 @@ func (rs *logicRunState) fetchOAuthToken(auth map[string]any) (string, error) {
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := rs.p.http.Do(req)
+	resp, err := rs.p.http.Load().Do(req)
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", errLogicTokenRequest, err)
 	}

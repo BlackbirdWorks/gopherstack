@@ -185,22 +185,23 @@ type logicWorkflow struct {
 // LogicProvider implements ResourceProvider for Microsoft.Logic Consumption workflows: ARM CRUD, run history and
 // the workflow engine that executes definitions.
 type LogicProvider struct {
-	rootCtx  context.Context //nolint:containedctx // lifetime of every run goroutine
-	clock    gcpscale.Clock
-	cancel   context.CancelFunc
-	roots    atomic.Pointer[x509.CertPool]
-	live     map[string]*logicLive
-	queue    map[string][]*logicQueued
-	timers   map[string]gcpscale.Timer
-	mu       *lockmetrics.RWMutex
-	http     *http.Client
-	wf       map[string]*logicWorkflow
-	hookBase string
-	hookQ    []*logicHookJob
-	wg       sync.WaitGroup
-	seq      atomic.Int64
-	external atomic.Bool
-	hookRun  bool
+	rootCtx   context.Context //nolint:containedctx // lifetime of every run goroutine
+	clock     gcpscale.Clock
+	cancel    context.CancelFunc
+	roots     atomic.Pointer[x509.CertPool]
+	live      map[string]*logicLive
+	queue     map[string][]*logicQueued
+	timers    map[string]gcpscale.Timer
+	mu        *lockmetrics.RWMutex
+	http      atomic.Pointer[http.Client]
+	wf        map[string]*logicWorkflow
+	hookBases map[string]string
+	hookQ     []*logicHookJob
+	wg        sync.WaitGroup
+	hookPort  int
+	seq       atomic.Int64
+	external  atomic.Bool
+	hookRun   bool
 }
 
 // NewLogicProvider creates a LogicProvider on the wall clock.
@@ -212,7 +213,7 @@ func NewLogicProvider() *LogicProvider {
 		timers:  map[string]gcpscale.Timer{},
 		rootCtx: ctx, cancel: cancel,
 	}
-	p.http = p.newHTTPClient()
+	p.http.Store(p.newHTTPClient())
 
 	return p
 }
@@ -366,6 +367,7 @@ func (p *LogicProvider) detachLocked(w *logicWorkflow) logicLiveSet {
 	p.unsubscribeAllLocked(w)
 
 	key := w.key()
+	delete(p.hookBases, key)
 	delete(p.wf, key)
 
 	for qk, q := range p.queue {
@@ -446,6 +448,7 @@ func (p *LogicProvider) Reset() {
 	p.live = map[string]*logicLive{}
 	p.queue = map[string][]*logicQueued{}
 	p.hookQ = nil
+	p.hookBases = nil
 	p.mu.Unlock()
 
 	p.stopAllTimers()

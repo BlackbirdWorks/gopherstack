@@ -83,7 +83,7 @@ func TestLogicSecureOutputsPropagate(t *testing.T) {
 			"runAfter": la{},
 			"inputs": la{
 				"method":      "GET",
-				"uri":         "http://127.0.0.1:1/x",
+				"uri":         "http://203.0.113.9/x",
 				"retryPolicy": la{"type": "none"},
 			},
 			"runtimeConfiguration": secureCfg("outputs"),
@@ -170,7 +170,7 @@ func TestLogicStaticResult(t *testing.T) {
 			def := logicDef(requestTrigger(nil), la{
 				"Call": la{
 					"type": "Http", "runAfter": la{},
-					"inputs": la{"method": "GET", "uri": "http://127.0.0.1:1/never", "retryPolicy": la{"type": "none"}},
+					"inputs": la{"method": "GET", "uri": "http://203.0.113.9/never", "retryPolicy": la{"type": "none"}},
 					"runtimeConfiguration": la{
 						"staticResult": la{"name": "Call0", "staticResultOptions": "Enabled"},
 					},

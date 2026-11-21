@@ -141,7 +141,6 @@ func (h *Handler) handleLogic(c *echo.Context, segs []string) error {
 
 	r := c.Request()
 	q := logicReq{c: c, lp: lp, base: h.baseURLFor(r)}
-	lp.setBase(q.base, h.Port)
 
 	if isLogicLocationValidate(segs) {
 		q.ref = logicRef3{sub: segs[logicSubIdx], rg: segs[logicRGIdx], wf: segs[logicIdxLocWf]}
@@ -151,6 +150,10 @@ func (h *Handler) handleLogic(c *echo.Context, segs []string) error {
 
 	path, _ := parseLogicPath(segs)
 	q.ref, q.rest = path.ref, path.rest
+
+	if r.Method != http.MethodGet {
+		lp.noteBase(logicKey(q.ref.sub, q.ref.rg, q.ref.wf), q.base, h.Port)
+	}
 
 	if path.list != logicListNone {
 		if r.Method != http.MethodGet {
