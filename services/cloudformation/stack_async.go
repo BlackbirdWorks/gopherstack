@@ -218,7 +218,7 @@ func (b *InMemoryBackend) runPendingOpLocked(ctx context.Context, stackID string
 		return
 	}
 
-	op.legacyInFlight()
+	b.upgradeLegacyOp(stack, op)
 
 	b.stepAsync = true
 

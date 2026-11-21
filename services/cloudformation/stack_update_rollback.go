@@ -164,6 +164,10 @@ func (b *InMemoryBackend) rollbackOne(
 		return b.deleteOneResource(ctx, cur, physIDs, id, rules)
 	}
 
+	if prev == nil {
+		return statusUpdateFailed, "no previous state recorded for " + id
+	}
+
 	var err error
 
 	if isCFNExtensibilityType(prev.Type) {

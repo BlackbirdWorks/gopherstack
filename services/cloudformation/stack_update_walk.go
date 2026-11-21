@@ -293,24 +293,29 @@ func (b *InMemoryBackend) executeUpdateWave(
 	ctx context.Context, stack *Stack, op *pendingStackOp, pass *updatePass,
 ) string {
 	ids := sortedKeys(op.InFlight)
+	announced := op.InFlight
 	op.InFlight = nil
-	reason := ""
 
-	for _, id := range ids {
+	for i, id := range ids {
 		res, ok := op.rt.tmpl.Resources[id]
 		if !ok {
 			continue
 		}
 
 		act, existing, _ := b.classifyUpdate(stack, id, res, pass)
-		if err := b.applyUpdateAction(ctx, stack, op, id, res, act, existing, pass); err != nil && reason == "" {
-			reason = err.Error()
-		}
-
 		op.Done = append(op.Done, id)
+
+		if err := b.applyUpdateAction(ctx, stack, op, id, res, act, existing, pass); err != nil {
+			op.InFlight = make(map[string]string, len(ids)-i-1)
+			for _, rest := range ids[i+1:] {
+				op.InFlight[rest] = announced[rest]
+			}
+
+			return err.Error()
+		}
 	}
 
-	return reason
+	return ""
 }
 
 func (b *InMemoryBackend) applyUpdateAction(

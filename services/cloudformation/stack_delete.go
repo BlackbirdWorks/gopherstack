@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -68,6 +69,8 @@ func (b *InMemoryBackend) deleteStackWithLocked(
 		return err
 	}
 
+	superseded := b.supersededResourcesLocked(stack)
+
 	delete(b.pendingOps, stack.StackID)
 	delete(b.failedRollbacks, stack.StackID)
 
@@ -79,6 +82,8 @@ func (b *InMemoryBackend) deleteStackWithLocked(
 		Kind: pendingDelete, RetainResources: s.retain, ForceDelete: s.force, SettleLater: s.settleLater,
 		Remaining: sortedKeys(b.resources[stack.StackID]), TemplateBody: stack.TemplateBody,
 	}
+
+	b.deleteSupersededLocked(ctx, stack, op, superseded)
 
 	if top && b.provisionSchedule != nil {
 		b.announceReverseWave(stack, op, b.stackDeleteWalk(stack, op))
@@ -207,4 +212,76 @@ func (b *InMemoryBackend) finishDeleteLocked(stack *Stack) {
 	delete(b.changeSets, stack.StackName)
 	b.pruneDriftDetections(stack.StackID)
 	b.evictDeletedStacks()
+}
+
+// supersededResourcesLocked returns the old physical resources an in-flight update
+// replaced and has not yet cleaned up or rolled back to: they are no longer in the
+// stack's resource records but still exist.
+func (b *InMemoryBackend) supersededResourcesLocked(stack *Stack) []*StackResource {
+	op := b.pendingOps[stack.StackID]
+	if op == nil {
+		op = b.failedRollbacks[stack.StackID]
+	}
+
+	if op == nil {
+		return nil
+	}
+
+	var out []*StackResource
+
+	switch op.Kind {
+	case pendingUpdate, pendingUpdateCleanup:
+		if op.Kind == pendingUpdateCleanup && op.Phase != phaseReplaced {
+			return nil
+		}
+
+		for _, r := range op.Replaced {
+			if op.Kind == pendingUpdateCleanup && !slices.Contains(op.Remaining, r.Old.LogicalID) &&
+				op.InFlight[r.Old.LogicalID] == "" {
+				continue
+			}
+
+			old := r.Old
+			old.DeletionPolicy = r.Policy
+			out = append(out, &old)
+		}
+	case pendingRollbackUpdate:
+		for _, id := range op.Created {
+			prev, cur := op.PrevResources[id], b.resources[stack.StackID][id]
+			if prev != nil && cur != nil && cur.PhysicalID != prev.PhysicalID {
+				old := *prev
+				out = append(out, &old)
+			}
+		}
+	}
+
+	return out
+}
+
+// deleteSupersededLocked deletes the superseded resources before the stack's own walk;
+// a failure leaves the stack DELETE_FAILED.
+func (b *InMemoryBackend) deleteSupersededLocked(
+	ctx context.Context, stack *Stack, op *pendingStackOp, olds []*StackResource,
+) {
+	if len(olds) == 0 {
+		return
+	}
+
+	physIDs := b.deleteResolveContext(stack)
+	rules := deleteRules{retainStatus: statusDeleteComplete, failStatus: statusDeleteFailed}
+
+	for _, old := range olds {
+		b.addResourceEvent(stack, old.LogicalID, old.PhysicalID, old.Type, statusDeleteInProgress, "")
+
+		status, reason := b.deleteOneResource(ctx, old, physIDs, old.LogicalID, rules)
+		b.addResourceEvent(stack, old.LogicalID, old.PhysicalID, old.Type, status, reason)
+
+		if isFailedResourceStatus(status) {
+			if op.FailedReasons == nil {
+				op.FailedReasons = make(map[string]string)
+			}
+
+			op.FailedReasons[old.LogicalID+" (previous physical resource)"] = reason
+		}
+	}
 }

@@ -154,9 +154,8 @@ func (b *InMemoryBackend) createRemaining(op *pendingStackOp) []string {
 func (b *InMemoryBackend) executeCreateWave(ctx context.Context, stack *Stack, op *pendingStackOp) string {
 	ids := sortedKeys(op.InFlight)
 	op.InFlight = nil
-	reason := ""
 
-	for _, id := range ids {
+	for i, id := range ids {
 		res, ok := op.rt.tmpl.Resources[id]
 		if !ok {
 			continue
@@ -165,13 +164,10 @@ func (b *InMemoryBackend) executeCreateWave(ctx context.Context, stack *Stack, o
 		physicalID, err := b.creator.Create(ctx, id, res.Type, res.Properties, op.rt.params, op.PhysicalIDs)
 		if err != nil {
 			b.addResourceEvent(stack, id, "", res.Type, statusCreateFailed, err.Error())
+			stack.StackStatusReason = fmt.Sprintf("resource %s: %v", id, err)
+			b.cancelCreateSiblings(stack, op, ids[i+1:])
 
-			if reason == "" {
-				reason = err.Error()
-				stack.StackStatusReason = fmt.Sprintf("resource %s: %v", id, err)
-			}
-
-			continue
+			return err.Error()
 		}
 
 		b.addResourceEvent(stack, id, physicalID, res.Type, statusCreateInProgress, reasonCreationInitiated)
@@ -185,7 +181,14 @@ func (b *InMemoryBackend) executeCreateWave(ctx context.Context, stack *Stack, o
 		op.Created = append(op.Created, id)
 	}
 
-	return reason
+	return ""
+}
+
+// cancelCreateSiblings fails the wave members that had not started when a sibling failed.
+func (b *InMemoryBackend) cancelCreateSiblings(stack *Stack, op *pendingStackOp, ids []string) {
+	for _, id := range ids {
+		b.addResourceEvent(stack, id, "", op.rt.tmpl.Resources[id].Type, statusCreateFailed, reasonCreateCancelled)
+	}
 }
 
 // finalizeCreateLocked resolves outputs and registers exports once every resource exists.

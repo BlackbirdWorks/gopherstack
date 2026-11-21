@@ -3,6 +3,7 @@ package cloudformation
 import (
 	"context"
 	"maps"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -116,6 +117,41 @@ func appendUnique(list []string, id string) []string {
 	}
 
 	return append(list, id)
+}
+
+// upgradeLegacyOp fills in what a snapshot written before wave tracking lacks: the
+// work each reverse walk still has to do and the phase of a cleanup settle.
+func (b *InMemoryBackend) upgradeLegacyOp(stack *Stack, op *pendingStackOp) {
+	op.legacyInFlight()
+
+	if op.Kind == pendingUpdateCleanup && op.Phase == "" && op.PhysicalIDs == nil {
+		op.Phase = phaseSettle
+	}
+
+	if op.TemplateBody != "" || op.Remaining != nil {
+		return
+	}
+
+	switch op.Kind {
+	case pendingDelete:
+		op.Remaining = sortedKeys(b.resources[stack.StackID])
+	case pendingRollbackCreate:
+		op.Remaining = slices.Clone(op.Created)
+	case pendingRollbackUpdate:
+		op.Remaining = slices.Clone(op.Created)
+
+		for _, id := range sortedKeys(op.PrevResources) {
+			cur, prev := b.resources[stack.StackID][id], op.PrevResources[id]
+			if cur != nil && !slices.Contains(op.Created, id) && !reflect.DeepEqual(cur.Properties, prev.Properties) {
+				op.Remaining = append(op.Remaining, id)
+			}
+		}
+	default:
+		return
+	}
+
+	op.Remaining = without(op.Remaining, sortedKeys(op.InFlight)...)
+	op.TemplateBody = stack.TemplateBody
 }
 
 // legacyInFlight maps the keys of a snapshot written before in-flight tracking
