@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,6 +21,7 @@ var (
 )
 
 type fakeClusters struct {
+	onCreate  func()
 	restoreEr error
 	existing  map[string]bool
 	snapshots map[string]string
@@ -43,6 +46,10 @@ func (f *fakeClusters) HasCluster(_ context.Context, id string) bool {
 }
 
 func (f *fakeClusters) CreateSnapshot(_ context.Context, snapshotID, clusterID string) error {
+	if f.onCreate != nil {
+		f.onCreate()
+	}
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.snapshots[snapshotID] = clusterID
@@ -232,6 +239,51 @@ func TestClusterEngine_DeleteRecoveryPointDiscardsSnapshot(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestClusterEngine_ConcurrentCompletionDiscardsLosingSnapshot(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend(t)
+	f := newFakeClusters("orders")
+	b.SetClusterService("Aurora", f)
+	v := mustVault(t, b, "vault")
+	job := mustJob(t, b, v.BackupVaultName, "arn:aws:rds:us-east-1:123456789012:cluster:orders", "Aurora")
+
+	var entered atomic.Bool
+
+	f.onCreate = func() {
+		if entered.CompareAndSwap(false, true) {
+			require.NoError(t, b.CompleteBackupJob(job.BackupJobID))
+		}
+	}
+
+	require.NoError(t, b.CompleteBackupJob(job.BackupJobID))
+
+	rps, err := b.ListRecoveryPointsByBackupVault(v.BackupVaultName)
+	require.NoError(t, err)
+	require.Len(t, rps, 1)
+	assert.Equal(t, 1, f.snapshotCount(), "the snapshot of the losing completion must not leak")
+}
+
+func TestClusterEngine_PendingCopyKeepsSnapshot(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend(t)
+	b.SetLifecycleDelay(time.Hour)
+
+	f := newFakeClusters("orders")
+	b.SetClusterService("Aurora", f)
+	src := mustVault(t, b, "src")
+	dst := mustVault(t, b, "dst")
+	rp := completedRecoveryPoint(t, b, src.BackupVaultName,
+		"arn:aws:rds:us-east-1:123456789012:cluster:orders", "Aurora")
+
+	_, err := b.StartCopyJob(rp, src.BackupVaultName, dst.BackupVaultArn, testRole)
+	require.NoError(t, err)
+
+	require.NoError(t, b.DeleteRecoveryPoint(src.BackupVaultName, rp))
+	assert.Equal(t, 1, f.snapshotCount(), "a copy job still in flight needs the source snapshot")
 }
 
 type fakeFSx struct {

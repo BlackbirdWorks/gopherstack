@@ -130,9 +130,11 @@ func (b *InMemoryBackend) StartCopyJobWithLifecycle(
 	// StartCopyJob against an ARN it never registered through this
 	// emulator's own Backup APIs.
 	var resourceArn, resourceType string
+	var snapshot jsontext.Value
 	if srcRP, found := b.recoveryPoints.Get(recoveryPointKey(sourceVaultName, recoveryPointArn)); found {
 		resourceArn = srcRP.ResourceArn
 		resourceType = srcRP.ResourceType
+		snapshot = srcRP.Snapshot
 	}
 
 	now := time.Now().UTC()
@@ -147,6 +149,7 @@ func (b *InMemoryBackend) StartCopyJobWithLifecycle(
 		DestinationRecoveryPointArn: destRPArn,
 		ResourceArn:                 resourceArn,
 		ResourceType:                resourceType,
+		Snapshot:                    snapshot,
 		IAMRoleArn:                  iamRoleArn,
 		State:                       statusCreated,
 		AccountID:                   b.accountID,
@@ -192,12 +195,8 @@ func (b *InMemoryBackend) settleCopyJobLocked(job *CopyJob, now time.Time) {
 		return
 	}
 
-	var snapshot jsontext.Value
-	if srcName, ok := b.vaultARNIndex[job.SourceBackupVaultArn]; ok {
-		if srcRP, rpFound := b.recoveryPoints.Get(recoveryPointKey(srcName, job.SourceRecoveryPointArn)); rpFound {
-			snapshot = srcRP.Snapshot
-		}
-	}
+	snapshot := job.Snapshot
+	job.Snapshot = nil
 
 	job.State = statusCompleted
 	b.recoveryPoints.Put(&RecoveryPoint{

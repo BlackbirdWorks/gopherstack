@@ -356,11 +356,29 @@ func (b *InMemoryBackend) vaultRetentionViolation(vault *Vault, lc *Lifecycle) s
 // PutBackupVaultLockConfiguration docs describe.
 func (b *InMemoryBackend) CompleteBackupJob(jobID string) error {
 	b.mu.Lock("CompleteBackupJob")
-	defer b.mu.Unlock()
 
+	if !b.jobs.Has(jobID) {
+		b.mu.Unlock()
+
+		return fmt.Errorf("%w: backup job %s not found", ErrNotFound, jobID)
+	}
+
+	orphan := b.completeBackupJobLocked(jobID)
+	b.mu.Unlock()
+
+	if orphan != nil {
+		b.discardSnapshot(orphan)
+	}
+
+	return nil
+}
+
+// completeBackupJobLocked returns a recovery point stub for a snapshot it captured but did not record (a
+// concurrent completion won, or the vault vanished); the caller discards it once the lock is released.
+func (b *InMemoryBackend) completeBackupJobLocked(jobID string) *RecoveryPoint {
 	job, ok := b.jobs.Get(jobID)
 	if !ok {
-		return fmt.Errorf("%w: backup job %s not found", ErrNotFound, jobID)
+		return nil
 	}
 	if job.State != statusCreated && job.State != statusRunning {
 		return nil // already done
@@ -381,7 +399,7 @@ func (b *InMemoryBackend) CompleteBackupJob(jobID string) error {
 	snapshot, resolvedType, snapErr := b.captureSnapshotLocked(job)
 
 	if job, ok = b.jobs.Get(jobID); !ok || (job.State != statusCreated && job.State != statusRunning) {
-		return nil // settled by a concurrent caller while the lock was released
+		return &RecoveryPoint{ResourceType: resolvedType, Snapshot: snapshot} // settled while unlocked
 	}
 
 	if snapErr != nil {
@@ -407,7 +425,7 @@ func (b *InMemoryBackend) CompleteBackupJob(jobID string) error {
 
 	vault, ok2 := b.vaults.Get(job.BackupVaultName)
 	if !ok2 {
-		return nil // vault deleted between job start and completion
+		return &RecoveryPoint{ResourceType: resolvedType, Snapshot: snapshot} // vault deleted meanwhile
 	}
 
 	rp := &RecoveryPoint{

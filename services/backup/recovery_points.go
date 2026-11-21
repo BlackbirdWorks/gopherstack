@@ -133,6 +133,14 @@ func (b *InMemoryBackend) discardSnapshot(rp *RecoveryPoint) {
 		}
 	}
 
+	for _, cj := range b.copyJobs.All() {
+		if cj.SettleAt != nil && bytes.Equal(cj.Snapshot, rp.Snapshot) {
+			shared = true
+
+			break
+		}
+	}
+
 	b.mu.RUnlock()
 
 	if d, ok := engine.(discarder); ok && !shared {
