@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 )
@@ -13,8 +12,9 @@ import (
 var ErrInvalidDeleteRequest = errors.New("invalid DeleteStack request")
 
 type deleteSettings struct {
-	retain []string
-	force  bool
+	retain      []string
+	force       bool
+	settleLater bool
 }
 
 // DeleteStackOption customises DeleteStack.
@@ -69,24 +69,26 @@ func (b *InMemoryBackend) deleteStackWithLocked(
 	}
 
 	delete(b.pendingOps, stack.StackID)
+	delete(b.failedRollbacks, stack.StackID)
 
 	stack.StackStatus = statusDeleteInProgress
 	stack.StackStatusReason = ""
-	b.addEvent(
-		stack.StackID, stack.StackName, stack.StackName, stack.StackID,
-		cfnStackType, statusDeleteInProgress, reasonUserInitiated,
-	)
+	b.addStackEvent(stack, statusDeleteInProgress, reasonUserInitiated)
+
+	op := &pendingStackOp{
+		Kind: pendingDelete, RetainResources: s.retain, ForceDelete: s.force, SettleLater: s.settleLater,
+		Remaining: sortedKeys(b.resources[stack.StackID]), TemplateBody: stack.TemplateBody,
+	}
 
 	if top && b.provisionSchedule != nil {
-		op := &pendingStackOp{Kind: pendingDelete, RetainResources: s.retain, ForceDelete: s.force}
-		op.Announced = b.announceDeleteLocked(stack)
+		b.announceReverseWave(stack, op, b.stackDeleteWalk(stack, op))
 
 		if b.scheduleLocked(ctx, stack.StackID, op) {
 			return nil
 		}
 	}
 
-	b.runDeleteLocked(ctx, stack, s)
+	b.runDeleteLocked(ctx, stack, op)
 
 	return nil
 }
@@ -135,61 +137,37 @@ func (b *InMemoryBackend) missingResources(stack *Stack, ids []string) []string 
 	return missing
 }
 
-// announceDeleteLocked emits DELETE_IN_PROGRESS for the resources deleted first.
-func (b *InMemoryBackend) announceDeleteLocked(stack *Stack) []string {
-	tmpl, err := ParseTemplate(stack.TemplateBody)
-	if err != nil {
-		return nil
-	}
-
-	live := sortedKeys(b.resources[stack.StackID])
-
-	return b.announceLocked(stack, statusDeleteInProgress, firstWave(tmpl.Resources, live, true), tmpl.Resources)
+func (b *InMemoryBackend) stackDeleteWalk(stack *Stack, op *pendingStackOp) reverseWalk {
+	return b.deleteWalk(stack, op, deleteRules{
+		retainStatus: statusDeleteSkipped, failStatus: statusDeleteFailed,
+		callerRetain: op.RetainResources, forceDrop: op.ForceDelete,
+	})
 }
 
 // runDeleteLocked deletes the stack's resources in reverse dependency order,
 // then either settles the stack or leaves it DELETE_FAILED for a retry.
-func (b *InMemoryBackend) runDeleteLocked(ctx context.Context, stack *Stack, s deleteSettings) {
-	live := sortedKeys(b.resources[stack.StackID])
-	physIDs := b.deleteResolveContext(stack)
-
-	var failed []string
-
-	for _, logicalID := range reverseDependencyOrder(live, stack.TemplateBody) {
-		res := b.resources[stack.StackID][logicalID]
-		b.addProgressEvent(
-			stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteInProgress,
-		)
-
-		status, reason := b.deleteOneResource(ctx, res, physIDs, slices.Contains(s.retain, logicalID))
-		b.addEvent(stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, status, reason)
-
-		if status == statusDeleteFailed {
-			failed = append(failed, fmt.Sprintf("%s: %s", logicalID, reason))
-
-			if !s.force {
-				continue
-			}
-		}
-
-		delete(b.resources[stack.StackID], logicalID)
+func (b *InMemoryBackend) runDeleteLocked(ctx context.Context, stack *Stack, op *pendingStackOp) {
+	if b.walkReverseLocked(ctx, stack, op, b.stackDeleteWalk(stack, op)) {
+		return
 	}
 
 	// AWS never rolls DELETE_FAILED back to DELETE_COMPLETE: the stack, its
 	// remaining resources, and its events all stay describable so the caller
 	// can retry DeleteStack after fixing the underlying resource.
-	if len(failed) > 0 && !s.force {
+	if len(op.FailedReasons) > 0 && !op.ForceDelete {
 		stack.StackStatus = statusDeleteFailed
-		stack.StackStatusReason = strings.Join(failed, "; ")
-		b.addEvent(
-			stack.StackID, stack.StackName, stack.StackName, stack.StackID,
-			cfnStackType, statusDeleteFailed, stack.StackStatusReason,
-		)
+		stack.StackStatusReason = failedSummary(op.FailedReasons)
+		b.addStackEvent(stack, statusDeleteFailed, stack.StackStatusReason)
 
 		return
 	}
 
-	if b.stepAsync && (stack.ParentID != "" || b.childrenInProgressLocked(stack)) {
+	if op.SettleLater || b.stepAsync && (stack.ParentID != "" || b.childrenInProgressLocked(stack)) {
+		stepAsync := b.stepAsync
+		b.stepAsync = true
+
+		defer func() { b.stepAsync = stepAsync }()
+
 		b.stageLocked(ctx, stack.StackID, &pendingStackOp{Kind: pendingDeleteFinalize}, func() {
 			b.finishDeleteLocked(stack)
 		})
@@ -198,26 +176,6 @@ func (b *InMemoryBackend) runDeleteLocked(ctx context.Context, stack *Stack, s d
 	}
 
 	b.finishDeleteLocked(stack)
-}
-
-// deleteOneResource reports the resource event status for removing res from
-// a stack: DELETE_SKIPPED for retained resources, DELETE_FAILED when the
-// backend cannot delete it.
-func (b *InMemoryBackend) deleteOneResource(
-	ctx context.Context, res *StackResource, physIDs map[string]string, retainByCaller bool,
-) (string, string) {
-	switch {
-	case retainByCaller || res.DeletionPolicy == deletionPolicyRetain:
-		return statusDeleteSkipped, ""
-	case res.DeletionPolicy == deletionPolicySnapshot:
-		return statusDeleteComplete, ""
-	}
-
-	if err := b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties, physIDs); err != nil {
-		return statusDeleteFailed, err.Error()
-	}
-
-	return statusDeleteComplete, ""
 }
 
 // finalizeDeleteLocked waits for nested stacks to settle, then completes the delete.
@@ -245,6 +203,7 @@ func (b *InMemoryBackend) finishDeleteLocked(stack *Stack) {
 	b.removeExports(stack.StackID)
 	delete(b.stackPolicies, stack.StackID)
 	delete(b.resources, stack.StackID)
+	delete(b.failedRollbacks, stack.StackID)
 	delete(b.changeSets, stack.StackName)
 	b.pruneDriftDetections(stack.StackID)
 	b.evictDeletedStacks()

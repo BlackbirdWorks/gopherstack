@@ -227,6 +227,11 @@ func TestAsyncCreate_PerResourceEvents(t *testing.T) {
 
 	want := []string{"CREATE_IN_PROGRESS", initiated, "CREATE_COMPLETE"}
 	assert.Equal(t, want, e.events(t, "per-resource", "A"))
+	assert.Equal(t, []string{"CREATE_IN_PROGRESS"}, e.events(t, "per-resource", "B"), "dependent starts once A is done")
+	assert.Equal(t, "CREATE_IN_PROGRESS", e.status(t, "per-resource"))
+
+	e.sched.runNext(t)
+
 	assert.Equal(t, want, e.events(t, "per-resource", "B"))
 	assert.Less(t,
 		e.order(t, "per-resource", "A", "CREATE_COMPLETE"), e.order(t, "per-resource", "B", "CREATE_IN_PROGRESS"))
@@ -272,6 +277,10 @@ func TestAsyncDelete_Sequence(t *testing.T) {
 
 	require.NoError(t, e.deleteStack(t, "del-seq"), "deleting a stack that is being deleted is a no-op")
 	assert.Len(t, e.sched.queue, 1)
+
+	e.sched.runNext(t)
+	assert.Equal(t, "DELETE_IN_PROGRESS", e.status(t, "del-seq"), "A is deleted in the next wave")
+	assert.Contains(t, e.statuses(t, "del-seq", "A"), "DELETE_IN_PROGRESS")
 
 	e.sched.runNext(t)
 
@@ -382,19 +391,19 @@ func TestAsyncCreate_Rollback(t *testing.T) {
 		{
 			name:       "rollback",
 			input:      func(*cfnsdk.CreateStackInput) {},
-			wantStatus: []string{"ROLLBACK_IN_PROGRESS", "ROLLBACK_COMPLETE"},
+			wantStatus: []string{"CREATE_IN_PROGRESS", "ROLLBACK_IN_PROGRESS", "ROLLBACK_COMPLETE"},
 			wantStack:  []string{"CREATE_IN_PROGRESS", "ROLLBACK_IN_PROGRESS", "ROLLBACK_COMPLETE"},
 		},
 		{
 			name:       "on_failure_rollback",
 			input:      func(in *cfnsdk.CreateStackInput) { in.OnFailure = cfntypes.OnFailureRollback },
-			wantStatus: []string{"ROLLBACK_IN_PROGRESS", "ROLLBACK_COMPLETE"},
+			wantStatus: []string{"CREATE_IN_PROGRESS", "ROLLBACK_IN_PROGRESS", "ROLLBACK_COMPLETE"},
 			wantStack:  []string{"CREATE_IN_PROGRESS", "ROLLBACK_IN_PROGRESS", "ROLLBACK_COMPLETE"},
 		},
 		{
 			name:       "disable_rollback",
 			input:      func(in *cfnsdk.CreateStackInput) { in.DisableRollback = aws.Bool(true) },
-			wantStatus: []string{"CREATE_FAILED"},
+			wantStatus: []string{"CREATE_IN_PROGRESS", "CREATE_FAILED"},
 			wantStack:  []string{"CREATE_IN_PROGRESS"},
 			wantRes:    []string{"A"},
 			wantDRB:    true,
@@ -402,7 +411,7 @@ func TestAsyncCreate_Rollback(t *testing.T) {
 		{
 			name:       "on_failure_do_nothing",
 			input:      func(in *cfnsdk.CreateStackInput) { in.OnFailure = cfntypes.OnFailureDoNothing },
-			wantStatus: []string{"CREATE_FAILED"},
+			wantStatus: []string{"CREATE_IN_PROGRESS", "CREATE_FAILED"},
 			wantStack:  []string{"CREATE_IN_PROGRESS"},
 			wantRes:    []string{"A"},
 			wantDRB:    true,
@@ -410,7 +419,7 @@ func TestAsyncCreate_Rollback(t *testing.T) {
 		{
 			name:       "on_failure_delete",
 			input:      func(in *cfnsdk.CreateStackInput) { in.OnFailure = cfntypes.OnFailureDelete },
-			wantStatus: []string{"ROLLBACK_IN_PROGRESS", "DELETE_IN_PROGRESS", "DELETE_COMPLETE"},
+			wantStatus: []string{"CREATE_IN_PROGRESS", "ROLLBACK_IN_PROGRESS", "DELETE_IN_PROGRESS", "DELETE_COMPLETE"},
 			wantStack: []string{
 				"CREATE_IN_PROGRESS", "ROLLBACK_IN_PROGRESS", "ROLLBACK_COMPLETE",
 				"DELETE_IN_PROGRESS", "DELETE_COMPLETE",
@@ -439,7 +448,7 @@ func TestAsyncCreate_Rollback(t *testing.T) {
 				e.sched.runNext(t)
 				assert.Equal(t, want, e.status(t, id), "after step %d", i+1)
 
-				if i == 0 && want == "ROLLBACK_IN_PROGRESS" {
+				if want == "ROLLBACK_IN_PROGRESS" {
 					assert.Equal(t, []string{"A"}, e.resourceIDs(t, id), "rollback has not deleted anything yet")
 					assert.Contains(t, e.events(t, id, "B")[len(e.events(t, id, "B"))-1], "CREATE_FAILED|")
 				}
@@ -538,6 +547,7 @@ func TestAsyncCreate_RollbackFailed(t *testing.T) {
 	id := aws.ToString(out.StackId)
 
 	e.sched.runNext(t)
+	e.sched.runNext(t)
 	assert.Equal(t, "ROLLBACK_IN_PROGRESS", e.status(t, id))
 
 	e.sched.runNext(t)
@@ -621,6 +631,7 @@ func TestAsyncUpdate_Rollback(t *testing.T) {
 			tc.trigger(t, e)
 
 			if tc.name == "failed_update" {
+				e.sched.runNext(t)
 				e.sched.runNext(t)
 				assert.Equal(t, tc.wantStatus[0], e.status(t, "upd-rb"))
 				assert.Contains(t, e.resourceIDs(t, "upd-rb"), "C", "rollback has not deleted the new topic yet")
@@ -746,6 +757,7 @@ func TestAsyncExecuteChangeSet_Sequence(t *testing.T) {
 		})
 		require.NoError(t, err)
 
+		e.sched.runNext(t)
 		e.sched.runNext(t)
 		assert.Equal(t, cfntypes.ExecutionStatusExecuteInProgress, executionStatus(t, e, "cs-fail", "boom"),
 			"still rolling back")

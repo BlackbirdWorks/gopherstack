@@ -65,7 +65,7 @@ type StorageBackend interface {
 	GetTemplateSummary(templateBody, stackName string) (*TemplateSummary, error)
 	EstimateTemplateCost(templateBody string, params []Parameter) (string, error)
 	// Stack management
-	ContinueUpdateRollback(ctx context.Context, nameOrID string) error
+	ContinueUpdateRollback(ctx context.Context, nameOrID string, in ContinueRollbackInput) error
 	CancelUpdateStack(ctx context.Context, nameOrID string) error
 	DescribeAccountLimits() []AccountLimit
 	// Stack Sets
@@ -220,7 +220,8 @@ type InMemoryBackend struct {
 	resourceDriftDetail map[string]map[string]StackResourceDrift
 	driftByStackID      map[string][]string
 	pendingOps          map[string]*pendingStackOp
-	announced           map[string]struct{}
+	failedRollbacks     map[string]*pendingStackOp
+	delayTimers         map[uint64]*time.Timer
 	settled             chan struct{}
 	provisionSchedule   func(run func())
 	creator             *ResourceCreator
@@ -235,6 +236,7 @@ type InMemoryBackend struct {
 	provisionWG         sync.WaitGroup
 	stackSetBatchDelay  time.Duration
 	provisionDelay      time.Duration
+	timerSeq            uint64
 	stepAsync           bool
 	orgAccessEnabled    bool
 	propertyChecksOff   atomic.Bool
@@ -289,33 +291,18 @@ func NewInMemoryBackendWithConfig(
 	}
 
 	b := &InMemoryBackend{
-		registry:            store.NewRegistry(),
-		quotaGate:           &quotalimit.Gate{},
-		stackIDIndex:        make(map[string]string),
-		events:              make(map[string][]StackEvent),
-		resources:           make(map[string]map[string]*StackResource),
-		changeSets:          make(map[string]map[string]*ChangeSet),
-		stackPolicies:       make(map[string]string),
-		stackInstances:      make(map[string][]StackInstance),
-		stackSetOperations:  make(map[string]map[string]*StackSetOperation),
-		typeConfigs:         make(map[string]string),
-		handlerProgress:     make(map[string]string),
-		signals:             make(map[string][]SignalRecord),
-		stackSetOpResults:   make(map[string]map[string][]StackSetOperationResult),
-		typeVersions:        make(map[string][]*RegisteredTypeVersion),
-		resourceScanItems:   make(map[string][]ScannedResource),
-		resourceDriftStatus: make(map[string]map[string]string),
-		resourceDriftDetail: make(map[string]map[string]StackResourceDrift),
-		driftByStackID:      make(map[string][]string),
-		pendingOps:          make(map[string]*pendingStackOp),
-		settled:             make(chan struct{}),
-		creator:             creator,
-		resolver:            resolver,
-		accountID:           accountID,
-		region:              region,
-		mu:                  lockmetrics.New("cloudformation"),
+		registry:    store.NewRegistry(),
+		quotaGate:   &quotalimit.Gate{},
+		settled:     make(chan struct{}),
+		delayTimers: make(map[uint64]*time.Timer),
+		creator:     creator,
+		resolver:    resolver,
+		accountID:   accountID,
+		region:      region,
+		mu:          lockmetrics.New("cloudformation"),
 	}
 
+	b.initState()
 	registerAllTables(b)
 
 	// Wire the backend as the NestedStackCreator so nested stacks can be provisioned.
@@ -324,4 +311,26 @@ func NewInMemoryBackendWithConfig(
 	}
 
 	return b
+}
+
+// initState gives the backend empty maps for everything not held in a registry table.
+func (b *InMemoryBackend) initState() {
+	b.stackIDIndex = make(map[string]string)
+	b.events = make(map[string][]StackEvent)
+	b.resources = make(map[string]map[string]*StackResource)
+	b.changeSets = make(map[string]map[string]*ChangeSet)
+	b.stackPolicies = make(map[string]string)
+	b.stackInstances = make(map[string][]StackInstance)
+	b.stackSetOperations = make(map[string]map[string]*StackSetOperation)
+	b.typeConfigs = make(map[string]string)
+	b.handlerProgress = make(map[string]string)
+	b.signals = make(map[string][]SignalRecord)
+	b.stackSetOpResults = make(map[string]map[string][]StackSetOperationResult)
+	b.typeVersions = make(map[string][]*RegisteredTypeVersion)
+	b.resourceScanItems = make(map[string][]ScannedResource)
+	b.resourceDriftStatus = make(map[string]map[string]string)
+	b.resourceDriftDetail = make(map[string]map[string]StackResourceDrift)
+	b.driftByStackID = make(map[string][]string)
+	b.pendingOps = make(map[string]*pendingStackOp)
+	b.failedRollbacks = make(map[string]*pendingStackOp)
 }

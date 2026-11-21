@@ -106,38 +106,10 @@ func (b *InMemoryBackend) ListAll() []*Stack {
 	return out
 }
 
-// ContinueUpdateRollback continues the rollback for a stack that is in ROLLBACK_IN_PROGRESS
-// or UPDATE_ROLLBACK_IN_PROGRESS state.
-func (b *InMemoryBackend) ContinueUpdateRollback(_ context.Context, nameOrID string) error {
-	b.mu.Lock("ContinueUpdateRollback")
-	defer b.mu.Unlock()
-
-	stack, ok := b.resolveStack(nameOrID)
-	if !ok {
-		return ErrStackNotFound
-	}
-
-	if stack.StackStatus == statusRollbackInProgress || stack.StackStatus == statusUpdateRollbackInProgress {
-		delete(b.pendingOps, stack.StackID)
-	}
-
-	switch stack.StackStatus {
-	case statusRollbackInProgress:
-		stack.StackStatus = statusRollbackComplete
-		b.addEvent(stack.StackID, stack.StackName, stack.StackName, stack.StackID,
-			cfnStackType, statusRollbackComplete, "")
-	case statusUpdateRollbackInProgress:
-		stack.StackStatus = statusUpdateRollbackComplete
-		b.addEvent(stack.StackID, stack.StackName, stack.StackName, stack.StackID,
-			cfnStackType, statusUpdateRollbackComplete, "")
-	}
-
-	return nil
-}
-
 // CancelUpdateStack cancels an in-progress stack update, rolling it back to
 // UPDATE_ROLLBACK_COMPLETE. Real AWS: "You can cancel only stacks that are
-// in the UPDATE_IN_PROGRESS state".
+// in the UPDATE_IN_PROGRESS state". It takes effect between resources: the
+// ones already applied are rolled back, the announced wave is cancelled.
 func (b *InMemoryBackend) CancelUpdateStack(ctx context.Context, nameOrID string) error {
 	b.mu.Lock("CancelUpdateStack")
 	defer b.mu.Unlock()
@@ -151,18 +123,19 @@ func (b *InMemoryBackend) CancelUpdateStack(ctx context.Context, nameOrID string
 		return ErrCancelUpdateStackInvalidState
 	}
 
-	if op := b.pendingOps[stack.StackID]; op != nil && op.Kind == pendingUpdate {
+	var op *pendingStackOp
+
+	if pending := b.pendingOps[stack.StackID]; pending != nil && pending.Kind == pendingUpdate {
 		delete(b.pendingOps, stack.StackID)
 
-		stack.TemplateBody = op.OldTemplateBody
-		stack.Parameters = op.OldParams
+		op = pending
 	}
 
 	b.stepAsync = true
 
 	defer func() { b.stepAsync = false }()
 
-	b.beginUpdateRollbackLocked(ctx, stack, nil, nil, reasonUserInitiated, false)
+	b.beginUpdateRollbackLocked(ctx, stack, op, reasonUserInitiated)
 
 	return nil
 }
@@ -200,15 +173,19 @@ func (b *InMemoryBackend) RollbackStack(
 		stack.RoleARN = roleARN
 	}
 
-	arn, name := stack.StackID, stack.StackName
-	b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackInProgress, reasonUserInitiated)
+	b.addStackEvent(stack, statusRollbackInProgress, reasonUserInitiated)
 	stack.StackStatus = statusRollbackInProgress
 
 	created := b.creationOrderLocked(stack)
-	op := &pendingStackOp{Kind: pendingRollbackCreate, Created: created, RetainExceptOnCreate: retainExceptOnCreate}
+	op := &pendingStackOp{
+		Kind: pendingRollbackCreate, Created: created, Remaining: slices.Clone(created),
+		RetainExceptOnCreate: retainExceptOnCreate, TemplateBody: stack.TemplateBody,
+	}
+
+	b.announceReverseWave(stack, op, b.deleteWalk(stack, op, createRollbackRules(op)))
 
 	if !b.scheduleLocked(ctx, stack.StackID, op) {
-		b.finishCreateRollbackLocked(ctx, stack, created, createFinish{retainExceptOnCreate: retainExceptOnCreate})
+		b.runCreateRollbackLocked(ctx, stack, op)
 	}
 
 	cp := *stack

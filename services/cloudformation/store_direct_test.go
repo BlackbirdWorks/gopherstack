@@ -681,7 +681,7 @@ func TestContinueUpdateRollback_StackNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	err := b.ContinueUpdateRollback(t.Context(), "no-such-stack")
+	err := b.ContinueUpdateRollback(t.Context(), "no-such-stack", cloudformation.ContinueRollbackInput{})
 	require.ErrorIs(t, err, cloudformation.ErrStackNotFound)
 }
 

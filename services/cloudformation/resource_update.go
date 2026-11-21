@@ -3,10 +3,8 @@ package cloudformation
 import (
 	"context"
 	"errors"
-	"fmt"
 	"maps"
 	"reflect"
-	"slices"
 	"sort"
 	"time"
 )
@@ -25,12 +23,6 @@ type updateContext struct {
 	oldPhys   map[string]string
 
 	retainExceptOnCreate bool
-}
-
-// replacedResource is an old physical resource awaiting cleanup after a replacement.
-type replacedResource struct {
-	old    StackResource
-	policy string
 }
 
 type resourceChange struct {
@@ -64,49 +56,6 @@ func customNameProperty(resourceType string) string {
 	}
 
 	return ""
-}
-
-// updatePass accumulates what a stack update has done so far, for rollback and cleanup.
-type updatePass struct {
-	uc       *updateContext
-	params   map[string]string
-	phys     map[string]string
-	created  []string
-	replaced []*replacedResource
-}
-
-// applyResourceUpdate creates, replaces or updates one resource; the error carries the stack status reason.
-func (b *InMemoryBackend) applyResourceUpdate(
-	ctx context.Context, stack *Stack, res TemplateResource, logicalID string, pass *updatePass,
-) error {
-	existing, exists := b.resources[stack.StackID][logicalID]
-	if !exists {
-		physicalID, err := b.createUpdateResource(ctx, stack, logicalID, res, pass.params, pass.phys)
-		if err != nil {
-			return fmt.Errorf("resource %s: %w", logicalID, err)
-		}
-
-		pass.phys[logicalID] = physicalID
-		pass.created = append(pass.created, logicalID)
-
-		return nil
-	}
-
-	out, err := b.updateExistingResource(ctx, stack, logicalID, res, existing, pass.uc, pass.params, pass.phys)
-	if err != nil {
-		return fmt.Errorf("resource %s update: %w", logicalID, err)
-	}
-
-	if out.replaced != nil {
-		pass.replaced = append(pass.replaced, out.replaced)
-		pass.created = append(pass.created, logicalID)
-	}
-
-	return nil
-}
-
-type updateOutcome struct {
-	replaced *replacedResource
 }
 
 func resolvedProps(props map[string]any, params, phys map[string]string) map[string]any {
@@ -199,107 +148,24 @@ func customNameUnchanged(res TemplateResource, existing *StackResource, uc *upda
 	return name, resolve(oldProps[key], oldParams, oldPhys) == name
 }
 
-// updateExistingResource applies a template change to a resource that already
-// exists: nothing for an unchanged resource, create-new for a replacement, an
-// in-place update otherwise. It reports whether a replacement was started.
-func (b *InMemoryBackend) updateExistingResource(
-	ctx context.Context,
-	stack *Stack,
-	logicalID string,
-	res TemplateResource,
-	existing *StackResource,
-	uc *updateContext,
-	params, phys map[string]string,
-) (updateOutcome, error) {
-	if isCFNExtensibilityType(res.Type) {
-		return updateOutcome{}, b.updateExtensibilityResource(ctx, stack, logicalID, res, existing)
-	}
-
-	change := b.planResourceUpdate(logicalID, res, existing, uc, params, phys)
-	if len(change.changed) == 0 {
-		existing.DeletionPolicy = res.DeletionPolicy
-
-		return updateOutcome{}, nil
-	}
-
-	if change.replace {
-		repl, err := b.replaceResource(ctx, stack, logicalID, res, existing, uc, params, phys)
-
-		return updateOutcome{replaced: repl}, err
-	}
-
-	b.addProgressEvent(
-		stack.StackID, stack.StackName, logicalID, existing.PhysicalID, res.Type, statusUpdateInProgress,
-	)
-
-	_, err := b.creator.UpdateInPlace(ctx, res.Type, existing.PhysicalID, res.Properties, params, phys)
-	if err != nil {
-		b.addEvent(
-			stack.StackID, stack.StackName, logicalID, existing.PhysicalID, res.Type, statusUpdateFailed, err.Error(),
-		)
-
-		return updateOutcome{}, err
-	}
-
-	existing.Properties = res.Properties
-	existing.DeletionPolicy = res.DeletionPolicy
-	existing.Status = statusUpdateComplete
-	existing.Timestamp = time.Now()
-	b.addEvent(stack.StackID, stack.StackName, logicalID, existing.PhysicalID, res.Type, statusUpdateComplete, "")
-
-	return updateOutcome{}, nil
-}
-
 func (b *InMemoryBackend) replaceResource(
 	ctx context.Context,
 	stack *Stack,
 	logicalID string,
 	res TemplateResource,
 	existing *StackResource,
-	uc *updateContext,
-	params, phys map[string]string,
-) (*replacedResource, error) {
-	if name, same := customNameUnchanged(res, existing, uc, params, phys); same {
-		err := fmt.Errorf("%w. Rename %s and update the stack again", ErrCustomNamedReplacement, name)
-		b.addEvent(
-			stack.StackID, stack.StackName, logicalID, existing.PhysicalID, res.Type, statusUpdateFailed, err.Error(),
-		)
-
-		return nil, err
-	}
-
-	b.addEvent(
-		stack.StackID, stack.StackName, logicalID, existing.PhysicalID, res.Type,
-		statusUpdateInProgress, reasonReplacementRequired,
-	)
-
+	pass *updatePass,
+) (*replacedRecord, error) {
 	old := *existing
 
-	newPhysical, err := b.creator.Create(
-		parentStackIDKey.Set(ctx, stack.StackID),
-		logicalID,
-		res.Type,
-		res.Properties,
-		params,
-		phys,
-	)
+	newPhysical, err := b.creator.Create(ctx, logicalID, res.Type, res.Properties, pass.params, pass.phys)
 	if err != nil {
-		b.addEvent(
-			stack.StackID, stack.StackName, logicalID, "", res.Type, statusUpdateFailed, err.Error(),
-		)
+		b.addResourceEvent(stack, logicalID, "", res.Type, statusUpdateFailed, err.Error())
 
 		return nil, err
 	}
 
-	b.addEvent(
-		stack.StackID,
-		stack.StackName,
-		logicalID,
-		newPhysical,
-		res.Type,
-		statusUpdateInProgress,
-		reasonCreationInitiated,
-	)
+	b.addResourceEvent(stack, logicalID, newPhysical, res.Type, statusUpdateInProgress, reasonCreationInitiated)
 
 	b.resources[stack.StackID][logicalID] = &StackResource{
 		Timestamp:      time.Now(),
@@ -312,49 +178,16 @@ func (b *InMemoryBackend) replaceResource(
 		StackName:      stack.StackName,
 		DeletionPolicy: res.DeletionPolicy,
 	}
-	phys[logicalID] = newPhysical
+	pass.phys[logicalID] = newPhysical
 
-	b.addEvent(stack.StackID, stack.StackName, logicalID, newPhysical, res.Type, statusUpdateComplete, "")
+	b.addResourceEvent(stack, logicalID, newPhysical, res.Type, statusUpdateComplete, "")
 
-	return &replacedResource{old: old, policy: res.UpdateReplacePolicy}, nil
-}
-
-// cleanupReplacedResources deletes (or, per UpdateReplacePolicy, retains) the
-// old physical resources once the whole update has succeeded.
-func (b *InMemoryBackend) cleanupReplacedResources(ctx context.Context, stack *Stack, replaced []*replacedResource) {
-	if len(replaced) == 0 {
-		return
-	}
-
-	physIDs := b.deleteResolveContext(stack)
-
-	for _, r := range slices.Backward(replaced) {
-		b.addEvent(
-			stack.StackID, stack.StackName, r.old.LogicalID, r.old.PhysicalID, r.old.Type, statusDeleteInProgress, "",
-		)
-
-		if r.policy != deletionPolicyRetain && r.policy != deletionPolicySnapshot {
-			if err := b.creator.Delete(ctx, r.old.Type, r.old.PhysicalID, r.old.Properties, physIDs); err != nil {
-				b.addEvent(
-					stack.StackID, stack.StackName, r.old.LogicalID, r.old.PhysicalID, r.old.Type,
-					statusDeleteFailed, err.Error(),
-				)
-
-				continue
-			}
-		}
-
-		b.addEvent(
-			stack.StackID, stack.StackName, r.old.LogicalID, r.old.PhysicalID, r.old.Type, statusDeleteComplete, "",
-		)
-	}
+	return &replacedRecord{Old: old, Policy: res.UpdateReplacePolicy}, nil
 }
 
 func (b *InMemoryBackend) updateExtensibilityResource(
 	ctx context.Context, stack *Stack, logicalID string, res TemplateResource, existing *StackResource,
 ) error {
-	b.addEvent(stack.StackID, stack.StackName, logicalID, existing.PhysicalID, res.Type, statusUpdateInProgress, "")
-
 	err := b.creator.Update(ctx, logicalID, res.Type, existing.PhysicalID, res.Properties, existing.Properties)
 	if err != nil {
 		b.addEvent(
