@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/iam/apiv1/iampb"
+	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"cloud.google.com/go/resourcemanager/apiv3/resourcemanagerpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -332,7 +333,51 @@ func (h v1Handler) createProject(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	writeV1Proto(w, op)
+	return writeV1ProjectOperation(w, op)
+}
+
+const v1ProjectTypeURL = "type.googleapis.com/google.cloudresourcemanager.v1.Project"
+
+// writeV1ProjectOperation answers a v1 create with the v1 Project in the Operation response.
+func writeV1ProjectOperation(w http.ResponseWriter, op *longrunningpb.Operation) error {
+	p := &resourcemanagerpb.Project{}
+	if resp := op.GetResponse(); resp != nil {
+		if err := resp.UnmarshalTo(p); err != nil {
+			return errInvalid("decode project: %v", err)
+		}
+	}
+
+	shell, ok := proto.Clone(op).(*longrunningpb.Operation)
+	if !ok {
+		return errInvalid("clone operation")
+	}
+
+	shell.Result = nil
+
+	raw, err := protojson.Marshal(shell)
+	if err != nil {
+		return errInvalid("encode response: %v", err)
+	}
+
+	fields := map[string]jsontext.Value{}
+	if err = json.Unmarshal(raw, &fields); err != nil {
+		return errInvalid("encode response: %v", err)
+	}
+
+	proj, err := json.Marshal(toV1Project(p), jsonx.V1())
+	if err != nil {
+		return errInvalid("encode response: %v", err)
+	}
+
+	typed := append([]byte(`{"@type":"`+v1ProjectTypeURL+`",`), proj[1:]...)
+	fields["response"] = typed
+
+	out, err := json.Marshal(fields)
+	if err != nil {
+		return errInvalid("encode response: %v", err)
+	}
+
+	writeV1Raw(w, http.StatusOK, out)
 
 	return nil
 }

@@ -40,7 +40,7 @@ var resourceCatalog = []resourceDef{
 	{"gce_instance_group", "Instance Group", "A Compute Engine instance group.",
 		[]string{labelProject, "instance_group_id", labelZone}},
 	{"gce_disk", "Compute Engine disk", "A Compute Engine disk.", []string{labelProject, "disk_id", labelZone}},
-	{"k8s_container", "Kubernetes Container", "A Kubernetes container instance.",
+	{typeK8sContainer, "Kubernetes Container", "A Kubernetes container instance.",
 		[]string{labelProject, labelLocation, "cluster_name", "namespace_name", "pod_name", "container_name"}},
 	{
 		"k8s_cluster",

@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
 )
@@ -344,6 +345,10 @@ func (b *InMemoryBackend) DeleteScraper(ctx context.Context, id string) (string,
 		}
 
 		s.Pending = b.pend(statusDeleting)
+		delete(b.scrapeSeen, id)
+
+		logger.Load(ctx).InfoContext(ctx, "amp: would stop scraping source",
+			"scraper", id, "source", scraperSourceDesc(s.Source))
 	}
 
 	return statusDeleting, nil

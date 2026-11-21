@@ -1,6 +1,7 @@
 package gcpidentitytoolkit_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -40,6 +41,33 @@ func TestUndeliverableMessagesAreLogged(t *testing.T) {
 			out := e.logs.String()
 			assert.Contains(t, out, tt.want)
 			assert.Contains(t, out, tt.to)
+		})
+	}
+}
+
+func TestAPIKeyRestrictionsAreLogged(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		key    string
+		status int
+		logged bool
+	}{
+		{name: "user key", key: "?key=AIzaUserKey", status: 200, logged: true},
+		{name: "emulator key", key: "?key=fake-api-key", status: 200},
+		{name: "missing key", key: "", status: 403},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t)
+			r := e.do(t, "POST", "/v1/projects/"+e.project+"/accounts:signUp"+tt.key, "", map[string]any{})
+
+			assert.Equal(t, tt.status, r.status, r.body)
+			assert.Equal(t, tt.logged, strings.Contains(e.logs.String(), "would check the API key restrictions"))
 		})
 	}
 }

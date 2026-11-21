@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
@@ -506,6 +507,8 @@ func (b *Backend) CreateAttachedFile(ctx context.Context, in *CreateAttachedFile
 		return nil, err
 	}
 
+	logVirusScan(ctx, in.InstanceID, rec.FileID)
+
 	return &AttachedFileCreated{
 		FileArn: rec.Arn, FileID: rec.FileID, CreationTime: rec.CreationTime, FileStatus: rec.Status,
 	}, nil
@@ -587,7 +590,7 @@ func (b *Backend) fileOf(inst, id, resource string) (*attachedFileRec, error) {
 func (b *Backend) CompleteAttachedFileUpload(ctx context.Context, in *fileRef) (*EmptyOutput, error) {
 	store := b.attachStore()
 	if store == nil {
-		return b.completeLocalUpload(in)
+		return b.completeScannedLocalUpload(ctx, in)
 	}
 
 	pending, err := readInstance(
@@ -657,7 +660,15 @@ func (b *Backend) CompleteAttachedFileUpload(ctx context.Context, in *fileRef) (
 		return nil, out.reject
 	}
 
+	logVirusScan(ctx, in.InstanceID, in.FileID)
+
 	return &EmptyOutput{}, nil
+}
+
+// logVirusScan records the scan that gates APPROVED; the emulator runs no scanner, so every complete upload passes.
+func logVirusScan(ctx context.Context, instanceID, fileID string) {
+	logger.Load(ctx).InfoContext(ctx, "connect: would scan attached file for viruses and approve it",
+		"instance", instanceID, "file", fileID)
 }
 
 type completion struct{ reject error }
@@ -671,6 +682,15 @@ func (b *Backend) expireUpload(r *attachedFileRec) bool {
 	r.Status = fileStatusFailed
 
 	return true
+}
+
+func (b *Backend) completeScannedLocalUpload(ctx context.Context, in *fileRef) (*EmptyOutput, error) {
+	out, err := b.completeLocalUpload(in)
+	if err == nil {
+		logVirusScan(ctx, in.InstanceID, in.FileID)
+	}
+
+	return out, err
 }
 
 func (b *Backend) completeLocalUpload(in *fileRef) (*EmptyOutput, error) {

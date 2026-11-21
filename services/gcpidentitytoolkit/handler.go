@@ -244,8 +244,8 @@ func (h *Handler) dispatch(c *echo.Context, rt route) (any, error) {
 		return nil, errUnauth()
 	}
 
-	if !cl.admin && c.QueryParam("key") == "" && c.Request().Header.Get("X-Goog-Api-Key") == "" {
-		return nil, errNoKey()
+	if err := checkAPIKey(c, cl); err != nil {
+		return nil, err
 	}
 
 	if isMfa {
@@ -288,8 +288,8 @@ func (h *Handler) emulatorOp(rt route, cl call) (any, error) {
 }
 
 func (h *Handler) clientConfig(c *echo.Context, rt route, cl call) (any, error) {
-	if !cl.admin && c.QueryParam("key") == "" && c.Request().Header.Get("X-Goog-Api-Key") == "" {
-		return nil, errNoKey()
+	if err := checkAPIKey(c, cl); err != nil {
+		return nil, err
 	}
 
 	if rt.op == opGetPasswordPolicy {
@@ -297,6 +297,31 @@ func (h *Handler) clientConfig(c *echo.Context, rt route, cl call) (any, error) 
 	}
 
 	return h.Backend.RecaptchaConfig(cl.project, cl.tenant, c.QueryParam("clientType"))
+}
+
+// checkAPIKey requires a key on client calls; its restrictions are held by the API Keys service, which is not run.
+func checkAPIKey(c *echo.Context, cl call) error {
+	if cl.admin {
+		return nil
+	}
+
+	key := c.QueryParam("key")
+	if key == "" {
+		key = c.Request().Header.Get("X-Goog-Api-Key")
+	}
+
+	if key == "" {
+		return errNoKey()
+	}
+
+	if key != fakeAPIKey {
+		ctx := c.Request().Context()
+		logger.Load(ctx).InfoContext(ctx,
+			"gcpidentitytoolkit: would check the API key restrictions (referrer, IP, app and API target)",
+			"project", cl.project, "path", c.Request().URL.Path)
+	}
+
+	return nil
 }
 
 func adminGuard(cl call) error {

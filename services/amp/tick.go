@@ -3,8 +3,10 @@ package amp
 import (
 	"bytes"
 	"context"
+	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/amp/promql"
 )
 
@@ -29,6 +31,7 @@ func (b *InMemoryBackend) resetRuntimeLocked() {
 	b.ams = map[string]*alertManager{}
 	b.restoredLog = map[string][]nflogRecord{}
 	b.buckets = map[string]*tokenBucket{}
+	b.scrapeSeen = map[string]time.Time{}
 }
 
 // appendSampleLocked stores one sample in the workspace's series for labels.
@@ -131,7 +134,10 @@ func (b *InMemoryBackend) Tick(ctx context.Context) {
 	batches := b.evaluateRulesLocked(now)
 	ams := b.syncAlertManagersLocked(now)
 	pub := b.publisher
+	scrapes := b.activatedScrapersLocked()
 	b.mu.Unlock()
+
+	logScrapes(ctx, scrapes)
 
 	for _, batch := range batches {
 		if m := ams[batch.wsID]; m != nil {
@@ -170,4 +176,46 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	}()
 
 	return nil
+}
+
+type scrapeTarget struct {
+	id, source, destination string
+}
+
+// activatedScrapersLocked returns scrapers that reached ACTIVE since they were last announced.
+func (b *InMemoryBackend) activatedScrapersLocked() []scrapeTarget {
+	var out []scrapeTarget
+
+	b.scrapers.Range(func(s *Scraper) bool {
+		if s.Pending.Kind == statusDeleting || b.state(s.Pending) != statusActive ||
+			b.scrapeSeen[s.ID].Equal(s.LastModifiedAt) {
+			return true
+		}
+
+		b.scrapeSeen[s.ID] = s.LastModifiedAt
+		out = append(out, scrapeTarget{
+			id: s.ID, source: scraperSourceDesc(s.Source),
+			destination: s.Destination.WorkspaceARN + s.Destination.DatasetARN,
+		})
+
+		return true
+	})
+
+	return out
+}
+
+func scraperSourceDesc(src Source) string {
+	if src.ClusterARN != "" {
+		return src.ClusterARN
+	}
+
+	return "vpc " + strings.Join(src.SubnetIDs, ",")
+}
+
+// logScrapes records the scrape a managed collector would start: no EKS metrics endpoint exists to pull from.
+func logScrapes(ctx context.Context, targets []scrapeTarget) {
+	for _, t := range targets {
+		logger.Load(ctx).InfoContext(ctx, "amp: would scrape source",
+			"scraper", t.id, "source", t.source, "destination", t.destination)
+	}
 }

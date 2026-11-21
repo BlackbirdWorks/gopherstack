@@ -10,6 +10,9 @@ import (
 const (
 	msPerSec         = 1000.0
 	labelLocationRes = "resource.labels.location"
+
+	istioRequestCount      = "istio.io/service/server/request_count"
+	istioResponseLatencies = "istio.io/service/server/response_latencies"
 )
 
 // basicTelemetry names the metrics a service type reports for availability and latency SLIs.
@@ -46,7 +49,38 @@ func telemetryOf(svc *monitoringpb.Service) (basicTelemetry, bool) {
 		}, true
 	}
 
-	return basicTelemetry{}, false
+	return istioTelemetryOf(svc)
+}
+
+func istioTelemetryOf(svc *monitoringpb.Service) (basicTelemetry, bool) {
+	t := basicTelemetry{
+		count: istioRequestCount, latency: istioResponseLatencies,
+		locationLabel: labelLocationRes, codeLabel: "metric.labels.response_code", badCode: "5",
+	}
+
+	switch {
+	case svc.GetClusterIstio() != nil:
+		c := svc.GetClusterIstio()
+		t.scope = `resource.labels.location = ` + strconv.Quote(c.GetLocation()) +
+			` AND resource.labels.cluster_name = ` + strconv.Quote(c.GetClusterName()) +
+			` AND metric.labels.destination_service_namespace = ` + strconv.Quote(c.GetServiceNamespace()) +
+			` AND metric.labels.destination_service_name = ` + strconv.Quote(c.GetServiceName())
+	case svc.GetMeshIstio() != nil:
+		m := svc.GetMeshIstio()
+		t.scope = `metric.labels.mesh_uid = ` + strconv.Quote(m.GetMeshUid()) +
+			` AND metric.labels.destination_service_namespace = ` + strconv.Quote(m.GetServiceNamespace()) +
+			` AND metric.labels.destination_service_name = ` + strconv.Quote(m.GetServiceName())
+	case svc.GetIstioCanonicalService() != nil:
+		c := svc.GetIstioCanonicalService()
+		t.scope = `metric.labels.mesh_uid = ` + strconv.Quote(c.GetMeshUid()) +
+			` AND metric.labels.destination_canonical_service_namespace = ` +
+			strconv.Quote(c.GetCanonicalServiceNamespace()) +
+			` AND metric.labels.destination_canonical_service_name = ` + strconv.Quote(c.GetCanonicalService())
+	default:
+		return basicTelemetry{}, false
+	}
+
+	return t, true
 }
 
 func (t basicTelemetry) scoped(metric string, locations []string) string {

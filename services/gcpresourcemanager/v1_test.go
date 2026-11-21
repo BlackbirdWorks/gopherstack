@@ -17,7 +17,10 @@ func TestV1ProjectFlow(t *testing.T) {
 	resttest.Run(t, e.addr, []resttest.Step{
 		{
 			Name: "create", Method: "POST", Path: "/v1/projects", Body: v1Create, Status: 200,
-			Contains: []string{`"done":true`, `"name":"operations/cp.`},
+			Contains: []string{`"done":true`, `"name":"operations/cp.`,
+				`"@type":"type.googleapis.com/google.cloudresourcemanager.v1.Project"`,
+				`"lifecycleState":"ACTIVE"`, `"projectId":"v1-proj"`,
+			},
 		},
 		{
 			Name: "get", Method: "GET", Path: "/v1/projects/v1-proj", Status: 200,

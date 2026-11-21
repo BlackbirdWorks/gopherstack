@@ -43,8 +43,7 @@ items_still_open:
   - CalculatedSpend: RI_UTILIZATION and RI_COVERAGE are computed from EC2 reservations, but nothing seeds EC2 ReservedInstancesOfferings (services/ec2/reserved_instances.go:112) so no reservation can be purchased through the API (seeding the catalogue is an EC2 backend change); SAVINGS_PLANS_UTILIZATION and SAVINGS_PLANS_COVERAGE report 0 PERCENTAGE because no Savings Plans service exists
   - Alerting: topic policies granting budgets.amazonaws.com are not checked (evaluating a resource policy is IAM policy evaluation, out of scope); evaluator cadence is 1 minute versus the documented up to three updates a day 8 to 12 hours apart (cost-management userguide budgets-managing-costs), kept so alarms fire inside a test run
   - ExecuteBudgetAction: ExecutionRoleArn must exist in IAM when the action runs (a missing role fails the execution) but its trust policy is never evaluated or assumed (trust policy evaluation is IAM policy evaluation, out of scope); SSM actions start AWS-Stop*/Start* automation documents through the SSM backend
-  - BillingViewArn: format-checked only and HealthStatus is always HEALTHY, because no billing view service exists under services/ (ls services/ has only bcmdataexports and cur) to resolve the ARN or report a status
-  - "AccessDeniedException (needs IAM policy evaluation, out of scope) and BillingViewHealthStatusException (no billing view service under services/ to report a view health status, and a new service is not permitted): never raised"
+  - "AccessDeniedException is never raised (needs IAM policy evaluation, out of scope)"
 structural_gaps: []
 deferred: []
 leaks: {status: clean, note: "one worker.Group ticker bound to the janitor context; unit tests never start it"}
@@ -71,3 +70,7 @@ Include* flag to charge-type mapping follows the CostTypes field descriptions (A
 ## Metered spend
 Actual spend for COST and USAGE budgets sums ce ledger rows, which now include rows metered from emulated resources (resource id, tags, AZ, instance type); CostFilters, TagKeyValue and FilterExpression Dimensions, Tags, And, Or and Not narrow them (internal/app/ce_metering_wiring_test.go).
 RI_UTILIZATION is reserved instance hours covered by metered running instance hours over reserved hours in the period so far; RI_COVERAGE is covered hours over all metered instance hours. A zonal reservation matches its own AZ, a regional one any AZ; usage is day-granular. Without any active reservation the budget reports 0 PERCENTAGE.
+
+## External effects that are recorded, not performed
+
+- BillingViewArn: format-checked, and HealthStatus is HEALTHY; Create and UpdateBudget log "would resolve billing view and report its health" with the budget and view ARN because no billing view service exists under services/. BillingViewHealthStatusException is therefore never raised.

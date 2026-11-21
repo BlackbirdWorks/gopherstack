@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -187,9 +188,20 @@ func (b *InMemoryBackend) CreateBudget(
 	})
 	b.mu.Unlock()
 
+	logBillingView(ctx, &bg)
 	b.evaluate(ctx, key)
 
 	return nil
+}
+
+// logBillingView records the billing-view lookup that no emulated service can answer.
+func logBillingView(ctx context.Context, bg *Budget) {
+	if bg.BillingViewArn == "" {
+		return
+	}
+
+	logger.Load(ctx).InfoContext(ctx, "budgets: would resolve billing view and report its health",
+		"budget", bg.BudgetName, "billingViewArn", bg.BillingViewArn, "healthStatus", healthyStatus)
 }
 
 func buildNotifications(in []NotificationWithSubscribers) ([]NotificationRecord, error) {
@@ -240,6 +252,7 @@ func (b *InMemoryBackend) UpdateBudget(ctx context.Context, account string, bg B
 	key := rec.Key
 	b.mu.Unlock()
 
+	logBillingView(ctx, &bg)
 	b.evaluate(ctx, key)
 
 	return nil

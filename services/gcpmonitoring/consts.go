@@ -17,6 +17,7 @@ const (
 // Resource and label names used by several catalogs.
 const (
 	typeGCEInstance      = "gce_instance"
+	typeK8sContainer     = "k8s_container"
 	typeCloudRunRevision = "cloud_run_revision"
 	labelResponseCode    = "response_code"
 	scopeMetricLabels    = "metric.labels"
