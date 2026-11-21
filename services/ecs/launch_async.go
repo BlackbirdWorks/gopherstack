@@ -65,6 +65,13 @@ func (b *InMemoryBackend) launchAsync(w taskWork, clusterName string) {
 		lt.tasks = make(map[string]*Task)
 	}
 
+	if _, busy := lt.tasks[w.task.TaskArn]; busy {
+		b.mu.Unlock()
+		cancel()
+
+		return
+	}
+
 	if lt.n == 0 {
 		lt.idle = make(chan struct{})
 	}
@@ -175,6 +182,10 @@ func (b *InMemoryBackend) isLiveTaskLocked(task *Task) bool {
 // driveLaunch walks one task PROVISIONING, PENDING, ACTIVATING, RUNNING (or STOPPED on failure).
 func (b *InMemoryBackend) driveLaunch(ctx context.Context, w taskWork, clusterName string) {
 	task := w.task
+
+	if w.restored && !b.prepareRestoredLaunch(ctx, w, clusterName) {
+		return
+	}
 
 	if !b.stepLaunch(ctx, task, statusProvisioning, statusPending, nil) {
 		b.settleCancelled(ctx, task, clusterName)

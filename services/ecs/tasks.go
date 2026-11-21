@@ -67,6 +67,8 @@ type taskWork struct {
 	waiting bool
 	// failed tasks were stopped during creation and never reach the runtime.
 	failed bool
+	// restored tasks come from a snapshot taken mid-launch; driveLaunch adopts or rewinds them first.
+	restored bool
 }
 
 // RunTask starts one or more tasks on the given cluster. A per-task
