@@ -15,6 +15,8 @@ const (
 	pairArgs       = 2
 	halfTurnDeg    = 180
 	datetimeLayout = "2006-01-02T15:04:05Z"
+	timeHMS        = "15:04:05"
+	timeHMSMillis  = "15:04:05.000"
 	argOrder       = "order"
 	argKey         = "key"
 	orderDesc      = "desc"
@@ -162,7 +164,7 @@ func datetimeDateLayouts() []string {
 
 func datetimeTimeLayouts() []string {
 	return []string{
-		"15:04:05.000", "15:04:05", "150405.000", "150405", "15:04", "1504", "15",
+		timeHMSMillis, timeHMS, "150405.000", "150405", "15:04", "1504", "15",
 		"15:04:05Z07:00", "15:04:05.000Z07:00", "15:04Z07:00", "15Z07", "150405Z0700", "1504Z0700",
 	}
 }

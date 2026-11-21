@@ -14,6 +14,7 @@ import (
 	"maps"
 	"sort"
 	"strings"
+	"sync/atomic"
 
 	"github.com/google/uuid"
 
@@ -49,14 +50,15 @@ type Path struct {
 
 // Graph is a thread-safe in-memory property graph with an openCypher executor.
 type Graph struct {
-	funcs  map[string]scalarFunc
-	sem    chan struct{}
-	stream *streamlog.Log
-	nodes  map[string]*Node
-	rels   map[string]*Rel
-	out    map[string][]*Rel
-	in     map[string][]*Rel
-	seq    int
+	extDatetime atomic.Pointer[func() bool]
+	funcs       map[string]scalarFunc
+	sem         chan struct{}
+	stream      *streamlog.Log
+	nodes       map[string]*Node
+	rels        map[string]*Rel
+	out         map[string][]*Rel
+	in          map[string][]*Rel
+	seq         int
 }
 
 // NewGraph returns an empty graph.
