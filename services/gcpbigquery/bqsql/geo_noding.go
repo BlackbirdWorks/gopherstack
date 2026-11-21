@@ -10,6 +10,9 @@ import (
 const (
 	nodingMaxEdges  = 1024
 	collinearBound  = 1e-15
+	vecNoise        = 1e-16
+	minPlaneNorm    = 1e-12
+	poleLat         = 90
 	equatorLat      = 0
 	nodingOddDegree = 1
 	minLinePoints   = 3
@@ -51,8 +54,15 @@ func collinear3(a, b, c lonLat) bool {
 	}
 
 	va, vb, vc := a.vec(), b.vec(), c.vec()
+	n := va.cross(vb)
 
-	return math.Abs(va.dot(vb.cross(vc))) <= collinearBound
+	nn := n.norm()
+	if nn < minPlaneNorm {
+		return false
+	}
+
+	// Distance of c from the plane of a,b; the noise term grows as the edge shrinks.
+	return math.Abs(n.dot(vc))/nn <= collinearBound+vecNoise/nn
 }
 
 func between(x, a, b float64) bool { return x > math.Min(a, b) && x < math.Max(a, b) }
@@ -271,4 +281,29 @@ func markOverlaps(edges []*lineEdge) bool {
 	}
 
 	return overlap
+}
+
+// antipodal reports whether a and b are exactly opposite points on the sphere.
+func antipodal(a, b lonLat) bool {
+	if a.lat != -b.lat {
+		return false
+	}
+
+	if math.Abs(a.lat) == poleLat {
+		return true
+	}
+
+	d := math.Mod(math.Abs(a.lon-b.lon), fullTurn)
+
+	return d == halfTurn
+}
+
+func checkEdgeSpans(pts []lonLat) error {
+	for i := 1; i < len(pts); i++ {
+		if antipodal(pts[i-1], pts[i]) {
+			return errBQ("ST_MAKELINE: every edge must span strictly less than 180 degrees")
+		}
+	}
+
+	return nil
 }

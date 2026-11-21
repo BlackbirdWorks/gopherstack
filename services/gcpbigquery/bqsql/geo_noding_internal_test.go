@@ -20,6 +20,11 @@ func TestNodeLines(t *testing.T) {
 		{"through pole", "LINESTRING(0 80, 180 80)", []lonLat{{0, 80}, {180, 80}, {0, 80}}},
 		{"meridian opposite", "LINESTRING(0 10, 0 90, 180 80)", []lonLat{{0, 10}, {0, 90}, {180, 80}, {0, 90}}},
 		{"fork", "MULTILINESTRING((0 0, 1 0, 2 0), (1 0, 1 1))", []lonLat{{0, 0}, {2, 0}, {1, 0}, {1, 1}}},
+		{
+			"short distinct edges not merged",
+			"LINESTRING(10 10, 10.00001 10, 10.000005 10.0000001, 10.000015 10.0000001)",
+			[]lonLat{{10, 10}, {10.00001, 10}, {10.000005, 10.0000001}, {10.000015, 10.0000001}},
+		},
 		{"same edge twice", "LINESTRING(0 0, 1 2)", []lonLat{{0, 0}, {1, 2}, {0, 0}, {1, 2}}},
 	}
 
