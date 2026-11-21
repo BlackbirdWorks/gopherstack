@@ -62,6 +62,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateWorkflow", "GetWorkflow", "ListWorkflows", "UpdateWorkflow", "DeleteWorkflow", "ListWorkflowRevisions",
 		"CreateExecution", "GetExecution", "ListExecutions", "CancelExecution",
 		"GetLocation", "ListLocations",
+		"ListStepEntries", "GetStepEntry",
 		"GetOperation", "ListOperations", "DeleteOperation", "CancelOperation", "WaitOperation",
 	}
 }
@@ -145,9 +146,10 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	log.InfoContext(workerCtx, "gcpworkflows: starting dedicated listener", "port", h.Port)
 
 	callbacks := gcprest.Extra{Match: IsCallbackPath, Handler: h.Backend.CallbackHandler()}
+	stepEntries := gcprest.Extra{Match: IsStepEntriesPath, Handler: h.Backend.StepEntriesHandler()}
 
 	h.wg.Go(func() {
-		if serveErr := gcprest.ServeWithExtras(srv, listener, nil, callbacks); serveErr != nil &&
+		if serveErr := gcprest.ServeWithExtras(srv, listener, nil, callbacks, stepEntries); serveErr != nil &&
 			!errors.Is(serveErr, grpc.ErrServerStopped) {
 			log.ErrorContext(workerCtx, "gcpworkflows: listener stopped", "error", serveErr)
 		}

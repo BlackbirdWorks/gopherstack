@@ -336,6 +336,8 @@ const minALBZones = 2
 
 // CreateLoadBalancer creates a new load balancer.
 func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*LoadBalancer, error) {
+	quota := b.quotaLimit(input.Type)
+
 	b.mu.Lock("CreateLoadBalancer")
 	defer b.mu.Unlock()
 
@@ -344,7 +346,7 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 		return nil, err
 	}
 
-	if existing, dupErr := b.existingLBLocked(lbType, input); existing != nil || dupErr != nil {
+	if existing, dupErr := b.reuseOrCheckQuotaLocked(lbType, input, quota); existing != nil || dupErr != nil {
 		return existing, dupErr
 	}
 

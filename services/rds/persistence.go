@@ -272,6 +272,7 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 		b, ok := h.backends[region]
 		if !ok {
 			b = NewInMemoryBackend(h.accountID, region)
+			b.quotaGate = h.Backend.quotaGate
 			h.backends[region] = b
 			h.handlers[region] = &Handler{Backend: b}
 		}

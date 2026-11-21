@@ -979,12 +979,27 @@ func (h *Handler) handleModifySnapshotAttribute(vals url.Values, reqID string) (
 	addIDs, addPublic := parseLaunchPermissionList(vals, "CreateVolumePermission.Add")
 	removeIDs, removePublic := parseLaunchPermissionList(vals, "CreateVolumePermission.Remove")
 
+	if vals.Get("Attribute") == "createVolumePermission" {
+		legacyIDs, legacyPublic := parseLegacyPermissionArgs(vals)
+
+		switch op := vals.Get("OperationType"); {
+		case op == "add":
+			addIDs, addPublic = append(addIDs, legacyIDs...), addPublic || legacyPublic
+		case op == "remove":
+			removeIDs, removePublic = append(removeIDs, legacyIDs...), removePublic || legacyPublic
+		case len(legacyIDs) > 0 || legacyPublic:
+			return nil, fmt.Errorf("%w: OperationType must be add or remove", ErrInvalidParameter)
+		}
+	}
+
 	if len(addIDs) > 0 || addPublic || len(removeIDs) > 0 || removePublic {
 		if err := h.Backend.ModifySnapshotCreateVolumePermission(
 			snapshotID, addIDs, addPublic, removeIDs, removePublic,
 		); err != nil {
 			return nil, err
 		}
+
+		h.emitSnapshotShared(h.svcCtx, snapshotID, addIDs)
 	}
 
 	return &modifySnapshotAttributeResponse{
@@ -992,4 +1007,26 @@ func (h *Handler) handleModifySnapshotAttribute(vals url.Values, reqID string) (
 		RequestID: reqID,
 		Return:    true,
 	}, nil
+}
+
+// parseLegacyPermissionArgs reads the flat UserId.N and UserGroup.N members of ModifySnapshotAttribute.
+func parseLegacyPermissionArgs(vals url.Values) ([]string, bool) {
+	var ids []string
+
+	public := false
+
+	for i := 1; ; i++ {
+		uid := vals.Get(fmt.Sprintf("UserId.%d", i))
+		grp := vals.Get(fmt.Sprintf("UserGroup.%d", i))
+
+		if uid == "" && grp == "" {
+			return ids, public
+		}
+
+		if uid != "" {
+			ids = append(ids, uid)
+		}
+
+		public = public || grp == permissionGroupAll
+	}
 }

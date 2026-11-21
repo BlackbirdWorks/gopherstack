@@ -9,16 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 26 (26 ok) |
 | Feature families | 5 (5 ok) |
-| Known gaps | 3 |
+| Known gaps | 2 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- ContextId/QuotaContext: resource-level quotas are not modeled; ContextId is rejected with IllegalArgumentException. Blocker: the only documented resource-level quota is OpenSearch (es) 'Instances per domain' (request-quota-increase.html); the docs publish no list of resource-level quotas, no ContextScopeType values and no ARN pattern per quota, so INVALID_REQUEST (invalid ContextId ARN) cannot be decided from a source (quotas.go:70 checkContext)
-- QuotaUtilization: S3 buckets, EC2 Elastic IPs, VPCs, IAM roles/users/groups/customer managed policies/instance profiles, EKS clusters and DynamoDB tables report usage; the other catalogued quotas (ECS clusters, RDS, CloudFormation, ELB, Lambda, the other VPC quotas) have no live counter wired in internal/app/service_quotas_wiring.go quotaCounters
-- AppliedQuotaEnforcement: opt-in (--enforce-service-quotas) for S3 buckets, EC2 Elastic IPs and VPCs, IAM roles/users/groups/customer managed policies/instance profiles, EKS clusters and DynamoDB tables only; the other catalogued quotas are never enforced
+- QuotaUtilization: S3 buckets, EC2 Elastic IPs, VPCs, IAM roles/users/groups/customer managed policies/instance profiles, EKS clusters, DynamoDB tables, ECS clusters, RDS DB instances and clusters, CloudFormation stacks and ALB/NLB/Classic load balancers report usage; the other catalogued quotas (Lambda, CloudFormation stack sets, EC2 instance vCPUs and Spot requests, the other VPC quotas and every quota of the other documented services) have no live counter wired in internal/app/service_quotas_wiring.go quotaCounters
+- AppliedQuotaEnforcement: opt-in (--enforce-service-quotas) for S3 buckets, EC2 Elastic IPs and VPCs, IAM roles/users/groups/customer managed policies/instance profiles, EKS clusters, DynamoDB tables, RDS DB instances and clusters, CloudFormation stacks and ALB/NLB/Classic load balancers only; ECS clusters are counted but not enforced (CreateCluster declares no limit exception), and the other catalogued quotas are never enforced
 
 ### Structural gaps
 

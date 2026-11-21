@@ -246,7 +246,12 @@ func (r *buildRunner) fetchGitSource(ctx context.Context, src *ProjectSource, ve
 		insecure:   src.InsecureSsl,
 		allowFile:  r.cfg.AllowFileGitSources,
 	}
-	req.token, req.username, _ = r.b.sourceToken(src.Type)
+
+	var err error
+
+	if req.token, req.username, err = r.resolveSourceAuth(ctx, src); err != nil {
+		return err
+	}
 
 	g, err := newGitClient(dir, req)
 	if err != nil {

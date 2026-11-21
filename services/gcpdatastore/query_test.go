@@ -70,19 +70,22 @@ func TestQueryFilters(t *testing.T) {
 			datastore.NewQuery("Task").FilterEntity(datastore.OrFilter{Filters: []datastore.EntityFilter{
 				prop("Priority", "<", 2), prop("Priority", ">", 4),
 			}}),
-			"or on one property", []string{"a", "e"},
+			"or on one property",
+			[]string{"a", "e"},
 		},
 		{
 			datastore.NewQuery("Task").FilterEntity(datastore.OrFilter{Filters: []datastore.EntityFilter{
 				prop("Done", "=", false), prop("Tags", "=", "z"),
 			}}),
-			"or across properties", []string{"b", "c", "d"},
+			"or across properties",
+			[]string{"b", "c", "d"},
 		},
 		{
 			datastore.NewQuery("Task").FilterEntity(datastore.AndFilter{Filters: []datastore.EntityFilter{
 				prop("Done", "=", true), prop("Priority", ">", 1),
 			}}),
-			"and equality and range", []string{"c", "e"},
+			"and equality and range",
+			[]string{"c", "e"},
 		},
 		{datastore.NewQuery("Task").Order("-Priority"), "descending order", []string{"e", "d", "c", "b", "a"}},
 		{datastore.NewQuery("Task").Order("-Priority").Limit(2), "limit", []string{"e", "d"}},

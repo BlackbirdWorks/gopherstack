@@ -324,11 +324,22 @@ func (r *Registry) Delete(ctx context.Context, id ResourceID) error {
 		return np.targetDelete(ctx, id, r.parentCheck(id))
 	}
 
+	var err error
+
 	if p := r.providerFor(id); p != nil {
-		return p.Delete(ctx, id)
+		err = p.Delete(ctx, id)
+	} else {
+		err = r.backend.deleteGenericResource(id)
 	}
 
-	return r.backend.deleteGenericResource(id)
+	if err == nil && len(id.Types) == 1 && !strings.EqualFold(id.Namespace, namespaceMicrosoftNetwork) {
+		if _, isTarget := peTargets[peTargetKey(id)]; isTarget {
+			want := id.ARMID()
+			r.disconnectTargetsOf(func(rid ResourceID) bool { return strings.EqualFold(rid.ARMID(), want) })
+		}
+	}
+
+	return err
 }
 
 // List returns every resource of id's LeafType, scoped per id.ResourceGroup.
@@ -382,6 +393,8 @@ func (r *Registry) DeleteResourcesInGroup(ctx context.Context, resourceGroup str
 	for _, p := range r.providers {
 		p.DeleteResourcesInGroup(ctx, resourceGroup)
 	}
+
+	r.disconnectTargetsOf(func(rid ResourceID) bool { return resourceGroupsEqual(rid.ResourceGroup, resourceGroup) })
 }
 
 // --- InMemoryBackend's generic (metadata-only) resource storage ---

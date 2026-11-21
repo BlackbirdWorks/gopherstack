@@ -133,3 +133,27 @@ func ParseOpFilter(s string) error {
 
 	return err
 }
+
+// SetOptimizeHook makes the optimize operation of a restored database call fn before it finishes.
+func (b *InMemoryBackend) SetOptimizeHook(fn func()) {
+	b.mu.Lock("SetOptimizeHook")
+	defer b.mu.Unlock()
+
+	b.optimizeHook = fn
+}
+
+// SetBackupHook makes a backup that is being created call fn before it captures the database.
+func (b *InMemoryBackend) SetBackupHook(fn func()) {
+	b.mu.Lock("SetBackupHook")
+	defer b.mu.Unlock()
+
+	b.backupHook = fn
+}
+
+// SetBackupCap lowers the bytes of backup data the backend retains.
+func (b *InMemoryBackend) SetBackupCap(n int64) {
+	b.mu.Lock("SetBackupCap")
+	defer b.mu.Unlock()
+
+	b.backupCap = n
+}

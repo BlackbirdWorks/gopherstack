@@ -129,11 +129,50 @@ func (s *databaseServer) ListDatabaseOperations(
 	return s.b.ListDatabaseOperations(in)
 }
 
+func (s *databaseServer) CreateBackup(
+	ctx context.Context, in *databasepb.CreateBackupRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.CreateBackup(ctx, in)
+}
+
+func (s *databaseServer) CopyBackup(
+	ctx context.Context, in *databasepb.CopyBackupRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.CopyBackup(ctx, in)
+}
+
+func (s *databaseServer) GetBackup(_ context.Context, in *databasepb.GetBackupRequest) (*databasepb.Backup, error) {
+	return s.b.GetBackup(in.GetName())
+}
+
+func (s *databaseServer) UpdateBackup(
+	_ context.Context, in *databasepb.UpdateBackupRequest,
+) (*databasepb.Backup, error) {
+	return s.b.UpdateBackup(in)
+}
+
+func (s *databaseServer) DeleteBackup(_ context.Context, in *databasepb.DeleteBackupRequest) (*emptypb.Empty, error) {
+	return s.b.DeleteBackup(in.GetName())
+}
+
+func (s *databaseServer) ListBackups(
+	_ context.Context, in *databasepb.ListBackupsRequest,
+) (*databasepb.ListBackupsResponse, error) {
+	return s.b.ListBackups(in)
+}
+
+func (s *databaseServer) ListBackupOperations(
+	_ context.Context, in *databasepb.ListBackupOperationsRequest,
+) (*databasepb.ListBackupOperationsResponse, error) {
+	return s.b.ListBackupOperations(in)
+}
+
 // localDatabaseMethods are answered by databaseServer; the other DatabaseAdmin methods go to the emulator.
 var localDatabaseMethods = map[string]bool{ //nolint:gochecknoglobals // immutable catalog
 	"ListDatabases": true, "CreateDatabase": true, "GetDatabase": true, "UpdateDatabase": true,
 	"UpdateDatabaseDdl": true, "DropDatabase": true, "GetDatabaseDdl": true,
-	"RestoreDatabase": true, "ListDatabaseOperations": true,
+	"RestoreDatabase": true, "ListDatabaseOperations": true, "CreateBackup": true, "CopyBackup": true,
+	"GetBackup": true, "UpdateBackup": true, "DeleteBackup": true, "ListBackups": true, "ListBackupOperations": true,
 }
 
 func (s *instanceServer) CreateInstanceConfig(

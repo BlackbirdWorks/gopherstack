@@ -24,22 +24,23 @@ const (
 	aciKeyServer                        = "server"
 )
 
-func aciAPIVersions() []string { return []string{"2023-05-01"} }
+func aciAPIVersions() []string { return []string{"2023-05-01", "2025-09-01", "2026-07-01"} }
 
 // aciProfileAPIVersions: container group profiles are in the stable 2025-09-01 and 2026-07-01 specs only.
 func aciProfileAPIVersions() []string { return []string{"2025-09-01", "2026-07-01"} }
 
 type storedACIGroup struct {
-	Created       time.Time         `json:"created"`
-	Tags          map[string]string `json:"tags,omitempty"`
-	Name          string            `json:"name"`
-	Sub           string            `json:"sub,omitempty"`
-	ResourceGroup string            `json:"resourceGroup"`
-	Location      string            `json:"location"`
-	Props         aciPropsWire      `json:"props"`
-	Zones         []string          `json:"zones,omitempty"`
-	Identity      resourceIdentity  `json:"identity"`
-	Resume        bool              `json:"resume,omitempty"`
+	Created       time.Time          `json:"created"`
+	Tags          map[string]string  `json:"tags,omitempty"`
+	ProfileRef    *aciProfileRefWire `json:"profileRef,omitempty"`
+	Name          string             `json:"name"`
+	Sub           string             `json:"sub,omitempty"`
+	ResourceGroup string             `json:"resourceGroup"`
+	Location      string             `json:"location"`
+	Props         aciPropsWire       `json:"props"`
+	Identity      resourceIdentity   `json:"identity"`
+	Zones         []string           `json:"zones,omitempty"`
+	Resume        bool               `json:"resume,omitempty"`
 }
 
 // ContainerInstanceProvider implements ResourceProvider for Microsoft.ContainerInstance container groups. ARM
@@ -116,7 +117,12 @@ func (p *ContainerInstanceProvider) Put(_ context.Context, id ResourceID, body m
 		return nil, err
 	}
 
-	props, err := parseACIProps(body[fieldProperties])
+	rawProps, profileRef, err := p.resolveProfileRef(id, body[fieldProperties])
+	if err != nil {
+		return nil, err
+	}
+
+	props, err := parseACIProps(rawProps)
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +138,7 @@ func (p *ContainerInstanceProvider) Put(_ context.Context, id ResourceID, body m
 	rec := &storedACIGroup{
 		Name: name, Sub: id.SubscriptionID, ResourceGroup: id.ResourceGroup, Location: DefaultLocation,
 		Created: time.Now().UTC(),
-		Tags:    stringTags(body[fieldTags]), Props: props, Zones: zones,
+		Tags:    stringTags(body[fieldTags]), Props: props, Zones: zones, ProfileRef: profileRef,
 	}
 
 	if loc, _ := body[fieldLocation].(string); loc != "" {
@@ -149,7 +155,12 @@ func (p *ContainerInstanceProvider) Put(_ context.Context, id ResourceID, body m
 		rec.Created, prevIdentity = old.Created, old.Identity
 	}
 
-	ident, identErr := p.ids.apply(body[fieldIdentity], hasIdentity, prevIdentity)
+	ident, identErr := p.ids.apply(
+		namespaceMicrosoftContainerInstance+"/"+aciGroupsType,
+		body[fieldIdentity],
+		hasIdentity,
+		prevIdentity,
+	)
 	if identErr != nil {
 		p.mu.Unlock()
 
@@ -446,6 +457,10 @@ func aciContainerBody(c aciContainerWire, view *ACIContainerView) map[string]any
 		props["readinessProbe"] = pp.ReadinessProbe
 	}
 
+	if pp.ConfigMap != nil {
+		props["configMap"] = pp.ConfigMap
+	}
+
 	props["instanceView"] = aciInstanceViewBody(view)
 
 	return map[string]any{fieldName: c.Name, fieldProperties: props}
@@ -584,7 +599,7 @@ func (p *ContainerInstanceProvider) bodyOf(id ResourceID, rec *storedACIGroup) m
 	}
 
 	props := map[string]any{
-		fieldProvisioningState: prov, "containers": conts, "osType": pp.OSType, "restartPolicy": pp.RestartPolicy,
+		fieldProvisioningState: prov, fieldContainers: conts, "osType": pp.OSType, "restartPolicy": pp.RestartPolicy,
 		"volumes":      aciVolumesBody(pp.Volumes),
 		"instanceView": map[string]any{"events": events, sqlPropState: state},
 	}
@@ -599,6 +614,8 @@ func (p *ContainerInstanceProvider) bodyOf(id ResourceID, rec *storedACIGroup) m
 
 	addACIFeatureBody(props, pp)
 	p.addExtBody(props, rec, view, live)
+
+	addACIProfileRef(props, rec.ProfileRef)
 
 	if pp.IPAddress != nil {
 		props["ipAddress"] = p.ipBody(
@@ -720,6 +737,8 @@ func aciErrorDetails(err error) (errorEntry, bool) {
 		}
 
 		return errorEntry{aciCodeInvalid, msg, http.StatusBadRequest}, true
+	case errors.Is(err, errACIProfileMissing):
+		return aciProfileMissingEntry(err), true
 	case errors.Is(err, ErrACIContainerNotFound):
 		return errorEntry{"ContainerNotFound", "The container was not found in the group.", http.StatusNotFound}, true
 	case errors.Is(err, ErrACINotRunning):

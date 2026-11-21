@@ -17,6 +17,16 @@ func googleHost(host string) (string, bool) {
 		return svcFirestore, true
 	case "storage.googleapis.com":
 		return svcStorage, true
+	case "cloudtasks.googleapis.com":
+		return svcCloudTasks, true
+	case "cloudkms.googleapis.com":
+		return svcKMS, true
+	case "cloudbuild.googleapis.com":
+		return svcCloudBuild, true
+	case "logging.googleapis.com":
+		return svcLogging, true
+	case "workflowexecutions.googleapis.com":
+		return svcWorkflowExec, true
 	default:
 		return "", false
 	}
@@ -34,15 +44,7 @@ func (t emulatedHosts) RoundTrip(req *http.Request) (*http.Response, error) {
 		return t.next.RoundTrip(req)
 	}
 
-	t.b.mu.RLock("emulatedHosts")
-	eps := t.b.endpoints
-	t.b.mu.RUnlock()
-
-	if eps == nil {
-		return t.next.RoundTrip(req)
-	}
-
-	base, err := url.Parse(eps.BaseURL(svc))
+	base, err := url.Parse(t.b.serviceBase(svc))
 	if err != nil || base.Host == "" {
 		return t.next.RoundTrip(req)
 	}

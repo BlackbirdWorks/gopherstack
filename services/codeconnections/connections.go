@@ -170,3 +170,13 @@ func (b *InMemoryBackend) AddConnectionInternal(_ context.Context, conn *Connect
 
 	b.connections.Put(conn)
 }
+
+// ConnectionStatus returns the status of connectionArn as seen from region.
+func (b *InMemoryBackend) ConnectionStatus(ctx context.Context, region, connectionArn string) (string, error) {
+	c, err := b.GetConnection(context.WithValue(ctx, regionContextKey{}, region), connectionArn)
+	if err != nil {
+		return "", err
+	}
+
+	return c.Status, nil
+}

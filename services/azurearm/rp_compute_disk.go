@@ -66,7 +66,7 @@ func (p *ComputeProvider) diskSKU(body map[string]any, old *cmpRes, snapshot boo
 	return map[string]any{fieldName: canon, cmpKeyTier: diskTier(canon)}, nil
 }
 
-func (p *ComputeProvider) putDisk(id ResourceID, body map[string]any, snapshot bool) (*cmpRes, error) {
+func (p *ComputeProvider) putDisk(id ResourceID, body map[string]any, snapshot bool, imp *diskImport) (*cmpRes, error) {
 	typ := cmpDisks
 	if snapshot {
 		typ = cmpSnaps
@@ -103,7 +103,7 @@ func (p *ComputeProvider) putDisk(id ResourceID, body map[string]any, snapshot b
 	}
 
 	if old == nil {
-		err = p.createDiskProps(r, props, propsOf(body), snapshot)
+		err = p.createDiskProps(r, props, propsOf(body), snapshot, imp)
 	} else {
 		err = p.updateDiskProps(r, old, props, propsOf(body), snapshot)
 	}
@@ -157,21 +157,29 @@ func (p *ComputeProvider) sourceOf(idStr string) (*cmpRes, error) {
 }
 
 // createDiskProps validates creationData and derives the size and operating system of a new disk or snapshot.
-func (p *ComputeProvider) createDiskProps(r *cmpRes, props, raw map[string]any, snapshot bool) error {
+func (p *ComputeProvider) createDiskProps(r *cmpRes, props, raw map[string]any, snapshot bool, imp *diskImport) error {
 	cd := cloneProps(mapOf(raw[cmpFieldCreation]))
 
 	opt, ok := canonicalIn(
-		[]string{createEmpty, createFromImage, createCopy, createCopyStart, createUpload},
+		[]string{
+			createEmpty,
+			createFromImage,
+			createCopy,
+			createCopyStart,
+			createUpload,
+			createImport,
+			createImportSecure,
+		},
 		strOf(cd, cmpFieldCreateOpt),
 	)
 	if !ok {
 		return cmpInvalid("The creationData.createOption '%s' is not supported; use Empty, FromImage, Copy, "+
-			"CopyStart or Upload.",
+			"CopyStart, Upload, Import or ImportSecure.",
 			strOf(cd, cmpFieldCreateOpt))
 	}
 
-	if snapshot && opt != createCopy && opt != createCopyStart {
-		return cmpInvalid("Snapshots are created with creationData.createOption 'Copy' or 'CopyStart'.")
+	if snapshot && opt != createCopy && opt != createCopyStart && opt != createImport {
+		return cmpInvalid("Snapshots are created with creationData.createOption 'Copy', 'CopyStart' or 'Import'.")
 	}
 
 	cd[cmpFieldCreateOpt] = opt
@@ -186,6 +194,8 @@ func (p *ComputeProvider) createDiskProps(r *cmpRes, props, raw map[string]any, 
 		gb, err = imageDiskSize(cd, raw, gb)
 	case createCopy, createCopyStart:
 		gb, err = p.copyDisk(cd, props, gb)
+	case createImport, createImportSecure:
+		gb, err = importedSize(imp, gb)
 	default:
 		gb, err = uploadDisk(r, cd)
 	}
@@ -408,4 +418,19 @@ func newDiskRes(vm *cmpRes, name, sku string, gb int, creation map[string]any, o
 		Props:    props,
 		Aux:      map[string]string{},
 	}
+}
+
+func importedSize(imp *diskImport, gb int) (int, error) {
+	switch {
+	case imp == nil:
+		return 0, cmpInvalid("The creationData could not be resolved.")
+	case imp.err != nil:
+		return 0, imp.err
+	case gb != 0 && gb < imp.gb:
+		return 0, cmpInvalid("The disk size %d GB is smaller than the source VHD size %d GB.", gb, imp.gb)
+	case gb == 0:
+		return imp.gb, nil
+	}
+
+	return gb, nil
 }

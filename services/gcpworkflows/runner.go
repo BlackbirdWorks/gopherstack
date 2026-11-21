@@ -7,7 +7,6 @@ import (
 	"cloud.google.com/go/logging/apiv2/loggingpb"
 	"cloud.google.com/go/workflows/apiv1/workflowspb"
 	executionspb "cloud.google.com/go/workflows/executions/apiv1/executionspb"
-	"google.golang.org/genproto/googleapis/api/monitoredres"
 	ltype "google.golang.org/genproto/googleapis/logging/type"
 	"google.golang.org/protobuf/types/known/structpb"
 
@@ -23,14 +22,19 @@ func (b *InMemoryBackend) launchLocked(er *execRec, wf *workflowspb.Workflow, pr
 	er.cancel = cancel
 	name := er.pb.GetName()
 	host := b.hostFor(name, wf, er.pb.GetCallLogLevel())
+	info := runInfoOf(name, wf)
+	argument := er.pb.GetArgument()
 
 	b.scheduleExpiryLocked(er)
 
 	b.wg.Go(func() {
 		defer cancel()
 
+		b.logExecutionStart(info, argument)
+
 		res, err := b.engine.Run(logger.WithWorker(ctx, "gcpworkflows", "execution"), prog, arg, host)
 		b.complete(name, res, err)
+		b.logExecutionEnd(info)
 	})
 }
 
@@ -106,6 +110,15 @@ type runInfo struct {
 	account  string
 }
 
+func runInfoOf(execName string, wf *workflowspb.Workflow) runInfo {
+	project, location, id, _ := parseWorkflow(wf.GetName())
+
+	return runInfo{
+		userEnv: wf.GetUserEnvVars(), exec: execName, project: project, location: location, workflow: id,
+		revision: wf.GetRevisionId(), account: wf.GetServiceAccount(),
+	}
+}
+
 func (r runInfo) env(name string) (string, bool) {
 	switch name {
 	case "GOOGLE_CLOUD_PROJECT_ID":
@@ -133,11 +146,7 @@ func (r runInfo) env(name string) (string, bool) {
 func (b *InMemoryBackend) hostFor(
 	execName string, wf *workflowspb.Workflow, level executionspb.Execution_CallLogLevel,
 ) *wfinterp.Host {
-	project, location, id, _ := parseWorkflow(wf.GetName())
-	info := runInfo{
-		userEnv: wf.GetUserEnvVars(), exec: execName, project: project, location: location, workflow: id,
-		revision: wf.GetRevisionId(), account: wf.GetServiceAccount(),
-	}
+	info := runInfoOf(execName, wf)
 	clock, client := b.clock, b.client
 
 	return &wfinterp.Host{
@@ -163,7 +172,10 @@ func (b *InMemoryBackend) hostFor(
 		RunExecutions: func(ctx context.Context, reqs []wfinterp.ExecutionRequest) ([]any, error) {
 			return b.runExecutions(ctx, info, reqs)
 		},
-		CallLog: func(e wfinterp.CallEvent) { b.emitCall(info, level, e) },
+		CallLog:       func(e wfinterp.CallEvent) { b.emitCall(info, level, e) },
+		StepLog:       func(e wfinterp.StepEvent) { b.recordStep(execName, e) },
+		StepVariables: detailedHistory(wf),
+		StepBudget:    func() (bool, bool) { return b.stepBudget(execName) },
 		Progress: func(frames []wfinterp.Frame) {
 			b.setSteps(execName, frames)
 			b.failIfKeyDisabled(execName)
@@ -202,16 +214,10 @@ func (b *InMemoryBackend) emitLog(info runInfo, e wfinterp.LogEntry) {
 	}
 
 	entry := &loggingpb.LogEntry{
-		LogName: gcpserve.LogName(info.project, "Workflows"),
-		Resource: &monitoredres.MonitoredResource{
-			Type: "workflows.googleapis.com/Workflow",
-			Labels: map[string]string{
-				"project_id": info.project, "location": info.location,
-				"workflow_id": info.workflow, "revision_id": info.revision,
-			},
-		},
+		LogName:  gcpserve.LogName(info.project, "Workflows"),
+		Resource: info.resource(),
 		Labels: map[string]string{
-			"workflows.googleapis.com/execution_id": lastSegment(info.exec),
+			labelExecutionID: lastSegment(info.exec),
 		},
 		Severity: severityOf(e.Severity),
 	}

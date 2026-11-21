@@ -74,7 +74,8 @@ func (b *InMemoryBackend) checkIndex(p *queryPlan) error {
 	}
 
 	for _, idx := range b.indexes {
-		if idx.GetProjectId() == p.part.project && idx.GetKind() == p.kind && indexServes(idx, sig) {
+		if idx.GetState() == adminpb.Index_READY && idx.GetProjectId() == p.part.project &&
+			idx.GetKind() == p.kind && indexServes(idx, sig) {
 			return nil
 		}
 	}

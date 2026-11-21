@@ -6,6 +6,7 @@ import (
 	"encoding/csv"
 	"encoding/json/v2"
 	"io"
+	"log/slog"
 	"slices"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 func (f *fixture) object(t *testing.T, key string) []byte {
@@ -212,4 +214,51 @@ func TestDelivery_NoBucket(t *testing.T) {
 	st := f.status(t, "r")
 	require.NotNil(t, st)
 	assert.Equal(t, curtypes.LastStatusErrorNoBucket, st.LastStatus)
+}
+
+func TestDelivery_BillingViewIsLoggedNotResolved(t *testing.T) {
+	t.Parallel()
+
+	const viewARN = "arn:aws:billing::123456789012:billingview/210987654321"
+
+	tests := []struct {
+		name     string
+		viewARN  string
+		wantLogs bool
+	}{
+		{name: "with billing view", viewARN: viewARN, wantLogs: true},
+		{name: "without billing view"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newFixture(t)
+			f.bucket(t)
+
+			d := def("r")
+			if tc.viewARN != "" {
+				d.BillingViewArn = aws.String(tc.viewARN)
+			}
+
+			_, err := f.client.PutReportDefinition(t.Context(), &cursdk.PutReportDefinitionInput{ReportDefinition: d})
+			require.NoError(t, err)
+
+			var buf bytes.Buffer
+
+			ctx := logger.Save(t.Context(), slog.New(slog.NewTextHandler(&buf, nil)))
+			f.backend.DeliverDue(ctx)
+
+			st := f.status(t, "r")
+			require.NotNil(t, st)
+			assert.Equal(t, curtypes.LastStatusSuccess, st.LastStatus)
+			assert.NotEmpty(t, f.keys(t))
+			assert.Equal(t, tc.wantLogs, bytes.Contains(buf.Bytes(), []byte("would resolve billing view")))
+
+			if tc.wantLogs {
+				assert.Contains(t, buf.String(), tc.viewARN)
+			}
+		})
+	}
 }

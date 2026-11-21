@@ -108,6 +108,11 @@ func deliver(
 		return statusErrNoBucket
 	}
 
+	if r.BillingViewArn != "" {
+		logger.Load(ctx).InfoContext(ctx, "cur: would resolve billing view; delivering the unscoped ledger",
+			"report", r.ReportName, "billingViewArn", r.BillingViewArn)
+	}
+
 	billStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 	billEnd := billStart.AddDate(0, 1, 0)
 

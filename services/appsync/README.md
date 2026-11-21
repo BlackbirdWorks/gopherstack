@@ -16,8 +16,8 @@
 
 ### Known gaps
 
-- AMAZON_ELASTICSEARCH data sources resolve against services/opensearch domains only: services/elasticsearch has no document data plane to serve the request
-- Versioned DynamoDB data sources (ddb_versioned.go) reject a stale _version (optimistic concurrency) but do not run the resolver SyncConfig AUTOMERGE or LAMBDA conflict handlers, and do not support the customPartitionKey/populateIndexFields delta layouts or Sync basePartitionKey/deltaIndexName (rejected as unsupported)
+- StartDataSourceIntrospection/GetDataSourceIntrospection complete SUCCESS with an empty models list: the table and column content of an RDS Data API data source is not introspected from services/rdsdata.
+- The delta table ds_sk joins the item key attribute values in name order because the DynamoDB backend interface exposes no key schema, so the hash/range order of a composite key is not preserved (uniqueness holds).
 
 ### Structural gaps
 

@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	cbtypes "github.com/aws/aws-sdk-go-v2/service/codebuild/types"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 type deleteSourceCredentialsInput struct {
@@ -57,6 +59,10 @@ func (h *Handler) handleImportSourceCredentials(
 		return nil, fmt.Errorf("%w: token is required", errInvalidRequest)
 	}
 
+	if err := validateImportedResource(in.AuthType, in.Token); err != nil {
+		return nil, err
+	}
+
 	shouldOverwrite := true
 	if in.ShouldOverwrite != nil {
 		shouldOverwrite = *in.ShouldOverwrite
@@ -83,12 +89,34 @@ func (h *Handler) handleListSourceCredentials(
 	creds := h.Backend.ListSourceCredentials()
 	infos := make([]map[string]any, 0, len(creds))
 	for _, c := range creds {
-		infos = append(infos, map[string]any{
+		info := map[string]any{
 			"arn":        c.Arn,
 			"serverType": c.ServerType,
 			"authType":   c.AuthType,
-		})
+		}
+		if c.Resource != "" {
+			info["resource"] = c.Resource
+		}
+
+		infos = append(infos, info)
 	}
 
 	return &listSourceCredentialsOutput{SourceCredentialsInfos: infos}, nil
+}
+
+// validateImportedResource: for CODECONNECTIONS the token is the connectionArn and for SECRETS_MANAGER the
+// secretArn (ImportSourceCredentialsInput.Token docs).
+func validateImportedResource(authType, token string) error {
+	switch authType {
+	case authTypeCodeConnections:
+		if !arn.HasService(token, "codeconnections") && !arn.HasService(token, "codestar-connections") {
+			return fmt.Errorf("%w: token must be a connection ARN for authType %s", ErrValidation, authType)
+		}
+	case authTypeSecretsManager:
+		if !arn.HasService(token, "secretsmanager") {
+			return fmt.Errorf("%w: token must be a Secrets Manager secret ARN for authType %s", ErrValidation, authType)
+		}
+	}
+
+	return nil
 }

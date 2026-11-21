@@ -86,7 +86,7 @@ func newGraphQLError(err error) graphqlError {
 
 func ddbErrorType(code string) string {
 	switch code {
-	case errCodeConflictUnhandled, errCodeMaxConflicts, errCodeDeltaSyncWrite:
+	case errCodeBadRequest, errCodeConflictUnhandled, errCodeConflictError, errCodeMaxConflicts, errCodeDeltaSyncWrite:
 		return code
 	}
 
@@ -432,12 +432,31 @@ func resolveValue(val *ast.Value, variables map[string]any) any {
 type mappingUnit struct {
 	Source           any
 	Call             *callCtx
+	Sync             *SyncConfig
 	RequestTemplate  string
 	ResponseTemplate string
 	Code             string
 	FieldName        string
 	TypeName         string
 	PipelineAfter    bool
+}
+
+func (mu mappingUnit) callIdentity() any {
+	if mu.Call == nil {
+		return nil
+	}
+
+	return mu.Call.identity
+}
+
+func (mu mappingUnit) callInfo(key string) string {
+	if mu.Call == nil {
+		return ""
+	}
+
+	s, _ := mu.Call.info[key].(string)
+
+	return s
 }
 
 func sourceValue(m map[string]any) any {
@@ -456,6 +475,7 @@ func resolverMappingUnit(r *Resolver, source map[string]any) mappingUnit {
 		Code:             r.Code,
 		FieldName:        r.FieldName,
 		TypeName:         r.TypeName,
+		Sync:             r.SyncConfig,
 	}
 }
 
@@ -465,6 +485,7 @@ func functionMappingUnit(f *Function, source any) mappingUnit {
 		RequestTemplate:  f.RequestMappingTemplate,
 		ResponseTemplate: f.ResponseMappingTemplate,
 		Code:             f.Code,
+		Sync:             f.SyncConfig,
 	}
 }
 
@@ -726,7 +747,14 @@ func invokeDynamoDBDataSource(
 
 	ctx = withRegion(ctx, firstNonEmpty(ds.DynamoDBConfig.AWSRegion, backend.region))
 
-	result, err := executeDDBRequest(ctx, backend.ddbBackend, ds.DynamoDBConfig, ds.Name, request)
+	env := conflictEnv{
+		sync: mu.Sync, lambda: backend.lambdaFn, now: backend.now, identity: mu.callIdentity(), args: args,
+		region:     backend.region,
+		parentType: firstNonEmpty(mu.callInfo("parentTypeName"), mu.TypeName),
+		field:      firstNonEmpty(mu.callInfo("fieldName"), mu.FieldName),
+	}
+
+	result, err := executeDDBRequest(ctx, backend.ddbBackend, ds.DynamoDBConfig, ds.Name, request, env)
 	if err != nil {
 		return nil, err
 	}

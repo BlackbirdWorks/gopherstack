@@ -173,3 +173,17 @@ func (p *NetworkProvider) checkRegistrationLink(zone *netParent, name, vnetID st
 
 	return nil
 }
+
+// checkSingleLink refuses a second link, under another name, between the same zone and virtual network (Learn:
+// dns/private-dns-virtual-network-links, "only one link between a private DNS zone and a virtual network").
+func checkSingleLink(zone *netParent, name, vnetID string) error {
+	for _, l := range zone.Kids[netLinks] {
+		if !strings.EqualFold(l.Name, name) && strings.EqualFold(subID(l.Props, "virtualNetwork"), vnetID) {
+			return netErr(http.StatusConflict, dnsCodeConflict,
+				"The virtual network %s is already linked to the private DNS zone %s by the link %s; a zone can "+
+					"have only one link to a virtual network.", vnetID, zone.Obj.Name, l.Name)
+		}
+	}
+
+	return nil
+}

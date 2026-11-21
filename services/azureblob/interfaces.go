@@ -37,6 +37,7 @@ type StorageBackend interface {
 		container, blob, snapshot string, from, to *int64, pre ...Precond,
 	) ([]PageRange, BlobInfo, error)
 	UndeleteBlob(container, blob string) error
+	ReadTail(container, blob string, n int64) (BlobInfo, []byte, error)
 	ResizePageBlob(container, blob string, length int64, pre ...Precond) (BlobInfo, error)
 	GetServiceProperties() ServiceProperties
 	SetServiceProperties(sp ServiceProperties) error

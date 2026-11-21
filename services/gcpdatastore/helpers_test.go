@@ -28,7 +28,10 @@ type env struct {
 func newEnv(t *testing.T) *env {
 	t.Helper()
 
-	h := gcpdatastore.NewHandler(gcpdatastore.NewInMemoryBackend())
+	bk := gcpdatastore.NewInMemoryBackend()
+	bk.SetIndexBuild(0, nil)
+
+	h := gcpdatastore.NewHandler(bk)
 	h.Port = 0
 
 	require.NoError(t, h.StartWorker(t.Context()))

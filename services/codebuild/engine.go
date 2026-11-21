@@ -66,6 +66,8 @@ type EngineServices struct {
 	Logs   LogSink
 	Repos  RepoSource
 	Values ValueResolver
+	// Connections resolves CODECONNECTIONS source auth; nil rejects such sources.
+	Connections ConnectionResolver
 	// Credentials mints service-role credentials for builds; nil injects none.
 	Credentials CredentialIssuer
 	// Endpoint is the emulator URL as seen from build containers, injected as AWS_ENDPOINT_URL.

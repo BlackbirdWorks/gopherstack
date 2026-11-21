@@ -19,14 +19,12 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/structpb"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // fakeEmulator records what the backend forwards, standing in for the Cloud Spanner emulator.
 type fakeEmulator struct {
 	instances map[string]bool
 	ddl       map[string][]string
-	backups   map[string]*databasepb.Backup
 	tables    map[string][]fakeTable
 	commits   []fakeCommit
 	requires  map[string]string
@@ -35,6 +33,7 @@ type fakeEmulator struct {
 	sqls      []string
 	headers   []string
 	dropped   []string
+	reads     []string
 	mu        sync.Mutex
 }
 
@@ -44,7 +43,6 @@ func newFakeEmulator(t *testing.T) (*fakeEmulator, string) {
 	f := &fakeEmulator{
 		instances: map[string]bool{},
 		ddl:       map[string][]string{},
-		backups:   map[string]*databasepb.Backup{},
 	}
 	srv := grpc.NewServer()
 	instancepb.RegisterInstanceAdminServer(srv, fakeInst{f: f})
@@ -221,65 +219,11 @@ func (f *fakeEmulator) snapshot() (map[string]bool, map[string][]string) {
 	return inst, ddl
 }
 
-func (s fakeDB) RestoreDatabase(
-	_ context.Context, in *databasepb.RestoreDatabaseRequest,
-) (*longrunningpb.Operation, error) {
-	s.f.mu.Lock()
-	defer s.f.mu.Unlock()
-
-	bk, ok := s.f.backups[in.GetBackup()]
-	if !ok {
-		return nil, status.Error(codes.NotFound, "backup not found")
-	}
-
-	name := in.GetParent() + "/databases/" + in.GetDatabaseId()
-	s.f.ddl[name] = append([]string(nil), s.f.ddl[bk.GetDatabase()]...)
-
-	return doneOp(name + "/operations/restore"), nil
-}
-
-func (s fakeDB) GetBackup(_ context.Context, in *databasepb.GetBackupRequest) (*databasepb.Backup, error) {
-	s.f.mu.Lock()
-	defer s.f.mu.Unlock()
-
-	bk, ok := s.f.backups[in.GetName()]
-	if !ok {
-		return nil, status.Error(codes.NotFound, "backup not found")
-	}
-
-	return bk, nil
-}
-
 func (s fakeDB) GetDatabase(_ context.Context, in *databasepb.GetDatabaseRequest) (*databasepb.Database, error) {
 	return &databasepb.Database{
 		Name:            in.GetName(),
 		DatabaseDialect: databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL,
 	}, nil
-}
-
-func (s fakeDB) ListBackups(
-	_ context.Context,
-	in *databasepb.ListBackupsRequest,
-) (*databasepb.ListBackupsResponse, error) {
-	s.f.mu.Lock()
-	defer s.f.mu.Unlock()
-
-	var out []*databasepb.Backup
-
-	for n, bk := range s.f.backups {
-		if strings.HasPrefix(n, in.GetParent()+"/backups/") {
-			out = append(out, bk)
-		}
-	}
-
-	return &databasepb.ListBackupsResponse{Backups: out}, nil
-}
-
-func (f *fakeEmulator) addBackup(name, db string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	f.backups[name] = &databasepb.Backup{Name: name, Database: db, VersionTime: timestamppb.Now()}
 }
 
 type fakeTable struct {
@@ -366,6 +310,7 @@ func (s fakeSpanner) Read(_ context.Context, in *spannerpb.ReadRequest) (*spanne
 	defer s.f.mu.Unlock()
 
 	rs := &spannerpb.ResultSet{}
+	s.f.reads = append(s.f.reads, in.GetTable())
 
 	for _, t := range s.f.tables[dbOfSession(in.GetSession())] {
 		if t.name == in.GetTable() {
@@ -452,6 +397,13 @@ func (f *fakeEmulator) failCommits(table string, code codes.Code) {
 	}
 
 	f.failing[table] = code
+}
+
+func (f *fakeEmulator) tablesRead() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return append([]string(nil), f.reads...)
 }
 
 func (f *fakeEmulator) deletedTables() []string {

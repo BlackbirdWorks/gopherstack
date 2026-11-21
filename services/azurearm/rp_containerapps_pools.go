@@ -204,7 +204,7 @@ func (p *ContainerAppsProvider) buildPool(
 
 	_, hasIdent := body[fieldIdentity]
 
-	ident, err := p.ids.apply(body[fieldIdentity], hasIdent, prevIdent)
+	ident, err := p.ids.apply(namespaceMicrosoftApp+"/"+acaPoolType, body[fieldIdentity], hasIdent, prevIdent)
 	if err != nil {
 		return nil, err
 	}

@@ -194,8 +194,12 @@ func ddbSync(ctx context.Context, vs versionedSource, req map[string]any) (any, 
 		return nil, fmt.Errorf("%w: Sync limit is at most %d", ErrValidation, ddbSyncMaxLimit)
 	}
 
-	if req["basePartitionKey"] != nil || req["deltaIndexName"] != nil {
-		return nil, fmt.Errorf("%w: Sync on a custom partition key delta layout", ErrUnsupportedDynamoDBOp)
+	for _, field := range []string{"basePartitionKey", "deltaIndexName"} {
+		if v, ok := req[field]; ok && v != nil {
+			if _, isStr := v.(string); !isStr {
+				return nil, fmt.Errorf("%w: %s must be a string", ErrValidation, field)
+			}
+		}
 	}
 
 	st, err := decodeSyncToken(req)
@@ -203,7 +207,7 @@ func ddbSync(ctx context.Context, vs versionedSource, req map[string]any) (any, 
 		return nil, err
 	}
 
-	startedAt := time.Now().UnixMilli()
+	startedAt := vs.conflict.clock().UnixMilli()
 	if st.StartedAt != 0 {
 		startedAt = st.StartedAt
 	}
@@ -342,8 +346,14 @@ func (vs versionedSource) deltaQuery(
 		filter = "(" + f.Expression + ") AND " + filter
 	}
 
-	return &DDBQuery{
+	q := &DDBQuery{
 		Table: table, KeyCondition: attrDeltaPK + " = :__pk", Filter: filter,
 		Names: names, Values: values, Limit: int32Of(limit), StartKey: startKey,
 	}
+
+	if idx, _ := req["deltaIndexName"].(string); idx != "" {
+		q.Index, q.KeyCondition = idx, attrIndexPK+" = :__pk"
+	}
+
+	return q
 }

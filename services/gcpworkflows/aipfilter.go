@@ -1,6 +1,7 @@
 package gcpworkflows
 
 import (
+	"cmp"
 	"slices"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ const (
 	kindEnum
 	kindTime
 	kindDuration
+	kindNumber
 )
 
 // fieldAccess reads the values of one filterable field; no values means the field is unset.
@@ -303,6 +305,17 @@ func valueTest[T any](access fieldAccess[T], field, op, want string) (func(strin
 			g, gerr := time.ParseDuration(got)
 
 			return int(g - d), gerr == nil
+		})
+	case kindNumber:
+		n, err := strconv.ParseInt(want, 10, 64)
+		if err != nil {
+			return nil, errInvalid("filter %s value %q is not an integer.", field, want)
+		}
+
+		return orderedTest(op, field, func(got string) (int, bool) {
+			g, gerr := strconv.ParseInt(got, 10, 64)
+
+			return cmp.Compare(g, n), gerr == nil
 		})
 	case kindEnum:
 		if access.valid != nil && !access.valid(want) {

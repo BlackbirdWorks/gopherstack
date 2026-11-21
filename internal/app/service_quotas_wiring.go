@@ -5,10 +5,15 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
+	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
+	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
+	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
+	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	servicequotasbackend "github.com/blackbirdworks/gopherstack/services/servicequotas"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
@@ -28,6 +33,48 @@ var quotaCounters = map[string]quotaCounter{ //nolint:gochecknoglobals // immuta
 	"iam/L-0DA4ABF3":      func(a *quotaUsageAdapter, _, _ string) (int, bool) { return a.iamCount(iamPolicies) },
 	"iam/L-E95E4862":      func(a *quotaUsageAdapter, _, _ string) (int, bool) { return a.iamCount(iamProfiles) },
 	"eks/L-1194D53C":      func(a *quotaUsageAdapter, _, _ string) (int, bool) { return a.eksCount() },
+
+	"ecs/L-21C621EB": func(a *quotaUsageAdapter, _, rgn string) (int, bool) {
+		if a.ecs == nil {
+			return 0, false
+		}
+
+		return a.ecs.ClusterCount(rgn), true
+	},
+	"rds/L-7B6409FD": func(a *quotaUsageAdapter, _, rgn string) (int, bool) {
+		if a.rds == nil {
+			return 0, false
+		}
+
+		return a.rds.InstanceCount(rgn), true
+	},
+	"rds/L-952B80B8": func(a *quotaUsageAdapter, _, rgn string) (int, bool) {
+		if a.rds == nil {
+			return 0, false
+		}
+
+		return a.rds.ClusterCount(rgn), true
+	},
+	"cloudformation/L-0485CB21": func(a *quotaUsageAdapter, _, rgn string) (int, bool) {
+		if a.cfn == nil {
+			return 0, false
+		}
+
+		return a.cfn.StackCount(rgn), true
+	},
+	"elasticloadbalancing/L-53DA6B97": func(a *quotaUsageAdapter, _, rgn string) (int, bool) {
+		return a.elbv2Count(rgn, "application")
+	},
+	"elasticloadbalancing/L-69A177A2": func(a *quotaUsageAdapter, _, rgn string) (int, bool) {
+		return a.elbv2Count(rgn, "network")
+	},
+	"elasticloadbalancing/L-E9E9831D": func(a *quotaUsageAdapter, _, rgn string) (int, bool) {
+		if a.elb == nil {
+			return 0, false
+		}
+
+		return a.elb.RegionLoadBalancerCount(rgn), true
+	},
 }
 
 type iamKind int
@@ -42,11 +89,16 @@ const (
 
 // quotaUsageAdapter reads live resource counts from the emulated backends for Service Quotas.
 type quotaUsageAdapter struct {
-	s3  *s3backend.InMemoryBackend
-	ddb *ddbbackend.InMemoryDB
-	iam *iambackend.InMemoryBackend
-	ec2 *ec2backend.Handler
-	eks *eksbackend.InMemoryBackend
+	s3    *s3backend.InMemoryBackend
+	ddb   *ddbbackend.InMemoryDB
+	iam   *iambackend.InMemoryBackend
+	ec2   *ec2backend.Handler
+	eks   *eksbackend.InMemoryBackend
+	ecs   *ecsbackend.Handler
+	rds   *rdsbackend.Handler
+	cfn   *cfnbackend.Handler
+	elb   *elbbackend.InMemoryBackend
+	elbv2 *elbv2backend.Handler
 }
 
 // QuotaUsage implements servicequotas.UsageSource.
@@ -104,6 +156,14 @@ func (a *quotaUsageAdapter) eksCount() (int, bool) {
 	return a.eks.ClusterTotal(), true
 }
 
+func (a *quotaUsageAdapter) elbv2Count(region, lbType string) (int, bool) {
+	if a.elbv2 == nil {
+		return 0, false
+	}
+
+	return a.elbv2.LoadBalancerCount(region, lbType), true
+}
+
 type ec2Counter interface {
 	VpcCount() int
 	AddressCount() int
@@ -157,6 +217,15 @@ func newQuotaUsageAdapter(byName map[string]service.Registerable) *quotaUsageAda
 		a.eks = h.Backend
 	}
 
+	a.ecs, _ = byName["ECS"].(*ecsbackend.Handler)
+	a.rds, _ = byName["RDS"].(*rdsbackend.Handler)
+	a.cfn, _ = byName["CloudFormation"].(*cfnbackend.Handler)
+	a.elbv2, _ = byName["ELBv2"].(*elbv2backend.Handler)
+
+	if h, ok := byName["ELB"].(*elbbackend.Handler); ok {
+		a.elb, _ = h.Backend.(*elbbackend.InMemoryBackend)
+	}
+
 	return a
 }
 
@@ -201,5 +270,21 @@ func enforceServiceQuotas(limit quotalimit.Func, a *quotaUsageAdapter) {
 
 	if a.eks != nil {
 		a.eks.SetQuotaLimiter(limit)
+	}
+
+	if a.rds != nil {
+		a.rds.SetQuotaLimiter(limit)
+	}
+
+	if a.cfn != nil {
+		a.cfn.SetQuotaLimiter(limit)
+	}
+
+	if a.elbv2 != nil {
+		a.elbv2.SetQuotaLimiter(limit)
+	}
+
+	if a.elb != nil {
+		a.elb.SetQuotaLimiter(limit)
 	}
 }

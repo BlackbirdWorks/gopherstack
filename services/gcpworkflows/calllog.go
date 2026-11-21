@@ -7,7 +7,6 @@ import (
 
 	"cloud.google.com/go/logging/apiv2/loggingpb"
 	executionspb "cloud.google.com/go/workflows/executions/apiv1/executionspb"
-	"google.golang.org/genproto/googleapis/api/monitoredres"
 	ltype "google.golang.org/genproto/googleapis/logging/type"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -50,8 +49,8 @@ func callPayload(info runInfo, e wfinterp.CallEvent) map[string]any {
 	p := map[string]any{
 		"executionId":  lastSegment(info.exec),
 		"activityTime": stamp(e.Time),
-		"state":        e.State,
-		"step":         truncate(e.Step, maxCallLogReason),
+		fieldState:     e.State,
+		keyStep:        truncate(e.Step, maxCallLogReason),
 		"callee":       truncate(e.Callee, maxCallLogReason),
 	}
 
@@ -145,15 +144,9 @@ func (b *InMemoryBackend) emitCall(info runInfo, level executionspb.Execution_Ca
 	}
 
 	entry := &loggingpb.LogEntry{
-		LogName: gcpserve.LogName(info.project, engineCallLogID),
-		Resource: &monitoredres.MonitoredResource{
-			Type: "workflows.googleapis.com/Workflow",
-			Labels: map[string]string{
-				"project_id": info.project, "location": info.location,
-				"workflow_id": info.workflow, "revision_id": info.revision,
-			},
-		},
-		Labels:    map[string]string{"workflows.googleapis.com/execution_id": lastSegment(info.exec)},
+		LogName:   gcpserve.LogName(info.project, engineCallLogID),
+		Resource:  info.resource(),
+		Labels:    map[string]string{labelExecutionID: lastSegment(info.exec)},
 		Severity:  sev,
 		Payload:   &loggingpb.LogEntry_JsonPayload{JsonPayload: s},
 		Timestamp: timestamppb.New(e.Time),

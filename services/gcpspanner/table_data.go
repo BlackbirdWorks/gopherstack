@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
@@ -52,10 +53,18 @@ type dbDataSnap struct {
 	Tables []tableSnap `json:"tables"`
 }
 
-type dumpBudgetState struct{ rows, bytes int }
+type dumpBudgetState struct{ rows, bytes, maxBytes int }
+
+func (d *dumpBudgetState) limit() int {
+	if d.maxBytes > 0 {
+		return min(d.maxBytes, maxPersistBytes)
+	}
+
+	return maxPersistBytes
+}
 
 func (d *dumpBudgetState) take(rows, bytes int) bool {
-	if d.rows+rows > maxPersistRows || d.bytes+bytes > maxPersistBytes {
+	if d.rows+rows > maxPersistRows || d.bytes+bytes > d.limit() {
 		return false
 	}
 
@@ -103,7 +112,7 @@ func (b *InMemoryBackend) collectData(ctx context.Context) map[string]dbDataSnap
 	for _, n := range names {
 		attempt := *budget
 
-		d, err := dumpDatabase(ctx, spannerpb.NewSpannerClient(cc), n, dialects[n], &attempt)
+		d, err := dumpDatabaseAt(ctx, spannerpb.NewSpannerClient(cc), n, dialects[n], &attempt, nil)
 		if err != nil {
 			log.WarnContext(ctx, "gcpspanner: table data not persisted, database kept schema-only",
 				"database", n, "error", err)
@@ -121,8 +130,10 @@ func (b *InMemoryBackend) collectData(ctx context.Context) map[string]dbDataSnap
 	return out
 }
 
-func dumpDatabase(
+// dumpDatabaseAt reads every GoogleSQL table of a database, as of at when given and now otherwise.
+func dumpDatabaseAt(
 	ctx context.Context, c spannerpb.SpannerClient, db string, postgres bool, budget *dumpBudgetState,
+	at *timestamppb.Timestamp,
 ) (dbDataSnap, error) {
 	sess, err := c.CreateSession(ctx, &spannerpb.CreateSessionRequest{Database: db})
 	if err != nil {
@@ -133,13 +144,16 @@ func dumpDatabase(
 		_, _ = c.DeleteSession(context.WithoutCancel(ctx), &spannerpb.DeleteSessionRequest{Name: sess.GetName()})
 	}()
 
+	bound := &spannerpb.TransactionOptions_ReadOnly{
+		TimestampBound: &spannerpb.TransactionOptions_ReadOnly_Strong{Strong: true},
+	}
+	if at != nil {
+		bound.TimestampBound = &spannerpb.TransactionOptions_ReadOnly_ReadTimestamp{ReadTimestamp: at}
+	}
+
 	tx, err := c.BeginTransaction(ctx, &spannerpb.BeginTransactionRequest{
 		Session: sess.GetName(),
-		Options: &spannerpb.TransactionOptions{Mode: &spannerpb.TransactionOptions_ReadOnly_{
-			ReadOnly: &spannerpb.TransactionOptions_ReadOnly{
-				TimestampBound: &spannerpb.TransactionOptions_ReadOnly_Strong{Strong: true},
-			},
-		}},
+		Options: &spannerpb.TransactionOptions{Mode: &spannerpb.TransactionOptions_ReadOnly_{ReadOnly: bound}},
 	})
 	if err != nil {
 		return dbDataSnap{}, fmt.Errorf("begin read-only transaction: %w", err)
@@ -158,7 +172,7 @@ func dumpDatabase(
 		rows, rerr := c.Read(ctx, &spannerpb.ReadRequest{
 			Session: sess.GetName(), Transaction: sel, Table: tables[i].Name, Columns: tables[i].Columns,
 			KeySet: &spannerpb.KeySet{All: true}, Limit: int64(maxPersistRows - budget.rows + 1),
-		}, grpc.MaxCallRecvMsgSize(maxPersistBytes-budget.bytes+recvSlack))
+		}, grpc.MaxCallRecvMsgSize(budget.limit()-budget.bytes+recvSlack))
 		if status.Code(rerr) == codes.ResourceExhausted {
 			return dbDataSnap{}, fmt.Errorf("%w: %s", errPersistLimit, tables[i].Name)
 		}

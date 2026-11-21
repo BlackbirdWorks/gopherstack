@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 59 (58 ok, 1 partial) |
 | Feature families | 4 (4 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- Git source `auth` block: ProjectSource.auth (OAUTH, CODECONNECTIONS or SECRETS_MANAGER with a resource ARN) is stored and returned but the clone resolves credentials by serverType from ImportSourceCredentials only (engine_git.go fetchGitSource, source_credentials.go sourceToken); the secret payload format behind a SECRETS_MANAGER resource and a token source for a CODECONNECTIONS resource are not specified by the SDK documentation (types.SourceAuth) and services/codeconnections exposes no token.
 
 ### Structural gaps
 

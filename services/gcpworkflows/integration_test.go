@@ -158,6 +158,7 @@ main:
 
 type captureSink struct {
 	entries []*loggingpb.LogEntry
+	system  []*loggingpb.LogEntry
 	mu      sync.Mutex
 }
 
@@ -165,7 +166,15 @@ func (c *captureSink) WriteLogEntries(_ context.Context, req *loggingpb.WriteLog
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.entries = append(c.entries, req.GetEntries()...)
+	for _, en := range req.GetEntries() {
+		if strings.HasSuffix(en.GetLogName(), "executions_system") {
+			c.system = append(c.system, en)
+
+			continue
+		}
+
+		c.entries = append(c.entries, en)
+	}
 
 	return nil
 }

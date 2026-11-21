@@ -5246,7 +5246,10 @@ func registerCloudFormationAndDashboard(
 
 	if cli, ok := appCtx.Config.(*CLI); ok {
 		cli.cloudFormationHandler = cfnSvc
+		wireServiceQuotas(cli.EnforceServiceQuotas, serviceByName(services))
 	}
+
+	wireResourceExplorer(serviceByName(services))
 
 	// Init dashboard last so it can access all service handlers.
 	dashSvc, err := (&dashboard.Provider{}).Init(appCtx)

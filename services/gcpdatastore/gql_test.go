@@ -50,14 +50,16 @@ func TestGQL(t *testing.T) {
 					param(intVal(1)),
 				},
 			},
-			"positional bindings", []string{"c", "e"},
+			"positional bindings",
+			[]string{"c", "e"},
 		},
 		{
 			&datastorepb.GqlQuery{
 				QueryString:   "SELECT * FROM Task WHERE Priority >= @lo ORDER BY Priority DESC LIMIT @n",
 				NamedBindings: map[string]*datastorepb.GqlQueryParameter{"lo": param(intVal(2)), "n": param(intVal(2))},
 			},
-			"named bindings order limit", []string{"e", "d"},
+			"named bindings order limit",
+			[]string{"e", "d"},
 		},
 		{
 			&datastorepb.GqlQuery{
@@ -93,7 +95,8 @@ func TestGQL(t *testing.T) {
 		},
 		{
 			&datastorepb.GqlQuery{QueryString: "SELECT * FROM Task WHERE Priority > 3 OFFSET 1", AllowLiterals: true},
-			"offset clause", []string{"e"},
+			"offset clause",
+			[]string{"e"},
 		},
 		{
 			&datastorepb.GqlQuery{

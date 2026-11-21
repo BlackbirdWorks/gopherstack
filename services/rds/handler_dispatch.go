@@ -69,6 +69,7 @@ func (h *Handler) getHandlerForRegion(region string) *Handler {
 	backend.SetAutoPause(h.Backend.AutoPause())
 	backend.SetSecurityGroupEnforcer(h.sgEnforcer)
 	backend.SetMetricEmitter(h.Backend.metrics.Emitter())
+	backend.quotaGate = h.Backend.quotaGate
 	h.backends[region] = backend
 	handler := &Handler{Backend: backend}
 	h.handlers[region] = handler
@@ -544,6 +545,8 @@ func rdsErrorCode(opErr error) string {
 	mappings := []errorMapping{
 		{ErrInstanceNotFound, "DBInstanceNotFound"},
 		{ErrInstanceAlreadyExists, "DBInstanceAlreadyExists"},
+		{ErrInstanceQuotaExceeded, "InstanceQuotaExceeded"},
+		{ErrClusterQuotaExceeded, "DBClusterQuotaExceededFault"},
 		{ErrSnapshotNotFound, "DBSnapshotNotFound"},
 		{ErrSnapshotAlreadyExists, "DBSnapshotAlreadyExists"},
 		{ErrSubnetGroupNotFound, "DBSubnetGroupNotFoundFault"},

@@ -124,12 +124,15 @@ type InMemoryBackend struct {
 	ended          map[string]time.Time
 	used           map[string]map[int64]struct{}
 	indexes        map[string]*adminpb.Index
+	pendingIdx     map[string]*pendingIndexOp
+	after          AfterFunc
 	ops            *gcplro.Store
 	objects        ObjectStore
 	lastCommit     time.Time
 	lastTxnRead    time.Time
 	lastSweep      time.Time
 	changes        []change
+	indexDelay     time.Duration
 	nextIndex      int64
 	exportSeq      int64
 	enforceIndexes bool
@@ -145,6 +148,9 @@ func NewInMemoryBackend() *InMemoryBackend {
 		ended:          make(map[string]time.Time),
 		used:           make(map[string]map[int64]struct{}),
 		indexes:        make(map[string]*adminpb.Index),
+		pendingIdx:     make(map[string]*pendingIndexOp),
+		after:          realAfter,
+		indexDelay:     defaultIndexBuildDelay,
 		ops:            gcplro.New("gcpdatastore"),
 		enforceIndexes: true,
 	}
@@ -169,6 +175,7 @@ func (b *InMemoryBackend) SetEnforceIndexes(on bool) {
 // Reset clears all entities, transactions, reserved ids, indexes and operations.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
+	b.stopPendingIndexOpsLocked()
 	b.ents = make(map[string]*entRec)
 	b.txns = make(map[string]*txnRec)
 	b.ended = make(map[string]time.Time)

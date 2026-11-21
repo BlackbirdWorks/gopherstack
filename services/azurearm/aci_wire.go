@@ -67,17 +67,22 @@ type aciMountWire struct {
 }
 
 type aciContainerPropsWire struct {
+	Resources            *aciResourcesWire `json:"resources,omitempty"`
+	LivenessProbe        *aciProbeWire     `json:"livenessProbe,omitempty"`
+	ReadinessProbe       *aciProbeWire     `json:"readinessProbe,omitempty"`
+	SecurityContext      *aciSecurityWire  `json:"securityContext,omitempty"`
+	ConfigMap            *aciConfigMapWire `json:"configMap,omitempty"`
 	Image                string            `json:"image"`
 	Command              []string          `json:"command,omitempty"`
 	Args                 []string          `json:"-"`
 	EnvironmentVariables []aciEnvWire      `json:"environmentVariables,omitempty"`
-	Resources            *aciResourcesWire `json:"resources,omitempty"`
 	Ports                []aciPortWire     `json:"ports,omitempty"`
 	VolumeMounts         []aciMountWire    `json:"volumeMounts,omitempty"`
-	LivenessProbe        *aciProbeWire     `json:"livenessProbe,omitempty"`
-	ReadinessProbe       *aciProbeWire     `json:"readinessProbe,omitempty"`
-	SecurityContext      *aciSecurityWire  `json:"securityContext,omitempty"`
 	InstanceView         jsontext.Value    `json:"instanceView,omitempty"`
+}
+
+type aciConfigMapWire struct {
+	KeyValuePairs map[string]string `json:"keyValuePairs,omitempty"`
 }
 
 type aciContainerWire struct {

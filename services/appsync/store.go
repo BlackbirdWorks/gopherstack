@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"encoding/binary"
 	"fmt"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -122,6 +123,8 @@ type DynamoDBBackend interface {
 	// TransactWriteItemsRaw applies all items atomically. A cancelled
 	// transaction returns a *DynamoDBError whose Cancellations are set.
 	TransactWriteItemsRaw(ctx context.Context, items []DDBTransactWrite) error
+	// ApplyUpdateRaw returns a copy of item with update applied; nothing is stored.
+	ApplyUpdateRaw(item map[string]any, update DDBExpression) (map[string]any, error)
 }
 
 // StorageBackend defines the interface for AppSync storage operations.
@@ -318,6 +321,7 @@ type InMemoryBackend struct {
 	sourceAssocs           *store.Table[SourceAPIAssociation]
 	introspections         *store.Table[DataSourceIntrospection]
 	lambdaFn               LambdaInvoker
+	now                    func() time.Time
 	webACLs                WebACLResolver
 	ddbBackend             DynamoDBBackend
 	ebPutter               EventBridgePutter
@@ -378,6 +382,11 @@ func (b *InMemoryBackend) Reset() {
 
 	b.registry.ResetAll()
 	b.apiKeys = make(map[string]map[string]*APIKey)
+}
+
+// SetClock replaces the clock stamping _lastChangedAt, delta records and sync start times; nil restores time.Now.
+func (b *InMemoryBackend) SetClock(now func() time.Time) {
+	b.now = now
 }
 
 // SetLambdaInvoker configures the Lambda invoker for LAMBDA data sources.

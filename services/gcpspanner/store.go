@@ -27,25 +27,29 @@ type dbRec struct {
 }
 
 type instRec struct {
-	pb     *instancepb.Instance
-	policy *iampb.Policy
-	dbs    map[string]*dbRec
-	parts  map[string]*instancepb.InstancePartition
+	pb      *instancepb.Instance
+	policy  *iampb.Policy
+	dbs     map[string]*dbRec
+	backups map[string]*backupRec
+	parts   map[string]*instancepb.InstancePartition
 }
 
 // InMemoryBackend holds all Cloud Spanner admin state under one lock. The data plane lives in the emulator.
 type InMemoryBackend struct {
-	now         func() time.Time
-	mu          *lockmetrics.RWMutex
-	ops         *gcplro.Store
-	wg          *sync.WaitGroup
-	instances   map[string]*instRec
-	userConfigs map[string]*instancepb.InstanceConfig
-	pendingData map[string]dbDataSnap
-	emu         *emulator
-	keys        cmek.Checker
-	etagSeq     uint64
-	dumpTimeout time.Duration
+	now          func() time.Time
+	mu           *lockmetrics.RWMutex
+	ops          *gcplro.Store
+	wg           *sync.WaitGroup
+	instances    map[string]*instRec
+	userConfigs  map[string]*instancepb.InstanceConfig
+	pendingData  map[string]dbDataSnap
+	emu          *emulator
+	keys         cmek.Checker
+	optimizeHook func()
+	backupHook   func()
+	backupCap    int64
+	etagSeq      uint64
+	dumpTimeout  time.Duration
 }
 
 // NewInMemoryBackend creates an empty backend with no data plane; see SetLauncher.
@@ -104,5 +108,8 @@ func (b *InMemoryBackend) Close() {
 }
 
 func newInstRec(pb *instancepb.Instance) *instRec {
-	return &instRec{pb: pb, dbs: make(map[string]*dbRec), parts: make(map[string]*instancepb.InstancePartition)}
+	return &instRec{
+		pb: pb, dbs: make(map[string]*dbRec), backups: make(map[string]*backupRec),
+		parts: make(map[string]*instancepb.InstancePartition),
+	}
 }

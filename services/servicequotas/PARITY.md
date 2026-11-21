@@ -38,9 +38,8 @@ families:
   Reports: {status: ok, note: "The report snapshot is taken when the report completes."}
   AutoManagement: {status: ok, note: "One configuration per account and Region."}
 items_still_open:
-  - "ContextId/QuotaContext: resource-level quotas are not modeled; ContextId is rejected with IllegalArgumentException. Blocker: the only documented resource-level quota is OpenSearch (es) 'Instances per domain' (request-quota-increase.html); the docs publish no list of resource-level quotas, no ContextScopeType values and no ARN pattern per quota, so INVALID_REQUEST (invalid ContextId ARN) cannot be decided from a source (quotas.go:70 checkContext)"
-  - "QuotaUtilization: S3 buckets, EC2 Elastic IPs, VPCs, IAM roles/users/groups/customer managed policies/instance profiles, EKS clusters and DynamoDB tables report usage; the other catalogued quotas (ECS clusters, RDS, CloudFormation, ELB, Lambda, the other VPC quotas) have no live counter wired in internal/app/service_quotas_wiring.go quotaCounters"
-  - "AppliedQuotaEnforcement: opt-in (--enforce-service-quotas) for S3 buckets, EC2 Elastic IPs and VPCs, IAM roles/users/groups/customer managed policies/instance profiles, EKS clusters and DynamoDB tables only; the other catalogued quotas are never enforced"
+  - "QuotaUtilization: S3 buckets, EC2 Elastic IPs, VPCs, IAM roles/users/groups/customer managed policies/instance profiles, EKS clusters, DynamoDB tables, ECS clusters, RDS DB instances and clusters, CloudFormation stacks and ALB/NLB/Classic load balancers report usage; the other catalogued quotas (Lambda, CloudFormation stack sets, EC2 instance vCPUs and Spot requests, the other VPC quotas and every quota of the other documented services) have no live counter wired in internal/app/service_quotas_wiring.go quotaCounters"
+  - "AppliedQuotaEnforcement: opt-in (--enforce-service-quotas) for S3 buckets, EC2 Elastic IPs and VPCs, IAM roles/users/groups/customer managed policies/instance profiles, EKS clusters, DynamoDB tables, RDS DB instances and clusters, CloudFormation stacks and ALB/NLB/Classic load balancers only; ECS clusters are counted but not enforced (CreateCluster declares no limit exception), and the other catalogued quotas are never enforced"
 gaps: []
 structural_gaps:
   - "Support staff never review a case: a request still auto-approves on the lifecycle dwell unless its Support case is resolved first (CASE_CLOSED)."
@@ -75,6 +74,7 @@ Quota request templates answer TemplatesNotAvailableInRegionException in opt-in,
 - Catalog: quotas without a documented code are absent (the General Reference prints codes only for adjustable quotas; SQS and SNS print none), and docs defaults that vary by Region use the Region-independent value, else us-east-1; codes are not verified against the live API.
 - AutoManagement NotifyAndAdjust sends the 95% notification only; automatic-management.html states neither the requested value nor which quotas qualify for automatic approval, so no automatic request is filed.
 - Errors AccessDenied (non-template operations), DependencyAccessDenied, TagPolicyViolation, TooManyRequests and ServiceException are not raised: they have no emulated cause (IAM evaluation is a separate setting).
+- Resource-level quotas are not modelled and ContextId is rejected with IllegalArgumentException. The only documented resource-level quota is OpenSearch (es) 'Instances per domain' (request-quota-increase.html); the docs publish no list of resource-level quotas, no ContextScopeType values and no ARN pattern per quota, so INVALID_REQUEST (invalid ContextId ARN) cannot be decided from a source (quotas.go:70 checkContext).
 
 ## External effects that are recorded, not performed
 

@@ -16,8 +16,7 @@ ops:
 families:
   routing: {status: ok, note: "FIXED this sweep: RouteMatcher's /tags/{arn} branch hardcoded an \"arn:aws:dlm:\" prefix check, but pkgs/arn.Build (used by this same backend's CreateLifecyclePolicy to mint PolicyArn) derives the ARN partition from the region (aws-us-gov, aws-cn, aws-iso, aws-iso-b via arn.PartitionForRegion) -- a backend constructed with a GovCloud/China/ISO region produced PolicyArn values the router would then refuse to accept on TagResource/UntagResource/ListTagsForResource, a self-inconsistency within the service (Create/Get worked, Tag* silently 404/unrouted). Replaced with isDLMResourceARN, a partition-agnostic arn:<partition>:dlm:... check. classifyPath/RouteMatcher otherwise correctly disambiguate GET /policies (list) vs GET /policies/{id} (get), and PATCH for UpdateLifecyclePolicy, per generated serializers.go opPath templates."}
 gaps: []
-items_still_open:
-  - "Event-based (cross-account copy event) policies are accepted and stored but never run: they need a snapshot-shared event from the EC2 emulator and ModifySnapshotAttribute emits none."
+items_still_open: []
 deferred: []
 leaks: {status: clean, note: "one scheduler ticker goroutine per region handler (scheduler.go) started via worker.SingleRun in StartWorker and stopped in Shutdown; store.Table + lockmetrics.RWMutex only; TagResource/UntagResource/ListTagsForResource operate on the policy's own Tags map (no secondary tag-store row to leak on delete) -- DeleteLifecyclePolicy removes the whole storedPolicy row, tags included"}
 ---
@@ -238,3 +237,4 @@ CreateLifecyclePolicy with DefaultPolicy now stores the documented defaults Copy
 ## External effects that are recorded, not performed
 
 - CreateRule.Scripts (pre/post scripts run through SSM) are stored with the policy and logged as would-run at each due schedule; no SSM command is sent.
+- Event-based policies (EVENT_BASED_POLICY, EventSource MANAGED_CWE, EventType shareSnapshot) run synchronously inside the EC2 ModifySnapshotAttribute call that adds the policy account to a snapshot's create-volume permission, when the snapshot owner is in SnapshotOwner and its description matches DescriptionRegex; each Actions[].CrossRegionCopy entry copies the snapshot to Target and the copy expires after its RetainRule. AWS delivers the event through managed CloudWatch Events rules asynchronously; the emulator calls the policy engine in process and does not publish the event on the EventBridge bus (EC2 publishes no events there). Retention is enforced on the scheduler tick. At most 1000 managed copies per policy.

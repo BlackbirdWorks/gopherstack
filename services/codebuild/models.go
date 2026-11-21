@@ -670,6 +670,7 @@ type SourceCredentials struct {
 	AuthType   string `json:"authType"`
 	Username   string `json:"username,omitempty"`
 	Token      string `json:"token,omitempty"`
+	Resource   string `json:"resource,omitempty"`
 }
 
 // CodeCoverage represents a code coverage entry returned by DescribeCodeCoverages

@@ -128,6 +128,20 @@ func (b *InMemoryBackend) DeleteDomain(name string) (*Domain, error) {
 	return &cp, nil
 }
 
+// DeleteDomainNow removes a domain and its scoped resources at once, whatever the processing delay.
+func (b *InMemoryBackend) DeleteDomainNow(name string) error {
+	b.mu.Lock("DeleteDomainNow")
+	defer b.mu.Unlock()
+
+	if !b.domains.Has(name) {
+		return fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, name)
+	}
+
+	b.removeDomainLocked(name)
+
+	return nil
+}
+
 // DescribeDomain returns details about a domain. A domain whose deleting window
 // has elapsed is reported as not found.
 func (b *InMemoryBackend) DescribeDomain(name string) (*Domain, error) {

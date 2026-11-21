@@ -8,11 +8,13 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 type InMemoryBackend struct {
 	ec2Resolver   EC2Resolver
+	quotaGate     *quotalimit.Gate
 	certResolver  CertificateResolver
 	registry      *store.Registry
 	loadBalancers *store.Table[LoadBalancer] // keyed by ARN
@@ -54,6 +56,7 @@ type InMemoryBackend struct {
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		registry:            store.NewRegistry(),
+		quotaGate:           &quotalimit.Gate{},
 		resourcePolicies:    make(map[string]string),
 		accountID:           accountID,
 		region:              region,

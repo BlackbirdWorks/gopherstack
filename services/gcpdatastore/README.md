@@ -9,14 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 13 (10 ok, 3 partial) |
 | Feature families | 8 (3 ok, 5 partial) |
-| Known gaps | 2 |
+| Known gaps | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- CreateIndex completes instantly (the index is READY and the operation done on return, no CREATING state); the blocker is that an asynchronous build needs a backend-clock worker that does not exist yet (admin.go CreateIndex).
-- There is no dashboard page.
+- IndexOperationMetadata.progress_entities is never populated for index builds (index_ops.go startIndexOpLocked).
 
 ## More
 

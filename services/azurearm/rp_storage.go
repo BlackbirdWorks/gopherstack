@@ -457,3 +457,22 @@ func logStorageAdapterError(ctx context.Context, op, account string, err error) 
 	logger.Load(ctx).WarnContext(ctx, "azurearm: storage data-plane adapter call failed",
 		"op", op, "account", account, "error", err)
 }
+
+func (p *StorageProvider) hasAccount(name, rg string) bool {
+	p.mu.RLock("hasAccount")
+	defer p.mu.RUnlock()
+
+	acct, ok := p.accounts[strings.ToLower(name)]
+
+	return ok && (rg == "" || resourceGroupsEqual(acct.resourceGroup, rg))
+}
+
+func (r *Registry) storageAccountLookup() func(name, rg string) bool {
+	if p, ok := r.ProviderNamed(namespaceMicrosoftStorage); ok {
+		if sp, spOk := p.(*StorageProvider); spOk {
+			return sp.hasAccount
+		}
+	}
+
+	return nil
+}

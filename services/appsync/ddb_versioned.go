@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -21,7 +22,10 @@ const (
 	attrTTL         = "_ttl"
 	attrDeltaPK     = "ds_pk"
 	attrDeltaSK     = "ds_sk"
+	attrIndexPK     = "gsi_ds_pk"
+	attrIndexSK     = "gsi_ds_sk"
 
+	errCodeBadRequest        = "BadRequest"
 	errCodeConflictUnhandled = "ConflictUnhandled"
 	errCodeMaxConflicts      = "MaxConflicts"
 	errCodeDeltaSyncWrite    = "DeltaSyncWriteError"
@@ -60,9 +64,10 @@ func int32Of(n int) int32 {
 }
 
 type versionedSource struct {
-	ddb    DynamoDBBackend
-	cfg    *DynamoDBDataSourceConfig
-	dsName string
+	ddb      DynamoDBBackend
+	cfg      *DynamoDBDataSourceConfig
+	dsName   string
+	conflict conflictEnv
 }
 
 func (vs versionedSource) delta() (string, bool) {
@@ -111,12 +116,30 @@ func conflictError(existing map[string]any) error {
 	}
 }
 
-func rejectCustomDelta(req map[string]any) error {
-	if req["customPartitionKey"] != nil || req["populateIndexFields"] == true {
-		return fmt.Errorf("%w: customPartitionKey and populateIndexFields delta layouts", ErrUnsupportedDynamoDBOp)
+// deltaLayout is the delta table record layout a write asks for with customPartitionKey and populateIndexFields.
+type deltaLayout struct {
+	custom   string
+	populate bool
+}
+
+func deltaLayoutOf(req map[string]any) (deltaLayout, error) {
+	var l deltaLayout
+
+	if v, ok := req["customPartitionKey"]; ok && v != nil {
+		if l.custom, ok = v.(string); !ok || l.custom == "" {
+			return l, fmt.Errorf("%w: customPartitionKey must be a non-empty string", ErrValidation)
+		}
 	}
 
-	return nil
+	if v, ok := req["populateIndexFields"]; ok && v != nil {
+		if l.populate, ok = v.(bool); !ok {
+			return l, fmt.Errorf("%w: populateIndexFields must be a boolean", ErrValidation)
+		}
+	}
+
+	l.populate = l.populate && l.custom != ""
+
+	return l, nil
 }
 
 // versionGuard ANDs the optimistic-concurrency check on the version just read into the request's condition.
@@ -169,7 +192,9 @@ func keyString(key map[string]any) string {
 }
 
 // logDelta records one change in the delta table (ds_pk "<data source>:<date>", ds_sk "<time>:<key>:<version>").
-func (vs versionedSource) logDelta(ctx context.Context, key, item map[string]any, at time.Time) error {
+func (vs versionedSource) logDelta(
+	ctx context.Context, key, item map[string]any, at time.Time, layout deltaLayout,
+) error {
 	table, ok := vs.delta()
 	if !ok {
 		return nil
@@ -177,8 +202,22 @@ func (vs versionedSource) logDelta(ctx context.Context, key, item map[string]any
 
 	ver, _ := versionOf(item)
 	rec := maps.Clone(item)
-	rec[attrDeltaPK] = strAttr(vs.dsName + ":" + at.Format(deltaDayLayout))
-	rec[attrDeltaSK] = strAttr(at.Format(deltaTimeLayout) + ":" + keyString(key) + ":" + strconv.FormatInt(ver, 10))
+	day := at.Format(deltaDayLayout)
+	sortKey := at.Format(deltaTimeLayout) + ":" + keyString(key) + ":" + strconv.FormatInt(ver, 10)
+
+	rec[attrDeltaPK] = strAttr(vs.dsName + ":" + day)
+	rec[attrDeltaSK] = strAttr(sortKey)
+
+	if layout.custom != "" {
+		rec[attrDeltaPK] = strAttr(layout.custom + ":" + day)
+		rec[attrDeltaSK] = strAttr(at.Format(deltaTimeLayout) + ":" + layout.custom + ":" + keyString(key) + ":" +
+			strconv.FormatInt(ver, 10))
+	}
+
+	if layout.populate {
+		rec[attrIndexPK] = strAttr(vs.dsName + ":" + day)
+		rec[attrIndexSK] = strAttr(sortKey)
+	}
 	rec[attrTTL] = numAttr(at.Add(time.Duration(vs.deltaTTLMinutes()) * time.Minute).Unix())
 
 	if err := vs.ddb.PutItemRaw(ctx, table, rec, nil); err != nil {
@@ -196,9 +235,21 @@ func stamp(item map[string]any, ver int64, at time.Time) {
 	item[attrLastChanged] = numAttr(at.UnixMilli())
 }
 
+func metadataWriteError(name string) error {
+	return &DynamoDBError{Code: errCodeBadRequest, Message: "the sync metadata field " + name + " cannot be written"}
+}
+
 func versionedWrite(ctx context.Context, vs versionedSource, req map[string]any, op string) (any, error) {
-	if err := rejectCustomDelta(req); err != nil {
+	if _, err := deltaLayoutOf(req); err != nil {
 		return nil, err
+	}
+
+	if op == ddbOpPutItem {
+		for name := range ddbPutItem(req) {
+			if isMetadataAttr(name) {
+				return nil, metadataWriteError(name)
+			}
+		}
 	}
 
 	var (
@@ -239,31 +290,45 @@ func (vs versionedSource) changedSince(ctx context.Context, table string, key, b
 	return (len(now) == 0) != (len(base) == 0) || nv != bv || nok != bok
 }
 
-func (vs versionedSource) read(ctx context.Context, req map[string]any) (map[string]any, int64, bool, error) {
+// read returns the stored item and its version; conflict is set when the request's _version does not match it.
+func (vs versionedSource) read(ctx context.Context, req map[string]any) (map[string]any, int64, bool, bool, error) {
 	cur, err := vs.ddb.GetItemRaw(ctx, vs.cfg.TableName, mapOf(req["key"]))
 	if err != nil {
-		return nil, 0, false, err
+		return nil, 0, false, false, err
 	}
 
 	ver, has := versionOf(cur)
-	if want, ok := expectedVersion(req); ok && len(cur) > 0 && (!has || want != ver) {
-		return nil, 0, false, conflictError(cur)
-	}
+	want, ok := expectedVersion(req)
+	conflict := ok && len(cur) > 0 && (!has || want != ver) && vs.conflict.detects()
 
-	return cur, ver, has, nil
+	return cur, ver, has, conflict, nil
 }
 
 func versionedPutOnce(ctx context.Context, vs versionedSource, req map[string]any) (any, bool, error) {
-	cur, ver, has, err := vs.read(ctx, req)
+	cur, ver, has, conflict, err := vs.read(ctx, req)
 	if err != nil {
 		return nil, false, err
 	}
 
-	now := time.Now().UTC()
-	item := ddbPutItem(req)
+	item := maps.Clone(ddbPutItem(req))
+
+	if conflict {
+		if item, err = vs.resolveConflict(ctx, ddbOpPutItem, req, cur); err != nil {
+			return nil, false, err
+		}
+	}
+
+	return vs.putStamped(ctx, req, cur, ver, has, item)
+}
+
+// putStamped stores item as the next version, guarded on the version just read.
+func (vs versionedSource) putStamped(
+	ctx context.Context, req, cur map[string]any, ver int64, has bool, item map[string]any,
+) (any, bool, error) {
+	now := vs.conflict.clock()
 	stamp(item, ver+1, now)
 
-	err = vs.ddb.PutItemRaw(ctx, vs.cfg.TableName, item, versionGuard(condOf(req), has, ver))
+	err := vs.ddb.PutItemRaw(ctx, vs.cfg.TableName, item, versionGuard(condOf(req), has, ver))
 	if err != nil {
 		if isCondFailed(err) && vs.changedSince(ctx, vs.cfg.TableName, mapOf(req["key"]), cur) {
 			return nil, true, nil
@@ -272,7 +337,7 @@ func versionedPutOnce(ctx context.Context, vs versionedSource, req map[string]an
 		return nil, false, checkFailedErr(req, err)
 	}
 
-	if err = vs.logDelta(ctx, mapOf(req["key"]), item, now); err != nil {
+	if err = vs.logDelta(ctx, mapOf(req["key"]), item, now, layoutOrZero(req)); err != nil {
 		return nil, false, err
 	}
 
@@ -293,12 +358,25 @@ func versionedUpdateOnce(ctx context.Context, vs versionedSource, req map[string
 		return nil, false, fmt.Errorf("%w: UpdateItem requires update.expression", ErrValidation)
 	}
 
-	cur, ver, has, err := vs.read(ctx, req)
+	cur, ver, has, conflict, err := vs.read(ctx, req)
 	if err != nil {
 		return nil, false, err
 	}
 
-	now := time.Now().UTC()
+	if name, bad := vs.updatesMetadata(cur, update); bad {
+		return nil, false, metadataWriteError(name)
+	}
+
+	if conflict {
+		merged, rerr := vs.resolveConflict(ctx, ddbOpUpdateItem, req, cur)
+		if rerr != nil {
+			return nil, false, rerr
+		}
+
+		return vs.putStamped(ctx, req, cur, ver, has, merged)
+	}
+
+	now := vs.conflict.clock()
 	update.Names, update.Values = maps.Clone(update.Names), maps.Clone(update.Values)
 
 	if update.Names == nil {
@@ -324,17 +402,39 @@ func versionedUpdateOnce(ctx context.Context, vs versionedSource, req map[string
 		return nil, false, checkFailedErr(req, err)
 	}
 
-	if err = vs.logDelta(ctx, mapOf(req["key"]), item, now); err != nil {
+	if err = vs.logDelta(ctx, mapOf(req["key"]), item, now, layoutOrZero(req)); err != nil {
 		return nil, false, err
 	}
 
 	return ddbPlainItem(item), false, nil
 }
 
+// updatesMetadata reports a sync metadata attribute the update expression would change on the stored item.
+func (vs versionedSource) updatesMetadata(cur map[string]any, update DDBExpression) (string, bool) {
+	after, err := vs.ddb.ApplyUpdateRaw(cur, update)
+	if err != nil {
+		return "", false
+	}
+
+	for _, name := range []string{attrVersion, attrLastChanged, attrDeleted, attrTTL} {
+		if !reflect.DeepEqual(cur[name], after[name]) {
+			return name, true
+		}
+	}
+
+	return "", false
+}
+
 func versionedDeleteOnce(ctx context.Context, vs versionedSource, req map[string]any) (any, bool, error) {
-	cur, ver, has, err := vs.read(ctx, req)
+	cur, ver, has, conflict, err := vs.read(ctx, req)
 	if err != nil {
 		return nil, false, err
+	}
+
+	if conflict {
+		if _, err = vs.resolveConflict(ctx, ddbOpDeleteItem, req, cur); err != nil {
+			return nil, false, err
+		}
 	}
 
 	if len(cur) == 0 {
@@ -345,7 +445,7 @@ func versionedDeleteOnce(ctx context.Context, vs versionedSource, req map[string
 
 	key := mapOf(req["key"])
 	guard := versionGuard(condOf(req), has, ver)
-	now := time.Now().UTC()
+	now := vs.conflict.clock()
 
 	var item map[string]any
 
@@ -368,11 +468,17 @@ func versionedDeleteOnce(ctx context.Context, vs versionedSource, req map[string
 		return nil, false, checkFailedErr(req, err)
 	}
 
-	if err = vs.logDelta(ctx, key, item, now); err != nil {
+	if err = vs.logDelta(ctx, key, item, now, layoutOrZero(req)); err != nil {
 		return nil, false, err
 	}
 
 	return ddbPlainItem(item), false, nil
+}
+
+func layoutOrZero(req map[string]any) deltaLayout {
+	l, _ := deltaLayoutOf(req)
+
+	return l
 }
 
 func (vs versionedSource) baseTTL() int64 {

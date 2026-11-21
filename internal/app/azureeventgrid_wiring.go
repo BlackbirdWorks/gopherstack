@@ -34,6 +34,7 @@ func wireAzureARMAndEventGrid(byName map[string]service.Registerable) {
 	wireAzureContainerRegistry(byName)
 	wireAzureFunctions(byName)
 	wireAzureFile(byName)
+	wireAzureDisks(byName)
 	wireAzureMonitor(byName)
 	wireAzureGraph(byName)
 }

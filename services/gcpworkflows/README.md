@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 13 (8 ok, 5 partial) |
+| PARITY entries audited | 15 (10 ok, 5 partial) |
 | Feature families | 12 (2 ok, 10 partial) |
 | Known gaps | 2 |
 | Deferred items | 0 |
@@ -15,8 +15,8 @@
 
 ### Known gaps
 
-- Executions step entries (and so execution_history_level) cannot be served: google/cloud/workflows/executions/v1/executions.proto defines only ListExecutions, CreateExecution, GetExecution and CancelExecution, and the pinned cloud.google.com/go/workflows v1.21.0 (executions/apiv1/executionspb/executions_grpc.pb.go) has no step-entry RPC, so the REST-only stepEntries resource has no listener here. The executions_system log (start and finish entries per execution) is not produced.
-- Connectors exist only for Pub/Sub, Secret Manager, Firestore and Cloud Storage (connectors.go connectors()); other connectors, connector retry and long-running-operation polling helpers are not implemented, and http.* calls to googleapis.com hosts of services without an emulator are not rewritten (googlehosts.go googleHost).
+- Step entries carry only STEP_ASSIGN, STEP_STD_LIB_CALL, STEP_CONNECTOR_CALL, STEP_SUBWORKFLOW_CALL, STEP_SWITCH, STEP_FOR, STEP_PARALLEL_FOR, STEP_PARALLEL_BRANCH, STEP_TRY_RETRY_EXCEPT, STEP_RETURN, STEP_RAISE and STEP_GOTO; the condition, loop-iteration, branch-entry and try/retry/except sub-entry step types and iteration counters are not produced (pkgs/wfinterp/steplog.go).
+- Connectors exist for Pub/Sub, Secret Manager, Firestore, Cloud Storage, Cloud Tasks, Cloud Build and Workflow Executions (connectors.go connectors()); connectors and googleapis.com host rewriting for the other emulated services (BigQuery, Cloud Run, Cloud Functions, Compute, DNS, Redis, Spanner, SQL and the rest of the GCP emulators) are not implemented.
 
 ## More
 

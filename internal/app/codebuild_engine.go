@@ -14,6 +14,7 @@ import (
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	codecommitbackend "github.com/blackbirdworks/gopherstack/services/codecommit"
+	codeconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codeconnections"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
@@ -48,6 +49,10 @@ func wireCodeBuildEngine(byName map[string]service.Registerable) {
 
 	if ssmH != nil || smH != nil {
 		svc.Values = codebuildValues{ssm: ssmH, sm: smH}
+	}
+
+	if h, hOk := byName["CodeConnections"].(*codeconnectionsbackend.Handler); hOk {
+		svc.Connections = h.Backend
 	}
 
 	cbH.SetEngineServices(svc)

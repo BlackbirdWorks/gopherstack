@@ -262,10 +262,11 @@ func (b *InMemoryBackend) CreateLoadBalancer(
 		return nil, err
 	}
 
+	region := getRegion(ctx, b.region)
+	maxLBs := b.classicLBLimit(region)
+
 	b.mu.Lock("CreateLoadBalancer")
 	defer b.mu.Unlock()
-
-	region := getRegion(ctx, b.region)
 
 	if existing, found := b.lbs.Get(lbTableKey(region, input.LoadBalancerName)); found {
 		if !sameLBConfig(existing, input, scheme) {
@@ -277,7 +278,6 @@ func (b *InMemoryBackend) CreateLoadBalancer(
 		return &cp, nil
 	}
 
-	const maxLBs = 20
 	if len(b.lbsByRegion.Get(region)) >= maxLBs {
 		return nil, fmt.Errorf(
 			"%w: classic-load-balancers limit of %d exceeded",

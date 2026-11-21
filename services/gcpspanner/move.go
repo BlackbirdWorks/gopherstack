@@ -4,25 +4,8 @@ import (
 	"context"
 
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
-	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"cloud.google.com/go/spanner/admin/instance/apiv1/instancepb"
 )
-
-// instanceHasBackups asks the data plane whether the instance holds backups; without one there are none.
-func (b *InMemoryBackend) instanceHasBackups(ctx context.Context, name string) (bool, error) {
-	cc := b.emu.current()
-	if cc == nil {
-		return false, nil
-	}
-
-	resp, err := databasepb.NewDatabaseAdminClient(cc).
-		ListBackups(ctx, &databasepb.ListBackupsRequest{Parent: name, PageSize: 1})
-	if err != nil {
-		return false, err //nolint:wrapcheck // emulator status passes through
-	}
-
-	return len(resp.GetBackups()) > 0, nil
-}
 
 // moveBlocker names why an instance cannot move, or "" when it can. The caller holds b.mu.
 func moveBlocker(rec *instRec) string {
@@ -39,12 +22,16 @@ func moveBlocker(rec *instRec) string {
 		}
 	}
 
+	if len(rec.backups) > 0 {
+		return "has backups"
+	}
+
 	return ""
 }
 
 // MoveInstance moves an instance to another configuration.
 func (b *InMemoryBackend) MoveInstance(
-	ctx context.Context,
+	_ context.Context,
 	in *instancepb.MoveInstanceRequest,
 ) (*longrunningpb.Operation, error) {
 	if _, _, err := parseInstance(in.GetName()); err != nil {
@@ -64,19 +51,10 @@ func (b *InMemoryBackend) MoveInstance(
 		return nil, err
 	}
 
-	hasBackups, err := b.instanceHasBackups(ctx, in.GetName())
-	if err != nil {
-		return nil, err
-	}
-
-	if hasBackups {
-		return nil, errPrecondition("Instance %s has backups and cannot be moved.", in.GetName())
-	}
-
 	start := b.ts()
 
 	b.mu.Lock("MoveInstance")
-	err = b.moveLocked(in.GetName(), target)
+	err := b.moveLocked(in.GetName(), target)
 	b.mu.Unlock()
 
 	if err != nil {

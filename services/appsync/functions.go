@@ -31,6 +31,10 @@ func (b *InMemoryBackend) CreateFunction(apiID string, f *Function) (*Function, 
 		}
 	}
 
+	if err := validateSyncConfig(f.SyncConfig); err != nil {
+		return nil, err
+	}
+
 	funcID := randomAPIID()
 	funcARN := arn.Build("appsync", b.region, b.accountID,
 		fmt.Sprintf("apis/%s/functions/%s", apiID, funcID))
@@ -166,6 +170,10 @@ func (b *InMemoryBackend) UpdateFunction(apiID, functionID string, f *Function) 
 	}
 
 	if f.SyncConfig != nil {
+		if err := validateSyncConfig(f.SyncConfig); err != nil {
+			return nil, err
+		}
+
 		existing.SyncConfig = f.SyncConfig
 	}
 

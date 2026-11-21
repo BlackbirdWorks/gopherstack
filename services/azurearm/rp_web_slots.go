@@ -278,7 +278,7 @@ func (p *WebProvider) putSlot(ctx context.Context, id ResourceID, body map[strin
 		return nil, err
 	}
 
-	ident, err := p.siteIdentity(body, existing)
+	ident, err := p.siteIdentity(namespaceMicrosoftWeb+"/"+webSitesType+"/"+webSlotsType, body, existing)
 	if err != nil {
 		return nil, err
 	}

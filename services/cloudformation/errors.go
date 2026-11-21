@@ -9,6 +9,7 @@ var (
 	ErrNoUpdates                = errors.New("no updates are to be performed")
 	ErrStackNotFound            = errors.New("stack with id does not exist")
 	ErrStackAlreadyExists       = errors.New("stack already exists")
+	ErrStackLimitExceeded       = errors.New("stack limit exceeded")
 	ErrChangeSetNotFound        = errors.New("change set not found")
 	ErrChangeSetExists          = errors.New("change set already exists")
 	ErrChangeSetAlreadyExecuted = errors.New("change set has already been executed")

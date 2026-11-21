@@ -15,5 +15,6 @@ func wireDLMCompute(byName map[string]service.Registerable) {
 
 	if h, hok := byName["DLM"].(*dlmbackend.Handler); hok {
 		h.SetCompute(dlmbackend.NewEC2Compute(ec2H))
+		ec2H.SetSnapshotSharedListener(h.OnSnapshotShared)
 	}
 }
