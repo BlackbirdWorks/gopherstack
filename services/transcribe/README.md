@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 44 (44 ok) |
 | Feature families | 8 (8 ok) |
-| Known gaps | 5 |
+| Known gaps | 6 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -20,6 +20,7 @@
 - Under the docker engine, ShowSpeakerLabels, ContentRedaction and MedicalContentIdentificationType jobs FAIL (the Vosk server exposes no diarization or PII detection, engine_vosk.go; pipeline.go recognize); custom vocabularies and custom language models are not applied to recognition (no Vosk hotword or model-adaptation API). Vocabulary filters (mask, remove, tag) are applied to transcription and call analytics words.
 - IdentifyLanguage/IdentifyMultipleLanguages report the first LanguageOptions entry with a fixed IdentifiedLanguageScore; the Vosk server has no language identification (transcription_jobs.go syntheticIdentifiedLanguageScore)
 - Docker engine cannot decode MP4/M4A (AAC), AMR, WebM or Ogg Opus: no maintained pure-Go decoder is in go.mod (pipeline.go recognize fails those jobs). Call Analytics sentiment, loudness, talk-time, categories and summaries are not produced.
+- Emulator limit: the docker engine takes one PCM buffer per channel, so decoded audio is capped at 64 MiB of 16 kHz 16-bit PCM across all channels (about 33 minutes mono, 16 minutes per channel for two channels); longer jobs fail with "Invalid file size: file size too large" although AWS accepts up to 4 hours (audio_decode.go maxDecodedBytes). The media object is still read whole, up to the 2 GB limit, before decoding.
 - Medical transcript and Call Analytics JSON follow the batch schema and the documented post-call field names respectively; PHI entity annotations and the Categories/IssuesDetected sections are not emitted (unverified against a live AWS document).
 
 ### Structural gaps

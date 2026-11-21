@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 65 (63 ok, 2 partial) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 5 |
+| Known gaps | 4 |
 | Structural gaps (can't be emulated) | 5 |
 | Deferred items | 0 |
 | Resource leaks | clean |
