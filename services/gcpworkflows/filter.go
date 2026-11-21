@@ -147,13 +147,13 @@ func workflowFilterField(field string) (fieldAccess[*workflowspb.Workflow], bool
 		return str((*workflowspb.Workflow).GetServiceAccount), true
 	case "cryptoKeyName":
 		return str((*workflowspb.Workflow).GetCryptoKeyName), true
-	case "createTime":
+	case fieldCreateTime:
 		return ts((*workflowspb.Workflow).GetCreateTime), true
-	case "updateTime":
+	case fieldUpdateTime:
 		return ts((*workflowspb.Workflow).GetUpdateTime), true
 	case "revisionCreateTime":
 		return ts((*workflowspb.Workflow).GetRevisionCreateTime), true
-	case "state":
+	case fieldState:
 		return fieldAccess[*workflowspb.Workflow]{
 			kind: kindEnum,
 			get:  func(w *workflowspb.Workflow) []string { return []string{w.GetState().String()} },

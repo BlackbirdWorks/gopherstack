@@ -89,6 +89,10 @@ type Host struct {
 	CallLog func(CallEvent)
 	// Progress is told which steps are executing each time they change.
 	Progress func([]Frame)
+	// StepLog receives an event when every step starts and when it finishes.
+	StepLog func(StepEvent)
+	// StepVariables adds the visible variables to the finish events of StepLog.
+	StepVariables bool
 }
 
 func (h *Host) clock() Clock {

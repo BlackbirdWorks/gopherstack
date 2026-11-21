@@ -107,6 +107,7 @@ type exec struct {
 	frames map[int]Frame
 	steps  atomic.Int64
 	tids   atomic.Int64
+	entry  atomic.Int64
 	mu     sync.Mutex
 	fmu    sync.Mutex
 	mem    int64
@@ -119,6 +120,8 @@ type rctx struct {
 	step    string
 	tid     int
 	depth   int
+	cur     int64
+	prev    int64
 }
 
 // Run executes the main subworkflow with arg as its argument and returns the workflow result.
@@ -195,6 +198,11 @@ func (r *rctx) stampErr(err error, step string) *Error {
 }
 
 func (r *rctx) runBlock(sc *scope, b *block) (outcome, error) {
+	entered := r.prev
+	r.prev = 0
+
+	defer func() { r.prev = entered }()
+
 	for i := 0; i < len(b.steps); {
 		out, err := r.runStep(sc, b.steps[i])
 		if err != nil {
@@ -263,6 +271,14 @@ func (r *rctx) runStep(sc *scope, s *step) (outcome, error) {
 	r.step = s.name
 	r.x.setFrame(r.tid, &Frame{Routine: r.routine.name, Step: s.name, Line: s.line})
 
+	if r.x.host.StepLog == nil {
+		return r.execStep(sc, s)
+	}
+
+	return r.loggedStep(sc, s)
+}
+
+func (r *rctx) execStep(sc *scope, s *step) (outcome, error) {
 	out, err := r.dispatch(sc, s)
 	if err != nil {
 		var e *Error
@@ -663,7 +679,7 @@ func (r *rctx) callSub(sub *routine, args map[string]any) (any, error) {
 		}
 	}
 
-	child := &rctx{x: r.x, ctx: r.ctx, routine: sub, tid: r.tid, depth: r.depth + 1}
+	child := &rctx{x: r.x, ctx: r.ctx, routine: sub, tid: r.tid, depth: r.depth + 1, cur: r.cur}
 
 	return child.runRoutine(sub, args)
 }
@@ -898,7 +914,7 @@ func (r *rctx) doParallel(sc *scope, ps *parSpec) error {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			br := &rctx{x: r.x, ctx: r.ctx, routine: r.routine, tid: int(r.x.tids.Add(1)), depth: r.depth}
+			br := &rctx{x: r.x, ctx: r.ctx, routine: r.routine, tid: int(r.x.tids.Add(1)), depth: r.depth, cur: r.cur}
 			defer r.x.setFrame(br.tid, nil)
 
 			if err := j.run(br); err != nil {

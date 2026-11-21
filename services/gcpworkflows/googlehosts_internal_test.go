@@ -37,6 +37,8 @@ func TestEmulatedHostsRouting(t *testing.T) {
 		routed   bool
 	}{
 		{"pubsub", "https://pubsub.googleapis.com/v1/x", "127.0.0.1:9999", true},
+		{"cloudtasks", "https://cloudtasks.googleapis.com/v2/x", "127.0.0.1:9999", true},
+		{"cloudkms", "https://cloudkms.googleapis.com/v1/x", "127.0.0.1:9999", true},
 		{"mixed case", "https://PubSub.GoogleAPIs.com/v1/x", "127.0.0.1:9999", true},
 		{
 			"suffix attacker", "https://evil-pubsub.googleapis.com.attacker.tld/v1/x",
@@ -55,7 +57,7 @@ func TestEmulatedHostsRouting(t *testing.T) {
 
 			b := NewInMemoryBackend()
 			t.Cleanup(b.Close)
-			b.SetEndpoints(fixedEndpoints{svcPubSub: emu})
+			b.SetEndpoints(fixedEndpoints{svcPubSub: emu, svcCloudTasks: emu, svcKMS: emu})
 
 			rec := &recordingTransport{}
 			rt := emulatedHosts{b: b, next: rec}

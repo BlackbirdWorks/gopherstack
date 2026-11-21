@@ -27,10 +27,11 @@ type workflowSnap struct {
 }
 
 type backendSnapshot struct {
-	Workflows  map[string]workflowSnap   `json:"workflows"`
-	Executions map[string]jsontext.Value `json:"executions"`
-	Operations map[string]jsontext.Value `json:"operations"`
-	Version    int                       `json:"version"`
+	Workflows   map[string]workflowSnap   `json:"workflows"`
+	Executions  map[string]jsontext.Value `json:"executions"`
+	Operations  map[string]jsontext.Value `json:"operations"`
+	StepEntries map[string][]stepEntry    `json:"stepEntries,omitempty"`
+	Version     int                       `json:"version"`
 }
 
 func marshalPB(m proto.Message) jsontext.Value {
@@ -69,6 +70,19 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 	for n, rec := range b.execs {
 		snap.Executions[n] = marshalPB(rec.pb)
+
+		if rec.steps != nil && len(rec.steps.order) > 0 {
+			if snap.StepEntries == nil {
+				snap.StepEntries = map[string][]stepEntry{}
+			}
+
+			list := make([]stepEntry, len(rec.steps.order))
+			for i, e := range rec.steps.order {
+				list[i] = *e
+			}
+
+			snap.StepEntries[n] = list
+		}
 	}
 
 	return persistence.MarshalSnapshot(ctx, "gcpworkflows", snap)
@@ -111,6 +125,10 @@ func restoreAll(snap *backendSnapshot) (*restored, error) {
 		}
 
 		out.execs[n] = &execRec{pb: e}
+
+		if entries := snap.StepEntries[n]; len(entries) > 0 {
+			out.execs[n].steps = stepLogFrom(entries)
+		}
 	}
 
 	return out, nil
@@ -158,6 +176,10 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			rec.pb.Error = &executionspb.Execution_Error{
 				Payload: `{"message":"The execution was interrupted by an emulator restart.","tags":["SystemError"]}`,
 				Context: "The execution was interrupted by an emulator restart.",
+			}
+
+			if rec.steps != nil {
+				rec.steps.failOpenEntries(end.AsTime(), rec.pb.GetError().GetPayload())
 			}
 		}
 	}

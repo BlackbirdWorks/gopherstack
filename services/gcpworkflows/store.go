@@ -35,6 +35,7 @@ type execRec struct {
 	done      chan struct{}
 	cancel    context.CancelFunc
 	pending   *pendingRun
+	steps     *stepLog
 	stopTimer func() bool
 	pb        *executionspb.Execution
 	key       string
