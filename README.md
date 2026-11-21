@@ -741,7 +741,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [DynamoDB Streams](services/dynamodbstreams/README.md) | A | 4 | clean |
 | [ElastiCache](services/elasticache/README.md) | A | 75 | 4 structural gaps; 1 deferred |
 | [MemoryDB](services/memorydb/README.md) | A | 45 | 3 gaps; 2 structural gaps; 3 deferred |
-| [Neptune](services/neptune/README.md) | A | — | 13 families; 7 gaps; 2 structural gaps; 2 deferred |
+| [Neptune](services/neptune/README.md) | A | — | 13 families; 6 gaps; 2 structural gaps; 2 deferred |
 | [QLDB](services/qldb/README.md) | Removed | — | removed service |
 | [QLDB Session](services/qldbsession/README.md) | Removed | — | removed service |
 | [RDS](services/rds/README.md) | A | 52 | 5 gaps; 7 structural gaps |
@@ -972,7 +972,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cloud Scheduler](services/gcpscheduler/README.md) | B | 10 | clean |
 | [Cloud Spanner](services/gcpspanner/README.md) | B | 31 | 2 gaps |
 | [Cloud Tasks](services/gcpcloudtasks/README.md) | B | 20 | clean |
-| [Compute Engine](services/gcpcompute/README.md) | B | — | 8 families; 6 gaps |
+| [Compute Engine](services/gcpcompute/README.md) | B | 1 | 6 gaps |
 | [Eventarc](services/gcpeventarc/README.md) | B | 47 | 3 gaps |
 | [Google Cloud Batch](services/gcpbatch/README.md) | B | 14 | 4 gaps |
 | [Google Cloud Firestore](services/gcpfirestore/README.md) | B | 17 | 3 gaps |
@@ -1000,7 +1000,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [OCI Events](services/ocievents/README.md) | B | 6 | 4 gaps |
 | [OCI File Storage](services/ocifilestorage/README.md) | B | 74 | 3 gaps |
 | [OCI Functions](services/ocifunctions/README.md) | B | 16 | 2 gaps |
-| [OCI Identity](services/ociidentity/README.md) | B | 76 | 7 gaps |
+| [OCI Identity](services/ociidentity/README.md) | B | 97 | 7 gaps |
 | [OCI Load Balancer](services/ociloadbalancer/README.md) | B | 61 | 3 gaps |
 | [OCI Logging](services/ocilogging/README.md) | B | 32 | 2 gaps |
 | [OCI Monitoring](services/ocimonitoring/README.md) | B | 18 | 3 gaps |
@@ -1028,7 +1028,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cloudfrontkeyvaluestore](services/cloudfrontkeyvaluestore/README.md) | A | 6 | 2 structural gaps |
 | [Cloudhsmv2](services/cloudhsmv2/README.md) | B | 18 | 3 structural gaps |
 | [Codegurureviewer](services/codegurureviewer/README.md) | B | 14 | 2 structural gaps |
-| [Connect](services/connect/README.md) | B | 393 | 10 gaps; 2 structural gaps |
+| [Connect](services/connect/README.md) | B | 397 | 9 gaps; 2 structural gaps |
 | [Cur](services/cur/README.md) | B | 7 | 1 gap |
 | [Directconnect](services/directconnect/README.md) | A | 73 | 8 structural gaps; 1 deferred |
 | [Dsql](services/dsql/README.md) | A | 16 | 8 gaps; 2 structural gaps |

@@ -7,6 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
+| PARITY entries audited | 1 (1 ok) |
 | Feature families | 8 (5 ok, 2 partial, 1 gap) |
 | Known gaps | 6 |
 | Deferred items | 0 |
@@ -14,11 +15,11 @@
 
 ### Known gaps
 
-- Load balancing: service attachments, certificate maps and regional TCP/SSL certificates managed by Certificate Manager are stored without effect; Cloud Armor aggregatedList, listPreconfiguredExpressionSets, regional and organization policies, associations, edge/backend bucket attachment and adaptive protection are not routed; backend bucket existence is not checked against gcpstorage (lb_backend.go prepBackendBucket; the Compute reference does not say whether insert validates the bucket, so it was not wired).
-- Instance templates: regional-only fields beyond the stored properties are not modelled; GRPC_WITH_TLS health checks and regional composite health checks are not modelled.
-- Interconnects and interconnect attachments (so HA VPN over Cloud Interconnect), shared VPC, licenses, instant snapshot groups, regional disk async replication and policies, machine image encryption and future/aggregate reservations are not routed (404). Network peering supports the CONSENSUS strategy for deletion only, not for updatePeering proposals (updateStatus is always IN_SYNC), and peering routes are not added to routes.list.
-- Instances: GPUs at insert are rejected or stored without effect; aliasIpv6Ranges and BYOIP subnet prefixes are 400; Local SSD for series outside the machine catalog and the N1 T4-GPU count limit are not modelled; instances.update uses a modelled field classification (see Instances.Update).
-- Only a fixed set of 15 regions, 46 zones, 9 image families, e2/n2/n1-standard machine types and 3 persistent disk types exist; region quotas and Project usage quotas are not modelled.
+- Load balancing: service attachments, certificate maps and regional TCP/SSL certificates managed by Certificate Manager are stored without effect; Cloud Armor organization policies and associations and securityPolicies.listPreconfiguredExpressionSets (the rule ids and sensitivities of each WAF expression set are not documented on the pages available, so no honest response exists) are not routed; backend bucket existence is not checked against gcpstorage (lb_backend.go prepBackendBucket; the Compute reference does not say whether insert validates the bucket, so it was not wired).
+- Instance templates: regional-only fields beyond the stored properties are not modelled; regional composite health checks and health check services (regionCompositeHealthChecks, regionHealthCheckServices, regionHealthSources) are not routed.
+- Interconnect: interconnects.getDiagnostics and getMacsecConfig (the latter returns generated CKN/CAK secrets), interconnect attachment groups, interconnect groups, interconnect remote locations (Cross-Cloud Interconnect), PARTNER_PROVIDER attachments and the full interconnect location catalogue are not implemented. Also not routed (404): shared VPC, regional disk async replication and policies, machine image encryption and aggregate reservations. Peering routes are not added to routes.list.
+- Instances: aliasIpv6Ranges and BYOIP subnet prefixes are 400; Local SSD for n4, c3, t2d, t2a, f1 and g1 is 400 because their counts are not modelled and N2D takes one count set for every size; GPUs for accelerator-optimized machine types (A2, A3, G2) are not modelled; instances.update uses a modelled field classification (see Instances.Update).
+- Only 9 image families, 3 persistent disk types and the machine families e2, n1, n2, n2d, n4, c3, t2d and t2a exist (no c2, c4, m-series, accelerator-optimized or shared-core beyond e2, f1 and g1), and every zone offers every machine type; quota limits are emulator defaults that are not enforced.
 - The emulator does not enforce IAM or return permission errors.
 
 ## More
