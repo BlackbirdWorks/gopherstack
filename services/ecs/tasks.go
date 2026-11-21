@@ -332,6 +332,8 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 
 	var failures []Failure
 
+	inUse := b.liveTaskIPsLocked(clusterArn)
+
 	for range count {
 		task := newTaskEntryLocked(b.region, b.accountID, clusterName, clusterArn, launchType, resolvedTags, td, input)
 
@@ -342,7 +344,7 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 
 		if launchType == launchTypeFargate || td.NetworkMode == networkModeAwsvpc {
 			subnet := firstRequestedSubnet(input.NetworkConfiguration)
-			task.Attachments = []TaskAttachment{newFargateTaskAttachment(task.TaskArn, subnet)}
+			task.Attachments = []TaskAttachment{newFargateTaskAttachment(task.TaskArn, subnet, inUse)}
 		}
 
 		if launchType != launchTypeFargate {
