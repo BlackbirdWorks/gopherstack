@@ -515,15 +515,16 @@ func TestAPIMMgmtPersistence(t *testing.T) {
 		`{"properties":{"data":"`+base64.StdEncoding.EncodeToString(der)+`"}}`, nil)
 	require.Less(t, status, http.StatusBadRequest, body)
 
-	for path, b := range map[string]string{
-		"/loggers/ai": `{"properties":{"loggerType":"applicationInsights",` +
-			`"credentials":{"instrumentationKey":"k"}}}`,
-		"/diagnostics/applicationinsights": `{"properties":{"loggerId":"/loggers/ai"}}`,
-		"/schemas/gs":                      `{"properties":{"schemaType":"json","value":"{}"}}`,
-		"/apis/echo/schemas/as":            `{"properties":{"contentType":"application/json","document":{"value":"{}"}}}`,
-		"/products/starter/policies/policy": `{"properties":{"format":"xml",` +
-			`"value":"<policies><inbound><base /></inbound></policies>"}}`,
+	for _, w := range []struct{ path, body string }{
+		{"/loggers/ai", `{"properties":{"loggerType":"applicationInsights",` +
+			`"credentials":{"instrumentationKey":"k"}}}`},
+		{"/diagnostics/applicationinsights", `{"properties":{"loggerId":"/loggers/ai"}}`},
+		{"/schemas/gs", `{"properties":{"schemaType":"json","value":"{}"}}`},
+		{"/apis/echo/schemas/as", `{"properties":{"contentType":"application/json","document":{"value":"{}"}}}`},
+		{"/products/starter/policies/policy", `{"properties":{"format":"xml",` +
+			`"value":"<policies><inbound><base /></inbound></policies>"}}`},
 	} {
+		path, b := w.path, w.body
 		status, body, _ = e.raw(t, http.MethodPut, e.armPath(path), b, nil)
 		require.Less(t, status, http.StatusBadRequest, path+": "+body)
 	}

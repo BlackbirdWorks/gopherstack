@@ -87,10 +87,9 @@ func apimMgmtKind(typ string) apimKind {
 	return apimKind{}
 }
 
-// seedAPIMBuiltins creates the entities a new service starts with: the built-in groups, the all-access master
-// subscription and, on the classic tiers, the Starter and Unlimited products.
-func seedAPIMBuiltins(s *apimService, now time.Time) {
-	groups := apimMgmtGroups()
+// ensureAPIMSystemEntities adds the built-in groups and the all-access master subscription when absent; entities
+// that exist, user-created ones included, are left alone.
+func ensureAPIMSystemEntities(s *apimService, now time.Time) {
 	if s.Generic == nil {
 		s.Generic = map[string]map[string]*apimEntity{}
 	}
@@ -99,10 +98,18 @@ func seedAPIMBuiltins(s *apimService, now time.Time) {
 		s.Generic[apimGroupsType] = map[string]*apimEntity{}
 	}
 
-	for _, g := range groups {
+	for _, g := range apimMgmtGroups() {
+		if s.Generic[apimGroupsType][entKey("", g.id)] != nil {
+			continue
+		}
+
 		s.Generic[apimGroupsType][entKey("", g.id)] = &apimEntity{ID: g.id, Etag: 1, Props: map[string]any{
 			apimCDisplayName: g.name, webDescription: g.desc, fieldType: "system", "builtIn": true,
 		}}
+	}
+
+	if s.Subs[entKey("", apimMasterSub)] != nil {
+		return
 	}
 
 	stamp := now.UTC().Format(time.RFC3339)
@@ -113,6 +120,12 @@ func seedAPIMBuiltins(s *apimService, now time.Time) {
 		redisPropPrimaryKey: newAPIMKey(), redisPropSecondaryKey: newAPIMKey(), "allowTracing": true,
 		apimCCreatedDate: stamp, apimCStartDate: stamp,
 	}}
+}
+
+// seedAPIMBuiltins creates the entities a new service starts with: the built-in groups, the all-access master
+// subscription and, on the classic tiers, the Starter and Unlimited products.
+func seedAPIMBuiltins(s *apimService, now time.Time) {
+	ensureAPIMSystemEntities(s, now)
 
 	if s.SKU == apimSKUConsumption {
 		return

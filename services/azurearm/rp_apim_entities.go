@@ -344,7 +344,7 @@ func opParams(in map[string]any, tpl string) ([]any, error) {
 
 	for _, name := range inTpl {
 		if !declared[name] {
-			params = append(params, map[string]any{fieldName: name, "required": true, fieldType: "string"})
+			params = append(params, map[string]any{fieldName: name, apimCRequired: true, fieldType: apxString})
 		}
 	}
 

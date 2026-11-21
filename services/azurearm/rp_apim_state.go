@@ -102,25 +102,42 @@ func (q *apimQuotaStore) entry(key string, now, first time.Time, period time.Dur
 	return e
 }
 
-// exceeded reports "calls" or "bandwidth" when the counter has used up its allowance, and the time to renewal.
-func (q *apimQuotaStore) exceeded(
-	key string, now, first time.Time, period time.Duration, calls, kb int64,
-) (string, time.Duration) {
-	q.mu.Lock("exceeded")
+// quotaReq is one counter an admission checks and, when every counter has room, charges.
+type quotaReq struct {
+	first       time.Time
+	key         string
+	period      time.Duration
+	calls, kb   int64
+	chargeCalls int64
+}
+
+// admit checks every counter and, only when all have room, charges their calls, in one critical section so that
+// concurrent requests cannot all pass the same check.
+func (q *apimQuotaStore) admit(now time.Time, reqs []quotaReq) (string, time.Duration) {
+	q.mu.Lock("admit")
 	defer q.mu.Unlock()
 
-	e := q.entry(key, now, first, period)
+	entries := make([]*apimQuotaEntry, len(reqs))
 
-	var retry time.Duration
-	if !e.end.IsZero() {
-		retry = e.end.Sub(now)
+	for i, r := range reqs {
+		e := q.entry(r.key, now, r.first, r.period)
+		entries[i] = e
+
+		var retry time.Duration
+		if !e.end.IsZero() {
+			retry = e.end.Sub(now)
+		}
+
+		switch {
+		case r.calls > 0 && e.calls >= r.calls:
+			return "calls", retry
+		case r.kb > 0 && e.bytes >= r.kb*1024:
+			return "bandwidth", retry
+		}
 	}
 
-	switch {
-	case calls > 0 && e.calls >= calls:
-		return "calls", retry
-	case kb > 0 && e.bytes >= kb*1024:
-		return "bandwidth", retry
+	for i, r := range reqs {
+		entries[i].calls += r.chargeCalls
 	}
 
 	return "", 0

@@ -39,7 +39,6 @@ const (
 	apimJWKSMaxKeys       = 64
 	apimJWKSFetchTimeout  = 10 * time.Second
 	apimJWKSMaxBytes      = 1 << 20
-	apimJWTMaxErrText     = 200
 	apimJWTMaxClockSkew   = 24 * 60 * 60
 	apimJWTMaxClaimValues = 256
 )
@@ -56,6 +55,7 @@ type apimJWKSEntry struct {
 	fetched, attempted time.Time
 	issuer             string
 	keys               []gwJWTKey
+	failed             bool
 }
 
 // apimJWKS caches OpenID configuration and signing keys per service and URL.
@@ -191,6 +191,14 @@ func (g *gwState) openIDKeys(target, kid string) (apimJWKSEntry, error) {
 	now := g.now()
 
 	e, ok := g.p.jwks.get(ck)
+	if ok && e.failed {
+		if now.Sub(e.attempted) < apimJWKSRetry {
+			return apimJWKSEntry{}, errAPIMJWKS
+		}
+
+		ok = false
+	}
+
 	if ok && now.Sub(e.fetched) < apimJWKSTTL &&
 		(kid == "" || jwkHas(e.keys, kid) || now.Sub(e.attempted) < apimJWKSRetry) {
 		return e, nil
@@ -208,6 +216,8 @@ func (g *gwState) openIDKeys(target, kid string) (apimJWKSEntry, error) {
 
 			return e, nil
 		}
+
+		g.p.jwks.put(ck, apimJWKSEntry{attempted: now, failed: true})
 
 		return apimJWKSEntry{}, err
 	}
@@ -485,18 +495,11 @@ func (g *gwState) jwtParseFail(n *polNode, err error) {
 		)
 	case errors.Is(err, jwt.ErrTokenRequiredClaimMissing):
 		g.jwtFail(n, "JwtInvalid", "IDX10225: The token has no expiration time.")
+	case errors.Is(err, jwt.ErrTokenMalformed):
+		g.jwtFail(n, "JwtInvalid", "IDX14100: JWT is not well formed. Access denied.")
 	default:
-		g.jwtFail(n, "JwtInvalid", "The token could not be validated: "+jwtShortErr(err))
+		g.jwtFail(n, "JwtInvalid", "The token could not be validated. Access denied.")
 	}
-}
-
-func jwtShortErr(err error) string {
-	s := err.Error()
-	if len(s) > apimJWTMaxErrText {
-		s = s[:apimJWTMaxErrText]
-	}
-
-	return s
 }
 
 func apimClaimValues(v any, sep string) []string {
@@ -530,7 +533,7 @@ func apimClaimScalar(v any) any {
 
 func (g *gwState) jwtClaims(n *polNode, claims jwt.MapClaims, openIDIssuer string) bool {
 	if a := n.kid(apimCAudiences); a != nil {
-		allowed, have := g.subAll(a.values(apimCAudience)), apimClaimValues(claims["aud"], "")
+		allowed, have := g.subAll(a.values(apimCAudience)), nonEmpty(apimClaimValues(claims["aud"], ""))
 		if !anyIn(have, allowed) {
 			g.jwtFail(n, "TokenAudienceNotAllowed", "IDX10214: Audience validation failed. Audiences: '"+
 				strings.Join(have, ", ")+"'. Did not match one of the valid audiences. Access denied.")
@@ -548,7 +551,7 @@ func (g *gwState) jwtClaims(n *polNode, claims jwt.MapClaims, openIDIssuer strin
 		issuers = []string{openIDIssuer}
 	}
 
-	if issuers != nil && !anyIn([]string{iss}, issuers) {
+	if issuers != nil && (iss == "" || !anyIn([]string{iss}, issuers)) {
 		g.jwtFail(n, "TokenIssuerNotAllowed", "IDX10205: Issuer validation failed. Issuer: '"+iss+
 			"'. Did not match one of the valid issuers. Access denied.")
 
@@ -556,6 +559,10 @@ func (g *gwState) jwtClaims(n *polNode, claims jwt.MapClaims, openIDIssuer strin
 	}
 
 	return g.requiredClaims(n, claims)
+}
+
+func nonEmpty(in []string) []string {
+	return slices.DeleteFunc(in, func(s string) bool { return s == "" })
 }
 
 func anyIn(have, allowed []string) bool {

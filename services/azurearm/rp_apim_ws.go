@@ -92,7 +92,8 @@ func (g *gwState) proxyWebSocket(u *url.URL) {
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.Out.URL = u
 			pr.Out.Host = u.Host
-			pr.Out.Header = g.header.Clone()
+			pr.Out.Header = http.Header{}
+			copyForwardHeaders(pr.Out.Header, g.header)
 			pr.Out.Header.Set(apimHeaderXForward, hostOnly(g.r.RemoteAddr))
 			pr.Out.Header.Set("Upgrade", "websocket")
 			pr.Out.Header.Set("Connection", "Upgrade")

@@ -151,48 +151,71 @@ func (g *gwState) quotaDeny(kind string, retry time.Duration) {
 
 func (g *gwState) requestBytes() int64 { return max(g.r.ContentLength, 0) }
 
-func (g *gwState) quotaByKey(n *polNode) {
-	key, ok := g.keyAttr(n)
-	if !ok {
-		return
-	}
+type quotaArgs struct {
+	first            time.Time
+	calls, kb, every int64
+}
 
-	calls, kb, period := g.intAttr(
-		n,
-		apimCCalls,
-		0,
-	), g.intAttr(
-		n,
-		apimCBandwidth,
-		0,
-	), g.intAttr(
-		n,
-		apimCRenewalPeriod,
-		0,
-	)
-	first := time.Time{}
+// quotaByKeyArgs reads and validates the numeric and date attributes of quota-by-key.
+func (g *gwState) quotaByKeyArgs(n *polNode) (quotaArgs, bool) {
+	a := quotaArgs{
+		calls: g.intAttr(n, apimCCalls, 0), kb: g.intAttr(n, apimCBandwidth, 0),
+		every: g.intAttr(n, apimCRenewalPeriod, 0),
+	}
 
 	if v := n.Attrs[apimCFirstPeriod]; v != "" {
 		t, err := time.Parse(apimQuotaTimeFmt, v)
 		if err != nil {
 			g.evalErr = apimExprFail("first-period-start is not a yyyy-MM-ddTHH:mm:ssZ date")
 
-			return
+			return a, false
 		}
 
-		first = t
+		a.first = t
 	}
 
-	if g.evalErr != nil || period < 0 || (period > 0 && period < apimMinKeyedRenewal) || calls < 0 || kb < 0 {
+	if g.evalErr != nil || a.every < 0 || (a.every > 0 && a.every < apimMinKeyedRenewal) || a.calls < 0 || a.kb < 0 {
 		g.evalErr = apimExprFail("renewal-period must be 0 or at least %d seconds", apimMinKeyedRenewal)
+
+		return a, false
+	}
+
+	return a, true
+}
+
+func (g *gwState) quotaByKey(n *polNode) {
+	key, ok := g.keyAttr(n)
+	if !ok {
+		return
+	}
+
+	args, ok := g.quotaByKeyArgs(n)
+	if !ok {
+		return
+	}
+
+	calls, kb, first := args.calls, args.kb, args.first
+
+	full, per := apimKeyOf(g.plan.svcKey, "qbk", key), time.Duration(args.every)*time.Second
+
+	charge, static := g.quotaCharge(n, full)
+	if g.evalErr != nil {
+		return
+	}
+
+	req := quotaReq{key: full, first: first, period: per, calls: calls, kb: kb, chargeCalls: charge}
+	if kind, retry := g.p.quotas.admit(g.now(), []quotaReq{req}); kind != "" {
+		g.quotaDeny(kind, retry)
 
 		return
 	}
 
-	full, per := apimKeyOf(g.plan.svcKey, "qbk", key), time.Duration(period)*time.Second
-
-	if kind, retry := g.p.quotas.exceeded(full, g.now(), first, per, calls, kb); kind != "" {
-		g.quotaDeny(kind, retry)
+	if static {
+		if charge > 0 {
+			g.deferred = append(g.deferred, func(written int64) {
+				g.p.quotas.add(full, g.now(), first, per, 0, written+g.requestBytes())
+			})
+		}
 
 		return
 	}
@@ -209,6 +232,23 @@ func (g *gwState) quotaByKey(n *polNode) {
 		g.seenKeys[full] = true
 		g.p.quotas.add(full, g.now(), first, per, cnt, written+g.requestBytes())
 	})
+}
+
+// quotaCharge is the calls to charge up front: the increment is known only after the response when its condition
+// or count is an expression.
+func (g *gwState) quotaCharge(n *polNode, full string) (int64, bool) {
+	if apimIsExprAttr(n, apimCIncCondition) || apimIsExprAttr(n, apimCIncCount) {
+		return 0, false
+	}
+
+	cond, cnt := g.boolAttr(n, apimCIncCondition, true), g.intAttr(n, apimCIncCount, 1)
+	if !cond || cnt < 1 || g.seenKeys[full] {
+		return 0, true
+	}
+
+	g.seenKeys[full] = true
+
+	return cnt, true
 }
 
 type gwQuotaScope struct {
@@ -241,36 +281,30 @@ func (g *gwState) quota(n *polNode) {
 		}
 	}
 
-	type counter struct {
-		first time.Time
-		key   string
-		per   time.Duration
-		calls int64
-		kb    int64
-	}
-
-	cs := make([]counter, 0, len(scopes))
+	reqs := make([]quotaReq, 0, len(scopes))
 
 	for _, sc := range scopes {
-		c := counter{
-			key:   apimKeyOf(g.plan.svcKey, "quota", g.plan.subID, sc.key),
-			first: g.plan.subStart,
-			per:   time.Duration(g.intAttr(sc.n, apimCRenewalPeriod, 0)) * time.Second,
-			calls: g.intAttr(sc.n, apimCCalls, 0), kb: g.intAttr(sc.n, apimCBandwidth, 0),
-		}
+		reqs = append(reqs, quotaReq{
+			key:    apimKeyOf(g.plan.svcKey, "quota", g.plan.subID, sc.key),
+			first:  g.plan.subStart,
+			period: time.Duration(g.intAttr(sc.n, apimCRenewalPeriod, 0)) * time.Second,
+			calls:  g.intAttr(sc.n, apimCCalls, 0), kb: g.intAttr(sc.n, apimCBandwidth, 0), chargeCalls: 1,
+		})
+	}
 
-		if kind, retry := g.p.quotas.exceeded(c.key, g.now(), c.first, c.per, c.calls, c.kb); kind != "" {
-			g.quotaDeny(kind, retry)
+	if g.evalErr != nil {
+		return
+	}
 
-			return
-		}
+	if kind, retry := g.p.quotas.admit(g.now(), reqs); kind != "" {
+		g.quotaDeny(kind, retry)
 
-		cs = append(cs, c)
+		return
 	}
 
 	g.deferred = append(g.deferred, func(written int64) {
-		for _, c := range cs {
-			g.p.quotas.add(c.key, g.now(), c.first, c.per, 1, written+g.requestBytes())
+		for _, r := range reqs {
+			g.p.quotas.add(r.key, g.now(), r.first, r.period, 0, written+g.requestBytes())
 		}
 	})
 }

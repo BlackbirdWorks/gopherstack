@@ -1,9 +1,11 @@
 package azurearm
 
 import (
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"net/http"
 	"strings"
 
@@ -137,11 +139,14 @@ func (g *gwState) authCert(n *polNode) {
 	switch {
 	case n.Attrs[apimCBodyAttr] != "":
 		raw, err := base64.StdEncoding.DecodeString(g.sub(n.Attrs[apimCBodyAttr]))
+		pw := g.sub(n.Attrs[apimCPasswordAttr])
+
 		if err == nil {
-			cert, ok = apimTLSFromPFX(raw, g.sub(n.Attrs[apimCPasswordAttr]))
+			cert, ok = apimTLSFromPFX(raw, pw)
 		}
 
-		key = apimKeyOf(g.plan.svcKey, apimCBodyAttr, n.Attrs[apimCBodyAttr])
+		sum := sha256.Sum256(append(append(raw, 0), pw...))
+		key = apimKeyOf(g.plan.svcKey, apimCBodyAttr, hex.EncodeToString(sum[:]))
 	case n.Attrs[apimCCertID] != "":
 		c, found := g.plan.certs[strings.ToLower(g.sub(n.Attrs[apimCCertID]))]
 		if found && c.hasKey {

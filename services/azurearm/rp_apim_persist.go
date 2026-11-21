@@ -65,6 +65,7 @@ func (p *APIMProvider) restore(snap *apimSnapshot) {
 
 		s.now = p.now
 		ensureAPIMMaps(s)
+		ensureAPIMSystemEntities(s, p.now())
 		p.svcs[k] = s
 	}
 }
