@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
@@ -49,6 +51,7 @@ type requestHead struct {
 // shared with the handler goroutine.
 type headTracker struct {
 	queue atomic.Pointer[[]requestHead]
+	probe func()
 	buf   []byte
 	skip  int64
 	phase framePhase
@@ -76,6 +79,17 @@ func (t *headTracker) update(f func([]requestHead) []requestHead) {
 func (t *headTracker) breakOff() {
 	t.phase, t.buf = phaseBroken, nil
 	t.queue.Store(nil)
+}
+
+// guardedFeed never lets a tracker panic escape Read: net/http runs the background read outside conn.serve's recover.
+func (t *headTracker) guardedFeed(p []byte) {
+	defer logger.Recover(context.Background(), "azurefile.headtracker", func(any) { t.breakOff() })
+
+	if t.probe != nil {
+		t.probe()
+	}
+
+	t.feed(p)
 }
 
 func (t *headTracker) feed(p []byte) {
@@ -365,7 +379,7 @@ type trackedConn struct {
 func (c *trackedConn) Read(p []byte) (int, error) {
 	n, err := c.Conn.Read(p)
 	if n > 0 {
-		c.t.feed(p[:n])
+		c.t.guardedFeed(p[:n])
 	}
 
 	return n, err //nolint:wrapcheck // the transport owns connection errors
