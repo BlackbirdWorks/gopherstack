@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json/jsontext"
 	"fmt"
+	"slices"
 
 	"cloud.google.com/go/iam/apiv1/iampb"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
@@ -24,7 +25,15 @@ type dbSnap struct {
 	DDL      []string       `json:"ddl,omitempty"`
 }
 
+type backupSnap struct {
+	Backup     jsontext.Value `json:"backup"`
+	Encryption jsontext.Value `json:"encryption,omitempty"`
+	Data       *dbDataSnap    `json:"data,omitempty"`
+	DDL        []string       `json:"ddl,omitempty"`
+}
+
 type instSnap struct {
+	Backups    map[string]backupSnap     `json:"backups,omitempty"`
 	Databases  map[string]dbSnap         `json:"databases,omitempty"`
 	Partitions map[string]jsontext.Value `json:"partitions,omitempty"`
 	Instance   jsontext.Value            `json:"instance"`
@@ -99,7 +108,37 @@ func snapInstance(r *instRec) (instSnap, bool) {
 		}
 	}
 
+	snapBackups(&s, r)
+
 	return s, true
+}
+
+func snapBackups(s *instSnap, r *instRec) {
+	if len(r.backups) == 0 {
+		return
+	}
+
+	s.Backups = make(map[string]backupSnap, len(r.backups))
+
+	for id, bk := range r.backups {
+		raw, err := protojson.Marshal(bk.pb)
+		if err != nil {
+			continue
+		}
+
+		bs := backupSnap{Backup: raw, DDL: cloneDDL(bk.ddl)}
+
+		if bk.enc != nil {
+			bs.Encryption, _ = protojson.Marshal(bk.enc)
+		}
+
+		if len(bk.data.Tables) > 0 {
+			data := bk.data
+			bs.Data = &data
+		}
+
+		s.Backups[id] = bs
+	}
 }
 
 // Restore loads a snapshot. Instances caught mid-creation are dropped; the emulator starts empty on first use
@@ -141,9 +180,31 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	b.instances, b.userConfigs, b.etagSeq = recs, configs, snap.EtagSeq
 	b.pendingData = snap.Data
+	optimizing := optimizingDatabases(recs)
 	b.mu.Unlock()
 
+	for _, name := range optimizing {
+		b.startOptimize(name)
+	}
+
 	return nil
+}
+
+// optimizingDatabases lists the restored databases whose optimize operation the snapshot interrupted.
+func optimizingDatabases(recs map[string]*instRec) []string {
+	var out []string
+
+	for _, r := range recs {
+		for _, d := range r.dbs {
+			if d.pb.GetState() == databasepb.Database_READY_OPTIMIZING {
+				out = append(out, d.pb.GetName())
+			}
+		}
+	}
+
+	slices.Sort(out)
+
+	return out
 }
 
 func rebuild(snap *backendSnapshot) (map[string]*instRec, error) {
@@ -177,10 +238,70 @@ func rebuild(snap *backendSnapshot) (map[string]*instRec, error) {
 			return nil, fmt.Errorf("gcpspanner: restore databases of %q: %w", name, err)
 		}
 
+		if err := rebuildBackups(rec, s.Backups, opts); err != nil {
+			return nil, fmt.Errorf("gcpspanner: restore backups of %q: %w", name, err)
+		}
+
 		recs[name] = rec
 	}
 
+	reconcileBackups(recs)
+
 	return recs, nil
+}
+
+// rebuildBackups loads the backups of an instance; one caught mid-creation is dropped with its aborted operation.
+func rebuildBackups(rec *instRec, raw map[string]backupSnap, opts protojson.UnmarshalOptions) error {
+	for id, s := range raw {
+		pb := &databasepb.Backup{}
+		if err := opts.Unmarshal(s.Backup, pb); err != nil {
+			return err //nolint:wrapcheck // wrapped by the caller
+		}
+
+		if pb.GetState() != databasepb.Backup_READY {
+			continue
+		}
+
+		bk := &backupRec{pb: pb, ddl: s.DDL}
+
+		if len(s.Encryption) > 0 {
+			bk.enc = &databasepb.EncryptionConfig{}
+			if err := opts.Unmarshal(s.Encryption, bk.enc); err != nil {
+				return err //nolint:wrapcheck // wrapped by the caller
+			}
+		}
+
+		if s.Data != nil {
+			bk.data = *s.Data
+		}
+
+		rec.backups[id] = bk
+	}
+
+	return nil
+}
+
+// reconcileBackups drops references to databases and copies that did not survive the restore.
+func reconcileBackups(recs map[string]*instRec) {
+	dbs := map[string]bool{}
+
+	for _, r := range recs {
+		for _, d := range r.dbs {
+			if d.pb.GetState() == databasepb.Database_READY_OPTIMIZING {
+				dbs[d.pb.GetName()] = true
+			}
+		}
+	}
+
+	for _, r := range recs {
+		for _, bk := range r.backups {
+			bk.pb.ReferencingDatabases = slices.DeleteFunc(
+				bk.pb.GetReferencingDatabases(),
+				func(n string) bool { return !dbs[n] },
+			)
+			bk.pb.ReferencingBackups = nil
+		}
+	}
 }
 
 func rebuildDBs(rec *instRec, dbs map[string]dbSnap, opts protojson.UnmarshalOptions) error {

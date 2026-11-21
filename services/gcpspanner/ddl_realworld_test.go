@@ -155,7 +155,7 @@ func TestDDL_RealWorldStatementsAreAccepted(t *testing.T) {
 	}
 }
 
-func TestDDL_UnmodelledAlterKeepsTableText(t *testing.T) {
+func TestDDL_UnmodelledAlterIsKeptVerbatim(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -163,9 +163,9 @@ func TestDDL_UnmodelledAlterKeepsTableText(t *testing.T) {
 		alter    string
 		postgres bool
 	}{
-		{"row deletion policy", "ALTER TABLE t ADD ROW DELETION POLICY (OLDER_THAN(ts, INTERVAL 1 DAY))", false},
-		{"synonym", "ALTER TABLE t ADD SYNONYM s", false},
-		{"pg column type", "ALTER TABLE t ALTER COLUMN a TYPE varchar(20)", true},
+		{"identity", "ALTER TABLE t ALTER COLUMN id ALTER IDENTITY RESTART COUNTER WITH 5", false},
+		{"pg row deletion policy", "ALTER TABLE t ADD ROW DELETION POLICY (OLDER_THAN(ts, INTERVAL '1 day'))", true},
+		{"pg rename with synonym", "ALTER TABLE t RENAME WITH SYNONYM TO t2", true},
 	}
 
 	for _, tt := range tests {

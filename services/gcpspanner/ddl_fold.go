@@ -17,6 +17,10 @@ const (
 	kindLocality = "LOCALITY GROUP"
 	kindBundle   = "PROTO BUNDLE"
 
+	kindChangeStream = "CHANGE STREAM"
+	kindGrant        = "GRANT"
+	kindDBOptions    = "DATABASE OPTIONS"
+
 	posName = 2
 	posType = 3
 )
@@ -24,13 +28,14 @@ const (
 // schemaKinds are the object kinds the folder tracks; those that are not ownNamespace share one namespace.
 func schemaKinds() []string {
 	return []string{
-		kindTable, kindIndex, kindView, "SEQUENCE", "CHANGE STREAM", "MODEL", "SEARCH INDEX", "VECTOR INDEX",
+		kindTable, kindIndex, kindView, kindSequence, kindChangeStream, kindModel, "SEARCH INDEX", "VECTOR INDEX",
 		"PROPERTY GRAPH", kindSchema, kindLocality, kindBundle,
 	}
 }
 
 func ownNamespace(kind string) bool {
-	return kind == kindRole || kind == kindSchema || kind == kindLocality || kind == kindBundle
+	return kind == kindRole || kind == kindSchema || kind == kindLocality || kind == kindBundle ||
+		kind == kindGrant || kind == kindDBOptions
 }
 
 func lookupKind(kind string) string {
@@ -46,8 +51,10 @@ type ddlObject struct {
 }
 
 type ddlSchema struct {
-	objs     []ddlObject
-	postgres bool
+	objs         []ddlObject
+	leaders      []string
+	postgres     bool
+	leadersKnown bool
 }
 
 func foldKey(s string) string { return strings.ToLower(s) }
@@ -160,6 +167,12 @@ func loadSchema(stmts []string, postgres bool) *ddlSchema {
 
 	for _, st := range stmts {
 		toks, err := tokenizeDDL(st, postgres)
+		if err == nil && len(toks) > 0 && toks[0].is("GRANT") {
+			s.loadGrant(st, toks)
+
+			continue
+		}
+
 		if err != nil || len(toks) == 0 || !toks[0].is("CREATE") {
 			s.objs = append(s.objs, ddlObject{text: st})
 
@@ -188,10 +201,27 @@ func loadSchema(stmts []string, postgres bool) *ddlSchema {
 	return s
 }
 
+func (s *ddlSchema) loadGrant(st string, toks []ddlTok) {
+	if rec, ok := s.loadGrantRec(st, toks); ok {
+		s.objs = append(s.objs, ddlObject{kind: kindGrant, key: rec.key(s), name: rec.key(s), text: st})
+
+		return
+	}
+
+	s.objs = append(s.objs, ddlObject{text: st})
+}
+
 // foldDDL applies stmts to the stored DDL in order and returns the new DDL, how many statements were applied and
 // the status of the first failing statement; statements before it stay applied, as in a partially applied batch.
 func foldDDL(current, stmts []string, postgres bool) ([]string, int, error) {
+	return foldDDLFor(current, stmts, postgres, nil, false)
+}
+
+// foldDDLFor is foldDDL that also checks default_leader against the instance configuration's leader options
+// when they are known.
+func foldDDLFor(current, stmts []string, postgres bool, leaders []string, known bool) ([]string, int, error) {
 	s := loadSchema(current, postgres)
+	s.leaders, s.leadersKnown = leaders, known
 
 	for i, st := range stmts {
 		if err := s.apply(st); err != nil {
@@ -222,9 +252,7 @@ func (s *ddlSchema) apply(stmt string) error {
 	case toks[0].is("RENAME"):
 		return s.rename(stmt, toks)
 	case toks[0].is("GRANT"), toks[0].is("REVOKE"):
-		s.objs = append(s.objs, ddlObject{text: stmt})
-
-		return nil
+		return s.grantStatement(stmt, toks)
 	case toks[0].is("ANALYZE"):
 		return nil
 	default:
@@ -384,8 +412,12 @@ func columnName(item []ddlTok) (string, bool) {
 	}
 
 	switch strings.ToUpper(item[0].text) {
-	case "CONSTRAINT", "FOREIGN", "CHECK", "PRIMARY", "UNIQUE":
+	case "CONSTRAINT", "FOREIGN", "CHECK", kwPrimary, "UNIQUE":
 		return "", false
+	case "SYNONYM":
+		if len(item) > 1 && item[1].text == "(" {
+			return "", false
+		}
 	}
 
 	return identName(item[0]), true
@@ -502,6 +534,7 @@ func (s *ddlSchema) drop(toks []ddlTok) error {
 
 	s.objs = slices.Delete(s.objs, i, i+1)
 	s.forget(kind, name)
+	s.dropGrants(kind, name)
 
 	return nil
 }

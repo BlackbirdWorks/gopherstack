@@ -15,9 +15,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type dockerSnapshotCase struct {
@@ -232,25 +231,108 @@ func ts(s string) time.Time {
 	return v
 }
 
-func TestDocker_BackupsAreUnimplementedWithReason(t *testing.T) {
+func TestDocker_BackupsRoundTripRows(t *testing.T) {
 	t.Parallel()
 
 	e := dockerEnv(t)
 	e.createInstance(t, "bk")
 
 	inst := parent + "/instances/bk"
-	e.createDB(t, "bk", "CREATE TABLE t (id INT64 NOT NULL) PRIMARY KEY (id)")
+	db := e.createDB(t, "bk",
+		"CREATE TABLE t (id INT64 NOT NULL, v STRING(MAX), n NUMERIC) PRIMARY KEY (id)")
 
-	_, err := e.databases.CreateBackup(t.Context(), &databasepb.CreateBackupRequest{
-		Parent: inst, BackupId: "b1", Backup: &databasepb.Backup{Database: inst + "/databases/app"},
+	sc := newSpannerClient(t, e, db.GetName())
+	first, err := sc.Apply(t.Context(), []*spanner.Mutation{
+		spanner.InsertOrUpdateMap("t", map[string]any{"id": int64(1), "v": "one", "n": mustNumeric("1.5")}),
 	})
-	require.Equal(t, codes.Unimplemented, status.Code(err))
-	assert.Contains(t, status.Convert(err).Message(), "emulator does not implement")
+	require.NoError(t, err)
 
-	_, err = e.databases.RestoreDatabase(t.Context(), &databasepb.RestoreDatabaseRequest{
-		Parent: inst, DatabaseId: "r1",
-		Source: &databasepb.RestoreDatabaseRequest_Backup{Backup: inst + "/backups/b1"},
+	_, err = sc.Apply(t.Context(), []*spanner.Mutation{
+		spanner.InsertOrUpdateMap("t", map[string]any{"id": int64(2), "v": "two", "n": mustNumeric("2")}),
 	})
-	require.Equal(t, codes.Unimplemented, status.Code(err))
-	assert.Contains(t, status.Convert(err).Message(), "emulator does not implement")
+	require.NoError(t, err)
+
+	want := dumpTable(t, sc, "t", []string{"id", "v", "n"})
+	require.Len(t, want, 2)
+
+	cb, err := e.databases.CreateBackup(t.Context(), &databasepb.CreateBackupRequest{
+		Parent: inst, BackupId: "b1",
+		Backup: &databasepb.Backup{Database: db.GetName(), ExpireTime: timestamppb.New(time.Now().Add(48 * time.Hour))},
+	})
+	require.NoError(t, err)
+
+	bk, err := cb.Wait(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, databasepb.Backup_READY, bk.GetState())
+
+	_, err = sc.Apply(t.Context(), []*spanner.Mutation{spanner.Delete("t", spanner.AllKeys())})
+	require.NoError(t, err)
+	assert.Empty(t, dumpTable(t, sc, "t", []string{"id", "v", "n"}))
+
+	old, err := e.databases.CreateBackup(t.Context(), &databasepb.CreateBackupRequest{
+		Parent: inst, BackupId: "stale",
+		Backup: &databasepb.Backup{
+			Database: db.GetName(), ExpireTime: timestamppb.New(time.Now().Add(48 * time.Hour)),
+			VersionTime: timestamppb.New(first),
+		},
+	})
+	require.NoError(t, err)
+
+	staleBackup, err := old.Wait(t.Context())
+	require.NoError(t, err)
+	assert.True(t, first.Equal(staleBackup.GetVersionTime().AsTime()))
+
+	sop, err := e.databases.RestoreDatabase(t.Context(), &databasepb.RestoreDatabaseRequest{
+		Parent:     inst,
+		DatabaseId: "stale",
+		Source:     &databasepb.RestoreDatabaseRequest_Backup{Backup: staleBackup.GetName()},
+	})
+	require.NoError(t, err)
+
+	staleDB, err := sop.Wait(t.Context())
+	require.NoError(t, err)
+
+	stc := newSpannerClient(t, e, staleDB.GetName())
+	assert.Equal(
+		t,
+		want[:1],
+		dumpTable(t, stc, "t", []string{"id", "v", "n"}),
+		"a backup holds the rows as of its version_time",
+	)
+
+	rop, err := e.databases.RestoreDatabase(t.Context(), &databasepb.RestoreDatabaseRequest{
+		Parent: inst, DatabaseId: "restored", Source: &databasepb.RestoreDatabaseRequest_Backup{Backup: bk.GetName()},
+	})
+	require.NoError(t, err)
+
+	restored, err := rop.Wait(t.Context())
+	require.NoError(t, err)
+
+	rc := newSpannerClient(t, e, restored.GetName())
+	assert.Equal(
+		t,
+		want,
+		dumpTable(t, rc, "t", []string{"id", "v", "n"}),
+		"the restored database holds the backed up rows",
+	)
+
+	snap := e.handler.Snapshot(t.Context())
+
+	dst := dockerEnv(t)
+	require.NoError(t, dst.handler.Restore(t.Context(), snap))
+
+	got, err := dst.databases.GetBackup(t.Context(), &databasepb.GetBackupRequest{Name: bk.GetName()})
+	require.NoError(t, err)
+	assert.Equal(t, bk.GetSizeBytes(), got.GetSizeBytes())
+
+	rop2, err := dst.databases.RestoreDatabase(t.Context(), &databasepb.RestoreDatabaseRequest{
+		Parent: inst, DatabaseId: "again", Source: &databasepb.RestoreDatabaseRequest_Backup{Backup: bk.GetName()},
+	})
+	require.NoError(t, err)
+
+	again, err := rop2.Wait(t.Context())
+	require.NoError(t, err)
+
+	ac := newSpannerClient(t, dst, again.GetName())
+	assert.Equal(t, want, dumpTable(t, ac, "t", []string{"id", "v", "n"}), "backups survive a snapshot with their rows")
 }

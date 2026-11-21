@@ -341,6 +341,7 @@ func (b *InMemoryBackend) DropDatabase(ctx context.Context, name string) (*empty
 	}
 
 	b.dropPendingData(name)
+	b.dropReferencesLocked(name)
 
 	return &emptypb.Empty{}, nil
 }
@@ -482,20 +483,51 @@ func (b *InMemoryBackend) currentDDL(db string) []string {
 
 // foldStored applies stmts to the stored DDL of db; the first failing statement stops the batch and is reported.
 func (b *InMemoryBackend) foldStored(db string, stmts []string) ddlResult {
+	inst, id, err := parseDatabase(db)
+	if err != nil {
+		return ddlResult{failure: statusOf(err)}
+	}
+
+	b.mu.Lock("foldStored")
+	defer b.mu.Unlock()
+
+	rec, ok := b.instances[inst]
+	if !ok {
+		return ddlResult{failure: statusOf(errInstanceNotFound(inst))}
+	}
+
+	d, ok := rec.dbs[id]
+	if !ok {
+		return ddlResult{failure: statusOf(errDatabaseNotFound(db))}
+	}
+
+	cfg, known := b.lookupConfigLocked(rec.pb.GetConfig())
+
 	var (
 		failure error
 		applied int
 	)
 
-	b.mutateDB(db, func(d *dbRec) {
-		d.ddl, applied, failure = foldDDL(d.ddl, stmts, databaseIsPostgres(d.pb))
-	})
+	d.ddl, applied, failure = foldDDLFor(d.ddl, stmts, databaseIsPostgres(d.pb), cfg.GetLeaderOptions(), known)
+	applyDatabaseOptions(d.pb, d.ddl)
 
 	if failure != nil {
 		return ddlResult{failure: statusOf(failure), applied: applied}
 	}
 
 	return ddlResult{}
+}
+
+// applyDatabaseOptions mirrors the ALTER DATABASE options of the schema into the database resource.
+func applyDatabaseOptions(pb *databasepb.Database, ddl []string) {
+	opts := ddlDatabaseOptions(ddl, databaseIsPostgres(pb))
+
+	pb.VersionRetentionPeriod = retentionDefault
+	if v, ok := opts["version_retention_period"]; ok {
+		pb.VersionRetentionPeriod = v
+	}
+
+	pb.DefaultLeader = opts["default_leader"]
 }
 
 func (b *InMemoryBackend) setDDL(db string, ddl []string) {

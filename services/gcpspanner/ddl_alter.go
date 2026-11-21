@@ -90,9 +90,7 @@ func (t *tableText) inPrimaryKey(name string) bool {
 
 func (s *ddlSchema) alter(stmt string, toks []ddlTok) error {
 	if len(toks) <= posName || !toks[1].is(kindTable) {
-		s.objs = append(s.objs, ddlObject{text: stmt})
-
-		return nil
+		return s.alterOther(stmt, toks)
 	}
 
 	at, ifExists := skipIf(toks, posName, "IF", "EXISTS")
@@ -118,7 +116,7 @@ func (s *ddlSchema) alter(stmt string, toks []ddlTok) error {
 		return nil
 	}
 
-	folded, err := s.alterAction(tt, stmt, toks[at:])
+	folded, err := s.alterAction(i, tt, stmt, toks[at:])
 	if err != nil {
 		return err
 	}
@@ -134,10 +132,67 @@ func (s *ddlSchema) alter(stmt string, toks []ddlTok) error {
 	return nil
 }
 
+// alterOther folds the ALTER statements of objects other than tables; forms it does not model are kept verbatim.
+func (s *ddlSchema) alterOther(stmt string, toks []ddlTok) error {
+	var (
+		handled bool
+		err     error
+	)
+
+	switch {
+	case len(toks) <= posName:
+	case toks[1].is(kindIndex):
+		return s.alterIndex(stmt, toks)
+	case toks[1].is("DATABASE"):
+		return s.alterDatabase(stmt, toks)
+	case toks[1].is("SEQUENCE") && s.postgres:
+		handled, err = s.alterPGSequence(stmt, toks)
+	case toks[1].is("SEQUENCE"):
+		handled, err = s.alterOptionsObject(stmt, toks, kindSequence, posName)
+	case hasPrefix(toks, "ALTER", "LOCALITY", "GROUP"):
+		handled, err = s.alterOptionsObject(stmt, toks, kindLocality, posType)
+	case hasPrefix(toks, "ALTER", "MODEL"):
+		handled, err = s.alterOptionsObject(stmt, toks, kindModel, posName)
+	case hasPrefix(toks, "ALTER", "CHANGE", "STREAM"):
+		handled, err = s.alterChangeStream(stmt, toks)
+	case hasPrefix(toks, "ALTER", "PROTO", "BUNDLE"):
+		handled, err = s.alterBundle(stmt, toks)
+	case hasPrefix(toks, "ALTER", "STATISTICS"):
+		return s.alterStatistics(stmt, toks)
+	}
+
+	if handled || err != nil {
+		return err
+	}
+
+	s.objs = append(s.objs, ddlObject{text: stmt})
+
+	return nil
+}
+
+// alterStatistics validates ALTER STATISTICS package SET OPTIONS (allow_gc = bool); statistics packages are not
+// part of the schema, so nothing is stored.
+func (s *ddlSchema) alterStatistics(stmt string, toks []ddlTok) error {
+	if len(toks) < posType+posName || !toks[posName].word || !hasPrefix(toks[posType:], "SET", "OPTIONS") {
+		return errInvalid("Syntax error: expected ALTER STATISTICS name SET OPTIONS (...).")
+	}
+
+	pairs, _, err := pairsAfter(stmt, toks, posType+posName)
+	if err != nil {
+		return err
+	}
+
+	return checkOptionKeys(pairs, map[string]func(optPair) error{"allow_gc": boolValue}, "statistics")
+}
+
 // alterAction folds one ALTER TABLE action into tt. It reports false for an action the schema does not model,
 // which the caller keeps verbatim.
-func (s *ddlSchema) alterAction(tt *tableText, stmt string, act []ddlTok) (bool, error) {
+func (s *ddlSchema) alterAction(i int, tt *tableText, stmt string, act []ddlTok) (bool, error) {
 	if folded, err := s.columnAction(tt, stmt, act); folded || err != nil {
+		return folded, err
+	}
+
+	if folded, err := s.tableAction(i, tt, stmt, act); folded || err != nil {
 		return folded, err
 	}
 
@@ -169,12 +224,30 @@ func (s *ddlSchema) columnAction(tt *tableText, stmt string, act []ddlTok) (bool
 		}
 
 		return true, tt.dropColumn(identName(act[at]))
-	case !s.postgres && startsWith(act, "ALTER", "COLUMN") && len(act) > posType && act[posName].word &&
-		!act[posType].is("SET") && !act[posType].is("DROP"):
-		return true, tt.alterColumn(stmt, act)
+	case startsWith(act, "ALTER") && (!s.postgres || !act[1].is("TTL")):
+		return s.alterAny(tt, stmt, act)
 	}
 
 	return false, nil
+}
+
+// alterAny folds ALTER [COLUMN] name: an attribute change, or in GoogleSQL a full redefinition.
+func (s *ddlSchema) alterAny(tt *tableText, stmt string, act []ddlTok) (bool, error) {
+	if folded, err := s.alterColumn(tt, stmt, act); folded || err != nil {
+		return folded, err
+	}
+
+	col := 1
+	if act[1].is("COLUMN") {
+		col = 2
+	}
+
+	if s.postgres || len(act) <= col+1 || !act[col].word || act[col+1].is("SET") || act[col+1].is("DROP") ||
+		act[col+1].is("ALTER") {
+		return false, nil
+	}
+
+	return true, tt.alterColumn(stmt, act, col)
 }
 
 // bareAddColumn is GoogleSQL's ADD name type without the COLUMN keyword, as opposed to the other ADD actions.
@@ -285,15 +358,15 @@ func (t *tableText) dropConstraint(name string) error {
 	return nil
 }
 
-func (t *tableText) alterColumn(stmt string, act []ddlTok) error {
-	name := identName(act[2])
+func (t *tableText) alterColumn(stmt string, act []ddlTok, col int) error {
+	name := identName(act[col])
 
 	i := t.column(name)
 	if i < 0 {
 		return errNotFound("Column not found: %s.", name)
 	}
 
-	def := act[2:]
+	def := act[col:]
 	t.items[i] = stmt[def[0].start:def[len(def)-1].end]
 	t.toks[i] = def
 
