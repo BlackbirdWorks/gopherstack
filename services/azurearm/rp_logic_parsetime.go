@@ -1,6 +1,7 @@
 package azurearm
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -38,7 +39,7 @@ func tokenizeNetFormat(f string) []fmtTok {
 		case 'y', 'M', 'd', 'H', 'h', 'm', 's', 'f', 'F', 't', 'K', 'z':
 			toks = append(toks, fmtTok{kind: c, n: n})
 		default:
-			toks = append(toks, fmtTok{kind: 'L', lit: strings.Repeat(string(c), n)})
+			toks = append(toks, fmtTok{kind: 'L', lit: strings.Repeat(string([]byte{c}), n)})
 		}
 
 		i += n
@@ -53,8 +54,8 @@ type parsedTime struct {
 }
 
 type timeScanner struct {
-	loc logicLocale
 	s   string
+	loc logicLocale
 	pos int
 }
 
@@ -74,15 +75,12 @@ func (sc *timeScanner) digits(minN, maxN int) (int, bool) {
 }
 
 // name matches one of names (full, or the first three letters when abbrev) ignoring case; it returns its index.
-func (sc *timeScanner) name(names []string, abbrev bool) (int, bool) {
+func (sc *timeScanner) name(names []string) (int, bool) {
 	rest := strings.ToLower(sc.s[sc.pos:])
 	best, bestLen := -1, 0
 
 	for i, nm := range names {
 		cand := strings.ToLower(nm)
-		if abbrev {
-			cand = string([]rune(cand)[:widthThree])
-		}
 
 		if strings.HasPrefix(rest, cand) && len(cand) > bestLen {
 			best, bestLen = i, len(cand)
@@ -155,7 +153,7 @@ func (sc *timeScanner) year(n int, pt *parsedTime) bool {
 
 func (sc *timeScanner) month(n int, pt *parsedTime) bool {
 	if n >= widthThree {
-		i, ok := sc.name(sc.loc.months[:], n == widthThree)
+		i, ok := sc.name(sc.loc.monthNames(n == widthThree))
 		pt.month = i + 1
 
 		return ok
@@ -169,7 +167,7 @@ func (sc *timeScanner) month(n int, pt *parsedTime) bool {
 
 func (sc *timeScanner) day(n int, pt *parsedTime) bool {
 	if n >= widthThree {
-		_, ok := sc.name(sc.loc.days[:], n == widthThree)
+		_, ok := sc.name(sc.loc.dayNames(n == widthThree))
 
 		return ok
 	}
@@ -221,13 +219,14 @@ func (sc *timeScanner) fraction(t fmtTok, pt *parsedTime) bool {
 }
 
 func (sc *timeScanner) meridiem(pt *parsedTime) bool {
-	rest := strings.ToUpper(sc.s[sc.pos:])
+	rest := strings.ToLower(sc.s[sc.pos:])
+	am, pm := strings.ToLower(sc.loc.am), strings.ToLower(sc.loc.pm)
 
 	switch {
-	case strings.HasPrefix(rest, "AM"):
-		sc.pos += widthTwo
-	case strings.HasPrefix(rest, "PM"):
-		sc.pos += widthTwo
+	case am != "" && strings.HasPrefix(rest, am) && (pm == "" || len(am) >= len(pm) || !strings.HasPrefix(rest, pm)):
+		sc.pos += len(am)
+	case pm != "" && strings.HasPrefix(rest, pm):
+		sc.pos += len(pm)
 		pt.pm = true
 	default:
 		return false
@@ -336,7 +335,7 @@ func parseLocaleDefault(s string, loc logicLocale, key string) (logicTS, bool) {
 		}
 	}
 
-	for _, base := range logicLocaleFormats[key] {
+	for _, base := range append(slices.Clone(logicLocaleFormats[key]), loc.parse...) {
 		for _, suf := range logicTimeSuffixes {
 			if ts, ok := parseNetFormat(s, base+suf, loc); ok {
 				return ts, true
@@ -389,7 +388,7 @@ func parseWithFormat(s, format string, loc logicLocale) (logicTS, bool) {
 		return ts, err == nil
 	}
 
-	if f, std := logicStandardFormats[format]; std {
+	if f, std := loc.standardFormat(format); std {
 		format = f
 	} else if len(format) == 1 {
 		return logicTS{}, false

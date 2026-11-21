@@ -34,9 +34,9 @@ func TestLogicHTTPActiveDirectoryOAuth(t *testing.T) {
 			auth:       la{"tenant": "t1", "audience": "https://aud/", "clientId": "cid", "secret": "wrong"},
 		},
 		{
-			name:       "certificate credential is refused",
+			name:       "certificate credential with an undecodable pfx",
 			wantStatus: armlogic.WorkflowStatusFailed,
-			wantCode:   "InvalidTemplate",
+			wantCode:   "BadRequest",
 			auth: la{
 				"tenant":         "t1",
 				"audience":       "a",

@@ -141,6 +141,7 @@ func (h *Handler) handleLogic(c *echo.Context, segs []string) error {
 
 	r := c.Request()
 	q := logicReq{c: c, lp: lp, base: h.baseURLFor(r)}
+	lp.setBase(q.base)
 
 	if isLogicLocationValidate(segs) {
 		q.ref = logicRef3{sub: segs[logicSubIdx], rg: segs[logicRGIdx], wf: segs[logicIdxLocWf]}
@@ -182,26 +183,44 @@ func logicHandlers() map[string]logicHandlerFunc {
 		"POST:regenerateaccesskey": (*Handler).logicRegenerate,
 		"POST:listcallbackurl":     func(h *Handler, q logicReq) error { return h.logicCallback(q, "") },
 		"POST:validate":            (*Handler).logicValidate,
+		"POST:listswagger":         (*Handler).logicListSwagger,
 		"GET:versions":             (*Handler).logicListVersions,
 		"GET:versions/*":           (*Handler).logicGetVersion,
 		"POST:versions/*/triggers/*/listcallbackurl": func(h *Handler, q logicReq) error {
 			return h.logicCallback(q, q.rest[3])
 		},
-		"GET:triggers":                         (*Handler).logicListTriggers,
-		"GET:triggers/*":                       (*Handler).logicGetTrigger,
-		"POST:triggers/*/listcallbackurl":      func(h *Handler, q logicReq) error { return h.logicCallback(q, q.rest[1]) },
-		"POST:triggers/*/run":                  (*Handler).logicRunTrigger,
-		"POST:triggers/*/reset":                (*Handler).logicResetTrigger,
-		"POST:triggers/*/setstate":             (*Handler).logicSetTriggerState,
-		"GET:triggers/*/schemas/*":             (*Handler).logicTriggerSchema,
-		"GET:triggers/*/histories":             (*Handler).logicListHistories,
-		"GET:triggers/*/histories/*":           (*Handler).logicGetHistory,
-		"POST:triggers/*/histories/*/resubmit": (*Handler).logicResubmit,
-		"GET:runs":                             (*Handler).logicListRuns,
-		"GET:runs/*":                           (*Handler).logicGetRun,
-		"POST:runs/*/cancel":                   (*Handler).logicCancelRun,
-		"GET:runs/*/actions":                   (*Handler).logicListActions,
-		"GET:runs/*/actions/*":                 (*Handler).logicGetAction,
+		"GET:triggers":   (*Handler).logicListTriggers,
+		"GET:triggers/*": (*Handler).logicGetTrigger,
+		"POST:triggers/*/listcallbackurl": func(h *Handler, q logicReq) error {
+			return h.logicCallback(q, q.rest[1])
+		},
+		"POST:triggers/*/run":                     (*Handler).logicRunTrigger,
+		"POST:triggers/*/reset":                   (*Handler).logicResetTrigger,
+		"POST:triggers/*/setstate":                (*Handler).logicSetTriggerState,
+		"GET:triggers/*/schemas/*":                (*Handler).logicTriggerSchema,
+		"GET:triggers/*/histories":                (*Handler).logicListHistories,
+		"GET:triggers/*/histories/*":              (*Handler).logicGetHistory,
+		"POST:triggers/*/histories/*/resubmit":    (*Handler).logicResubmit,
+		"GET:runs":                                (*Handler).logicListRuns,
+		"GET:runs/*":                              (*Handler).logicGetRun,
+		"POST:runs/*/cancel":                      (*Handler).logicCancelRun,
+		"GET:runs/*/actions":                      (*Handler).logicListActions,
+		"GET:runs/*/actions/*":                    (*Handler).logicGetAction,
+		"GET:runs/*/operations/*":                 (*Handler).logicGetOperation,
+		"GET:runs/*/actions/*/requesthistories":   func(h *Handler, q logicReq) error { return h.logicListRequests(q, "") },
+		"GET:runs/*/actions/*/requesthistories/*": func(h *Handler, q logicReq) error { return h.logicGetRequest(q, "") },
+		"POST:runs/*/actions/*/listexpressiontraces": func(h *Handler, q logicReq) error {
+			return h.logicExpressionTraces(q, "")
+		},
+		"GET:runs/*/actions/*/repetitions/*/requesthistories": func(h *Handler, q logicReq) error {
+			return h.logicListRequests(q, q.rest[5])
+		},
+		"GET:runs/*/actions/*/repetitions/*/requesthistories/*": func(h *Handler, q logicReq) error {
+			return h.logicGetRequest(q, q.rest[5])
+		},
+		"POST:runs/*/actions/*/repetitions/*/listexpressiontraces": func(h *Handler, q logicReq) error {
+			return h.logicExpressionTraces(q, q.rest[5])
+		},
 		"GET:runs/*/actions/*/repetitions": func(h *Handler, q logicReq) error {
 			return h.logicListRepetitions(q, false)
 		},

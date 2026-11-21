@@ -3,6 +3,7 @@ package azurearm
 import (
 	"context"
 	"crypto/rand"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -61,12 +62,16 @@ type logicVersion struct {
 }
 
 type logicTriggerState struct {
-	Anchor  time.Time  `json:"anchor"`
-	Created time.Time  `json:"created"`
-	Changed time.Time  `json:"changed"`
-	Last    *time.Time `json:"last,omitempty"`
-	Next    *time.Time `json:"next,omitempty"`
-	State   string     `json:"state"`
+	Anchor  time.Time     `json:"anchor"`
+	Created time.Time     `json:"created"`
+	Changed time.Time     `json:"changed"`
+	Last    *time.Time    `json:"last,omitempty"`
+	Next    *time.Time    `json:"next,omitempty"`
+	PollURL string        `json:"pollUrl,omitempty"`
+	Hook    *logicHookRec `json:"hook,omitempty"`
+	State   string        `json:"state"`
+
+	HookPending bool `json:"-"`
 }
 
 type logicContent struct {
@@ -91,17 +96,19 @@ type logicRunTrigger struct {
 }
 
 type logicActionRec struct {
-	Start    time.Time    `json:"start"`
-	End      time.Time    `json:"end"`
-	Error    any          `json:"error,omitempty"`
-	Name     string       `json:"name"`
-	Type     string       `json:"type"`
-	Status   string       `json:"status"`
-	Code     string       `json:"code,omitempty"`
-	Tracking string       `json:"tracking,omitempty"`
-	Inputs   logicContent `json:"inputs"`
-	Outputs  logicContent `json:"outputs"`
-	Taints   bool         `json:"taints,omitempty"`
+	End      time.Time          `json:"end"`
+	Start    time.Time          `json:"start"`
+	Error    any                `json:"error,omitempty"`
+	Inputs   logicContent       `json:"inputs"`
+	Outputs  logicContent       `json:"outputs"`
+	Name     string             `json:"name"`
+	Code     string             `json:"code,omitempty"`
+	Tracking string             `json:"tracking,omitempty"`
+	Status   string             `json:"status"`
+	Type     string             `json:"type"`
+	Requests []*logicRequestRec `json:"requests,omitempty"`
+	Traces   []*logicTraceRoot  `json:"traces,omitempty"`
+	Taints   bool               `json:"taints,omitempty"`
 }
 
 type logicRepIndex struct {
@@ -113,8 +120,8 @@ type logicRepIndex struct {
 type logicRepRec struct {
 	Action  string          `json:"action"`
 	Name    string          `json:"name"`
-	Rec     logicActionRec  `json:"rec"`
 	Indexes []logicRepIndex `json:"indexes"`
+	Rec     logicActionRec  `json:"rec"`
 	Scope   bool            `json:"scope,omitempty"`
 }
 
@@ -172,23 +179,28 @@ type logicWorkflow struct {
 	Versions     []*logicVersion               `json:"versions"`
 	Runs         []*logicRunRec                `json:"runs"`
 	Histories    []*logicHistory               `json:"histories"`
+	Operations   []*logicOperation             `json:"operations,omitempty"`
 }
 
 // LogicProvider implements ResourceProvider for Microsoft.Logic Consumption workflows: ARM CRUD, run history and
 // the workflow engine that executes definitions.
 type LogicProvider struct {
+	rootCtx  context.Context //nolint:containedctx // lifetime of every run goroutine
 	clock    gcpscale.Clock
-	http     *http.Client
-	mu       *lockmetrics.RWMutex
-	wf       map[string]*logicWorkflow
+	cancel   context.CancelFunc
+	roots    atomic.Pointer[x509.CertPool]
 	live     map[string]*logicLive
 	queue    map[string][]*logicQueued
 	timers   map[string]gcpscale.Timer
-	rootCtx  context.Context //nolint:containedctx // lifetime of every run goroutine
-	cancel   context.CancelFunc
+	mu       *lockmetrics.RWMutex
+	http     *http.Client
+	wf       map[string]*logicWorkflow
+	hookBase string
+	hookQ    []*logicHookJob
 	wg       sync.WaitGroup
 	seq      atomic.Int64
 	external atomic.Bool
+	hookRun  bool
 }
 
 // NewLogicProvider creates a LogicProvider on the wall clock.
@@ -240,6 +252,7 @@ func (p *LogicProvider) ResourceTypes() []ResourceTypeDef {
 		{Type: logicWorkflowsType + "/triggers/histories", APIVersions: v},
 		{Type: logicWorkflowsType + "/runs", APIVersions: v},
 		{Type: logicWorkflowsType + "/runs/actions", APIVersions: v},
+		{Type: logicWorkflowsType + "/runs/actions/requestHistories", APIVersions: v},
 		{Type: logicWorkflowsType + "/versions", APIVersions: v},
 	}
 }
@@ -351,6 +364,8 @@ func (p *LogicProvider) Delete(_ context.Context, id ResourceID) error {
 
 // detachLocked removes w and returns its live runs for cancellation; caller holds p.mu.
 func (p *LogicProvider) detachLocked(w *logicWorkflow) logicLiveSet {
+	p.unsubscribeAllLocked(w)
+
 	key := w.key()
 	delete(p.wf, key)
 
@@ -466,13 +481,18 @@ func (p *LogicProvider) stopAllTimers() {
 	}
 }
 
-func (p *LogicProvider) newHTTPClient() *http.Client {
+func (p *LogicProvider) newTransport() *http.Transport {
 	tr := httpclient.NewTransport()
 	tr.Proxy = nil
 	tr.DialContext = httpclient.LoopbackDialer(p.external.Load, ErrLogicDestinationNotPermitted).DialContext
+	tr.TLSClientConfig = p.tlsConfig()
 
+	return tr
+}
+
+func (p *LogicProvider) newHTTPClient() *http.Client {
 	return &http.Client{
-		Transport:     tr,
+		Transport:     p.newTransport(),
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 }

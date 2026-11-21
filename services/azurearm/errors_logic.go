@@ -15,6 +15,8 @@ var (
 	ErrLogicRepNotFound      = errors.New("azurearm: logic run action repetition not found")
 	ErrLogicHistoryNotFound  = errors.New("azurearm: logic trigger history not found")
 	ErrLogicVersionNotFound  = errors.New("azurearm: logic workflow version not found")
+	ErrLogicRequestNotFound  = errors.New("azurearm: logic request history not found")
+	ErrLogicOperationMissing = errors.New("azurearm: logic run operation not found")
 	ErrLogicExpr             = errors.New("logic expression error")
 )
 
@@ -59,6 +61,8 @@ func logicErrorDetails(err error) (errorEntry, bool) {
 		{ErrLogicRepNotFound, notFoundEntry("The workflow run action repetition was not found.")},
 		{ErrLogicHistoryNotFound, notFoundEntry("The workflow trigger history was not found.")},
 		{ErrLogicVersionNotFound, notFoundEntry("The workflow version was not found.")},
+		{ErrLogicRequestNotFound, notFoundEntry("The workflow run action request history was not found.")},
+		{ErrLogicOperationMissing, notFoundEntry("The workflow run operation was not found.")},
 	}
 
 	for _, e := range table {

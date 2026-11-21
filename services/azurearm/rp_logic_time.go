@@ -9,6 +9,7 @@ import (
 const (
 	logicLocaleEnUS = "en-us"
 	logicRoundTrip  = "o"
+	logicRFC1123    = "ddd, dd MMM yyyy HH:mm:ss 'GMT'"
 	widthTwo        = 2
 	widthThree      = 3
 	widthFour       = 4
@@ -45,33 +46,41 @@ var logicStandardFormats = map[string]string{ //nolint:gochecknoglobals // stati
 }
 
 type logicLocale struct {
-	months [12]string
-	days   [7]string
+	std        map[string]string
+	months     [12]string
+	abbrMonths [12]string
+	days       [7]string
+	abbrDays   [7]string
+	am         string
+	pm         string
+	parse      []string
 }
 
-//nolint:gochecknoglobals // static locale name tables
-var logicLocales = map[string]logicLocale{
-	logicLocaleEnUS: {
-		months: [12]string{
-			"January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
-			"November", "December",
-		},
-		days: [7]string{"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"},
-	},
-	"fr-fr": {
-		months: [12]string{
-			"janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre",
-			"novembre", "décembre",
-		},
-		days: [7]string{"dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"},
-	},
-	"es-es": {
-		months: [12]string{
-			"enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre",
-			"noviembre", "diciembre",
-		},
-		days: [7]string{"domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"},
-	},
+func (l logicLocale) monthNames(abbr bool) []string {
+	if abbr {
+		return l.abbrMonths[:]
+	}
+
+	return l.months[:]
+}
+
+func (l logicLocale) dayNames(abbr bool) []string {
+	if abbr {
+		return l.abbrDays[:]
+	}
+
+	return l.days[:]
+}
+
+// standardFormat returns the custom pattern of a .NET standard specifier for the culture.
+func (l logicLocale) standardFormat(spec string) (string, bool) {
+	if f, ok := l.std[spec]; ok {
+		return f, true
+	}
+
+	f, ok := logicStandardFormats[spec]
+
+	return f, ok
 }
 
 // formatLogicTime renders ts using a .NET standard or custom format string.
@@ -94,7 +103,11 @@ func formatLogicTime(ts logicTS, format, locale string) (string, error) {
 		return out, nil
 	}
 
-	if f, std := logicStandardFormats[format]; std {
+	if format == "R" || format == "r" {
+		return formatLogicCustom(ts.t, logicRFC1123, logicLocales[logicLocaleEnUS]), nil
+	}
+
+	if f, std := loc.standardFormat(format); std {
 		format = f
 	} else if len(format) == 1 {
 		return "", exprErr("the format specifier %q is not valid", format)
@@ -175,12 +188,12 @@ func formatField(t time.Time, c byte, n int, loc logicLocale) string {
 	case 'f', 'F':
 		return fmtFraction(t, n, c == 'F')
 	case 't':
-		return fmtMeridiem(t, n)
+		return fmtMeridiem(t, n, loc)
 	case 'K', 'Z':
 		return "Z"
 	}
 
-	return strings.Repeat(string(c), n)
+	return strings.Repeat(string([]byte{c}), n)
 }
 
 func padNum(v, width int) string {
@@ -204,22 +217,16 @@ func fmtYear(y, n int) string {
 }
 
 func fmtMonth(t time.Time, n int, loc logicLocale) string {
-	switch {
-	case n >= widthFour:
-		return loc.months[t.Month()-1]
-	case n == widthThree:
-		return string([]rune(loc.months[t.Month()-1])[:widthThree])
+	if n >= widthThree {
+		return loc.monthNames(n == widthThree)[t.Month()-1]
 	}
 
 	return padNum(int(t.Month()), n)
 }
 
 func fmtDay(t time.Time, n int, loc logicLocale) string {
-	switch {
-	case n >= widthFour:
-		return loc.days[t.Weekday()]
-	case n == widthThree:
-		return string([]rune(loc.days[t.Weekday()])[:widthThree])
+	if n >= widthThree {
+		return loc.dayNames(n == widthThree)[t.Weekday()]
 	}
 
 	return padNum(t.Day(), n)
@@ -240,14 +247,14 @@ func fmtFraction(t time.Time, n int, trim bool) string {
 	return out
 }
 
-func fmtMeridiem(t time.Time, n int) string {
-	s := "AM"
+func fmtMeridiem(t time.Time, n int, loc logicLocale) string {
+	s := loc.am
 	if t.Hour() >= twelve {
-		s = "PM"
+		s = loc.pm
 	}
 
 	if n == 1 {
-		return s[:1]
+		return string([]rune(s)[:min(1, len([]rune(s)))])
 	}
 
 	return s

@@ -137,9 +137,9 @@ func (p *LogicProvider) callbackFor(r logicRef3, trigger, base string, body map[
 		}
 
 		def := w.triggerDef(name)
-		if t := typeOf(def); t != logicTrigRequest && t != logicTrigManual {
+		if t := typeOf(def); t != logicTrigRequest && t != logicTrigManual && t != logicTrigWebhook {
 			return nil, logicBadRequest("InvalidTriggerType",
-				"The trigger '%s' is not a request trigger and has no callback URL.", name)
+				"The trigger '%s' is not a request or webhook trigger and has no callback URL.", name)
 		}
 
 		if _, ok := w.Triggers[name]; !ok {

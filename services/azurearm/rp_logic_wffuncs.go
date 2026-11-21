@@ -311,6 +311,10 @@ func wfIterationIndexes(c *logicEvalCtx, a []any) (any, error) {
 }
 
 func wfListCallbackURL(c *logicEvalCtx, _ []any) (any, error) {
+	if c.rs.callbackURL != "" {
+		return c.rs.callbackURL, nil
+	}
+
 	return nil, exprErr(
 		"listCallbackUrl() is only valid in HttpWebhook and ApiConnectionWebhook triggers and actions, "+
 			"and workflow '%s' is not evaluating one", c.rs.wfName,

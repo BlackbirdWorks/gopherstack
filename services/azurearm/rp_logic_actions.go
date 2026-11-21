@@ -24,7 +24,7 @@ const (
 )
 
 func (rs *logicRunState) runCompose(env *logicEnv, name string, def map[string]any) logicOutcome {
-	v, err := rs.eval(env, def["inputs"])
+	v, err := rs.evalTraced(env, name, logicKInputs, def["inputs"])
 	if err != nil {
 		return exprFailure(name, err)
 	}
@@ -33,7 +33,7 @@ func (rs *logicRunState) runCompose(env *logicEnv, name string, def map[string]a
 }
 
 func (rs *logicRunState) runWait(env *logicEnv, name string, def map[string]any) logicOutcome {
-	in, err := rs.evalInputs(env, def)
+	in, err := rs.evalInputs(env, name, def)
 	if err != nil {
 		return exprFailure(name, err)
 	}
@@ -52,8 +52,8 @@ func (rs *logicRunState) runWait(env *logicEnv, name string, def map[string]any)
 	return out
 }
 
-func (rs *logicRunState) evalInputs(env *logicEnv, def map[string]any) (map[string]any, error) {
-	v, err := rs.eval(env, def["inputs"])
+func (rs *logicRunState) evalInputs(env *logicEnv, name string, def map[string]any) (map[string]any, error) {
+	v, err := rs.evalTraced(env, name, logicKInputs, def["inputs"])
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +114,7 @@ func logicUnitDuration(unit string, n int64) (time.Duration, error) {
 }
 
 func (rs *logicRunState) runTerminate(env *logicEnv, name string, def map[string]any) logicOutcome {
-	in, err := rs.evalInputs(env, def)
+	in, err := rs.evalInputs(env, name, def)
 	if err != nil {
 		return exprFailure(name, err)
 	}
@@ -148,7 +148,7 @@ func (rs *logicRunState) runTerminate(env *logicEnv, name string, def map[string
 }
 
 func (rs *logicRunState) runResponse(env *logicEnv, name string, def map[string]any) logicOutcome {
-	in, err := rs.evalInputs(env, def)
+	in, err := rs.evalInputs(env, name, def)
 	if err != nil {
 		return exprFailure(name, err)
 	}
@@ -643,7 +643,7 @@ func logicZero(typ string) any {
 }
 
 func (rs *logicRunState) runVariable(env *logicEnv, name, typ string, def map[string]any) logicOutcome {
-	in, err := rs.evalInputs(env, def)
+	in, err := rs.evalInputs(env, name, def)
 	if err != nil {
 		return exprFailure(name, err)
 	}

@@ -91,12 +91,15 @@ type logicRunState struct {
 	iters   map[string][]*logicEnv
 	wfKey   string
 	wfName  string
+
+	callbackURL string
 }
 
 type logicEvalCtx struct {
-	rs  *logicRunState
-	env *logicEnv
-	now func() time.Time
+	rs    *logicRunState
+	env   *logicEnv
+	now   func() time.Time
+	trace *logicTracer
 }
 
 func (rs *logicRunState) evalCtx(env *logicEnv) *logicEvalCtx {
