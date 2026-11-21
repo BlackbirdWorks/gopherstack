@@ -137,7 +137,7 @@ func TestMetricDefinitionLifecycle(t *testing.T) {
 		InstanceId: aws.String(inst), Type: types.MetricTypeAwsManaged,
 	})
 	require.NoError(t, err)
-	assert.Len(t, managed.MetricSummaryList, 11)
+	assert.Len(t, managed.MetricSummaryList, 14)
 
 	f.clock.advance(5_000_000_000)
 	_, err = f.client.UpdateMetricContent(t.Context(), &sdk.UpdateMetricContentInput{

@@ -2,6 +2,7 @@ package connect
 
 import (
 	"slices"
+	"time"
 )
 
 const (
@@ -80,12 +81,44 @@ func (b *Backend) GetContactMetrics(in *GetContactMetricsInput) (*ContactMetrics
 	})
 }
 
-// queuePosition is 1 plus the waiting contacts of the queue that were enqueued earlier.
+const defaultQueuePriority int64 = 5
+
+// routingOrder is the first-in-first-out key of a waiting contact: lower priority number first, then the
+// routing age (enqueue time moved earlier by QueueTimeAdjustmentSeconds).
+func routingOrder(c *contactRec) (int64, time.Time) {
+	prio := defaultQueuePriority
+	if c.Contact.QueuePriority != nil {
+		prio = *c.Contact.QueuePriority
+	}
+
+	at := enqueued(c).Time
+	if c.Contact.QueueTimeAdjustmentSeconds != nil {
+		at = at.Add(-time.Duration(*c.Contact.QueueTimeAdjustmentSeconds) * time.Second)
+	}
+
+	return prio, at
+}
+
+// routedBefore reports whether o is routed to an agent before c.
+func routedBefore(o, c *contactRec) bool {
+	op, ot := routingOrder(o)
+	cp, ct := routingOrder(c)
+
+	switch {
+	case op != cp:
+		return op < cp
+	case !ot.Equal(ct):
+		return ot.Before(ct)
+	default:
+		return o.Contact.ID < c.Contact.ID
+	}
+}
+
+// queuePosition is 1 plus the waiting contacts of the queue that are routed before c.
 func (b *Backend) queuePosition(inst string, c *contactRec) float64 {
 	ahead := countWhere(b.contacts.in(inst), func(o *contactRec) bool {
 		return o != c && o.active() && o.queueID() == c.queueID() && o.agentID() == "" &&
-			enqueued(o) != nil && (enqueued(o).Before(enqueued(c).Time) ||
-			(enqueued(o).Equal(enqueued(c).Time) && o.Contact.ID < c.Contact.ID))
+			enqueued(o) != nil && routedBefore(o, c)
 	})
 
 	return ahead + 1

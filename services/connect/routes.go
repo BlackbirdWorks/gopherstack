@@ -59,6 +59,9 @@ func instanceRoutes() []restroute.Route {
 			Op:     "DeleteUseCase",
 		},
 		{Method: http.MethodGet, Path: "/instance/{InstanceId}", Op: "DescribeInstance"},
+		{Method: http.MethodPost, Path: "/instance/{InstanceId}/replicate", Op: "ReplicateInstance"},
+		{Method: http.MethodGet, Path: "/cross-region-routing/{InstanceId}", Op: "GetCrossRegionRouting"},
+		{Method: http.MethodPut, Path: "/cross-region-routing/{InstanceId}", Op: "UpdateCrossRegionRouting"},
 		{
 			Method: http.MethodGet,
 			Path:   "/instance/{InstanceId}/attribute/{AttributeType}",
@@ -379,6 +382,7 @@ func contactsRoutes() []restroute.Route {
 		{Method: http.MethodPut, Path: "/contact/outbound-voice", Op: "StartOutboundVoiceContact"},
 		{Method: http.MethodPut, Path: "/contact/outbound-chat", Op: "StartOutboundChatContact"},
 		{Method: http.MethodPut, Path: "/contact/task", Op: "StartTaskContact"},
+		{Method: http.MethodPost, Path: "/contact/transfer", Op: "TransferContact"},
 		{Method: http.MethodPost, Path: "/contact/stop", Op: "StopContact"},
 		{Method: http.MethodPost, Path: "/contact/tags", Op: "TagContact"},
 		{Method: http.MethodPost, Path: pathTagsResourcearn, Op: "TagResource"},

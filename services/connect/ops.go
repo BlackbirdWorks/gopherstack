@@ -180,14 +180,13 @@ func (h *Handler) instanceOps(ops map[string]restroute.OpFunc) {
 
 			return &createInstanceOut{Arn: i.Arn, ID: i.ID}, nil
 		})
-	ops["DescribeInstance"] = func(_ context.Context, req *restroute.Request) (any, int, error) {
-		i, err := b.DescribeInstance(instOf(req))
-		if err != nil {
-			return nil, 0, err
-		}
-
-		return map[string]any{"Instance": i}, 0, nil
-	}
+	ops["DescribeInstance"] = restroute.Typed(func(ctx context.Context, in *instPath) (*DescribeInstanceOutput, error) {
+		return b.DescribeInstanceReplication(ctx, in.InstanceID)
+	})
+	ops["ReplicateInstance"] = replay(h, "ReplicateInstance",
+		func(in *ReplicateInstanceInput) string { return in.ClientToken }, b.ReplicateInstance)
+	ops["GetCrossRegionRouting"] = typed(b.GetCrossRegionRouting)
+	ops["UpdateCrossRegionRouting"] = typed(b.UpdateCrossRegionRouting)
 	ops["ListInstances"] = func(_ context.Context, req *restroute.Request) (any, int, error) {
 		token, m, err := pageArgs(req)
 		if err != nil {
@@ -648,6 +647,8 @@ func (h *Handler) contactOps(ops map[string]restroute.OpFunc) {
 		func(in *StartTaskContactInput) string { return in.ClientToken },
 		b.StartTaskContact,
 	)
+	ops["TransferContact"] = replay(h, "TransferContact",
+		func(in *TransferContactInput) string { return in.ClientToken }, b.TransferContact)
 	ops["DescribeContact"] = describeOp("ContactId", "Contact", b.DescribeContact)
 	ops["StopContact"] = typed(b.StopContact)
 	h.contactControlOps(ops)

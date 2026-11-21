@@ -1,11 +1,17 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"io"
+	"net/url"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	appintegrationsbackend "github.com/blackbirdworks/gopherstack/services/appintegrations"
 	connectbackend "github.com/blackbirdworks/gopherstack/services/connect"
@@ -47,6 +53,69 @@ func (c connectShares) DeleteShare(_ context.Context, shareARN string) error {
 type connectResolvers struct {
 	lambda lambdabackend.StorageBackend
 	s3     s3backend.StorageBackend
+	s3h    *s3backend.S3Handler
+}
+
+const connectPresignFallbackKey = "AKIAGOPHERSTACK"
+
+func (r connectResolvers) EnsureBucket(ctx context.Context, bucket string) error {
+	if r.BucketExists(ctx, bucket) {
+		return nil
+	}
+
+	_, err := r.s3.CreateBucket(ctx, &awss3.CreateBucketInput{Bucket: &bucket})
+	if err != nil && !r.BucketExists(ctx, bucket) {
+		return err
+	}
+
+	return nil
+}
+
+func (r connectResolvers) ObjectSize(ctx context.Context, bucket, key string) (int64, bool, error) {
+	out, err := r.s3.HeadObject(ctx, &awss3.HeadObjectInput{Bucket: &bucket, Key: &key})
+	if errors.Is(err, s3backend.ErrNoSuchKey) {
+		return 0, false, nil
+	}
+
+	if err != nil {
+		return 0, false, err
+	}
+
+	return aws.ToInt64(out.ContentLength), true, nil
+}
+
+func (r connectResolvers) PutObject(ctx context.Context, bucket, key string, data []byte) error {
+	_, err := r.s3.PutObject(ctx, &awss3.PutObjectInput{Bucket: &bucket, Key: &key, Body: bytes.NewReader(data)})
+
+	return err
+}
+
+func (r connectResolvers) DeleteObject(ctx context.Context, bucket, key string) error {
+	_, err := r.s3.DeleteObject(ctx, &awss3.DeleteObjectInput{Bucket: &bucket, Key: &key})
+
+	return err
+}
+
+func (r connectResolvers) Presign(
+	ctx context.Context,
+	method, baseURL, bucket, key string,
+	ttl time.Duration,
+	at time.Time,
+	bound map[string]string,
+) string {
+	accessKey := awsmeta.AccessKeyID(ctx)
+	if accessKey == "" {
+		accessKey = connectPresignFallbackKey
+	}
+
+	region := awsmeta.Region(ctx)
+	if region == "" {
+		region = r.s3h.DefaultRegion
+	}
+
+	target := baseURL + "/" + bucket + "/" + (&url.URL{Path: key}).EscapedPath()
+
+	return r.s3h.PresignURL(method, target, accessKey, region, ttl, at, bound)
 }
 
 func (r connectResolvers) LambdaFunctionExists(_ context.Context, functionARN string) bool {
@@ -166,6 +235,6 @@ func wireConnectIntegrations(byName map[string]service.Registerable) {
 	s3H, sok := byName["S3"].(*s3backend.S3Handler)
 
 	if lok && sok {
-		cn.Backend.SetResolvers(connectResolvers{lambda: lambdaH.Backend, s3: s3H.Backend})
+		cn.Backend.SetResolvers(connectResolvers{lambda: lambdaH.Backend, s3: s3H.Backend, s3h: s3H})
 	}
 }

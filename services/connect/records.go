@@ -15,6 +15,8 @@ type instanceRec struct {
 	LexBots      []LexBotConfig       `json:"lexBots,omitempty"`
 	SecurityKeys []SecurityKey        `json:"securityKeys,omitempty"`
 	Storage      []StorageAssociation `json:"storage,omitempty"`
+	Replicas     []replicaRec         `json:"replicas,omitempty"`
+	IsolatedAll  bool                 `json:"isolatedAll,omitempty"`
 }
 
 type userRec struct {
@@ -91,6 +93,7 @@ type promptRec struct {
 
 type contactRec struct {
 	PausedAt          *awstime.EpochTime   `json:"pausedAt,omitempty"`
+	TransferredAt     *awstime.EpochTime   `json:"transferredAt,omitempty"`
 	ExpiresAt         *awstime.EpochTime   `json:"expiresAt,omitempty"`
 	MediaProcessor    *mediaProcessor      `json:"mediaProcessor,omitempty"`
 	AnalyticsJobs     []analyticsJobRec    `json:"analyticsJobs,omitempty"`

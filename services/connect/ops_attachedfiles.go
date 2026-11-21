@@ -11,10 +11,10 @@ func (h *Handler) attachedFileOps(ops map[string]restroute.OpFunc) {
 		func(in *StartAttachedFileUploadInput) string { return in.ClientToken }, b.StartAttachedFileUpload)
 	ops["CreateAttachedFile"] = replay(h, "CreateAttachedFile",
 		func(in *CreateAttachedFileInput) string { return in.ClientToken }, b.CreateAttachedFile)
-	ops["CompleteAttachedFileUpload"] = typed(b.CompleteAttachedFileUpload)
+	ops["CompleteAttachedFileUpload"] = typedCtx(b.CompleteAttachedFileUpload)
 	ops["GetAttachedFile"] = typedCtx(b.GetAttachedFile)
 	ops["BatchGetAttachedFileMetadata"] = typed(b.BatchGetAttachedFileMetadata)
-	ops["DeleteAttachedFile"] = typed(b.DeleteAttachedFile)
+	ops["DeleteAttachedFile"] = typedCtx(b.DeleteAttachedFile)
 	ops["DescribeAttachedFilesConfiguration"] = typed(b.DescribeAttachedFilesConfiguration)
 	ops["UpdateAttachedFilesConfiguration"] = typedCtx(b.UpdateAttachedFilesConfiguration)
 	ops["ListAttachedFilesConfigurations"] = listOp(
