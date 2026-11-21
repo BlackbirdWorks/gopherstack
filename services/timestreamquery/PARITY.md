@@ -40,14 +40,18 @@ families:
 gaps: []
 items_still_open:
   - "Query engine typeof: the engine is SQLite, so typeof returns SQLite storage names (integer/text/real/null) rather than the Timestream names listed in supported-data-types.html (bigint, double, varchar, boolean, timestamp, date, time, interval, unknown); values carry no static type at the UDF boundary (ts_funcs.go), so a correct typeof needs the static type inference the engine lacks"
-  - "Time-series lambdas: filter/reduce lambdas are recognised only when the body reads the element as p.value/p.time, and an aggregate used directly as the timeseries argument (instead of a CTE column) is unsupported"
+  - "Time-series lambdas: filter/reduce lambdas are recognised only when the body reads the element as p.value/p.time, so a lambda over a timeseries that never reads the element falls through to the stock engine"
   - "Query engine: result ColumnInfo types for non-boolean expressions are inferred from values (BIGINT/DOUBLE/VARCHAR/TIMESTAMP) and an empty result reports VARCHAR for computed non-boolean columns. Boolean typing (ts_boolean.go) is syntactic: a CASE/CAST wrapping booleans, or a boolean function outside the known list, still reports its engine type. Plain column references keep their declared type."
-  - "ScheduledQuery: run QueryInsightsResponse is omitted (no query-insights data model in the engine)"
+  - "QueryInsightsResponse (Query and ExecuteScheduledQuery runs) carries OutputRows, OutputBytes and QueryTableCount but not QueryTemporalRange or QuerySpatialCoverage: both need time-predicate and partition-key pruning analysis the engine does not do"
 
 structural_gaps:
   - "CreateScheduledQuery KmsKeyId is stored and echoed, but there is no at-rest encryption layer to apply it to."
 leaks: {status: clean, note: "clientTokens/scheduledQueryTokens/pageStore are self-contained caches with their own mutex, reset on Reset()/version-mismatch Restore(); queries table is bounded by maxRetainedQueries (10000) with arbitrary eviction, cancelled or not. The only goroutine is the ScheduledQueryRunner ticker started by Handler.StartWorker, owned by a worker.Group that stops (and is joined) when the worker context is cancelled; ts_unnest_N SQLite modules are process-wide, capped at 256 distinct column-alias shapes."}
 ---
+
+## Insights and timeseries lambdas
+
+ExecuteScheduledQuery honours QueryInsights.Mode (ENABLED_WITH_RATE_CONTROL); the run's LastRunSummary and RecentlyFailedRuns entries then carry QueryInsightsResponse (types.ScheduledQueryInsightsResponse: OutputRows, OutputBytes, QueryTableCount), persisted with the run. Query's QueryInsightsResponse now includes QueryTableCount. filter/reduce accept an aggregate such as create_time_series(...) directly as the timeseries argument, including per GROUP BY group.
 
 ## Query execution (2026-10-31, gopherstack-49qct.77)
 

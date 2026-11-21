@@ -453,8 +453,15 @@ func (b *InMemoryBackend) DeleteInstance(name string) (*emptypb.Empty, error) {
 	b.mu.Lock("DeleteInstance")
 	defer b.mu.Unlock()
 
-	if _, err := b.instanceLocked(name); err != nil {
+	rec, err := b.instanceLocked(name)
+	if err != nil {
 		return nil, err
+	}
+
+	for _, id := range collections.SortedKeys(rec.tables) {
+		if v := rec.tables[id].protectedView(); v != "" {
+			return nil, errPrecondition("Instance %q has the deletion-protected authorized view %q.", name, v)
+		}
 	}
 
 	delete(b.instances, name)

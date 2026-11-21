@@ -104,6 +104,24 @@ func parseBackup(name string) (string, error) {
 	return instanceName(ids[0], ids[1]), nil
 }
 
+func parseChild(name, collection string) (string, string, string, error) {
+	ids, ok := parseRes(name, "projects", "instances", "tables", collection)
+	if !ok {
+		return "", "", "", errInvalid("Invalid %s name %q.", collection, name)
+	}
+
+	return instanceName(ids[0], ids[1]), ids[2], ids[3], nil
+}
+
+func parseInstanceChild(name, collection string) (string, string, error) {
+	ids, ok := parseRes(name, "projects", "instances", collection)
+	if !ok {
+		return "", "", errInvalid("Invalid %s name %q.", collection, name)
+	}
+
+	return instanceName(ids[0], ids[1]), ids[2], nil
+}
+
 func instanceName(project, id string) string { return "projects/" + project + "/instances/" + id }
 
 func clusterName(instance, id string) string { return instance + "/clusters/" + id }

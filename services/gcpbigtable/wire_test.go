@@ -222,8 +222,8 @@ func TestReadRowsValidation(t *testing.T) {
 		{&btpb.ReadRowsRequest{TableName: "bogus"}, "bad table name", codes.InvalidArgument},
 		{
 			&btpb.ReadRowsRequest{AuthorizedViewName: tablePath + "/authorizedViews/v"},
-			"authorized view",
-			codes.Unimplemented,
+			"unknown authorized view",
+			codes.NotFound,
 		},
 	}
 
@@ -452,10 +452,10 @@ func TestUnsupportedSurface(t *testing.T) {
 	_, err = tc.SnapshotTable(t.Context(), &adminpb.SnapshotTableRequest{Name: tablePath})
 	assert.Equal(t, codes.Unimplemented, code(err))
 
-	_, err = tc.CreateAuthorizedView(t.Context(), &adminpb.CreateAuthorizedViewRequest{Parent: tablePath})
+	_, err = ic.ListHotTablets(t.Context(), &adminpb.ListHotTabletsRequest{Parent: parent + "/clusters/c"})
 	assert.Equal(t, codes.Unimplemented, code(err))
 
-	_, err = ic.CreateLogicalView(t.Context(), &adminpb.CreateLogicalViewRequest{Parent: parent})
+	_, err = ic.GetMemoryLayer(t.Context(), &adminpb.GetMemoryLayerRequest{Name: parent + "/clusters/c/memoryLayer"})
 	assert.Equal(t, codes.Unimplemented, code(err))
 }
 

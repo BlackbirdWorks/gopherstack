@@ -4,40 +4,42 @@ import "time"
 
 // ScheduledQuery represents a Timestream scheduled query.
 type ScheduledQuery struct {
-	CreationTime                time.Time                   `json:"creation_time"`
-	LastRunTriggerTime          time.Time                   `json:"last_run_trigger_time,omitzero"`
-	LastRunTime                 time.Time                   `json:"last_run_time"`
-	NextRun                     time.Time                   `json:"next_run,omitzero"`
-	LastRunStats                *ExecutionStats             `json:"last_run_stats,omitempty"`
-	TargetDetail                *ScheduledQueryTargetDetail `json:"target_detail,omitempty"`
-	Tags                        map[string]string           `json:"tags"`
-	LastRunErrorReport          *S3ReportLocation           `json:"last_run_error_report,omitempty"`
-	ExecutionRoleArn            string                      `json:"execution_role_arn"`
-	ErrorReportS3BucketName     string                      `json:"error_report_s3_bucket_name"`
-	TargetTable                 string                      `json:"target_table"`
-	State                       string                      `json:"state"`
-	Name                        string                      `json:"name"`
-	Arn                         string                      `json:"arn"`
-	KmsKeyID                    string                      `json:"kms_key_id,omitempty"`
-	TargetDatabase              string                      `json:"target_database"`
-	LastRunStatus               string                      `json:"last_run_status,omitempty"`
-	LastRunFailure              string                      `json:"last_run_failure,omitempty"`
-	QueryString                 string                      `json:"query_string"`
-	ScheduleExpression          string                      `json:"schedule_expression"`
-	NotificationTopicArn        string                      `json:"notification_topic_arn"`
-	ErrorReportObjectKeyPrefix  string                      `json:"error_report_object_key_prefix,omitempty"`
-	ErrorReportEncryptionOption string                      `json:"error_report_encryption_option,omitempty"`
-	RecentlyFailedRuns          []FailedRun                 `json:"recently_failed_runs,omitempty"`
+	CreationTime                time.Time                       `json:"creation_time"`
+	LastRunTriggerTime          time.Time                       `json:"last_run_trigger_time,omitzero"`
+	LastRunTime                 time.Time                       `json:"last_run_time"`
+	NextRun                     time.Time                       `json:"next_run,omitzero"`
+	LastRunStats                *ExecutionStats                 `json:"last_run_stats,omitempty"`
+	LastRunInsights             *ScheduledQueryInsightsResponse `json:"last_run_insights,omitempty"`
+	TargetDetail                *ScheduledQueryTargetDetail     `json:"target_detail,omitempty"`
+	Tags                        map[string]string               `json:"tags"`
+	LastRunErrorReport          *S3ReportLocation               `json:"last_run_error_report,omitempty"`
+	ExecutionRoleArn            string                          `json:"execution_role_arn"`
+	ErrorReportS3BucketName     string                          `json:"error_report_s3_bucket_name"`
+	TargetTable                 string                          `json:"target_table"`
+	State                       string                          `json:"state"`
+	Name                        string                          `json:"name"`
+	Arn                         string                          `json:"arn"`
+	KmsKeyID                    string                          `json:"kms_key_id,omitempty"`
+	TargetDatabase              string                          `json:"target_database"`
+	LastRunStatus               string                          `json:"last_run_status,omitempty"`
+	LastRunFailure              string                          `json:"last_run_failure,omitempty"`
+	QueryString                 string                          `json:"query_string"`
+	ScheduleExpression          string                          `json:"schedule_expression"`
+	NotificationTopicArn        string                          `json:"notification_topic_arn"`
+	ErrorReportObjectKeyPrefix  string                          `json:"error_report_object_key_prefix,omitempty"`
+	ErrorReportEncryptionOption string                          `json:"error_report_encryption_option,omitempty"`
+	RecentlyFailedRuns          []FailedRun                     `json:"recently_failed_runs,omitempty"`
 }
 
 // FailedRun records one failed scheduled query run for DescribeScheduledQuery.RecentlyFailedRuns.
 type FailedRun struct {
-	InvocationTime time.Time         `json:"invocation_time"`
-	TriggerTime    time.Time         `json:"trigger_time"`
-	ErrorReport    *S3ReportLocation `json:"error_report,omitempty"`
-	Status         string            `json:"status"`
-	Failure        string            `json:"failure"`
-	Stats          ExecutionStats    `json:"stats"`
+	ErrorReport    *S3ReportLocation               `json:"error_report,omitempty"`
+	Insights       *ScheduledQueryInsightsResponse `json:"insights,omitempty"`
+	InvocationTime time.Time                       `json:"invocation_time"`
+	TriggerTime    time.Time                       `json:"trigger_time"`
+	Status         string                          `json:"status"`
+	Failure        string                          `json:"failure"`
+	Stats          ExecutionStats                  `json:"stats"`
 }
 
 // ScheduledQueryTargetDetail holds the TargetConfiguration.TimestreamConfiguration
@@ -201,6 +203,7 @@ type QueryInsightsResponse struct {
 	UnloadWrittenRows    int64   `json:"UnloadWrittenRows,omitempty"`
 	UnloadWrittenBytes   int64   `json:"UnloadWrittenBytes,omitempty"`
 	QuerySpatialCoverage float64 `json:"QuerySpatialCoverage,omitempty"`
+	QueryTableCount      int64   `json:"QueryTableCount"`
 }
 
 // ProvisionedCapacity holds the response-side provisioned-TCU configuration
@@ -272,6 +275,13 @@ type ExecutionStats struct {
 	RecordsIngested        int64 `json:"RecordsIngested,omitempty"`
 }
 
+// ScheduledQueryInsightsResponse mirrors types.ScheduledQueryInsightsResponse.
+type ScheduledQueryInsightsResponse struct {
+	OutputRows      int64 `json:"OutputRows"`
+	OutputBytes     int64 `json:"OutputBytes"`
+	QueryTableCount int64 `json:"QueryTableCount"`
+}
+
 // ErrorReportLocation holds the S3 error report location for a scheduled query run.
 type ErrorReportLocation struct {
 	S3ReportLocation *S3ReportLocation `json:"S3ReportLocation,omitempty"`
@@ -286,12 +296,13 @@ type S3ReportLocation struct {
 // LastRunSummary holds the full summary of the most recent execution of a scheduled query.
 // Timestamps are float64 (Unix epoch seconds) to match the AWS JSON protocol 1.0 wire format.
 type LastRunSummary struct {
-	ErrorReportLocation *ErrorReportLocation `json:"ErrorReportLocation,omitempty"`
-	ExecutionStats      *ExecutionStats      `json:"ExecutionStats,omitempty"`
-	FailureReason       string               `json:"FailureReason,omitempty"`
-	RunStatus           string               `json:"RunStatus,omitempty"`
-	TriggerTime         float64              `json:"TriggerTime,omitempty"`
-	InvocationTime      float64              `json:"InvocationTime,omitempty"`
+	ErrorReportLocation   *ErrorReportLocation            `json:"ErrorReportLocation,omitempty"`
+	ExecutionStats        *ExecutionStats                 `json:"ExecutionStats,omitempty"`
+	QueryInsightsResponse *ScheduledQueryInsightsResponse `json:"QueryInsightsResponse,omitempty"`
+	FailureReason         string                          `json:"FailureReason,omitempty"`
+	RunStatus             string                          `json:"RunStatus,omitempty"`
+	TriggerTime           float64                         `json:"TriggerTime,omitempty"`
+	InvocationTime        float64                         `json:"InvocationTime,omitempty"`
 }
 
 // TargetDestinationForList summarises the write destination for list responses.

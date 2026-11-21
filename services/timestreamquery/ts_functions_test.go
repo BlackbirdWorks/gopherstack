@@ -289,6 +289,16 @@ func TestQuery_TimeSeriesFunctions(t *testing.T) {
 			"ts[2026-10-31 11:50:00.000000000=20.0, 2026-10-31 11:55:00.000000000=30.0]", "timeseries(DOUBLE)",
 		},
 		{
+			"filter aggregate argument",
+			`SELECT filter(` + series + `, x -> x.value > 15.0) ` + fromT,
+			"ts[2026-10-31 11:50:00.000000000=20.0, 2026-10-31 11:55:00.000000000=30.0]", "timeseries(DOUBLE)",
+		},
+		{
+			"reduce aggregate argument",
+			`SELECT reduce(` + series + `, DOUBLE '0.0', (s, x) -> x.value * x.value + s, s -> s) ` + fromT,
+			"1400.0", "DOUBLE",
+		},
+		{
 			"reduce sum of squares",
 			`WITH v AS (SELECT ` + series + ` AS cpu ` + fromT + `) ` +
 				`SELECT reduce(cpu, DOUBLE '0.0', (s, x) -> x.value * x.value + s, s -> s) FROM v`,
@@ -313,6 +323,42 @@ func TestQuery_TimeSeriesFunctions(t *testing.T) {
 			require.Len(t, rows, 1)
 			assert.Equal(t, tt.wantRow, rows[0][0])
 			assert.Equal(t, []string{tt.wantTypes}, types)
+		})
+	}
+}
+
+func TestQuery_TimeSeriesLambdaOverAggregate(t *testing.T) {
+	t.Parallel()
+
+	const agg = `create_time_series(time, measure_value::double)`
+
+	tests := []struct {
+		name  string
+		query string
+		want  [][]string
+	}{
+		{
+			"filter per group",
+			`SELECT host, filter(` + agg + `, x -> x.value > 12.0) FROM db.t GROUP BY host ORDER BY host`,
+			[][]string{
+				{"a", "ts[2026-10-31 11:50:00.000000000=20.0, 2026-10-31 11:55:00.000000000=30.0]"},
+				{"b", "ts[2026-10-31 11:55:00.000000000=15.0]"},
+			},
+		},
+		{
+			"reduce per group",
+			`SELECT host, reduce(` + agg + `, DOUBLE '0.0', (s, x) -> s + x.value, s -> s) FROM db.t ` +
+				`GROUP BY host ORDER BY host`,
+			[][]string{{"a", "60.0"}, {"b", "30.0"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rows, _ := runFn(t, tt.query)
+			assert.Equal(t, tt.want, rows)
 		})
 	}
 }

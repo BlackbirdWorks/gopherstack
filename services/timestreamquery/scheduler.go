@@ -105,11 +105,13 @@ func (b *InMemoryBackend) RunDue(ctx context.Context) {
 	slices.SortStableFunc(due, func(a, c dueRun) int { return a.invocation.Compare(c.invocation) })
 
 	for _, d := range due {
-		_ = b.runScheduledOnce(ctx, d.arn, d.invocation, true)
+		_ = b.runScheduledOnce(ctx, d.arn, d.invocation, true, false)
 	}
 }
 
-func (b *InMemoryBackend) runScheduledOnce(ctx context.Context, arnStr string, invocation time.Time, auto bool) error {
+func (b *InMemoryBackend) runScheduledOnce(
+	ctx context.Context, arnStr string, invocation time.Time, auto, withInsights bool,
+) error {
 	b.mu.RLock("runScheduledOnce")
 	found, err := b.lookupByARN(arnStr)
 	if err != nil {
@@ -123,7 +125,7 @@ func (b *InMemoryBackend) runScheduledOnce(ctx context.Context, arnStr string, i
 
 	ctx = context.WithValue(ctx, regionContextKey{}, regionFromARN(arnStr, b.defaultRegion))
 	triggered := b.clock()
-	stats, fail := b.runScheduledQuery(ctx, sq, invocation)
+	stats, insights, fail := b.runScheduledQuery(ctx, sq, invocation, withInsights)
 	stats.ExecutionTimeInMillis = b.clock().Sub(triggered).Milliseconds()
 
 	status := runStatusSuccess(auto)
@@ -139,7 +141,7 @@ func (b *InMemoryBackend) runScheduledOnce(ctx context.Context, arnStr string, i
 	}
 
 	disable := auto && fail != nil && !fail.recoverable
-	disabled := b.recordRun(arnStr, invocation, triggered, status, failure, stats, report, disable)
+	disabled := b.recordRun(arnStr, invocation, triggered, status, failure, stats, insights, report, disable)
 	b.notifyRun(ctx, arnStr, status, invocation, triggered, stats, failure, report)
 
 	if disabled {
@@ -168,7 +170,7 @@ func runStatusFailure(auto bool) string {
 // recordRun stores the outcome; it reports whether the query was auto-disabled.
 func (b *InMemoryBackend) recordRun(
 	arnStr string, invocation, triggered time.Time, status, failure string,
-	stats ExecutionStats, report *S3ReportLocation, disable bool,
+	stats ExecutionStats, insights *ScheduledQueryInsightsResponse, report *S3ReportLocation, disable bool,
 ) bool {
 	b.mu.Lock("recordRun")
 	defer b.mu.Unlock()
@@ -179,13 +181,13 @@ func (b *InMemoryBackend) recordRun(
 	}
 
 	cur.LastRunTime, cur.LastRunTriggerTime = invocation, triggered
-	cur.LastRunStats = &stats
+	cur.LastRunStats, cur.LastRunInsights = &stats, insights
 	cur.LastRunStatus, cur.LastRunFailure, cur.LastRunErrorReport = status, failure, report
 
 	if failure != "" {
 		run := FailedRun{
 			InvocationTime: invocation, TriggerTime: triggered, ErrorReport: report,
-			Stats: stats, Status: status, Failure: failure,
+			Stats: stats, Insights: insights, Status: status, Failure: failure,
 		}
 		cur.RecentlyFailedRuns = append([]FailedRun{run}, cur.RecentlyFailedRuns...)
 

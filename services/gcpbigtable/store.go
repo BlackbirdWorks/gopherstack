@@ -25,14 +25,23 @@ type rowRec struct {
 	fams map[string]family
 }
 
+type viewRec struct {
+	pb     *adminpb.AuthorizedView
+	policy *iampb.Policy
+}
+
 type tableRec struct {
 	pb      *adminpb.Table
 	policy  *iampb.Policy
 	samples *sampleCache
 	rows    map[string]*rowRec
+	views   map[string]*viewRec
+	bundles map[string]*adminpb.SchemaBundle
 	splits  []string
 	keys    []string
+	changes []changeRec
 	keyGen  uint64
+	changeN uint64
 	dirty   bool
 }
 
@@ -48,6 +57,8 @@ type instRec struct {
 	clusters map[string]*adminpb.Cluster
 	profiles map[string]*adminpb.AppProfile
 	tables   map[string]*tableRec
+	logical  map[string]*adminpb.LogicalView
+	matviews map[string]*adminpb.MaterializedView
 	deleted  map[string]*deletedTable
 	backups  map[string]*backupRec
 	tokens   map[string]map[string]bool
@@ -59,6 +70,8 @@ func newInstRec(pb *adminpb.Instance) *instRec {
 		clusters: make(map[string]*adminpb.Cluster),
 		profiles: make(map[string]*adminpb.AppProfile),
 		tables:   make(map[string]*tableRec),
+		logical:  make(map[string]*adminpb.LogicalView),
+		matviews: make(map[string]*adminpb.MaterializedView),
 		deleted:  make(map[string]*deletedTable),
 		backups:  make(map[string]*backupRec),
 		tokens:   make(map[string]map[string]bool),
@@ -66,7 +79,10 @@ func newInstRec(pb *adminpb.Instance) *instRec {
 }
 
 func newTableRec(pb *adminpb.Table) *tableRec {
-	return &tableRec{pb: pb, rows: make(map[string]*rowRec)}
+	return &tableRec{
+		pb: pb, rows: make(map[string]*rowRec),
+		views: make(map[string]*viewRec), bundles: make(map[string]*adminpb.SchemaBundle),
+	}
 }
 
 // InMemoryBackend holds all Cloud Bigtable state under one lock.
@@ -76,6 +92,7 @@ type InMemoryBackend struct {
 	ops        *gcplro.Store
 	instances  map[string]*instRec
 	keys       cmek.Checker
+	notify     chan struct{}
 	deletedCap int64
 	seq        uint64
 }
@@ -88,6 +105,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		deletedCap: maxDeletedBytes,
 		ops:        gcplro.New("gcpbigtable"),
 		instances:  make(map[string]*instRec),
+		notify:     make(chan struct{}),
 	}
 	b.ops.SetClock(func() time.Time { return b.now() })
 

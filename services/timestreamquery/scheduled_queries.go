@@ -469,12 +469,13 @@ func buildLastRunSummary(sq *ScheduledQuery) *LastRunSummary {
 	}
 
 	return &LastRunSummary{
-		RunStatus:           status,
-		FailureReason:       sq.LastRunFailure,
-		InvocationTime:      epochSeconds(sq.LastRunTime),
-		TriggerTime:         epochSeconds(trigger),
-		ExecutionStats:      &stats,
-		ErrorReportLocation: reportLocation(sq.LastRunErrorReport),
+		RunStatus:             status,
+		FailureReason:         sq.LastRunFailure,
+		InvocationTime:        epochSeconds(sq.LastRunTime),
+		TriggerTime:           epochSeconds(trigger),
+		ExecutionStats:        &stats,
+		ErrorReportLocation:   reportLocation(sq.LastRunErrorReport),
+		QueryInsightsResponse: sq.LastRunInsights,
 	}
 }
 
@@ -494,7 +495,7 @@ func buildRecentlyFailedRuns(sq *ScheduledQuery) []LastRunSummary {
 		out = append(out, LastRunSummary{
 			RunStatus: r.Status, FailureReason: r.Failure, ExecutionStats: &stats,
 			InvocationTime: epochSeconds(r.InvocationTime), TriggerTime: epochSeconds(r.TriggerTime),
-			ErrorReportLocation: reportLocation(r.ErrorReport),
+			ErrorReportLocation: reportLocation(r.ErrorReport), QueryInsightsResponse: r.Insights,
 		})
 	}
 

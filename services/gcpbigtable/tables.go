@@ -262,6 +262,10 @@ func (b *InMemoryBackend) DeleteTable(name string) (*emptypb.Empty, error) {
 		return nil, errPrecondition("Table %q has deletion protection enabled.", name)
 	}
 
+	if v := t.protectedView(); v != "" {
+		return nil, errPrecondition("Table %q has the deletion-protected authorized view %q.", name, v)
+	}
+
 	b.retainDeletedLocked(rec, id, t)
 	delete(rec.tables, id)
 	delete(rec.tokens, name)
@@ -308,8 +312,11 @@ func (b *InMemoryBackend) UpdateTable(in *adminpb.UpdateTableRequest) (*longrunn
 	}, tableView(rec, t, adminpb.Table_SCHEMA_VIEW, adminpb.Table_SCHEMA_VIEW))
 }
 
+const fieldDeletionProtection = "deletion_protection"
+
 var updatableTableFields = []string{ //nolint:gochecknoglobals // immutable catalog
-	"deletion_protection", "change_stream_config", "automated_backup_policy", "row_key_schema", "tiered_storage_config",
+	fieldDeletionProtection, "change_stream_config", "automated_backup_policy", "row_key_schema",
+	"tiered_storage_config",
 }
 
 // ModifyColumnFamilies creates, updates and drops column families atomically.

@@ -41,6 +41,13 @@ func (b *InMemoryBackend) policySlot(resource string) (**iampb.Policy, error) {
 		}
 
 		return &bk.policy, nil
+	case strings.Contains(resource, "/authorizedViews/"):
+		_, _, v, _, err := b.viewLocked(resource)
+		if err != nil {
+			return nil, err
+		}
+
+		return &v.policy, nil
 	case strings.Contains(resource, "/tables/"):
 		inst, id, err := parseTable(resource)
 		if err != nil {

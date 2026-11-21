@@ -47,12 +47,6 @@ func fragment(expr string) (string, error) {
 	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(sql), "SELECT")), nil
 }
 
-const seriesRows = `(SELECT json_extract(e.value, '$[0]') AS "time", ` +
-	`json_extract(e.value, '$[1]') AS "value", e.key AS "_i" ` +
-	`FROM json_each(ts_series_json(%s)) AS e)`
-
-func seriesRowsOf(ts string) string { return strings.Replace(seriesRows, "%s", ts, 1) }
-
 func (s seriesSub) sql() (string, error) {
 	ts, err := fragment(s.args[0])
 	if err != nil {
@@ -72,8 +66,11 @@ func (s seriesSub) filterSQL(ts string) (string, error) {
 		return "", err
 	}
 
-	return `(CASE WHEN (` + ts + `) IS NULL THEN NULL ELSE (SELECT create_time_series("_x"."time", "_x"."value") ` +
-		`FROM (SELECT "time", "value" FROM ` + seriesRowsOf(ts) + ` ORDER BY "_i") AS "_x" WHERE ` + body + `) END)`, nil
+	body = strings.ReplaceAll(body, `"_x"."time"`, `json_extract("_j".value, '$[0]')`)
+	body = strings.ReplaceAll(body, `"_x"."value"`, `json_extract("_j".value, '$[1]')`)
+
+	return `(CASE WHEN (` + ts + `) IS NULL THEN NULL ELSE (SELECT create_time_series(json_extract("_j".value, '$[0]'), ` +
+		`json_extract("_j".value, '$[1]')) FROM json_each(ts_series_json(` + ts + `)) AS "_j" WHERE ` + body + `) END)`, nil
 }
 
 func (s seriesSub) reduceSQL(ts string) (string, error) {
@@ -95,11 +92,14 @@ func (s seriesSub) reduceSQL(ts string) (string, error) {
 	}
 
 	qs, qo := `"`+state+`"`, `"`+outParam+`"`
+	cell := func(field int) string {
+		return `json_extract("_r"."_arr", '$[' || ("_r"."_i" + 1) || '][` + strconv.Itoa(field) + `]')`
+	}
 
-	return `(CASE WHEN (` + ts + `) IS NULL THEN NULL ELSE (WITH RECURSIVE "_e" AS (SELECT "time", "value", "_i" FROM ` +
-		seriesRowsOf(
-			ts,
-		) + `), "_r"("_i", ` + qs + `) AS (SELECT -1, ` + init + ` UNION ALL SELECT "_e"."_i", ` + stepSQL +
-		` FROM "_r" JOIN "_e" ON "_e"."_i" = "_r"."_i" + 1) SELECT ` + outSQL + ` FROM (SELECT ` + qs + ` AS ` + qo +
-		` FROM "_r" ORDER BY "_i" DESC LIMIT 1)) END)`, nil
+	stepSQL = strings.ReplaceAll(strings.ReplaceAll(stepSQL, `"_e"."time"`, cell(0)), `"_e"."value"`, cell(1))
+
+	return `(CASE WHEN (` + ts + `) IS NULL THEN NULL ELSE (WITH RECURSIVE "_r"("_i", ` + qs + `, "_arr") AS (` +
+		`SELECT -1, ` + init + `, ts_series_json(` + ts + `) UNION ALL SELECT "_r"."_i" + 1, ` + stepSQL +
+		`, "_r"."_arr" FROM "_r" WHERE "_r"."_i" + 1 < json_array_length("_r"."_arr")) SELECT ` + outSQL +
+		` FROM (SELECT ` + qs + ` AS ` + qo + ` FROM "_r" ORDER BY "_i" DESC LIMIT 1)) END)`, nil
 }

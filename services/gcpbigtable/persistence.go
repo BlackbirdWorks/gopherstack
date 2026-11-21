@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigtable/admin/apiv2/adminpb"
+	btpb "cloud.google.com/go/bigtable/apiv2/bigtablepb"
 	"cloud.google.com/go/iam/apiv1/iampb"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -34,11 +35,27 @@ type rowSnap struct {
 	Columns []columnSnap `json:"columns"`
 }
 
-type tableSnap struct {
-	Table  jsontext.Value `json:"table"`
+type viewSnap struct {
+	View   jsontext.Value `json:"view"`
 	Policy jsontext.Value `json:"policy,omitempty"`
-	Splits [][]byte       `json:"splits,omitempty"`
-	Rows   []rowSnap      `json:"rows,omitempty"`
+}
+
+type changeSnap struct {
+	Key       []byte           `json:"key"`
+	Mutations []jsontext.Value `json:"mutations"`
+	Seq       uint64           `json:"seq"`
+	At        int64            `json:"at"`
+}
+
+type tableSnap struct {
+	Views   map[string]viewSnap       `json:"views,omitempty"`
+	Bundles map[string]jsontext.Value `json:"bundles,omitempty"`
+	Table   jsontext.Value            `json:"table"`
+	Policy  jsontext.Value            `json:"policy,omitempty"`
+	Splits  [][]byte                  `json:"splits,omitempty"`
+	Rows    []rowSnap                 `json:"rows,omitempty"`
+	Changes []changeSnap              `json:"changes,omitempty"`
+	ChangeN uint64                    `json:"changeN,omitempty"`
 }
 
 type backupSnap struct {
@@ -59,6 +76,8 @@ type instSnap struct {
 	Profiles map[string]jsontext.Value `json:"profiles,omitempty"`
 	Tables   map[string]tableSnap      `json:"tables,omitempty"`
 	Backups  map[string]backupSnap     `json:"backups,omitempty"`
+	Logical  map[string]jsontext.Value `json:"logicalViews,omitempty"`
+	Matviews map[string]jsontext.Value `json:"materializedViews,omitempty"`
 	Instance jsontext.Value            `json:"instance"`
 	Policy   jsontext.Value            `json:"policy,omitempty"`
 }
@@ -83,8 +102,51 @@ func marshalPB(m proto.Message) jsontext.Value {
 	return raw
 }
 
+func snapViews(t *tableRec) map[string]viewSnap {
+	if len(t.views) == 0 {
+		return nil
+	}
+
+	out := make(map[string]viewSnap, len(t.views))
+	for id, v := range t.views {
+		out[id] = viewSnap{View: marshalPB(v.pb), Policy: marshalPB(v.policy)}
+	}
+
+	return out
+}
+
+func snapBundles(t *tableRec) map[string]jsontext.Value {
+	if len(t.bundles) == 0 {
+		return nil
+	}
+
+	out := make(map[string]jsontext.Value, len(t.bundles))
+	for id, sb := range t.bundles {
+		out[id] = marshalPB(sb)
+	}
+
+	return out
+}
+
+func snapChanges(t *tableRec) []changeSnap {
+	out := make([]changeSnap, 0, len(t.changes))
+
+	for _, c := range t.changes {
+		cs := changeSnap{Key: []byte(c.key), Seq: c.seq, At: c.at}
+		for _, m := range c.muts {
+			cs.Mutations = append(cs.Mutations, marshalPB(m))
+		}
+
+		out = append(out, cs)
+	}
+
+	return out
+}
+
 func snapTable(t *tableRec, nowMicros int64) tableSnap {
-	s := tableSnap{Table: marshalPB(t.pb), Policy: marshalPB(t.policy)}
+	s := tableSnap{Table: marshalPB(t.pb), Policy: marshalPB(t.policy), ChangeN: t.changeN}
+
+	s.Views, s.Bundles, s.Changes = snapViews(t), snapBundles(t), snapChanges(t)
 
 	for _, sp := range t.splits {
 		s.Splits = append(s.Splits, []byte(sp))
@@ -115,6 +177,19 @@ func snapTable(t *tableRec, nowMicros int64) tableSnap {
 	}
 
 	return s
+}
+
+func snapProtoMap[T proto.Message](in map[string]T) map[string]jsontext.Value {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make(map[string]jsontext.Value, len(in))
+	for id, v := range in {
+		out[id] = marshalPB(v)
+	}
+
+	return out
 }
 
 // Snapshot serialises every instance with its clusters, profiles, tables, rows, backups and operations.
@@ -156,6 +231,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 			s.Deleted[id] = deletedSnap{Table: snapTable(d.table, now), DeletedAt: d.at.UnixMicro(), CMEK: d.cmek}
 		}
 
+		s.Logical, s.Matviews = snapProtoMap(r.logical), snapProtoMap(r.matviews)
+
 		for n, bk := range r.backups {
 			s.Backups[n] = backupSnap{
 				Backup: marshalPB(bk.pb),
@@ -189,6 +266,10 @@ func restoreTable(s tableSnap) (*tableRec, error) {
 		t.splits = append(t.splits, string(sp))
 	}
 
+	if err := restoreTableExtras(t, s); err != nil {
+		return nil, err
+	}
+
 	for _, rs := range s.Rows {
 		row := t.row(string(rs.Key))
 		for _, c := range rs.Columns {
@@ -199,6 +280,52 @@ func restoreTable(s tableSnap) (*tableRec, error) {
 	}
 
 	return t, nil
+}
+
+func restoreTableExtras(t *tableRec, s tableSnap) error {
+	t.changeN = s.ChangeN
+
+	for id, vs := range s.Views {
+		v := &viewRec{pb: &adminpb.AuthorizedView{}}
+		if err := unmarshalPB(vs.View, v.pb); err != nil {
+			return fmt.Errorf("authorized view %q: %w", id, err)
+		}
+
+		if len(vs.Policy) > 0 {
+			v.policy = &iampb.Policy{}
+			if err := unmarshalPB(vs.Policy, v.policy); err != nil {
+				return fmt.Errorf("authorized view %q policy: %w", id, err)
+			}
+		}
+
+		t.views[id] = v
+	}
+
+	for id, raw := range s.Bundles {
+		sb := &adminpb.SchemaBundle{}
+		if err := unmarshalPB(raw, sb); err != nil {
+			return fmt.Errorf("schema bundle %q: %w", id, err)
+		}
+
+		t.bundles[id] = sb
+	}
+
+	for _, cs := range s.Changes {
+		c := changeRec{key: string(cs.Key), seq: cs.Seq, at: cs.At}
+
+		for _, raw := range cs.Mutations {
+			m := &btpb.Mutation{}
+			if err := unmarshalPB(raw, m); err != nil {
+				return fmt.Errorf("change record %d: %w", cs.Seq, err)
+			}
+
+			c.muts = append(c.muts, m)
+		}
+
+		t.changes = append(t.changes, c)
+	}
+
+	return nil
 }
 
 func restoreInstance(s instSnap) (*instRec, error) {
@@ -232,6 +359,24 @@ func restoreInstance(s instSnap) (*instRec, error) {
 		}
 
 		rec.profiles[id] = p
+	}
+
+	for id, raw := range s.Logical {
+		v := &adminpb.LogicalView{}
+		if err := unmarshalPB(raw, v); err != nil {
+			return nil, fmt.Errorf("logical view %q: %w", id, err)
+		}
+
+		rec.logical[id] = v
+	}
+
+	for id, raw := range s.Matviews {
+		v := &adminpb.MaterializedView{}
+		if err := unmarshalPB(raw, v); err != nil {
+			return nil, fmt.Errorf("materialized view %q: %w", id, err)
+		}
+
+		rec.matviews[id] = v
 	}
 
 	return rec, restoreTablesAndBackups(rec, s)

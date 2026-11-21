@@ -380,3 +380,147 @@ func rowChunks(row *ResultRow) []*btpb.ReadRowsResponse_CellChunk {
 
 	return chunks
 }
+
+func (s *tableAdminServer) CreateAuthorizedView(
+	_ context.Context, in *adminpb.CreateAuthorizedViewRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.CreateAuthorizedView(in)
+}
+
+func (s *tableAdminServer) GetAuthorizedView(
+	_ context.Context, in *adminpb.GetAuthorizedViewRequest,
+) (*adminpb.AuthorizedView, error) {
+	return s.b.GetAuthorizedView(in)
+}
+
+func (s *tableAdminServer) ListAuthorizedViews(
+	_ context.Context, in *adminpb.ListAuthorizedViewsRequest,
+) (*adminpb.ListAuthorizedViewsResponse, error) {
+	return s.b.ListAuthorizedViews(in)
+}
+
+func (s *tableAdminServer) UpdateAuthorizedView(
+	_ context.Context, in *adminpb.UpdateAuthorizedViewRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.UpdateAuthorizedView(in)
+}
+
+func (s *tableAdminServer) DeleteAuthorizedView(
+	_ context.Context, in *adminpb.DeleteAuthorizedViewRequest,
+) (*emptypb.Empty, error) {
+	return s.b.DeleteAuthorizedView(in)
+}
+
+func (s *tableAdminServer) CreateSchemaBundle(
+	_ context.Context, in *adminpb.CreateSchemaBundleRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.CreateSchemaBundle(in)
+}
+
+func (s *tableAdminServer) GetSchemaBundle(
+	_ context.Context, in *adminpb.GetSchemaBundleRequest,
+) (*adminpb.SchemaBundle, error) {
+	return s.b.GetSchemaBundle(in)
+}
+
+func (s *tableAdminServer) ListSchemaBundles(
+	_ context.Context, in *adminpb.ListSchemaBundlesRequest,
+) (*adminpb.ListSchemaBundlesResponse, error) {
+	return s.b.ListSchemaBundles(in)
+}
+
+func (s *tableAdminServer) UpdateSchemaBundle(
+	_ context.Context, in *adminpb.UpdateSchemaBundleRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.UpdateSchemaBundle(in)
+}
+
+func (s *tableAdminServer) DeleteSchemaBundle(
+	_ context.Context, in *adminpb.DeleteSchemaBundleRequest,
+) (*emptypb.Empty, error) {
+	return s.b.DeleteSchemaBundle(in)
+}
+
+func (s *instanceAdminServer) CreateLogicalView(
+	_ context.Context, in *adminpb.CreateLogicalViewRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.CreateLogicalView(in)
+}
+
+func (s *instanceAdminServer) GetLogicalView(
+	_ context.Context, in *adminpb.GetLogicalViewRequest,
+) (*adminpb.LogicalView, error) {
+	return s.b.GetLogicalView(in)
+}
+
+func (s *instanceAdminServer) ListLogicalViews(
+	_ context.Context, in *adminpb.ListLogicalViewsRequest,
+) (*adminpb.ListLogicalViewsResponse, error) {
+	return s.b.ListLogicalViews(in)
+}
+
+func (s *instanceAdminServer) UpdateLogicalView(
+	_ context.Context, in *adminpb.UpdateLogicalViewRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.UpdateLogicalView(in)
+}
+
+func (s *instanceAdminServer) DeleteLogicalView(
+	_ context.Context, in *adminpb.DeleteLogicalViewRequest,
+) (*emptypb.Empty, error) {
+	return s.b.DeleteLogicalView(in)
+}
+
+func (s *instanceAdminServer) CreateMaterializedView(
+	_ context.Context, in *adminpb.CreateMaterializedViewRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.CreateMaterializedView(in)
+}
+
+func (s *instanceAdminServer) GetMaterializedView(
+	_ context.Context, in *adminpb.GetMaterializedViewRequest,
+) (*adminpb.MaterializedView, error) {
+	return s.b.GetMaterializedView(in)
+}
+
+func (s *instanceAdminServer) ListMaterializedViews(
+	_ context.Context, in *adminpb.ListMaterializedViewsRequest,
+) (*adminpb.ListMaterializedViewsResponse, error) {
+	return s.b.ListMaterializedViews(in)
+}
+
+func (s *instanceAdminServer) UpdateMaterializedView(
+	_ context.Context, in *adminpb.UpdateMaterializedViewRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.UpdateMaterializedView(in)
+}
+
+func (s *instanceAdminServer) DeleteMaterializedView(
+	_ context.Context, in *adminpb.DeleteMaterializedViewRequest,
+) (*emptypb.Empty, error) {
+	return s.b.DeleteMaterializedView(in)
+}
+
+func (s *dataServer) ReadChangeStream(
+	in *btpb.ReadChangeStreamRequest, stream btpb.Bigtable_ReadChangeStreamServer,
+) error {
+	return s.b.StreamChanges(stream.Context(), in, stream.Send)
+}
+
+func (s *dataServer) GenerateInitialChangeStreamPartitions(
+	in *btpb.GenerateInitialChangeStreamPartitionsRequest,
+	stream btpb.Bigtable_GenerateInitialChangeStreamPartitionsServer,
+) error {
+	parts, err := s.b.InitialChangeStreamPartitions(in)
+	if err != nil {
+		return err
+	}
+
+	for _, p := range parts {
+		if err = stream.Send(&btpb.GenerateInitialChangeStreamPartitionsResponse{Partition: p}); err != nil {
+			return err //nolint:wrapcheck // stream errors pass through to the transport
+		}
+	}
+
+	return nil
+}

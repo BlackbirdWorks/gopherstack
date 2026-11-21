@@ -195,10 +195,12 @@ func (r *rowRec) size() int64 {
 
 func cloneTable(t *tableRec) *tableRec {
 	out := &tableRec{
-		pb:     clone(t.pb),
-		rows:   make(map[string]*rowRec, len(t.rows)),
-		splits: slices.Clone(t.splits),
-		dirty:  true,
+		pb:      clone(t.pb),
+		rows:    make(map[string]*rowRec, len(t.rows)),
+		views:   make(map[string]*viewRec),
+		bundles: make(map[string]*adminpb.SchemaBundle),
+		splits:  slices.Clone(t.splits),
+		dirty:   true,
 	}
 
 	for k, r := range t.rows {
