@@ -775,7 +775,7 @@ func temporalDiff(op string, l, r *gx) (*gx, bool, error) {
 
 func intervalArithmetic(op string, l, r *gx) (*gx, bool, error) {
 	li, ri := l.typ.Kind == KindInterval, r.typ.Kind == KindInterval
-	fn, known := map[string]string{"+": "add", "-": "sub", "*": "mul", "/": "div"}[op]
+	fn, known := map[string]string{"+": decAdd, "-": decSub, "*": decMul, "/": decDiv}[op]
 
 	if !known || li && ri && op != "+" && op != "-" || (li != ri) && (op == "+" || op == "-") || !li && op == "/" {
 		return nil, true, invalid("Operator %s is not supported for INTERVAL operands", op)

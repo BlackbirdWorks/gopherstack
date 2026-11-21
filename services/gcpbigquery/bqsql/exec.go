@@ -133,13 +133,12 @@ func affinity(t Type) string {
 	switch t.Kind {
 	case KindInt, KindBool:
 		return litInteger
-	case KindFloat, KindNumeric, KindBigNumeric:
+	case KindFloat:
 		return "REAL"
 	case KindBytes:
 		return "BLOB"
-	case KindUnknown, KindString, KindTimestamp, KindDate, KindTime, KindDatetime, KindJSON, KindGeography,
-		KindInterval,
-		KindStruct, KindArray:
+	case KindUnknown, KindString, KindNumeric, KindBigNumeric, KindTimestamp, KindDate, KindTime, KindDatetime,
+		KindJSON, KindGeography, KindInterval, KindStruct, KindArray:
 		return "TEXT"
 	}
 

@@ -385,9 +385,11 @@ func (c *compiler) compileSetOp(s *setExpr, outer *scope) (*compiledQuery, *selO
 		cols[i] = Column{Name: left.cols[i].Name, Type: commonType(left.cols[i].Type, right.cols[i].Type)}
 	}
 
-	sql := "SELECT * FROM (" + left.sql + ") " + setOpSQL()[s.op] + " SELECT * FROM (" + right.sql + ")"
+	leftSQL, rightSQL := unifySetColumns(left, cols), unifySetColumns(right, cols)
+
+	sql := "SELECT * FROM (" + leftSQL + ") " + setOpSQL()[s.op] + " SELECT * FROM (" + rightSQL + ")"
 	if s.op == "INTERSECT ALL" || s.op == "EXCEPT ALL" {
-		sql = bagSetOpSQL(strings.TrimSuffix(s.op, " ALL"), left.sql, right.sql, len(cols))
+		sql = bagSetOpSQL(strings.TrimSuffix(s.op, " ALL"), leftSQL, rightSQL, len(cols))
 	}
 
 	return &compiledQuery{sql: sql, cols: cols, aliases: left.aliases}, nil, nil

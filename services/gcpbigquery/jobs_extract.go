@@ -383,9 +383,7 @@ func jsonCell(f bqsql.Field, v any) jsontext.Value {
 
 	k, _ := bqsql.KindOf(f.Type)
 	if k == bqsql.KindStruct || f.Mode == bqsql.ModeRepeated {
-		text, _ := bqsql.ToSQLite(f, v).(string)
-
-		return jsontext.Value(text)
+		return jsontext.Value(bqsql.JSONText(f, v))
 	}
 
 	s, _ := v.(string)

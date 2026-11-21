@@ -37,7 +37,7 @@ func udfCast(a []driver.Value) (driver.Value, error) {
 	case KindBytes:
 		return bytesOf(a[0]), nil
 	case KindNumeric, KindBigNumeric:
-		return castNumeric(a[0])
+		return nil, errBQ("unsupported cast to %s", target)
 	case KindTimestamp, KindDate, KindDatetime, KindTime:
 		return castTemporal(k, a[0])
 	case KindJSON:
@@ -110,10 +110,6 @@ func castString(v driver.Value, src string) (driver.Value, error) {
 		f, _ := toFloat(v)
 
 		return strings.TrimSuffix(FormatFloat(f), ".0"), nil
-	case litNumeric, litBignumeric:
-		f, _ := toFloat(v)
-
-		return FormatNumeric(f), nil
 	case litTimestamp:
 		return udfStringOf([]driver.Value{v})
 	case litDatetime, litTime:
@@ -121,19 +117,6 @@ func castString(v driver.Value, src string) (driver.Value, error) {
 	}
 
 	return toStr(v), nil
-}
-
-func castNumeric(v driver.Value) (driver.Value, error) {
-	if n, ok := v.(int64); ok {
-		return float64(n), nil
-	}
-
-	f, err := toFloat(v)
-	if err != nil {
-		return nil, errBQ("Invalid NUMERIC value: %s", toStr(v))
-	}
-
-	return f, nil
 }
 
 func castTemporal(k Kind, v driver.Value) (driver.Value, error) {

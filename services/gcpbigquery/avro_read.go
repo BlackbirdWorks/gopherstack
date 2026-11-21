@@ -308,7 +308,7 @@ func avroScalar(v any, typ string) any {
 	case time.Duration:
 		return time.Unix(0, int64(t)).UTC().Format(timeLayoutMicros)
 	case *big.Rat:
-		return t.FloatString(numericMaxScale)
+		return t.FloatString(bigNumericScale)
 	}
 
 	return v

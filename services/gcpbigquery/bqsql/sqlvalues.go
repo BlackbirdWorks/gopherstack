@@ -24,7 +24,7 @@ func ToSQLite(f Field, stored any) driver.Value {
 	if k == KindStruct || strings.EqualFold(f.Mode, ModeRepeated) {
 		var buf bytes.Buffer
 
-		writeJSON(&buf, f, stored)
+		writeJSON(&buf, f, stored, false)
 
 		return buf.String()
 	}
@@ -32,6 +32,15 @@ func ToSQLite(f Field, stored any) driver.Value {
 	s, _ := stored.(string)
 
 	return scalarToSQLite(k, s)
+}
+
+// JSONText renders a stored record or repeated value as JSON text with decimals as plain strings.
+func JSONText(f Field, stored any) string {
+	var buf bytes.Buffer
+
+	writeJSON(&buf, f, stored, true)
+
+	return buf.String()
 }
 
 func scalarToSQLite(k Kind, s string) driver.Value {
@@ -45,9 +54,12 @@ func scalarToSQLite(k Kind, s string) driver.Value {
 
 		return f
 	case KindNumeric, KindBigNumeric:
-		f, _ := strconv.ParseFloat(s, bitSize)
+		d, err := ParseDecimal(k, s)
+		if err != nil {
+			return nil
+		}
 
-		return f
+		return d.SQLText()
 	case KindBool:
 		if s == litTrueX {
 			return int64(1)
@@ -67,7 +79,7 @@ func scalarToSQLite(k Kind, s string) driver.Value {
 	return s
 }
 
-func writeJSON(buf *bytes.Buffer, f Field, stored any) {
+func writeJSON(buf *bytes.Buffer, f Field, stored any, plain bool) {
 	if strings.EqualFold(f.Mode, ModeRepeated) {
 		arr, _ := stored.([]any)
 		elem := f
@@ -80,7 +92,7 @@ func writeJSON(buf *bytes.Buffer, f Field, stored any) {
 				buf.WriteByte(',')
 			}
 
-			writeJSON(buf, elem, e)
+			writeJSON(buf, elem, e, plain)
 		}
 
 		buf.WriteByte(']')
@@ -96,16 +108,16 @@ func writeJSON(buf *bytes.Buffer, f Field, stored any) {
 
 	k, _ := KindOf(f.Type)
 	if k == KindStruct {
-		writeJSONRecord(buf, f.Fields, stored)
+		writeJSONRecord(buf, f.Fields, stored, plain)
 
 		return
 	}
 
 	s, _ := stored.(string)
-	writeJSONScalar(buf, k, s)
+	writeJSONScalar(buf, k, s, plain)
 }
 
-func writeJSONRecord(buf *bytes.Buffer, fields []Field, stored any) {
+func writeJSONRecord(buf *bytes.Buffer, fields []Field, stored any, plain bool) {
 	rec, _ := stored.([]any)
 
 	buf.WriteByte('{')
@@ -124,13 +136,13 @@ func writeJSONRecord(buf *bytes.Buffer, fields []Field, stored any) {
 			v = rec[i]
 		}
 
-		writeJSON(buf, fl, v)
+		writeJSON(buf, fl, v, plain)
 	}
 
 	buf.WriteByte('}')
 }
 
-func writeJSONScalar(buf *bytes.Buffer, k Kind, s string) {
+func writeJSONScalar(buf *bytes.Buffer, k Kind, s string, plain bool) {
 	switch k {
 	case KindInt, KindBool:
 		buf.WriteString(s)
@@ -144,8 +156,17 @@ func writeJSONScalar(buf *bytes.Buffer, k Kind, s string) {
 		}
 
 		buf.WriteString(strconv.FormatFloat(f, 'g', -1, bitSize))
-	case KindUnknown, KindString, KindBytes, KindTimestamp, KindDate, KindTime, KindDatetime, KindNumeric,
-		KindBigNumeric, KindJSON, KindGeography, KindInterval, KindStruct, KindArray:
+	case KindNumeric, KindBigNumeric:
+		txt := litNull
+		if d, err := ParseDecimal(k, s); err == nil && plain {
+			txt = `"` + d.String() + `"`
+		} else if err == nil {
+			txt = `"` + d.SQLText() + `"`
+		}
+
+		buf.WriteString(txt)
+	case KindUnknown, KindString, KindBytes, KindTimestamp, KindDate, KindTime, KindDatetime,
+		KindJSON, KindGeography, KindInterval, KindStruct, KindArray:
 		q, _ := json.Marshal(s, jsonx.V1())
 		buf.Write(q)
 	}
@@ -273,9 +294,7 @@ func scalarFromSQLite(k Kind, v any) (any, error) {
 	case KindBool:
 		return storedBool(v)
 	case KindNumeric, KindBigNumeric:
-		if fl, ok := v.(float64); ok {
-			return FormatNumeric(fl), nil
-		}
+		return decimalFromSQLite(k, v)
 	case KindBytes:
 		if b, ok := v.([]byte); ok {
 			return base64.StdEncoding.EncodeToString(b), nil
@@ -293,4 +312,18 @@ func scalarFromSQLite(k Kind, v any) (any, error) {
 	}
 
 	return scalarStored(k, v)
+}
+
+func decimalFromSQLite(k Kind, v any) (any, error) {
+	s, ok := v.(string)
+	if !ok {
+		return nil, valueErr("expected an encoded %s value, got %T", k.RESTName(), v)
+	}
+
+	d, err := DecodeSQLText(s, k)
+	if err != nil {
+		return nil, valueErr("invalid %s value", k.RESTName())
+	}
+
+	return d.String(), nil
 }

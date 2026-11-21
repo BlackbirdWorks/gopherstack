@@ -4,6 +4,7 @@ package bqsql
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -41,6 +42,8 @@ type Column struct {
 type Type struct {
 	Elem   *Type
 	Fields []Column
+	Prec   int
+	Scale  int
 	Kind   Kind
 }
 
@@ -143,6 +146,9 @@ func (f Field) SQLType() Type {
 		t = Type{Kind: KindStruct, Fields: FieldColumns(f.Fields)}
 	} else {
 		t = scalar(k)
+		if isDec(t) {
+			t.Prec, t.Scale = f.decimalParams()
+		}
 	}
 
 	if strings.EqualFold(f.Mode, ModeRepeated) {
@@ -150,6 +156,20 @@ func (f Field) SQLType() Type {
 	}
 
 	return t
+}
+
+func (f Field) decimalParams() (int, int) {
+	p, err := strconv.Atoi(f.Precision)
+	if err != nil || p <= 0 || p > maxTypeParam {
+		return 0, 0
+	}
+
+	s, _ := strconv.Atoi(f.Scale)
+	if s < 0 || s > p {
+		return 0, 0
+	}
+
+	return p, s
 }
 
 // FieldColumns converts schema fields into typed columns.
@@ -172,6 +192,10 @@ func TypeField(name string, t Type) Field {
 	}
 
 	f.Type = t.Kind.RESTName()
+
+	if isDec(t) && t.Prec > 0 {
+		f.Precision, f.Scale = strconv.Itoa(t.Prec), strconv.Itoa(t.Scale)
+	}
 
 	if t.Kind == KindStruct {
 		f.Fields = ColumnFields(t.Fields)
@@ -244,6 +268,33 @@ func normalizeField(f *Field) error {
 	}
 
 	f.Fields = nil
+
+	return normalizeDecimalParams(f, k)
+}
+
+func normalizeDecimalParams(f *Field, k Kind) error {
+	if !isDec(scalar(k)) {
+		f.Precision, f.Scale = "", ""
+
+		return nil
+	}
+
+	if f.Precision == "" && f.Scale == "" {
+		return nil
+	}
+
+	p, perr := strconv.Atoi(f.Precision)
+	s, serr := strconv.Atoi(f.Scale)
+
+	if f.Scale == "" {
+		s, serr = 0, nil
+	}
+
+	if perr != nil || serr != nil || checkDecimalParams(k, p, s) != nil {
+		return fmt.Errorf("%w: invalid precision %q and scale %q for field %q", ErrSchema, f.Precision, f.Scale, f.Name)
+	}
+
+	f.Precision, f.Scale = strconv.Itoa(p), strconv.Itoa(s)
 
 	return nil
 }

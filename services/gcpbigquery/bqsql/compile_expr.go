@@ -213,12 +213,12 @@ func (c *compiler) typedLiteral(n *node) (*gx, error) {
 	}
 
 	if k == KindNumeric || k == KindBigNumeric {
-		s, err := storedNumeric(n.str)
+		d, err := ParseDecimal(k, n.str)
 		if err != nil {
 			return nil, invalid("Invalid %s literal: %q", n.name, n.str)
 		}
 
-		return &gx{sql: s, typ: scalar(k)}, nil
+		return &gx{sql: quoteStr(d.SQLText()), typ: scalar(k)}, nil
 	}
 
 	return &gx{sql: quoteStr(n.str), typ: scalar(KindJSON)}, nil
@@ -412,6 +412,10 @@ func (c *compiler) unary(n *node, sc *scope) (*gx, error) {
 			return &gx{sql: "bq_interval_neg(" + a.sql + ")", typ: a.typ}, nil
 		}
 
+		if isDec(a.typ) {
+			return &gx{sql: decCall("neg", a.sql, decFlag(a.typ)), typ: a.typ}, nil
+		}
+
 		return &gx{sql: "(-" + a.sql + ")", typ: a.typ}, nil
 	case "~":
 		return &gx{sql: "(~" + a.sql + ")", typ: a.typ}, nil
@@ -455,6 +459,16 @@ func (c *compiler) binary(n *node, sc *scope) (*gx, error) {
 
 	if g, ok, ierr := intervalBinary(op, l, r); ok || ierr != nil {
 		return g, ierr
+	}
+
+	if isDec(l.typ) || isDec(r.typ) {
+		if g, ok := decOperator(op, l, r); ok {
+			return g, nil
+		}
+
+		if op == "+" || op == "-" || op == "*" || op == "/" {
+			l, r, _ = unifyPair(l, r)
+		}
 	}
 
 	switch op {
@@ -529,27 +543,24 @@ func coalesceNumeric(t Type) Type {
 func (c *compiler) caseExpr(n *node, sc *scope) (*gx, error) {
 	args := n.args
 
-	var sb strings.Builder
-
-	sb.WriteString("(CASE")
+	var op *gx
 
 	if n.operand {
-		op, err := c.expr(args[0], sc)
+		g, err := c.expr(args[0], sc)
 		if err != nil {
 			return nil, err
 		}
 
-		sb.WriteString(" " + op.sql)
-
-		args = args[1:]
+		op, args = g, args[1:]
 	}
-
-	var typ Type
 
 	nWhen := len(args)
 	if n.hasElse {
 		nWhen--
 	}
+
+	whens := make([]*gx, 0, nWhen/2+1)
+	results := make([]*gx, 0, nWhen/2+1)
 
 	for i := 0; i+1 < nWhen+1 && i < nWhen; i += 2 {
 		w, err := c.expr(args[i], sc)
@@ -562,8 +573,7 @@ func (c *compiler) caseExpr(n *node, sc *scope) (*gx, error) {
 			return nil, err
 		}
 
-		typ = commonType(typ, t.typ)
-		sb.WriteString(" WHEN " + w.sql + " THEN " + t.sql)
+		whens, results = append(whens, w), append(results, t)
 	}
 
 	if n.hasElse {
@@ -572,8 +582,29 @@ func (c *compiler) caseExpr(n *node, sc *scope) (*gx, error) {
 			return nil, err
 		}
 
-		typ = commonType(typ, e.typ)
-		sb.WriteString(" ELSE " + e.sql)
+		results = append(results, e)
+	}
+
+	typ, results := unifyAll(results)
+
+	var sb strings.Builder
+
+	sb.WriteString("(CASE")
+
+	if op != nil {
+		ws := append([]*gx{op}, whens...)
+		_, ws = unifyAll(ws)
+		op, whens = ws[0], ws[1:]
+
+		sb.WriteString(" " + op.sql)
+	}
+
+	for i, w := range whens {
+		sb.WriteString(" WHEN " + w.sql + " THEN " + results[i].sql)
+	}
+
+	if n.hasElse {
+		sb.WriteString(" ELSE " + results[len(results)-1].sql)
 	}
 
 	sb.WriteString(" END)")
@@ -590,6 +621,14 @@ func (c *compiler) cast(n *node, sc *scope) (*gx, error) {
 	to := *n.castTo
 	fn := "bq_cast"
 
+	if isDec(to) || isDec(a.typ) {
+		if len(n.args) > 1 {
+			return nil, unsupported("CAST ... FORMAT with NUMERIC or BIGNUMERIC")
+		}
+
+		return decCast(a, to, n.safe)
+	}
+
 	if len(n.args) > 1 {
 		return c.castFormat(n, sc, a, to)
 	}
@@ -603,7 +642,10 @@ func (c *compiler) cast(n *node, sc *scope) (*gx, error) {
 			return nil, invalid("Invalid cast from %s to %s", a.typ.Kind.SQLName(), to.Kind.SQLName())
 		}
 
-		return &gx{sql: a.sql, typ: to}, nil
+		out := *coerceTo(a, to)
+		out.typ = to
+
+		return &out, nil
 	}
 
 	return &gx{
@@ -684,6 +726,10 @@ func (c *compiler) predicate(n *node, sc *scope) (*gx, error) {
 		not = "NOT "
 	}
 
+	if n.kind == nBetween && hasDec(args) {
+		_, args = unifyAll(args)
+	}
+
 	switch n.kind {
 	case nLike:
 		return &gx{sql: "(" + not + "bq_like(" + args[0].sql + ", " + args[1].sql + "))", typ: boolT}, nil
@@ -733,6 +779,10 @@ func (c *compiler) inPredicate(n *node, args []*gx, sc *scope) (*gx, error) {
 
 	switch {
 	case n.name == litUnnest:
+		if el := args[1].typ.Elem; el != nil && isDec(*el) {
+			args[0] = toType(args[0], *el)
+		}
+
 		return &gx{
 			sql: "(" + args[0].sql + " " + op + " (SELECT \"value\" FROM json_each(" + args[1].sql + ")))",
 			typ: boolT,
@@ -747,7 +797,15 @@ func (c *compiler) inPredicate(n *node, args []*gx, sc *scope) (*gx, error) {
 			return nil, invalid("Subquery of type IN must have only one output column")
 		}
 
+		if isDec(cq.cols[0].Type) {
+			args[0] = toType(args[0], cq.cols[0].Type)
+		}
+
 		return &gx{sql: "(" + args[0].sql + " " + op + " (" + cq.sql + "))", typ: boolT}, nil
+	}
+
+	if hasDec(args) {
+		_, args = unifyAll(args)
 	}
 
 	list := make([]string, len(args)-1)
@@ -793,9 +851,7 @@ func (c *compiler) subquery(n *node, sc *scope) (*gx, error) {
 }
 
 func (c *compiler) arrayLit(n *node, sc *scope) (*gx, error) {
-	var elem Type
-
-	parts := make([]string, len(n.args))
+	items := make([]*gx, len(n.args))
 
 	for i, a := range n.args {
 		g, err := c.expr(a, sc)
@@ -803,12 +859,21 @@ func (c *compiler) arrayLit(n *node, sc *scope) (*gx, error) {
 			return nil, err
 		}
 
-		elem = commonType(elem, g.typ)
-		parts[i] = jsonVal(g)
+		items[i] = g
 	}
 
+	elem, items := unifyAll(items)
 	if n.elemType != nil {
 		elem = *n.elemType
+
+		for i, g := range items {
+			items[i] = toType(g, elem)
+		}
+	}
+
+	parts := make([]string, len(items))
+	for i, g := range items {
+		parts[i] = jsonVal(g)
 	}
 
 	if elem.Kind == KindUnknown {
@@ -844,6 +909,7 @@ func (c *compiler) structLit(n *node, sc *scope) (*gx, error) {
 		typ := g.typ
 		if n.castTo != nil && i < len(n.castTo.Fields) {
 			typ = n.castTo.Fields[i].Type
+			g = toType(g, typ)
 		}
 
 		cols[i] = Column{Name: name, Type: typ}
@@ -895,6 +961,15 @@ func coerceFor(g *gx, target Type) *gx {
 
 func coerceTo(g *gx, target Type) *gx {
 	switch {
+	case isDec(target) || target.Kind == KindFloat && isDec(g.typ):
+		return constrainDec(toType(g, target), target)
+	case arrayNeedsCoerce(g.typ, target):
+		elem := coerceTo(&gx{sql: `"_ce"."value"`, typ: *g.typ.Elem}, *target.Elem)
+
+		return &gx{
+			sql: "(SELECT json_group_array(" + jsonVal(elem) + ") FROM json_each(" + g.sql + ") AS \"_ce\")",
+			typ: target,
+		}
 	case g.typ.Kind == KindStruct && target.Kind == KindStruct && len(g.typ.Fields) == len(target.Fields):
 		parts := make([]string, 0, len(target.Fields)*2) //nolint:mnd // name and value per member
 
@@ -905,15 +980,16 @@ func coerceTo(g *gx, target Type) *gx {
 		}
 
 		return &gx{sql: "json_object(" + strings.Join(parts, ", ") + ")", typ: target}
-	case g.typ.Kind == KindArray && target.Kind == KindArray && g.typ.Elem != nil && target.Elem != nil &&
-		target.Elem.Kind == KindStruct:
-		elem := coerceTo(&gx{sql: `"_ce"."value"`, typ: *g.typ.Elem}, *target.Elem)
-
-		return &gx{
-			sql: "(SELECT json_group_array(" + jsonVal(elem) + ") FROM json_each(" + g.sql + ") AS \"_ce\")",
-			typ: target,
-		}
 	}
 
 	return g
+}
+
+// arrayNeedsCoerce reports an array whose elements must be rewritten to reach the target element type.
+func arrayNeedsCoerce(from, to Type) bool {
+	if from.Kind != KindArray || to.Kind != KindArray || from.Elem == nil || to.Elem == nil {
+		return false
+	}
+
+	return to.Elem.Kind == KindStruct || isDec(*to.Elem) && (from.Elem.Kind != to.Elem.Kind || to.Elem.Prec > 0)
 }
