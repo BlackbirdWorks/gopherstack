@@ -516,18 +516,39 @@ func (c *compiler) unpivotSQL(spec *pivotSpec, cols []*colInfo, base string) ([]
 		return nil, "", err
 	}
 
+	valTypes := make([]Type, len(spec.valueCols))
+
 	for i, vc := range spec.valueCols {
-		out = append(out, selectedCol{vc, byName[strings.ToLower(spec.sets[0].cols[i])].typ})
+		valTypes[i] = unpivotValueType(spec, byName, i)
+		out = append(out, selectedCol{vc, valTypes[i]})
 	}
 
 	out = append(out, selectedCol{spec.nameCol, nameTyp})
 	parts := make([]string, len(spec.sets))
 
 	for i, set := range spec.sets {
-		parts[i] = c.unpivotMember(spec, set, byName, other, base, nameTyp)
+		parts[i] = c.unpivotMember(spec, set, byName, other, base, nameTyp, valTypes)
 	}
 
 	return out, "SELECT * FROM (" + strings.Join(parts, " UNION ALL ") + ")", nil
+}
+
+// unpivotValueType is the type of value column i: the first column set's type, widened when decimals are mixed in.
+func unpivotValueType(spec *pivotSpec, byName map[string]*colInfo, i int) Type {
+	first := byName[strings.ToLower(spec.sets[0].cols[i])].typ
+	gs := make([]*gx, len(spec.sets))
+
+	for j, set := range spec.sets {
+		gs[j] = &gx{typ: byName[strings.ToLower(set.cols[i])].typ}
+	}
+
+	if !hasDec(gs) {
+		return first
+	}
+
+	t, _ := unifyAll(gs)
+
+	return t
 }
 
 func unpivotNameType(spec *pivotSpec) (Type, error) {
@@ -569,6 +590,7 @@ func unpivotNameType(spec *pivotSpec) (Type, error) {
 
 func (c *compiler) unpivotMember(
 	spec *pivotSpec, set unpivotSet, byName map[string]*colInfo, other []*colInfo, base string, nameTyp Type,
+	valTypes []Type,
 ) string {
 	sel := make([]string, 0, len(other)+len(set.cols)+1)
 
@@ -580,7 +602,7 @@ func (c *compiler) unpivotMember(
 
 	for i, name := range set.cols {
 		col := byName[strings.ToLower(name)]
-		sel = append(sel, col.sql+" AS "+quoteIdent(spec.valueCols[i]))
+		sel = append(sel, toType(&gx{sql: col.sql, typ: col.typ}, valTypes[i]).sql+" AS "+quoteIdent(spec.valueCols[i]))
 		conds = append(conds, col.sql+" IS NOT NULL")
 	}
 

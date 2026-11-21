@@ -382,6 +382,10 @@ func (c *compiler) compileSetOp(s *setExpr, outer *scope) (*compiledQuery, *selO
 	cols := make([]Column, len(left.cols))
 
 	for i := range cols {
+		if derr := decMix(&gx{typ: left.cols[i].Type}, &gx{typ: right.cols[i].Type}); derr != nil {
+			return nil, nil, derr
+		}
+
 		cols[i] = Column{Name: left.cols[i].Name, Type: commonType(left.cols[i].Type, right.cols[i].Type)}
 	}
 
@@ -1122,10 +1126,17 @@ func (c *compiler) usingJoin(f *fromItem, sc *scope, nLeft int) (string, error) 
 			return "", invalid("USING column %s must exist on both sides of the join", u)
 		}
 
-		conds = append(conds, l.sql+" = "+r.sql)
+		lg, rg := &gx{sql: l.sql, typ: l.typ}, &gx{sql: r.sql, typ: r.typ}
+
+		if err := decMix(lg, rg); err != nil {
+			return "", err
+		}
+
+		lg, rg, t := unifyPair(lg, rg)
+		conds = append(conds, lg.sql+" = "+rg.sql)
 
 		if f.joinType == litRight || f.joinType == "FULL" {
-			l.sql = "COALESCE(" + l.sql + ", " + r.sql + ")"
+			l.sql, l.typ = "COALESCE("+lg.sql+", "+rg.sql+")", t
 		}
 
 		r.hidden = true

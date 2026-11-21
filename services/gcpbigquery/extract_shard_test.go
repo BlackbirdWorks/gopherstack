@@ -80,8 +80,7 @@ func TestExtractShardingAndUris(t *testing.T) {
 
 			env := newSDK(t)
 			ds := env.dataset(t, "ex")
-			_, err := env.client.Query("CREATE TABLE ex.src AS " + rows).Run(t.Context())
-			require.NoError(t, err)
+			env.exec(t, "CREATE TABLE ex.src AS "+rows)
 
 			env.backend.SetExtractShardBytes(tt.shard)
 

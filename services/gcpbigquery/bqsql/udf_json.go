@@ -240,8 +240,8 @@ func udfFormat(a []driver.Value) (driver.Value, error) {
 }
 
 func formatArg(spec byte, flags string, v driver.Value) (string, error) {
-	if txt, ok := v.(string); ok && strings.HasPrefix(txt, fmtDecimalTag) {
-		return formatDecimal(spec, flags, txt[len(fmtDecimalTag):])
+	if da, ok := v.(decFormatArg); ok {
+		return formatDecimal(spec, flags, da)
 	}
 
 	return formatOne(spec, flags, v)

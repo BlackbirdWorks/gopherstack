@@ -257,6 +257,10 @@ func addMiscFuncs(t map[string]*fnDef) {
 		}
 
 		if hasDec(a) {
+			if err = decMix(a...); err != nil {
+				return nil, err
+			}
+
 			_, u := unifyAll(a)
 
 			return &gx{sql: "NULLIF(" + u[0].sql + ", " + u[1].sql + ")", typ: u[0].typ}, nil
@@ -394,6 +398,10 @@ func genIf(c *compiler, n *node, sc *scope) (*gx, error) {
 		return nil, err
 	}
 
+	if err = decMix(a[1:]...); err != nil {
+		return nil, err
+	}
+
 	typ, res := unifyAll(a[1:])
 
 	return &gx{
@@ -405,6 +413,10 @@ func genIf(c *compiler, n *node, sc *scope) (*gx, error) {
 func genCoalesce(c *compiler, n *node, sc *scope) (*gx, error) {
 	a, err := c.args(n, sc)
 	if err != nil {
+		return nil, err
+	}
+
+	if err = decMix(a...); err != nil {
 		return nil, err
 	}
 
@@ -433,7 +445,7 @@ func genToJSONString(c *compiler, n *node, sc *scope) (*gx, error) {
 	switch x.typ.Kind {
 	case KindStruct, KindArray:
 		if containsDec(x.typ) {
-			return &gx{sql: "bq_dec_json_nested(json(" + x.sql + "))", typ: scalar(KindString)}, nil
+			return &gx{sql: "CAST(" + decimalJSON(x, false) + " AS TEXT)", typ: scalar(KindString)}, nil
 		}
 
 		return &gx{sql: "CAST(json(" + x.sql + ") AS TEXT)", typ: scalar(KindString)}, nil

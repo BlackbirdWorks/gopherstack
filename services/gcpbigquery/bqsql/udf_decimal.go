@@ -4,6 +4,7 @@ import (
 	"database/sql/driver"
 	"math"
 	"math/big"
+	"slices"
 	"strings"
 
 	sqlitedriver "modernc.org/sqlite"
@@ -369,8 +370,7 @@ func addDecimalUDFs(d map[string]udfDef) {
 	d["dec_to_int"] = udfDef{n: 1, fn: decToInt}
 	d["dec_to_str"] = udfDef{n: 1, fn: decToStr}
 	d["dec_json"] = udfDef{n: 1, fn: decJSON}
-	d["dec_fmt"] = udfDef{n: argc2, fn: decFmt}
-	d["dec_json_nested"] = udfDef{n: 1, fn: decJSONNested}
+	d["format_dec"] = udfDef{n: -1, fn: udfFormatDec}
 	d["dec_generate_array"] = udfDef{n: argc4, fn: decGenerateArray}
 }
 
@@ -459,78 +459,39 @@ func registerDecimalAggregates() {
 	}
 }
 
-func decFmt(a []driver.Value) (driver.Value, error) {
-	if a[0] == nil {
-		return nil, nil //nolint:nilnil // NULL in, NULL out
-	}
-
-	k := decKindArg(a[1])
-
-	d, err := decArg(a[0], k)
-	if err != nil {
-		return nil, err
-	}
-
-	return fmtDecimalTag + decFlagLetter(k) + d.String(), nil
+// decFormatArg is a decoded decimal handed to the FORMAT implementation; its Go type cannot collide with any SQL value.
+type decFormatArg struct {
+	text string
+	kind Kind
 }
 
-func decFlagLetter(k Kind) string {
-	if k == KindBigNumeric {
-		return "B"
+func udfFormatDec(a []driver.Value) (driver.Value, error) {
+	if len(a) < argc2 {
+		return nil, errBQ("Too few arguments to FORMAT")
 	}
 
-	return "N"
-}
+	mask := toStr(a[0])
+	args := slices.Clone(a[1:])
 
-// decJSONNested rewrites every encoded decimal string inside JSON text into a bare JSON number.
-func decJSONNested(a []driver.Value) (driver.Value, error) {
-	if a[0] == nil {
-		return nil, nil //nolint:nilnil // NULL in, NULL out
-	}
-
-	src := toStr(a[0])
-
-	var sb strings.Builder
-
-	for i := 0; i < len(src); i++ {
-		if src[i] != '"' {
-			sb.WriteByte(src[i])
-
+	for j := range len(mask) {
+		if j+1 >= len(args) || mask[j] == '-' || args[j+1] == nil {
 			continue
 		}
 
-		end := i + 1
-		for end < len(src) && src[end] != '"' {
-			if src[end] == '\\' {
-				end++
-			}
-
-			end++
+		k := KindNumeric
+		if mask[j] == 'B' {
+			k = KindBigNumeric
 		}
 
-		if end >= len(src) {
-			sb.WriteString(src[i:])
-
-			break
+		d, err := decArg(args[j+1], k)
+		if err != nil {
+			return nil, err
 		}
 
-		inner := src[i+1 : end]
-
-		if IsSQLText(inner) {
-			d, err := DecodeSQLText(inner, KindBigNumeric)
-			if err != nil {
-				return nil, decFail(err)
-			}
-
-			sb.WriteString(d.String())
-		} else {
-			sb.WriteString(src[i : end+1])
-		}
-
-		i = end
+		args[j+1] = decFormatArg{text: d.String(), kind: k}
 	}
 
-	return sb.String(), nil
+	return udfFormat(args)
 }
 
 // decMomentAgg keeps exact power sums so VARIANCE and STDDEV of decimals only round once, on the final FLOAT64.

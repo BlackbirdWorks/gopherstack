@@ -8,7 +8,6 @@ import (
 )
 
 const (
-	fmtDecimalTag     = "\x01"
 	defaultFormatPrec = 6
 	sciLowExp         = -4
 	minExpDigits      = 2
@@ -54,14 +53,11 @@ func parseDecimalFlags(flags string) decFormatSpec {
 	return sp
 }
 
-// formatDecimal prints one FORMAT argument tagged by dec_fmt; %f, %e and %g are computed on exact digits.
-func formatDecimal(spec byte, flags, tagged string) (string, error) {
-	kind := KindNumeric
-	if strings.HasPrefix(tagged, "B") {
-		kind = KindBigNumeric
-	}
+// formatDecimal prints one decimal FORMAT argument; %f, %e and %g are computed on exact digits.
+func formatDecimal(spec byte, flags string, arg decFormatArg) (string, error) {
+	kind := arg.kind
 
-	d, err := ParseDecimal(kind, tagged[1:])
+	d, err := ParseDecimal(kind, arg.text)
 	if err != nil {
 		return "", decFail(err)
 	}

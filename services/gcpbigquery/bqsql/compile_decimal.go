@@ -5,6 +5,8 @@ import (
 	"strings"
 )
 
+const jsonEachValue = `"value"`
+
 func isDec(t Type) bool { return t.Kind == KindNumeric || t.Kind == KindBigNumeric }
 
 func decFlag(t Type) string {
@@ -26,28 +28,78 @@ func decCall(name string, args ...string) string {
 func toType(g *gx, t Type) *gx {
 	switch {
 	case isDec(t) && g.typ.Kind == KindInt:
-		if g.lit != nil && g.lit.kind == nInt {
-			if d, err := ParseDecimal(t.Kind, g.lit.str); err == nil {
-				return &gx{sql: quoteStr(d.SQLText()), typ: t, lit: g.lit}
-			}
-		}
-
-		return &gx{sql: decCall("from_int", g.sql, decFlag(t)), typ: t}
+		return intToDec(g, t)
 	case isDec(t) && g.typ.Kind == KindFloat:
-		if g.floatLiteral() {
-			if d, err := ParseDecimal(t.Kind, g.lit.str); err == nil {
-				return &gx{sql: quoteStr(d.SQLText()), typ: t}
-			}
-		}
-
-		return &gx{sql: decCall("from_float", g.sql, decFlag(t)), typ: t}
+		return floatToDec(g, t)
 	case isDec(t) && isDec(g.typ):
 		return &gx{sql: g.sql, typ: t, lit: g.lit}
 	case t.Kind == KindFloat && isDec(g.typ):
 		return &gx{sql: decCall("to_float", g.sql), typ: t}
+	case t.Kind == KindArray && g.typ.Kind == KindArray && t.Elem != nil && g.typ.Elem != nil &&
+		(isDec(*t.Elem) || isDec(*g.typ.Elem)):
+		return coerceDecArray(g, t)
 	}
 
 	return g
+}
+
+func intToDec(g *gx, t Type) *gx {
+	if g.lit != nil && g.lit.kind == nInt {
+		if d, err := ParseDecimal(t.Kind, g.lit.str); err == nil {
+			return &gx{sql: quoteStr(d.SQLText()), typ: t, lit: g.lit}
+		}
+	}
+
+	return &gx{sql: decCall("from_int", g.sql, decFlag(t)), typ: t}
+}
+
+func floatToDec(g *gx, t Type) *gx {
+	if g.floatLiteral() {
+		if d, err := ParseDecimal(t.Kind, g.lit.str); err == nil {
+			return &gx{sql: quoteStr(d.SQLText()), typ: t}
+		}
+	}
+
+	return &gx{sql: decCall("from_float", g.sql, decFlag(t)), typ: t}
+}
+
+// coerceDecArray converts the elements of array g to the element type of t when either side is a decimal.
+func coerceDecArray(g *gx, t Type) *gx {
+	from := *g.typ.Elem
+	if isDec(from) && isDec(*t.Elem) {
+		return &gx{sql: g.sql, typ: t}
+	}
+
+	el := toType(&gx{sql: jsonEachValue, typ: from}, *t.Elem)
+	if el.sql == jsonEachValue {
+		return g
+	}
+
+	return &gx{
+		sql: "(CASE WHEN " + g.sql + " IS NULL THEN NULL ELSE (SELECT json_group_array(" + el.sql +
+			") FROM json_each(" + g.sql + ")) END)",
+		typ: t,
+	}
+}
+
+func hasDecDeep(gs []*gx) bool {
+	for _, g := range gs {
+		if containsDec(g.typ) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func hasDecArray(gs []*gx) bool {
+	for _, g := range gs {
+		if g.typ.Kind == KindArray && g.typ.Elem != nil && isDec(*g.typ.Elem) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func hasDec(gs []*gx) bool {
@@ -68,7 +120,7 @@ func unifyAll(gs []*gx) (Type, []*gx) {
 		t = commonType(t, g.typ)
 	}
 
-	if !hasDec(gs) {
+	if !hasDec(gs) && !hasDecArray(gs) {
 		return t, gs
 	}
 
@@ -98,26 +150,66 @@ func unifyPair(l, r *gx) (*gx, *gx, Type) {
 	return out[0], out[1], t
 }
 
-// decOperator compiles an operator with at least one decimal operand; ok is false for operators that are not numeric.
-func decOperator(op string, l, r *gx) (*gx, bool) {
-	switch op {
-	case "=", "!=", "<", ">", "<=", ">=":
-		l2, r2, _ := unifyPair(l, r)
+func decOperand(t Type) bool {
+	return t.Kind == KindUnknown || t.Kind == KindInt || t.Kind == KindFloat || isDec(t)
+}
 
-		return &gx{sql: "(" + l2.sql + " " + op + " " + r2.sql + ")", typ: scalar(KindBool)}, true
-	case "+", "-", "*", "/":
+// decMix rejects a decimal combined with a type it does not coerce to.
+func decMix(gs ...*gx) error {
+	if !hasDec(gs) {
+		return nil
+	}
+
+	for _, g := range gs {
+		if !decOperand(g.typ) {
+			return invalid("Incompatible types %s and %s", firstDecType(gs).Kind.SQLName(), g.typ.Kind.SQLName())
+		}
+	}
+
+	return nil
+}
+
+func firstDecType(gs []*gx) Type {
+	for _, g := range gs {
+		if isDec(g.typ) {
+			return g.typ
+		}
+	}
+
+	return Type{}
+}
+
+func noSignature(what string, l, r *gx) error {
+	return invalid(
+		"No matching signature for %s for argument types: %s, %s", what, l.typ.Kind.SQLName(), r.typ.Kind.SQLName(),
+	)
+}
+
+// decOperator compiles an operator with at least one decimal operand; ok is false for operators that are not numeric.
+func decOperator(op string, l, r *gx) (*gx, bool, error) {
+	switch op {
+	case "=", "!=", "<", ">", "<=", ">=", "+", "-", "*", "/":
 	default:
-		return nil, false
+		return nil, false, nil
+	}
+
+	if !decOperand(l.typ) || !decOperand(r.typ) {
+		return nil, false, noSignature("operator "+op, l, r)
 	}
 
 	l2, r2, t := unifyPair(l, r)
+
+	if op != "+" && op != "-" && op != "*" && op != "/" {
+		return &gx{sql: "(" + l2.sql + " " + op + " " + r2.sql + ")", typ: scalar(KindBool)}, true, nil
+	}
+
 	if !isDec(t) {
-		return nil, false
+		return nil, false, nil
 	}
 
 	fn := map[string]string{"+": decAdd, "-": decSub, "*": decMul, "/": decDiv}[op]
 
-	return &gx{sql: decCall(fn, l2.sql, r2.sql, decFlag(t)), typ: t}, true
+	return &gx{sql: decCall(fn, l2.sql, r2.sql, decFlag(t)), typ: t}, true, nil
 }
 
 // constrainDec enforces NUMERIC(P, S) on g when the target type is parameterised.
@@ -266,6 +358,10 @@ func decUnaryFn(udf string, safe bool, args []*gx) (*gx, bool, error) {
 }
 
 func decExtreme(udf string, args []*gx) (*gx, bool, error) {
+	if err := decMix(args...); err != nil {
+		return nil, false, err
+	}
+
 	ct, us := unifyAll(args)
 	if !isDec(ct) {
 		return nil, false, nil
@@ -288,6 +384,10 @@ func decExtreme(udf string, args []*gx) (*gx, bool, error) {
 func decPair(name string, safe bool, args []*gx) (*gx, bool, error) {
 	if len(args) != 2 { //nolint:mnd // binary functions
 		return nil, false, nil
+	}
+
+	if err := decMix(args...); err != nil {
+		return nil, false, err
 	}
 
 	l, r, t := unifyPair(args[0], args[1])
@@ -353,7 +453,7 @@ func decGenerateArraySQL(args []*gx) (*gx, bool, error) {
 // decCallArgs routes a scalar call with decimal arguments: it returns the finished expression, or the arguments
 // the generic function should receive (decimals decoded to FLOAT64, or FORMAT's tagged strings).
 func decCallArgs(udf string, safe bool, args []*gx) ([]*gx, *gx, error) {
-	if !hasDec(args) {
+	if !hasDecDeep(args) {
 		if udf == "round" && len(args) > arityTwo {
 			return nil, nil, invalid("ROUND rounding mode requires a NUMERIC or BIGNUMERIC argument")
 		}
@@ -361,8 +461,20 @@ func decCallArgs(udf string, safe bool, args []*gx) ([]*gx, *gx, error) {
 		return args, nil, nil
 	}
 
-	if udf == "format" {
-		return formatArgs(args), nil, nil
+	switch udf {
+	case "format":
+		return nil, formatDecimalCall(args), nil
+	case "array_to_string":
+		return nil, nil, invalid("No matching signature for function ARRAY_TO_STRING for argument types: %s",
+			args[0].typ.Kind.SQLName())
+	case "array_concat":
+		_, us := unifyAll(args)
+
+		return us, nil, nil
+	}
+
+	if !hasDec(args) {
+		return args, nil, nil
 	}
 
 	g, ok, err := decFunction(udf, safe, args)
@@ -373,18 +485,77 @@ func decCallArgs(udf string, safe bool, args []*gx) ([]*gx, *gx, error) {
 	return floatArgs(args), nil, nil
 }
 
-// formatArgs tags decimal FORMAT arguments with their kind so the formatter can print them exactly.
-func formatArgs(args []*gx) []*gx {
-	out := make([]*gx, len(args))
+// formatDecimalCall compiles FORMAT with decimal arguments: a mask tells the runtime which arguments are encoded.
+func formatDecimalCall(args []*gx) *gx {
+	sqls := make([]string, len(args))
+	mask := make([]byte, 0, len(args))
 
 	for i, g := range args {
-		out[i] = g
-		if isDec(g.typ) {
-			out[i] = &gx{sql: decCall("fmt", g.sql, decFlag(g.typ)), typ: scalar(KindString)}
+		sqls[i] = g.sql
+
+		if i == 0 {
+			continue
+		}
+
+		switch g.typ.Kind {
+		case KindNumeric:
+			mask = append(mask, 'N')
+		case KindBigNumeric:
+			mask = append(mask, 'B')
+		default:
+			mask = append(mask, '-')
+
+			if containsDec(g.typ) {
+				sqls[i] = decimalJSON(g, false)
+			}
 		}
 	}
 
-	return out
+	return &gx{
+		sql: "bq_format_dec(" + quoteStr(string(mask)) + ", " + strings.Join(sqls, ", ") + ")",
+		typ: scalar(KindString),
+	}
+}
+
+// decimalJSON renders a value that is or contains decimals as JSON text, decimals as numbers or, when quote, strings.
+func decimalJSON(g *gx, quote bool) string {
+	switch {
+	case isDec(g.typ):
+		if quote {
+			return "json_quote(" + decCall("to_str", g.sql) + ")"
+		}
+
+		return "json(" + decCall("to_str", g.sql) + ")"
+	case g.typ.Kind == KindArray && g.typ.Elem != nil && containsDec(g.typ):
+		el := decimalJSONMember(&gx{sql: jsonEachValue, typ: *g.typ.Elem}, jsonEachValue, quote)
+
+		return "(CASE WHEN " + g.sql + " IS NULL THEN NULL ELSE (SELECT json_group_array(" + el +
+			") FROM json_each(" + g.sql + ")) END)"
+	case g.typ.Kind == KindStruct && containsDec(g.typ):
+		parts := make([]string, 0, argc2*len(g.typ.Fields))
+
+		for _, f := range g.typ.Fields {
+			path := `'$."` + strings.ReplaceAll(strings.ReplaceAll(f.Name, `\`, `\\`), `"`, `\"`) + `"'`
+			m := decimalJSONMember(
+				&gx{sql: "json_extract(" + g.sql + ", " + path + ")", typ: f.Type},
+				g.sql+" -> "+path,
+				quote,
+			)
+			parts = append(parts, quoteStr(f.Name), m)
+		}
+
+		return "(CASE WHEN " + g.sql + " IS NULL THEN NULL ELSE json_object(" + strings.Join(parts, ", ") + ") END)"
+	}
+
+	return g.sql
+}
+
+func decimalJSONMember(g *gx, raw string, quote bool) string {
+	if !containsDec(g.typ) {
+		return "(" + raw + ")"
+	}
+
+	return decimalJSON(g, quote)
 }
 
 func containsDec(t Type) bool {
