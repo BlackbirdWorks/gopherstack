@@ -33,6 +33,7 @@ const (
 	maxBatchFiles         = 100
 	isoMillis             = "2006-01-02T15:04:05.000Z"
 	attachedContentPath   = "/attached-files-content/"
+	attachUploadWindow    = time.Hour
 )
 
 var (
@@ -223,6 +224,23 @@ type configRef struct {
 
 func isoTime(t time.Time) string { return t.UTC().Format(isoMillis) }
 
+// uploadExpired reports whether a file still PROCESSING outlived the upload window. The SDK states no
+// window, so it is an emulator choice: such a file reads as FAILED and can no longer be completed.
+func (b *Backend) uploadExpired(r *attachedFileRec) bool {
+	created, err := time.Parse(isoMillis, r.CreationTime)
+
+	return err == nil && r.Status == fileStatusProcessing && !b.now().Before(created.Add(attachUploadWindow))
+}
+
+func (b *Backend) viewFile(r *attachedFileRec) AttachedFile {
+	v := r.view()
+	if b.uploadExpired(r) {
+		v.FileStatus = fileStatusFailed
+	}
+
+	return v
+}
+
 func (r *attachedFileRec) view() AttachedFile {
 	return AttachedFile{
 		CreatedBy: r.CreatedBy, Tags: cloneTags(r.Tags), CreationTime: r.CreationTime, FileArn: r.Arn,
@@ -387,7 +405,16 @@ func (b *Backend) StartAttachedFileUpload(
 	bucket := b.attachBucket(ctx)
 
 	if store != nil {
-		if err := store.EnsureBucket(ctx, bucket); err != nil {
+		_, err := readInstance(b, "StartAttachedFileUpload", in.InstanceID, func(inst string) (struct{}, error) {
+			_, cerr := b.checkAttachUpload(inst, in)
+
+			return struct{}{}, cerr
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		if err = store.EnsureBucket(ctx, bucket); err != nil {
 			return nil, invalidRequestErr("the attachment bucket is unavailable: %v", err)
 		}
 	}
@@ -599,6 +626,10 @@ func (b *Backend) CompleteAttachedFileUpload(ctx context.Context, in *fileRef) (
 			return nil, invalidRequestErr("file %q is already %s", in.FileID, r.Status)
 		}
 
+		if b.expireUpload(r) {
+			return &completion{reject: invalidRequestErr("the upload window of file %q has passed", in.FileID)}, nil
+		}
+
 		switch {
 		case !found:
 			return &completion{reject: invalidRequestErr("the content of file %q was not uploaded", in.FileID)}, nil
@@ -631,6 +662,17 @@ func (b *Backend) CompleteAttachedFileUpload(ctx context.Context, in *fileRef) (
 
 type completion struct{ reject error }
 
+// expireUpload persists FAILED on a file whose upload window passed; callers hold the write lock.
+func (b *Backend) expireUpload(r *attachedFileRec) bool {
+	if !b.uploadExpired(r) {
+		return false
+	}
+
+	r.Status = fileStatusFailed
+
+	return true
+}
+
 func (b *Backend) completeLocalUpload(in *fileRef) (*EmptyOutput, error) {
 	return writeInstance(b, "CompleteAttachedFileUpload", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		r, err := b.fileOf(inst, in.FileID, in.AssociatedResourceArn)
@@ -640,6 +682,10 @@ func (b *Backend) completeLocalUpload(in *fileRef) (*EmptyOutput, error) {
 
 		if r.Status != fileStatusProcessing {
 			return nil, invalidRequestErr("file %q is already %s", in.FileID, r.Status)
+		}
+
+		if b.expireUpload(r) {
+			return nil, invalidRequestErr("the upload window of file %q has passed", in.FileID)
 		}
 
 		if !r.Uploaded || int64(len(r.Content)) != r.Size {
@@ -667,7 +713,7 @@ func (b *Backend) GetAttachedFile(ctx context.Context, in *GetAttachedFileInput)
 			return nil, ferr
 		}
 
-		out := &AttachedFileOut{AttachedFile: r.view()}
+		out := &AttachedFileOut{AttachedFile: b.viewFile(r)}
 		if r.Status == fileStatusApproved {
 			out.DownloadURLMetadata = b.contentURL(ctx, "get", inst, r.FileID, expiry)
 			if store != nil && r.Bucket != "" {
@@ -698,7 +744,7 @@ func (b *Backend) BatchGetAttachedFileMetadata(in *BatchGetAttachedFileMetadataI
 				continue
 			}
 
-			out.Files = append(out.Files, r.view())
+			out.Files = append(out.Files, b.viewFile(r))
 		}
 
 		return out, nil

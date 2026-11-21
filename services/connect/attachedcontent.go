@@ -113,7 +113,7 @@ func (b *Backend) PutAttachedContent(inst, fileID string, q url.Values, body io.
 		return err
 	}
 
-	if r.Status != fileStatusProcessing {
+	if r.Status != fileStatusProcessing || b.uploadExpired(r) {
 		return apiErr(http.StatusConflict, "InvalidRequest", "file %q no longer accepts uploads", fileID)
 	}
 
@@ -128,6 +128,10 @@ func (b *Backend) PutAttachedContent(inst, fileID string, q url.Values, body io.
 	r, err = b.attachedFiles.get(inst, fileID)
 	if err != nil {
 		return err
+	}
+
+	if r.Status != fileStatusProcessing || b.uploadExpired(r) {
+		return apiErr(http.StatusConflict, "InvalidRequest", "file %q no longer accepts uploads", fileID)
 	}
 
 	r.Content, r.Uploaded = data, true

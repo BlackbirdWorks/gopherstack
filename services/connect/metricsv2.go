@@ -213,9 +213,6 @@ func v2Specs() map[string]v2Spec {
 			return most
 		}},
 		metricServiceLevel: {threshold: true, eval: serviceLevel},
-		"CONTACTS_TRANSFERRED_IN": countSpec(nil, func(c *contactRec, w window) (float64, bool) {
-			return one(c.Contact.InitiationMethod == initiationTransfer && w.has(c.Contact.InitiationTimestamp))
-		}),
 		"CONTACTS_TRANSFERRED_OUT": countSpec(nil, func(c *contactRec, w window) (float64, bool) {
 			return one(w.has(c.TransferredAt))
 		}),

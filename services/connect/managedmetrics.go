@@ -20,7 +20,7 @@ func managedMetricUnits() map[string]string {
 		metricAbandoned: unitInteger, "ABANDONMENT_RATE": unitPercent, metricServiceLevel: unitPercent,
 		"AVG_HANDLE_TIME": unitSeconds, "AVG_CONTACT_DURATION": unitSeconds, "AVG_QUEUE_ANSWER_TIME": unitSeconds,
 		"AVG_ABANDON_TIME": unitSeconds, "MAX_QUEUED_TIME": unitSeconds,
-		"CONTACTS_TRANSFERRED_IN": unitInteger, "CONTACTS_TRANSFERRED_OUT": unitInteger, "SUM_HANDLE_TIME": unitSeconds,
+		"CONTACTS_TRANSFERRED_OUT": unitInteger, "SUM_HANDLE_TIME": unitSeconds,
 	}
 }
 

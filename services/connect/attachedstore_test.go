@@ -311,3 +311,95 @@ func TestAttachedFileCompletionIsSerialised(t *testing.T) {
 	wg.Wait()
 	assert.Equal(t, 1, ok, "exactly one completion wins; the rest see the file already approved")
 }
+
+func TestDeleteInstanceDropsAttachmentObjects(t *testing.T) {
+	t.Parallel()
+
+	e := newContactEnv(t)
+	s := newFakeAttachmentStore()
+	e.f.backend.SetResolvers(s)
+
+	resource := e.contactARN(t, e.task(t))
+	e.startUpload(t, resource, "a.txt", int64(len(attachedText)))
+	c := s.last()
+	require.NoError(t, s.PutObject(t.Context(), c.bucket, c.key, []byte(attachedText)))
+	require.True(t, s.has(c.bucket, c.key))
+
+	_, err := e.f.client.DeleteInstance(t.Context(), &sdk.DeleteInstanceInput{InstanceId: aws.String(e.inst)})
+	require.NoError(t, err)
+	assert.False(t, s.has(c.bucket, c.key), "the attachment object leaves S3 with its instance")
+}
+
+func TestAttachedUploadWindowExpires(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		useStore bool
+	}{
+		{name: "emulator content endpoint"},
+		{name: "s3 backed", useStore: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newContactEnv(t)
+			s := newFakeAttachmentStore()
+
+			if tt.useStore {
+				e.f.backend.SetResolvers(s)
+			}
+
+			resource := e.contactARN(t, e.task(t))
+			start := e.startUpload(t, resource, "a.txt", int64(len(attachedText)))
+
+			if tt.useStore {
+				c := s.last()
+				require.NoError(t, s.PutObject(t.Context(), c.bucket, c.key, []byte(attachedText)))
+			}
+
+			e.f.clock.advance(2 * time.Hour)
+
+			ref := &sdk.GetAttachedFileInput{
+				InstanceId: aws.String(e.inst), FileId: start.FileId, AssociatedResourceArn: aws.String(resource),
+			}
+			got, err := e.f.client.GetAttachedFile(t.Context(), ref)
+			require.NoError(t, err)
+			assert.Equal(t, types.FileStatusTypeFailed, got.FileStatus, "a stale PROCESSING upload reads as failed")
+			assert.Nil(t, got.DownloadUrlMetadata)
+
+			_, err = e.f.client.CompleteAttachedFileUpload(t.Context(), &sdk.CompleteAttachedFileUploadInput{
+				InstanceId: aws.String(e.inst), FileId: start.FileId, AssociatedResourceArn: aws.String(resource),
+			})
+			assert.Equal(t, "InvalidRequestException", apiCode(err))
+		})
+	}
+}
+
+func TestStartAttachedFileUploadCreatesNoBucketOnFailure(t *testing.T) {
+	t.Parallel()
+
+	e := newContactEnv(t)
+	s := newFakeAttachmentStore()
+	e.f.backend.SetResolvers(s)
+
+	_, err := e.f.client.StartAttachedFileUpload(t.Context(), &sdk.StartAttachedFileUploadInput{
+		InstanceId: aws.String("00000000-0000-0000-0000-000000000000"), AssociatedResourceArn: aws.String("x"),
+		FileName: aws.String("a.txt"), FileSizeInBytes: aws.Int64(1), FileUseCaseType: types.FileUseCaseTypeAttachment,
+	})
+	require.Error(t, err)
+
+	_, err = e.f.client.StartAttachedFileUpload(t.Context(), &sdk.StartAttachedFileUploadInput{
+		InstanceId: aws.String(e.inst), AssociatedResourceArn: aws.String("arn:aws:connect:us-east-1:" + testAccount +
+			":instance/" + e.inst + "/contact/missing"),
+		FileName: aws.String("a.txt"), FileSizeInBytes: aws.Int64(1), FileUseCaseType: types.FileUseCaseTypeAttachment,
+	})
+	require.Error(t, err)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	assert.Empty(t, s.buckets, "a rejected request must not create the attachment bucket")
+}

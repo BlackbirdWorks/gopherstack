@@ -12,6 +12,7 @@ const (
 	scoringQuestionOnly = "QUESTION_ONLY"
 	scoringSectionOnly  = "SECTION_ONLY"
 	scoringEnabled      = "ENABLED"
+	maxScoringWeight    = 1e9
 )
 
 type scoreThreshold struct {
@@ -92,7 +93,7 @@ func questionTally(q evalQuestion, a EvaluationAnswer) evalTally {
 	t := evalTally{scored: true}
 
 	pick := func(score int32, fail bool, target string) {
-		t.earned, t.fail, t.failTarget = score, fail, target
+		t.earned, t.fail, t.failTarget = max(score, 0), fail, target
 	}
 
 	target := func(a *struct {
@@ -187,7 +188,7 @@ func (f *formScoring) collect(items []jsontext.Value, within []string, answers m
 				continue
 			}
 
-			f.sections[sec.RefID] = sectionInfo{weight: sec.Weight, thresholds: sec.Thresholds}
+			f.sections[sec.RefID] = sectionInfo{weight: clampWeight(sec.Weight), thresholds: sec.Thresholds}
 			f.order = append(f.order, sec.RefID)
 			f.collect(sec.Items, append(slices.Clone(within), sec.RefID), answers)
 		}
@@ -208,7 +209,7 @@ func (f *formScoring) collectQuestion(raw jsontext.Value, within []string, answe
 		return
 	}
 
-	sq := scoredQuestion{ref: q.RefID, sections: within, weight: x.Weight, tally: questionTally(q, a)}
+	sq := scoredQuestion{ref: q.RefID, sections: within, weight: clampWeight(x.Weight), tally: questionTally(q, a)}
 	if x.Scoring != nil {
 		sq.thresholds = x.Scoring.Thresholds
 	}
@@ -239,6 +240,9 @@ func (f *formScoring) zeroFailures() bool {
 
 	return formFail
 }
+
+// clampWeight keeps weight sums finite; the SDK states no range, so the bound is an emulator choice.
+func clampWeight(w float64) float64 { return min(max(w, 0), maxScoringWeight) }
 
 func appliedWeight(w, total float64) *float64 {
 	v := w / total * pctScale

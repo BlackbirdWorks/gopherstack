@@ -183,8 +183,8 @@ func TestGetMetricDataV2TransferMetrics(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	names := []string{"CONTACTS_TRANSFERRED_IN", "CONTACTS_TRANSFERRED_OUT", "SUM_HANDLE_TIME"}
-	want := []float64{1, 1, 70}
+	names := []string{"CONTACTS_TRANSFERRED_OUT", "SUM_HANDLE_TIME"}
+	want := []float64{1, 70}
 
 	metrics := make([]types.MetricV2, 0, len(names))
 	for _, n := range names {
@@ -202,4 +202,16 @@ func TestGetMetricDataV2TransferMetrics(t *testing.T) {
 	for i, c := range out.MetricResults[0].Collections {
 		assert.InDelta(t, want[i], aws.ToFloat64(c.Value), 0.001, names[i])
 	}
+}
+
+func TestGetMetricDataV2RejectsUnknownTransferMetric(t *testing.T) {
+	t.Parallel()
+
+	e, start := historyEnv(t)
+
+	_, err := e.f.client.GetMetricDataV2(t.Context(), &sdk.GetMetricDataV2Input{
+		ResourceArn: aws.String(e.instARN()), StartTime: aws.Time(start), EndTime: aws.Time(e.f.clock.now()),
+		Filters: queueFilter(e.queue), Metrics: []types.MetricV2{v2Metric("CONTACTS_TRANSFERRED_IN")},
+	})
+	assert.Equal(t, "InvalidParameterException", apiCode(err), "the SDK documents no CONTACTS_TRANSFERRED_IN metric")
 }
