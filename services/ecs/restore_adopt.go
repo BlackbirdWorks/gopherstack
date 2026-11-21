@@ -92,12 +92,25 @@ func (b *InMemoryBackend) resumeRestoredLaunches() {
 		return
 	}
 
-	var work []taskWork
+	var (
+		work    []taskWork
+		stopped []*Task
+	)
 
 	b.mu.RLock("resumeRestoredLaunches")
 
 	for _, t := range b.tasks.All() {
-		if !isLaunchingStatus(t.LastStatus) || t.AwaitingCapacity || t.DesiredStatus == statusStopped {
+		if !isLaunchingStatus(t.LastStatus) {
+			continue
+		}
+
+		if t.DesiredStatus == statusStopped {
+			stopped = append(stopped, t)
+
+			continue
+		}
+
+		if t.AwaitingCapacity {
 			continue
 		}
 
@@ -107,9 +120,54 @@ func (b *InMemoryBackend) resumeRestoredLaunches() {
 
 	b.mu.RUnlock()
 
+	b.settleRestoredStops(stopped)
+
 	for _, w := range work {
 		b.ensureAwslogsStreams(w.task, w.td)
 		b.launchAsync(w, clusterKey(clusterFromTaskARN(w.task.TaskArn)))
+	}
+}
+
+// settleRestoredStops finishes tasks that were told to stop but were still launching when the snapshot was taken.
+func (b *InMemoryBackend) settleRestoredStops(tasks []*Task) {
+	for _, task := range tasks {
+		b.mu.Lock("settleRestoredStops")
+
+		done := b.isLiveTaskLocked(task) && isLaunchingStatus(task.LastStatus) && task.DesiredStatus == statusStopped
+		if done {
+			b.stopRestoredLocked(task, clusterKey(clusterFromTaskARN(task.TaskArn)))
+		}
+
+		b.mu.Unlock()
+
+		if done {
+			_ = b.runner.StopTask(task)
+		}
+	}
+}
+
+func (b *InMemoryBackend) stopRestoredLocked(task *Task, clusterName string) {
+	now := b.clock()
+	task.LastStatus = statusStopped
+
+	if task.StoppedAt == nil {
+		task.StoppedAt = &now
+	}
+
+	if task.StopCode == "" {
+		task.StopCode = stopCodeUserInitiated
+	}
+
+	syncContainerStatuses(task, nil)
+	b.emitTaskStateLocked(task)
+	b.deregisterTaskFromELBv2Locked(task, clusterName)
+	b.deregisterTaskFromCloudMapLocked(task, clusterName)
+	b.releaseTaskHostPortsLocked(clusterName, task)
+	b.releaseTaskVolumesLocked(task)
+	delete(b.lifecycle, task.TaskArn)
+
+	if c, _ := b.clusters.Get(clusterName); c != nil && c.PendingTasksCount > 0 {
+		c.PendingTasksCount--
 	}
 }
 
@@ -129,6 +187,8 @@ func (b *InMemoryBackend) prepareRestoredLaunch(ctx context.Context, w taskWork,
 
 		return false
 	}
+
+	b.setRuntimeHealth(task)
 
 	b.mu.RLock("prepareRestoredLaunch")
 	status := task.LastStatus
