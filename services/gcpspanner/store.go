@@ -45,6 +45,7 @@ type InMemoryBackend struct {
 	emu         *emulator
 	keys        cmek.Checker
 	etagSeq     uint64
+	dumpTimeout time.Duration
 }
 
 // NewInMemoryBackend creates an empty backend with no data plane; see SetLauncher.
@@ -52,6 +53,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{
 		mu:          lockmetrics.New("gcpspanner"),
 		now:         time.Now,
+		dumpTimeout: dumpBudget,
 		ops:         gcplro.New("gcpspanner"),
 		wg:          &sync.WaitGroup{},
 		instances:   make(map[string]*instRec),
