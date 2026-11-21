@@ -28,8 +28,12 @@ func (b *InMemoryBackend) ReadModifyWriteRow(
 	b.mu.Lock("ReadModifyWriteRow")
 	defer b.mu.Unlock()
 
-	t, err := b.dataTable(req.GetTableName(), req.GetAuthorizedViewName(), req.GetAppProfileId(), true)
+	t, scope, err := b.dataTable(req.GetTableName(), req.GetAuthorizedViewName(), req.GetAppProfileId(), true)
 	if err != nil {
+		return nil, err
+	}
+
+	if err = scope.checkRules(req.GetRowKey(), req.GetRules()); err != nil {
 		return nil, err
 	}
 
@@ -49,12 +53,15 @@ func (b *InMemoryBackend) ReadModifyWriteRow(
 	row := t.row(key)
 	out := &btpb.Row{Key: req.GetRowKey()}
 
+	var changed []*btpb.Mutation
+
 	for _, fam := range sortedKeys(staged) {
 		pf := &btpb.Family{Name: fam}
 
 		for _, q := range sortedKeys(staged[fam]) {
 			c := staged[fam][q]
 			row.set(fam, q, c.ts, c.val)
+			changed = append(changed, setCellMutation(fam, q, c.ts, slices.Clone(c.val)))
 			pf.Columns = append(pf.Columns, &btpb.Column{
 				Qualifier: []byte(q),
 				Cells:     []*btpb.Cell{{TimestampMicros: c.ts, Value: slices.Clone(c.val)}},
@@ -65,6 +72,7 @@ func (b *InMemoryBackend) ReadModifyWriteRow(
 	}
 
 	t.compactRow(key, row, now)
+	b.recordChange(t, key, changed, now, now-now%t.gran())
 
 	return &btpb.ReadModifyWriteRowResponse{Row: out}, nil
 }

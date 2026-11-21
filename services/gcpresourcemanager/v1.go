@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/iam/apiv1/iampb"
+	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"cloud.google.com/go/resourcemanager/apiv3/resourcemanagerpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -24,6 +25,7 @@ import (
 const (
 	v1Projects      = "/v1/projects"
 	v1Organizations = "/v1/organizations"
+	v1ProjectOps    = "/v1/operations/cp."
 	maxBody         = 1 << 20
 	v1Page          = 500
 	decimalBase     = 10
@@ -94,6 +96,10 @@ func matchV1(r *http.Request) bool {
 	p := r.URL.Path
 	if strings.Contains(p, "/services") {
 		return false
+	}
+
+	if r.Method == http.MethodGet && strings.HasPrefix(p, v1ProjectOps) {
+		return true
 	}
 
 	return p == v1Liens || strings.HasPrefix(p, v1Liens+"/") || p == v1Projects ||
@@ -216,6 +222,14 @@ func (h v1Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if strings.HasPrefix(r.URL.Path, v1ProjectOps) {
+		if err := h.projectOperation(w, strings.TrimPrefix(r.URL.Path, "/v1/")); err != nil {
+			writeV1Error(w, err)
+		}
+
+		return
+	}
+
 	m := v1Route.FindStringSubmatch(strings.TrimPrefix(r.URL.Path, "/v1/"))
 	if m == nil {
 		writeV1Error(w, status.Error(codes.NotFound, "unknown resource "+r.URL.Path))
@@ -332,7 +346,65 @@ func (h v1Handler) createProject(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	writeV1Proto(w, op)
+	return writeV1ProjectOperation(w, op)
+}
+
+const v1ProjectTypeURL = "type.googleapis.com/google.cloudresourcemanager.v1.Project"
+
+func (h v1Handler) projectOperation(w http.ResponseWriter, name string) error {
+	op, ok := h.b.lro.Lookup(name)
+	if !ok {
+		return status.Errorf(codes.NotFound, "operation %q not found", name)
+	}
+
+	return writeV1ProjectOperation(w, op)
+}
+
+// writeV1ProjectOperation answers a v1 create with the v1 Project in the Operation response.
+func writeV1ProjectOperation(w http.ResponseWriter, op *longrunningpb.Operation) error {
+	resp := op.GetResponse()
+	if resp == nil {
+		writeV1Proto(w, op)
+
+		return nil
+	}
+
+	p := &resourcemanagerpb.Project{}
+	if err := resp.UnmarshalTo(p); err != nil {
+		return errInvalid("decode project: %v", err)
+	}
+
+	shell, ok := proto.Clone(op).(*longrunningpb.Operation)
+	if !ok {
+		return errInvalid("clone operation")
+	}
+
+	shell.Result = nil
+
+	raw, err := protojson.Marshal(shell)
+	if err != nil {
+		return errInvalid("encode response: %v", err)
+	}
+
+	fields := map[string]jsontext.Value{}
+	if err = json.Unmarshal(raw, &fields); err != nil {
+		return errInvalid("encode response: %v", err)
+	}
+
+	proj, err := json.Marshal(toV1Project(p), jsonx.V1())
+	if err != nil {
+		return errInvalid("encode response: %v", err)
+	}
+
+	typed := append([]byte(`{"@type":"`+v1ProjectTypeURL+`",`), proj[1:]...)
+	fields["response"] = typed
+
+	out, err := json.Marshal(fields)
+	if err != nil {
+		return errInvalid("encode response: %v", err)
+	}
+
+	writeV1Raw(w, http.StatusOK, out)
 
 	return nil
 }

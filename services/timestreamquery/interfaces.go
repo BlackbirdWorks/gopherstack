@@ -24,7 +24,7 @@ type StorageBackend interface {
 	ListScheduledQueriesFull(ctx context.Context) []*ScheduledQuery
 	ListScheduledQueriesEnriched(ctx context.Context, nextToken string, maxResults int32) ListScheduledQueriesResult
 	UpdateScheduledQuery(ctx context.Context, arnStr, state string) error
-	ExecuteScheduledQuery(ctx context.Context, arnStr string, invocationTime time.Time) error
+	ExecuteScheduledQuery(ctx context.Context, arnStr string, invocationTime time.Time, insightsMode string) error
 	Query(ctx context.Context, queryString string) *QueryResult
 	QueryWithOptions(ctx context.Context, opts QueryOptions) (*QueryPage, error)
 	CancelQuery(ctx context.Context, queryID string) error

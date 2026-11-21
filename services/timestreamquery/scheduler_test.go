@@ -503,6 +503,64 @@ func TestScheduledQuery_ManualRunKeepsSemantics(t *testing.T) {
 	assert.Equal(t, "MANUAL_TRIGGER_SUCCESS", env.notify.last()["type"])
 }
 
+func TestScheduledQuery_RunInsights(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		insights *types.ScheduledQueryInsights
+		name     string
+		wantNil  bool
+	}{
+		{
+			name:     "enabled",
+			insights: &types.ScheduledQueryInsights{Mode: types.ScheduledQueryInsightsModeEnabledWithRateControl},
+		},
+		{
+			name:     "disabled",
+			insights: &types.ScheduledQueryInsights{Mode: types.ScheduledQueryInsightsModeDisabled},
+			wantNil:  true,
+		},
+		{name: "absent", wantNil: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			start := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
+			env := newSchedEnv(t, start)
+			arn := env.create(t, "rate(1 day)", rollupQuery)
+
+			_, err := env.client.ExecuteScheduledQuery(t.Context(), &tqsdk.ExecuteScheduledQueryInput{
+				ScheduledQueryArn: aws.String(arn), InvocationTime: aws.Time(start), QueryInsights: tt.insights,
+			})
+			require.NoError(t, err)
+
+			check := func(d *tqsdk.DescribeScheduledQueryOutput) {
+				require.NotNil(t, d.ScheduledQuery.LastRunSummary)
+
+				got := d.ScheduledQuery.LastRunSummary.QueryInsightsResponse
+				if tt.wantNil {
+					assert.Nil(t, got)
+
+					return
+				}
+
+				require.NotNil(t, got)
+				assert.Equal(t, int64(1), aws.ToInt64(got.QueryTableCount))
+				assert.NotNil(t, got.OutputRows)
+				assert.NotNil(t, got.OutputBytes)
+			}
+
+			check(&tqsdk.DescribeScheduledQueryOutput{ScheduledQuery: env.describe(t, arn)})
+
+			restored := newSchedEnv(t, start)
+			require.NoError(t, restored.backend.Restore(t.Context(), env.backend.Snapshot(t.Context())))
+			check(&tqsdk.DescribeScheduledQueryOutput{ScheduledQuery: restored.describe(t, arn)})
+		})
+	}
+}
+
 func TestScheduledQuery_SnapshotRestoreResumesSchedule(t *testing.T) {
 	t.Parallel()
 

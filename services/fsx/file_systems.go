@@ -1224,7 +1224,11 @@ func (b *InMemoryBackend) CreateFileSystemFromBackup(input *createFileSystemFrom
 		return nil, ErrBackupNotFound
 	}
 
-	srcFS, _ := b.fileSystems.Get(src.FileSystemID)
+	srcFS := src.FileSystem
+	if srcFS == nil {
+		srcFS, _ = b.fileSystems.Get(src.FileSystemID)
+	}
+
 	fields := resolveFileSystemFromBackupFields(input, srcFS)
 	fsType := fields.fsType
 

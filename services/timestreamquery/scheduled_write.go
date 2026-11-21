@@ -15,8 +15,10 @@ var (
 
 // ExecuteScheduledQuery runs the scheduled query once for invocationTime ("@scheduled_runtime")
 // and ingests its result rows into the target table, recording the run outcome.
-func (b *InMemoryBackend) ExecuteScheduledQuery(ctx context.Context, arnStr string, invocationTime time.Time) error {
-	return b.runScheduledOnce(ctx, arnStr, invocationTime, false)
+func (b *InMemoryBackend) ExecuteScheduledQuery(
+	ctx context.Context, arnStr string, invocationTime time.Time, insightsMode string,
+) error {
+	return b.runScheduledOnce(ctx, arnStr, invocationTime, false, insightsMode == insightsModeEnabled)
 }
 
 // runFailure describes why a scheduled run failed; recoverable failures produce an error report.
@@ -27,38 +29,46 @@ type runFailure struct {
 }
 
 func (b *InMemoryBackend) runScheduledQuery(
-	ctx context.Context, sq *ScheduledQuery, invocationTime time.Time,
-) (ExecutionStats, *runFailure) {
+	ctx context.Context, sq *ScheduledQuery, invocationTime time.Time, withInsights bool,
+) (ExecutionStats, *ScheduledQueryInsightsResponse, *runFailure) {
 	var stats ExecutionStats
 
 	vars := map[string]string{"@scheduled_runtime": formatTS(invocationTime.UTC())}
 
 	rs, err := b.execute(ctx, sq.QueryString, vars, "")
 	if err != nil {
-		return stats, &runFailure{err: err}
+		return stats, nil, &runFailure{err: err}
 	}
 
 	stats.QueryResultRows = int64(len(rs.rows))
 	stats.CumulativeBytesScanned = rs.scanned
 	stats.BytesMetered = statusFor(rs).CumulativeBytesMetered
 
+	var insights *ScheduledQueryInsightsResponse
+	if withInsights {
+		q := buildQueryInsightsResponse(rs)
+		insights = &ScheduledQueryInsightsResponse{
+			OutputRows: q.OutputRows, OutputBytes: q.OutputBytes, QueryTableCount: q.QueryTableCount,
+		}
+	}
+
 	src := b.recordSource()
 	if sq.TargetDetail == nil || src == nil {
-		return stats, nil
+		return stats, insights, nil
 	}
 
 	recs, err := scheduledRecords(rs, sq.TargetDetail, invocationTime)
 	if err != nil {
-		return stats, &runFailure{err: err, recoverable: true}
+		return stats, insights, &runFailure{err: err, recoverable: true}
 	}
 
 	if len(recs) == 0 {
-		return stats, nil
+		return stats, insights, nil
 	}
 
 	region := getRegion(ctx, b.defaultRegion)
 	if err = src.AppendRecords(region, sq.TargetDatabase, sq.TargetTable, recs); err != nil {
-		return stats, &runFailure{err: err, rejected: recs, recoverable: true}
+		return stats, insights, &runFailure{err: err, rejected: recs, recoverable: true}
 	}
 
 	stats.RecordsIngested = int64(len(recs))
@@ -67,7 +77,7 @@ func (b *InMemoryBackend) runScheduledQuery(
 		stats.DataWrites += recordBytes(r)
 	}
 
-	return stats, nil
+	return stats, insights, nil
 }
 
 type rowView struct {

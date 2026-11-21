@@ -15,7 +15,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
-const queryProgressComplete = 100.0
+const (
+	queryProgressComplete = 100.0
+	insightsModeEnabled   = "ENABLED_WITH_RATE_CONTROL"
+)
 
 // maxRetainedQueries bounds the queries map so a long-running instance cannot
 // leak memory through repeated Query calls: once at the cap, an arbitrarily
@@ -288,6 +291,8 @@ func buildQueryInsightsResponse(rs *resultSet) QueryInsightsResponse {
 	return QueryInsightsResponse{
 		OutputRows:  int64(len(rs.rows)),
 		OutputBytes: rs.outBytes(),
+
+		QueryTableCount: int64(rs.tables),
 	}
 }
 

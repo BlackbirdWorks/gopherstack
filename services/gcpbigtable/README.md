@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 45 (38 ok, 7 partial) |
+| PARITY entries audited | 67 (60 ok, 7 partial) |
 | Feature families | 7 (4 ok, 3 partial) |
 | Known gaps | 1 |
 | Deferred items | 0 |
@@ -15,7 +15,7 @@
 
 ### Known gaps
 
-- Authorized views, logical views, materialized views, schema bundles, memory layers and hot tablets are UNIMPLEMENTED (data-plane authorized_view_name is rejected at mutate.go:20); so are ReadChangeStream, GenerateInitialChangeStreamPartitions, PrepareQuery/ExecuteQuery and the session RPCs (OpenTable, GetClientConfiguration), which fall through to UnimplementedBigtableServer (grpc.go dataServer). change_stream_config is stored but no change records are produced.
+- Memory layers (Get/List/UpdateMemoryLayer), hot tablets (ListHotTablets) and PrepareQuery/ExecuteQuery (a GoogleSQL for Bigtable engine, which logical and materialized view queries also need) are UNIMPLEMENTED, as are the session RPCs (OpenTable, OpenAuthorizedView, GetClientConfiguration) and ReadRows and SampleRowKeys addressed by materialized_view_name (explicit UNIMPLEMENTED); they fall through to UnimplementedBigtableServer (grpc.go dataServer). Change records have no GARBAGE_COLLECTION type (there is no background collector).
 
 ## More
 

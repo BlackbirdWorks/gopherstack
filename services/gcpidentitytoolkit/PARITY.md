@@ -42,8 +42,7 @@ families:
   persistence: {status: ok, note: "Projects (config, tenants, accounts with hash material, out-of-band codes) and the signing key plus refresh-token secret are in backendSnapshot, so tokens survive a restart."}
   routing_isolation: {status: ok, note: "Own REST listener bound in StartWorker to --gcp-identitytoolkit-port / GCP_IDENTITYTOOLKIT_PORT (default 8145), fails fast if taken, reserved in the shared PortAlloc pool; never registered on the shared AWS router."}
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; requests go through telemetry. No dashboard page."}
-items_still_open:
-  - "API key restrictions (HTTP referrer, IP, Android/iOS app and API target restrictions) are not enforced: the emulator has no API key service to hold them."
+items_still_open: []
 ---
 
 # Identity Platform / Firebase Authentication parity
@@ -72,3 +71,5 @@ accounts:sendVerificationCode and accounts:signInWithPhoneNumber follow docs.clo
 - Password-reset, verification, email-link and phone codes are persisted (oobCodes and verificationCodes emulator endpoints) and each would-be email or SMS is logged with its recipient; nothing is sent.
 - Client limitation: Admin SDKs in production mode fetch signing keys from googleapis.com and cannot be redirected; only FIREBASE_AUTH_EMULATOR_HOST mode verifies tokens.
 - reCAPTCHA Enterprise assessments are not made: a present token satisfies an ENFORCE state and nothing is scored.
+
+- API keys: a client call must carry a key, and any key is accepted; one other than the emulator's own placeholder is logged once per handler as "would check the API key restrictions (referrer, IP, app and API target)" because the API Keys service that holds the restrictions is not run.

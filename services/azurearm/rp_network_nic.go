@@ -583,11 +583,15 @@ func (p *NetworkProvider) normalizeIPConfigs(
 		out = append(out, map[string]any{fieldName: name, fieldProperties: cp})
 	}
 
+	if err := requireIPv4Config(out); err != nil {
+		return nil, err
+	}
+
 	switch {
 	case primaries > 1:
 		return nil, netBad("A network interface can have only one primary IP configuration.")
 	case primaries == 0:
-		first, _ := out[0].(map[string]any)
+		first, _ := out[firstIPv4Index(out)].(map[string]any)
 		propsOf(first)["primary"] = true
 	}
 
@@ -613,7 +617,7 @@ func parseIPConfigMode(cfgID string, cp map[string]any) (string, string, error) 
 func (p *NetworkProvider) normalizeIPConfig(
 	cfgID string, cp, prev map[string]any, used map[string]map[string]string,
 ) (map[string]any, error) {
-	method, version, err := parseIPConfigMode(cfgID, cp)
+	method, version, err := parseNICIPConfigMode(cfgID, cp)
 	if err != nil {
 		return nil, err
 	}
@@ -643,7 +647,7 @@ func (p *NetworkProvider) normalizeIPConfig(
 		prevAddr = want
 	}
 
-	addr, err := assignIP(cfgID, method, want, subnetPrefixes(sn), used[key], prevAddr)
+	addr, err := nicAssignIP(cfgID, method, version, want, subnetPrefixes(sn), used[key], prevAddr)
 	if err != nil {
 		return nil, err
 	}

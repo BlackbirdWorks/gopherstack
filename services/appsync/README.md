@@ -9,15 +9,14 @@
 | --- | --- |
 | PARITY entries audited | 74 (74 ok) |
 | Feature families | 15 (15 ok) |
-| Known gaps | 2 |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 1 |
-| Deferred items | 2 |
+| Deferred items | 1 |
 | Resource leaks | bugs found |
 
 ### Known gaps
 
-- StartDataSourceIntrospection/GetDataSourceIntrospection complete SUCCESS with an empty models list: the table and column content of an RDS Data API data source is not introspected from services/rdsdata.
-- The delta table ds_sk joins the item key attribute values in name order because the DynamoDB backend interface exposes no key schema, so the hash/range order of a composite key is not preserved (uniqueness holds).
+- StartDataSourceIntrospection against PostgreSQL and MySQL: the information_schema/pg_index catalog queries are verified only against a fake executor, not a live engine of either kind; only the SQLite path runs end to end.
 
 ### Structural gaps
 
@@ -28,7 +27,6 @@ These do not block an A grade — no implementation could produce real data here
 ### Deferred
 
 - CloudTrail-capture chokepoint / pkgs/service integration — not audited (shared/cross-service, out of scope per this task's edit boundary).
-- DataSourceIntrospection real model content: gopherstack has no RDS Data API backend to introspect against, so StartDataSourceIntrospection/GetDataSourceIntrospection always complete SUCCESS with an empty models list rather than real table/column data. Wire shape, error codes (BadRequestException on missing/incomplete rdsDataApiConfig, NotFoundException on unknown introspectionId), and persisted per-ID state are all real and field-diffed against the SDK; only the introspected *content* is out of scope. Would require a services/rds (or similar) cross-service integration to fix — out of this task's services/appsync/ edit boundary.
 
 ## More
 

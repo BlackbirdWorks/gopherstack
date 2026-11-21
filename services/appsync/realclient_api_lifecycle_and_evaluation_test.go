@@ -646,6 +646,8 @@ func TestDataSourceIntrospectionLifecycle_RealClient(t *testing.T) {
 	t.Parallel()
 
 	backend := appsync.NewInMemoryBackend("000000000000", tagsRTRegion, "")
+	backend.SetRDSData(postgresCatalog())
+
 	client := newTestAppsyncClient(t, appsync.NewHandler(backend))
 
 	started, err := client.StartDataSourceIntrospection(t.Context(), &appsyncsdk.StartDataSourceIntrospectionInput{
@@ -660,11 +662,14 @@ func TestDataSourceIntrospectionLifecycle_RealClient(t *testing.T) {
 	require.NotEmpty(t, introspectionID)
 
 	got, getErr := client.GetDataSourceIntrospection(t.Context(), &appsyncsdk.GetDataSourceIntrospectionInput{
-		IntrospectionId: aws.String(introspectionID),
+		IntrospectionId: aws.String(introspectionID), IncludeModelsSDL: true,
 	})
 	require.NoError(t, getErr)
 	assert.Equal(t, introspectionID, aws.ToString(got.IntrospectionId))
 	assert.Equal(t, appsynctypes.DataSourceIntrospectionStatusSuccess, got.IntrospectionStatus)
+	require.Len(t, got.IntrospectionResult.Models, 2)
+	assert.Equal(t, "orders", aws.ToString(got.IntrospectionResult.Models[0].Name))
+	assert.NotEmpty(t, aws.ToString(got.IntrospectionResult.Models[0].Sdl))
 }
 
 // TestGraphqlApiEnvironmentVariables_RealClient drives

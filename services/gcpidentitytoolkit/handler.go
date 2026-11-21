@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -45,6 +46,8 @@ type Handler struct {
 	wg      *sync.WaitGroup
 	addr    string
 	Port    int
+
+	keyNoticeSent atomic.Bool
 }
 
 var (
@@ -244,8 +247,8 @@ func (h *Handler) dispatch(c *echo.Context, rt route) (any, error) {
 		return nil, errUnauth()
 	}
 
-	if !cl.admin && c.QueryParam("key") == "" && c.Request().Header.Get("X-Goog-Api-Key") == "" {
-		return nil, errNoKey()
+	if err := h.checkAPIKey(c, cl); err != nil {
+		return nil, err
 	}
 
 	if isMfa {
@@ -288,8 +291,8 @@ func (h *Handler) emulatorOp(rt route, cl call) (any, error) {
 }
 
 func (h *Handler) clientConfig(c *echo.Context, rt route, cl call) (any, error) {
-	if !cl.admin && c.QueryParam("key") == "" && c.Request().Header.Get("X-Goog-Api-Key") == "" {
-		return nil, errNoKey()
+	if err := h.checkAPIKey(c, cl); err != nil {
+		return nil, err
 	}
 
 	if rt.op == opGetPasswordPolicy {
@@ -297,6 +300,32 @@ func (h *Handler) clientConfig(c *echo.Context, rt route, cl call) (any, error) 
 	}
 
 	return h.Backend.RecaptchaConfig(cl.project, cl.tenant, c.QueryParam("clientType"))
+}
+
+// checkAPIKey requires a key on client calls; its restrictions live in the API Keys service, which is not run.
+// The notice is logged once per handler, not per request.
+func (h *Handler) checkAPIKey(c *echo.Context, cl call) error {
+	if cl.admin {
+		return nil
+	}
+
+	key := c.QueryParam("key")
+	if key == "" {
+		key = c.Request().Header.Get("X-Goog-Api-Key")
+	}
+
+	if key == "" {
+		return errNoKey()
+	}
+
+	if key != fakeAPIKey && h.keyNoticeSent.CompareAndSwap(false, true) {
+		ctx := c.Request().Context()
+		logger.Load(ctx).InfoContext(ctx,
+			"gcpidentitytoolkit: would check the API key restrictions (referrer, IP, app and API target)",
+			"project", cl.project, "path", c.Request().URL.Path)
+	}
+
+	return nil
 }
 
 func adminGuard(cl call) error {

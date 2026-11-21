@@ -1,11 +1,15 @@
 package backup
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"slices"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // ListRecoveryPointsByBackupVault returns all recovery points for a vault.
@@ -97,30 +101,79 @@ func (b *InMemoryBackend) recoveryPointUnderActiveLegalHold(rp *RecoveryPoint) b
 // DeleteRecoveryPoint deletes a recovery point from a vault.
 func (b *InMemoryBackend) DeleteRecoveryPoint(vaultName, recoveryPointArn string) error {
 	b.mu.Lock("DeleteRecoveryPoint")
-	defer b.mu.Unlock()
 
+	rp, err := b.deleteRecoveryPointLocked(vaultName, recoveryPointArn)
+	b.mu.Unlock()
+
+	if err != nil {
+		return err
+	}
+
+	b.discardSnapshot(rp)
+
+	return nil
+}
+
+// discardSnapshot removes the owning service's snapshot behind a deleted recovery point unless another recovery
+// point (a copy) still references it. Callers must not hold the backend lock: the engine calls another backend.
+func (b *InMemoryBackend) discardSnapshot(rp *RecoveryPoint) {
+	if len(rp.Snapshot) == 0 {
+		return
+	}
+
+	b.mu.RLock("discardSnapshot")
+
+	engine, shared := b.engines[rp.ResourceType], false
+
+	for _, other := range b.recoveryPoints.All() {
+		if bytes.Equal(other.Snapshot, rp.Snapshot) && other.ResourceType == rp.ResourceType {
+			shared = true
+
+			break
+		}
+	}
+
+	for _, cj := range b.copyJobs.All() {
+		if cj.SettleAt != nil && bytes.Equal(cj.Snapshot, rp.Snapshot) {
+			shared = true
+
+			break
+		}
+	}
+
+	b.mu.RUnlock()
+
+	if d, ok := engine.(discarder); ok && !shared {
+		if err := d.discard(context.Background(), rp.Snapshot); err != nil {
+			logger.Load(context.Background()).Warn("backup: discard recovery point snapshot failed",
+				"recoveryPointArn", rp.RecoveryPointArn, "error", err)
+		}
+	}
+}
+
+func (b *InMemoryBackend) deleteRecoveryPointLocked(vaultName, recoveryPointArn string) (*RecoveryPoint, error) {
 	if !b.vaults.Has(vaultName) {
-		return fmt.Errorf("%w: vault %s not found", ErrNotFound, vaultName)
+		return nil, fmt.Errorf("%w: vault %s not found", ErrNotFound, vaultName)
 	}
 
 	key := recoveryPointKey(vaultName, recoveryPointArn)
 	rp, ok := b.recoveryPoints.Get(key)
 	if !ok {
-		return fmt.Errorf("%w: recovery point %s not found", ErrNotFound, recoveryPointArn)
+		return nil, fmt.Errorf("%w: recovery point %s not found", ErrNotFound, recoveryPointArn)
 	}
 
 	// PutBackupVaultLockConfiguration (backup@v1.59.4 api_op_PutBackupVaultLockConfiguration.go):
 	// "Applies Backup Vault Lock to a backup vault, preventing attempts to
 	// delete any recovery point stored in or created in a backup vault."
 	if b.vaultLockConfigs.Has(vaultName) {
-		return fmt.Errorf(
+		return nil, fmt.Errorf(
 			"%w: vault %s is locked; recovery points cannot be deleted",
 			ErrInvalidRequest, vaultName,
 		)
 	}
 
 	if b.recoveryPointUnderActiveLegalHold(rp) {
-		return fmt.Errorf(
+		return nil, fmt.Errorf(
 			"%w: recovery point %s is under an active legal hold",
 			ErrInvalidRequest, recoveryPointArn,
 		)
@@ -137,7 +190,7 @@ func (b *InMemoryBackend) DeleteRecoveryPoint(vaultName, recoveryPointArn string
 		}
 	}
 
-	return nil
+	return rp, nil
 }
 
 // DisassociateRecoveryPoint disassociates a recovery point from a vault.

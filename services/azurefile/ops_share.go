@@ -24,6 +24,10 @@ func metadataFromHeaders(h http.Header) (map[string]string, *apiError) {
 				md = make(map[string]string)
 			}
 
+			if len(v) > 1 {
+				return nil, newErr(http.StatusBadRequest, "InvalidMetadata", "The metadata specified is invalid.")
+			}
+
 			md[k[len(metaPrefix):]] = v[0]
 		}
 	}
@@ -37,7 +41,7 @@ func metadataFromHeaders(h http.Header) (map[string]string, *apiError) {
 
 func setMetadataHeaders(h http.Header, md map[string]string) {
 	for k, v := range md {
-		h.Set("X-Ms-Meta-"+k, v)
+		h["x-ms-meta-"+k] = []string{v}
 	}
 }
 

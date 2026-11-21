@@ -130,7 +130,8 @@ func TestHandler_DataSourceIntrospections(t *testing.T) {
 func TestHandler_DataSourceIntrospection_StartThenGet(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newTestHandler()
+	h, b := newTestHandler()
+	b.SetRDSData(postgresCatalog())
 
 	startRec := doRequest(t, h, http.MethodPost, "/v1/datasources/introspections", map[string]any{
 		"rdsDataApiConfig": map[string]any{
@@ -147,7 +148,7 @@ func TestHandler_DataSourceIntrospection_StartThenGet(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 	assert.NotEmpty(t, startOut.IntrospectionID)
-	assert.Equal(t, "SUCCESS", startOut.IntrospectionStatus)
+	assert.Equal(t, "PROCESSING", startOut.IntrospectionStatus)
 
 	getRec := doRequest(t, h, http.MethodGet, "/v1/datasources/introspections/"+startOut.IntrospectionID, nil)
 	assert.Equal(t, http.StatusOK, getRec.Code)
@@ -162,7 +163,7 @@ func TestHandler_DataSourceIntrospection_StartThenGet(t *testing.T) {
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Equal(t, startOut.IntrospectionID, getOut.IntrospectionID)
 	assert.Equal(t, "SUCCESS", getOut.IntrospectionStatus)
-	assert.Empty(t, getOut.IntrospectionResult.Models)
+	assert.Len(t, getOut.IntrospectionResult.Models, 2)
 
 	// The legacy alias resolves the same persisted record.
 	legacyGetRec := doRequest(t, h, http.MethodGet, "/v1/dataSource-introspections/"+startOut.IntrospectionID, nil)

@@ -261,6 +261,9 @@ func (h *Handler) handleDescribeScheduledQuery(ctx context.Context, body []byte)
 
 func (h *Handler) handleExecuteScheduledQuery(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
+		QueryInsights *struct {
+			Mode string `json:"Mode"`
+		} `json:"QueryInsights"`
 		ScheduledQueryArn string  `json:"ScheduledQueryArn"`
 		InvocationTime    float64 `json:"InvocationTime"`
 	}
@@ -279,7 +282,12 @@ func (h *Handler) handleExecuteScheduledQuery(ctx context.Context, body []byte) 
 
 	invocationTime := time.Unix(int64(req.InvocationTime), 0)
 
-	if err := h.Backend.ExecuteScheduledQuery(ctx, req.ScheduledQueryArn, invocationTime); err != nil {
+	insightsMode := ""
+	if req.QueryInsights != nil {
+		insightsMode = req.QueryInsights.Mode
+	}
+
+	if err := h.Backend.ExecuteScheduledQuery(ctx, req.ScheduledQueryArn, invocationTime, insightsMode); err != nil {
 		return nil, err
 	}
 

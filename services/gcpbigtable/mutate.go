@@ -1,6 +1,8 @@
 package gcpbigtable
 
 import (
+	"strings"
+
 	"cloud.google.com/go/bigtable/admin/apiv2/adminpb"
 	btpb "cloud.google.com/go/bigtable/apiv2/bigtablepb"
 	"google.golang.org/grpc/codes"
@@ -15,30 +17,52 @@ const (
 )
 
 // dataTable resolves a data-plane table and checks the app profile; the caller holds b.mu.
-func (b *InMemoryBackend) dataTable(name, authorizedView, appProfile string, transactional bool) (*tableRec, error) {
-	if authorizedView != "" {
-		return nil, errUnimplemented("Authorized views are not supported by this emulator.")
+func (b *InMemoryBackend) dataTable(
+	name, authorizedView, appProfile string, transactional bool,
+) (*tableRec, *viewScope, error) {
+	if name == "" && authorizedView != "" {
+		inst, tbl, _, perr := parseChild(authorizedView, "authorizedViews")
+		if perr != nil {
+			return nil, nil, perr
+		}
+
+		name = tableName(inst, tbl)
 	}
 
 	rec, t, _, err := b.tableLocked(name)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+
+	var scope *viewScope
+
+	if authorizedView != "" {
+		if !strings.HasPrefix(authorizedView, name+"/authorizedViews/") {
+			return nil, nil, errInvalid("authorized_view_name %q does not belong to table %q.", authorizedView, name)
+		}
+
+		v, ok := t.views[lastSegment(authorizedView)]
+		if !ok {
+			return nil, nil, errNotFound("AuthorizedView %q not found.", authorizedView)
+		}
+
+		scope = &viewScope{t: t, sv: v.pb.GetSubsetView()}
 	}
 
 	if appProfile == "" || appProfile == defaultApp {
-		return t, nil
+		return t, scope, nil
 	}
 
 	pr, ok := rec.profiles[appProfile]
 	if !ok {
-		return nil, errNotFound("App profile %q not found.", profileName(rec.pb.GetName(), appProfile))
+		return nil, nil, errNotFound("App profile %q not found.", profileName(rec.pb.GetName(), appProfile))
 	}
 
 	if transactional && !allowsTransactions(pr) {
-		return nil, errPrecondition("App profile %q does not allow single-row transactions.", appProfile)
+		return nil, nil, errPrecondition("App profile %q does not allow single-row transactions.", appProfile)
 	}
 
-	return t, nil
+	return t, scope, nil
 }
 
 func allowsTransactions(p *adminpb.AppProfile) bool {
@@ -215,6 +239,8 @@ func (b *InMemoryBackend) applyMutations(t *tableRec, key string, muts []*btpb.M
 	if r, ok := t.rows[key]; ok {
 		t.compactRow(key, r, now)
 	}
+
+	b.recordChange(t, key, muts, now, serverTS)
 }
 
 // MutateRow atomically applies mutations to one row.
@@ -226,8 +252,12 @@ func (b *InMemoryBackend) MutateRow(req *btpb.MutateRowRequest) (*btpb.MutateRow
 	b.mu.Lock("MutateRow")
 	defer b.mu.Unlock()
 
-	t, err := b.dataTable(req.GetTableName(), req.GetAuthorizedViewName(), req.GetAppProfileId(), false)
+	t, scope, err := b.dataTable(req.GetTableName(), req.GetAuthorizedViewName(), req.GetAppProfileId(), false)
 	if err != nil {
+		return nil, err
+	}
+
+	if err = scope.check(req.GetRowKey(), req.GetMutations()); err != nil {
 		return nil, err
 	}
 
@@ -253,7 +283,7 @@ func (b *InMemoryBackend) MutateRows(req *btpb.MutateRowsRequest) ([]*btpb.Mutat
 	b.mu.Lock("MutateRows")
 	defer b.mu.Unlock()
 
-	t, err := b.dataTable(req.GetTableName(), req.GetAuthorizedViewName(), req.GetAppProfileId(), false)
+	t, scope, err := b.dataTable(req.GetTableName(), req.GetAuthorizedViewName(), req.GetAppProfileId(), false)
 	if err != nil {
 		return nil, err
 	}
@@ -264,6 +294,8 @@ func (b *InMemoryBackend) MutateRows(req *btpb.MutateRowsRequest) ([]*btpb.Mutat
 		st := status.New(codes.OK, "")
 
 		if verr := validateRowKey(e.GetRowKey()); verr != nil {
+			st = status.Convert(verr)
+		} else if verr = scope.check(e.GetRowKey(), e.GetMutations()); verr != nil {
 			st = status.Convert(verr)
 		} else if verr = t.validateMutations(e.GetMutations()); verr != nil {
 			st = status.Convert(verr)
@@ -297,16 +329,28 @@ func (b *InMemoryBackend) CheckAndMutateRow(
 	b.mu.Lock("CheckAndMutateRow")
 	defer b.mu.Unlock()
 
-	t, err := b.dataTable(req.GetTableName(), req.GetAuthorizedViewName(), req.GetAppProfileId(), true)
+	t, scope, err := b.dataTable(req.GetTableName(), req.GetAuthorizedViewName(), req.GetAppProfileId(), true)
 	if err != nil {
 		return nil, err
 	}
 
+	if err = scope.check(req.GetRowKey(), nil); err != nil {
+		return nil, err
+	}
+
 	for _, muts := range [][]*btpb.Mutation{req.GetTrueMutations(), req.GetFalseMutations()} {
-		if len(muts) > 0 {
-			if err = t.validateMutations(muts); err != nil {
-				return nil, err
-			}
+		if err = scope.check(req.GetRowKey(), muts); err != nil {
+			return nil, err
+		}
+	}
+
+	for _, muts := range [][]*btpb.Mutation{req.GetTrueMutations(), req.GetFalseMutations()} {
+		if len(muts) == 0 {
+			continue
+		}
+
+		if err = t.validateMutations(muts); err != nil {
+			return nil, err
 		}
 	}
 
@@ -314,7 +358,7 @@ func (b *InMemoryBackend) CheckAndMutateRow(
 	matched := false
 
 	if r, ok := t.rows[key]; ok {
-		matched = len(runFilter(pred, key, t.liveCells(r, b.nowMicros()))) > 0
+		matched = len(runFilter(pred, key, scope.visible(t.liveCells(r, b.nowMicros())))) > 0
 	}
 
 	muts := req.GetFalseMutations()

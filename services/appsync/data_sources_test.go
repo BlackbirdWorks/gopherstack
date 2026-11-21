@@ -502,8 +502,9 @@ func TestBackend_StartDataSourceIntrospection(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
+			b.SetRDSData(postgresCatalog())
 
-			rec, err := b.StartDataSourceIntrospection(tt.cfg)
+			rec, err := b.StartDataSourceIntrospection(t.Context(), tt.cfg)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -514,9 +515,7 @@ func TestBackend_StartDataSourceIntrospection(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.NotEmpty(t, rec.IntrospectionID)
-			assert.Equal(t, appsync.DataSourceIntrospectionStatusSuccess, rec.IntrospectionStatus)
-			require.NotNil(t, rec.IntrospectionResult)
-			assert.Empty(t, rec.IntrospectionResult.Models)
+			assert.Equal(t, appsync.DataSourceIntrospectionStatusProcessing, rec.IntrospectionStatus)
 
 			// The job must be persisted -- retrievable again by ID.
 			got, getErr := b.GetDataSourceIntrospection(rec.IntrospectionID)
@@ -533,7 +532,9 @@ func TestBackend_GetDataSourceIntrospection(t *testing.T) {
 		t.Parallel()
 
 		b := newTestBackend()
-		started, err := b.StartDataSourceIntrospection(&appsync.RDSDataAPIConfig{
+		b.SetRDSData(postgresCatalog())
+
+		started, err := b.StartDataSourceIntrospection(t.Context(), &appsync.RDSDataAPIConfig{
 			DatabaseName: "mydb",
 			ResourceARN:  "arn:aws:rds:us-east-1:000000000000:cluster:mycluster",
 			SecretARN:    "arn:aws:secretsmanager:us-east-1:000000000000:secret:mysecret",

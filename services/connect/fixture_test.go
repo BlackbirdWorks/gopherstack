@@ -3,6 +3,8 @@ package connect_test
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
@@ -18,6 +20,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	cn "github.com/blackbirdworks/gopherstack/services/connect"
 )
@@ -54,12 +57,19 @@ func (c *testClock) advance(d time.Duration) {
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 
+	return newLoggedFixture(t, nil)
+}
+
+// newLoggedFixture routes each request's logger to logs when it is non-nil.
+func newLoggedFixture(t *testing.T, logs io.Writer) *fixture {
+	t.Helper()
+
 	clock := &testClock{t: time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)}
 	b := cn.NewBackend(testAccount, "us-east-1")
 	b.SetClock(clock.now)
 
 	h := cn.NewHandler(b)
-	url := sdktest.Serve(t, regionAware{h})
+	url := sdktest.Serve(t, regionAware{baseHandler: h, logs: logs})
 
 	cfg, err := awscfg.LoadDefaultConfig(t.Context(),
 		awscfg.WithRegion("us-east-1"),
@@ -163,7 +173,11 @@ func (f *fixture) inRegion(t *testing.T, region string) *sdk.Client {
 // regionAware stamps the signing Region on the request context, as the application middleware does.
 type baseHandler = cn.Handler
 
-type regionAware struct{ *baseHandler }
+type regionAware struct {
+	*baseHandler
+
+	logs io.Writer
+}
 
 func (r regionAware) Handler() echo.HandlerFunc {
 	inner := r.baseHandler.Handler()
@@ -174,7 +188,12 @@ func (r regionAware) Handler() echo.HandlerFunc {
 			Account: testAccount, Region: httputils.ExtractRegionFromRequest(req, "us-east-1"),
 			Partition: awsmeta.DefaultPartition,
 		}
-		c.SetRequest(req.WithContext(awsmeta.Set(req.Context(), meta)))
+		ctx := awsmeta.Set(req.Context(), meta)
+		if r.logs != nil {
+			ctx = logger.Save(ctx, slog.New(slog.NewTextHandler(r.logs, nil)))
+		}
+
+		c.SetRequest(req.WithContext(ctx))
 
 		return inner(c)
 	}

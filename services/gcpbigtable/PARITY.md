@@ -52,6 +52,28 @@ ops:
   CopyBackup: {wire: ok, errors: ok, state: ok, persist: ok, note: "Deep copy of a READY, non-copy backup into a cluster of any instance; expire_time 6 hours to 30 days; Backup.source_backup is set and a copy cannot be copied; finished operation."}
   UndeleteTable: {wire: ok, errors: ok, state: ok, persist: ok, note: "Tables deleted within seven days (bounded to 100 per instance) come back with their data, deletion protection on and no IAM bindings; ALREADY_EXISTS when the name is taken, FAILED_PRECONDITION for tables of CMEK instances."}
   GetOperation: {wire: ok, errors: ok, state: ok, persist: ok, note: "google.longrunning.Operations via pkgs/gcplro on projects/*/instances/*/operations/*."}
+  CreateAuthorizedView: {wire: ok, errors: ok, state: ok, persist: ok, note: "subset_view required; family_subsets must name existing families; finished operation returning the view with an etag."}
+  GetAuthorizedView: {wire: ok, errors: ok, state: ok, persist: n/a, note: "NAME_ONLY, BASIC (name, deletion_protection, etag) and FULL; unspecified is BASIC per the request docs; the SDK AuthorizedViewInfo sends no view and so sees no subset_view."}
+  ListAuthorizedViews: {wire: ok, errors: ok, state: ok, persist: n/a, note: "NAME_ONLY by default; paged through pkgs/page."}
+  UpdateAuthorizedView: {wire: ok, errors: ok, state: ok, persist: ok, note: "Mask paths subset_view (and its row_prefixes/family_subsets), deletion_protection or *; an empty mask overwrites the fields set in the request; a stale etag is ABORTED."}
+  DeleteAuthorizedView: {wire: ok, errors: ok, state: ok, persist: ok, note: "Protected views are FAILED_PRECONDITION and block deleting the table or instance; etag mismatch is ABORTED."}
+  CreateSchemaBundle: {wire: ok, errors: ok, state: ok, persist: ok, note: "A proto bundle must be a self-contained FileDescriptorSet (protodesc resolves it); an Avro bundle needs valid JSON schemas."}
+  GetSchemaBundle: {wire: ok, errors: ok, state: ok, persist: n/a, note: ""}
+  ListSchemaBundles: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Paged through pkgs/page."}
+  UpdateSchemaBundle: {wire: ok, errors: ok, state: ok, persist: ok, note: "The schema kind cannot change; unless ignore_warnings, a proto update that drops or retypes a message or field is FAILED_PRECONDITION; stale etag is ABORTED."}
+  DeleteSchemaBundle: {wire: ok, errors: ok, state: ok, persist: ok, note: ""}
+  CreateLogicalView: {wire: ok, errors: ok, state: ok, persist: ok, note: "Stores the query; it is not parsed because the SQL engine is not implemented."}
+  GetLogicalView: {wire: ok, errors: ok, state: ok, persist: n/a, note: ""}
+  ListLogicalViews: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Paged through pkgs/page."}
+  UpdateLogicalView: {wire: ok, errors: ok, state: ok, persist: ok, note: "query and deletion_protection; stale etag is ABORTED."}
+  DeleteLogicalView: {wire: ok, errors: ok, state: ok, persist: ok, note: "Protected views are FAILED_PRECONDITION."}
+  CreateMaterializedView: {wire: ok, errors: ok, state: ok, persist: ok, note: "Stores the query; no rows are maintained until the SQL engine exists."}
+  GetMaterializedView: {wire: ok, errors: ok, state: ok, persist: n/a, note: ""}
+  ListMaterializedViews: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Paged through pkgs/page."}
+  UpdateMaterializedView: {wire: ok, errors: ok, state: ok, persist: ok, note: "deletion_protection only: the query is immutable."}
+  DeleteMaterializedView: {wire: ok, errors: ok, state: ok, persist: ok, note: "Protected views are FAILED_PRECONDITION."}
+  ReadChangeStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "Tables with change_stream_config log USER data changes (SetCell, aggregate and delete mutations, read-modify-write results) for the retention period. Start from start_time or a continuation token; heartbeats every heartbeat_duration (default 5 s); ends with OK once end_time passes."}
+  GenerateInitialChangeStreamPartitions: {wire: ok, errors: ok, state: ok, persist: n/a, note: "One partition per split-key range of the table."}
 families:
   row_filters: {status: ok, note: "chain, interleave (duplicates kept), condition, sink, pass/block all, row key, family, qualifier and value RE2 regexes (whole-match, \\C as any byte), column range, value range, timestamp range, cells per row offset/limit, cells per column limit, strip value, apply label, value bitmask, row sample. Invalid filters fail before any row is read."}
   garbage_collection: {status: ok, note: "max versions, max age, union and intersection (nested). Applied when reading, on every mutation of a row, when a policy changes and when snapshotting; there is no background collector, so results are exact rather than eventual."}
@@ -61,13 +83,17 @@ families:
   auth: {status: partial, note: "No request is authenticated or authorised."}
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; RPC failures are logged at debug. gRPC calls are not fed to the shared telemetry operation metrics. No dashboard page."}
 items_still_open:
-  - "Authorized views, logical views, materialized views, schema bundles, memory layers and hot tablets are UNIMPLEMENTED (data-plane authorized_view_name is rejected at mutate.go:20); so are ReadChangeStream, GenerateInitialChangeStreamPartitions, PrepareQuery/ExecuteQuery and the session RPCs (OpenTable, GetClientConfiguration), which fall through to UnimplementedBigtableServer (grpc.go dataServer). change_stream_config is stored but no change records are produced."
+  - "Memory layers (Get/List/UpdateMemoryLayer), hot tablets (ListHotTablets) and PrepareQuery/ExecuteQuery (a GoogleSQL for Bigtable engine, which logical and materialized view queries also need) are UNIMPLEMENTED, as are the session RPCs (OpenTable, OpenAuthorizedView, GetClientConfiguration) and ReadRows and SampleRowKeys addressed by materialized_view_name (explicit UNIMPLEMENTED); they fall through to UnimplementedBigtableServer (grpc.go dataServer). Change records have no GARBAGE_COLLECTION type (there is no background collector)."
 leaks: {status: clean, note: "The only background resources are the grpc.Server and its serve goroutine; Shutdown stops the server and joins it."}
 ---
 
 Initial implementation (2026-10-25): google.bigtable.admin.v2 BigtableInstanceAdmin and BigtableTableAdmin plus google.bigtable.v2 Bigtable verified against cloud.google.com/go/bigtable v1.58.0 through the official admin, instance admin and data clients in the package tests.
 
 ## Emulator choices where the vendor is silent
+
+- Authorized view data plane (checked: bigtable.proto request fields and table.proto AuthorizedView docs give no error codes): rows and cells outside the view are invisible to reads; a write, rule or delete that targets one is PERMISSION_DENIED; DeleteFromFamily needs the family included with the empty qualifier prefix and DeleteFromRow needs every family included that way.
+- Change streams (checked: ReadChangeStreamRequest/Response docs): a start_time older than the retention period is INVALID_ARGUMENT, a continuation token is the encoded position of the last delivered record, each record is one DataChange holding every mutation of the commit unchunked, DropRowRange and dropped families write no records, and the stream ends with OK (no CloseStream) after end_time.
+- Schema bundle, logical view, materialized view and authorized view ids follow the table id pattern; an incompatible bundle update is FAILED_PRECONDITION. UpdateSchemaBundleRequest only says the new bundle must be backwards compatible, so the emulator's rule (every message and field number of the old proto schema must survive with the same kind and cardinality) is its own. SampleRowKeys through an authorized view drops out-of-view keys but keeps the table's cumulative offset_bytes. Update masks on logical and materialized views: an empty mask means every updatable field.
 
 - Several error codes were chosen without a production reference: unknown column family on mutate (NOT_FOUND), duplicate/missing family on ModifyColumnFamilies, unknown consistency token (INVALID_ARGUMENT), row_sample_filter outside (0, 1) and a chain or interleave of fewer than two filters are rejected as INVALID_ARGUMENT.
 - Aggregate families support Sum, Max and Min over Int64 with the BigEndianBytes encoding; types.proto leaves the HyperLogLogPlusPlusUniqueCount state encoding "TBD", so that aggregator is UNIMPLEMENTED. Sum saturates at the int64 bounds instead of failing; AddToCell timestamps must be non-negative multiples of the granularity (server time is not accepted); MergeToCell takes the state as an int_value or 8 raw bytes.

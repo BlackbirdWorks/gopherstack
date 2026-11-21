@@ -9,17 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 39 (12 ok, 25 partial, 2 gap) |
 | Feature families | 7 (4 ok, 3 partial) |
-| Known gaps | 5 |
+| Known gaps | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - Enforcement (--gcp-enforce-projects, --gcp-enforce-service-enablement, default off) is wired through pkgs/gcpenforce but not everywhere: unenforced are Cloud Storage calls that name no project (object and bucket-scoped paths; only ?project= calls such as bucket create and list are checked), the Artifact Registry Docker /v2 registry, the Resource Manager v1 and Cloud Billing REST handlers, Cloud Functions and Cloud Run workload ingress, the Cloud DNS wire server, Identity Toolkit calls keyed by API key (accounts:signUp), operations endpoints (deliberately skipped), and requests that name no project (projects/- wildcards, folder or organization parents). A service missing from the 51-entry catalog is treated as enabled. The error shapes (403 PERMISSION_DENIED with ErrorInfo reason SERVICE_DISABLED / CONSUMER_INVALID, domain googleapis.com, metadata service and consumer, plus a Help link) and the message texts are recalled, not from a primary source; a DELETE_REQUESTED project answers CONSUMER_INVALID like an unknown one (the real 'Project #N has been deleted' form is unverified).
-- Search defaults: ACTIVE-only results unless the query names a state, case-insensitive folder name uniqueness, and the restricted project-id substrings beyond google and ssl are not published (checked resourcemanagerpb SearchProjectsRequest and SearchFoldersRequest, creating-managing-projects and creating-managing-folders: the guide says restricted strings 'such as google and ssl', and folder names unique within a level without stating case rules)
 - Project creation is instantaneous (operations are done when returned); real creation takes seconds and the operation can fail asynchronously. No quota (projects.create) or billing-account behaviour.
 - Not emulated: organizations other than the one configured, organization policies, ListEffectiveTags, folders and projects as tag-binding targets are accepted but tags are not inherited, v1beta1 Service Usage, Service Usage consumer quota and admin overrides, usage checks for check_if_service_has_usage, GetIamPolicy audit configs.
-- The v1 Operation JSON carries the v3 Project in its response Any; the v1 response Any type URL is not published (google.golang.org/api cloudresourcemanager/v1 Operation.Response says only that Create returns the resource; Terraform reads only done and error)
 
 ## More
 

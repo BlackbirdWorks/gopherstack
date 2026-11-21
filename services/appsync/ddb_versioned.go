@@ -7,7 +7,7 @@ import (
 	"math"
 	"reflect"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -174,18 +174,38 @@ func versionGuard(user *DDBExpression, hasVersion bool, curVer int64) *DDBExpres
 	return &out
 }
 
-func keyString(key map[string]any) string {
-	names := make([]string, 0, len(key))
-	for n := range key {
-		names = append(names, n)
+// KeySchemaReader is implemented by a DynamoDBBackend that can report a table's key attribute names, hash key first.
+type KeySchemaReader interface {
+	KeyAttributeNames(ctx context.Context, tableName string) ([]string, error)
+}
+
+func escapeKeyPart(v string) string {
+	return strings.NewReplacer(`\`, `\\`, "#", `\#`).Replace(v)
+}
+
+// keyString joins the key attribute values with "#" (a "#" or "\" inside a value is backslash-escaped so distinct
+// keys never collide), hash key before range key when the backend reports the table's key schema, otherwise in
+// attribute-name order.
+func (vs versionedSource) keyString(ctx context.Context, key map[string]any) string {
+	var names []string
+
+	if kr, ok := vs.ddb.(KeySchemaReader); ok {
+		if schema, err := kr.KeyAttributeNames(ctx, vs.cfg.TableName); err == nil && len(schema) == len(key) {
+			names = slices.DeleteFunc(slices.Clone(schema), func(n string) bool {
+				_, has := key[n]
+
+				return !has
+			})
+		}
 	}
 
-	sort.Strings(names)
+	if len(names) != len(key) {
+		names = slices.Sorted(maps.Keys(key))
+	}
 
 	parts := make([]string, len(names))
-
 	for i, n := range names {
-		parts[i] = fmt.Sprint(ddbPlain(key[n]))
+		parts[i] = escapeKeyPart(fmt.Sprint(ddbPlain(key[n])))
 	}
 
 	return strings.Join(parts, "#")
@@ -203,15 +223,15 @@ func (vs versionedSource) logDelta(
 	ver, _ := versionOf(item)
 	rec := maps.Clone(item)
 	day := at.Format(deltaDayLayout)
-	sortKey := at.Format(deltaTimeLayout) + ":" + keyString(key) + ":" + strconv.FormatInt(ver, 10)
+	sortKey := at.Format(deltaTimeLayout) + ":" + vs.keyString(ctx, key) + ":" + strconv.FormatInt(ver, 10)
 
 	rec[attrDeltaPK] = strAttr(vs.dsName + ":" + day)
 	rec[attrDeltaSK] = strAttr(sortKey)
 
 	if layout.custom != "" {
 		rec[attrDeltaPK] = strAttr(layout.custom + ":" + day)
-		rec[attrDeltaSK] = strAttr(at.Format(deltaTimeLayout) + ":" + layout.custom + ":" + keyString(key) + ":" +
-			strconv.FormatInt(ver, 10))
+		rec[attrDeltaSK] = strAttr(at.Format(deltaTimeLayout) + ":" + layout.custom + ":" +
+			vs.keyString(ctx, key) + ":" + strconv.FormatInt(ver, 10))
 	}
 
 	if layout.populate {

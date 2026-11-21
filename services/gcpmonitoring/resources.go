@@ -40,7 +40,7 @@ var resourceCatalog = []resourceDef{
 	{"gce_instance_group", "Instance Group", "A Compute Engine instance group.",
 		[]string{labelProject, "instance_group_id", labelZone}},
 	{"gce_disk", "Compute Engine disk", "A Compute Engine disk.", []string{labelProject, "disk_id", labelZone}},
-	{"k8s_container", "Kubernetes Container", "A Kubernetes container instance.",
+	{typeK8sContainer, "Kubernetes Container", "A Kubernetes container instance.",
 		[]string{labelProject, labelLocation, "cluster_name", "namespace_name", "pod_name", "container_name"}},
 	{
 		"k8s_cluster",
@@ -72,6 +72,8 @@ var resourceCatalog = []resourceDef{
 		[]string{labelProject, labelLocation, "namespace", "node_id"}},
 	{"generic_task", "Generic Task", "A generic task.",
 		[]string{labelProject, labelLocation, "namespace", "job", "task_id"}},
+	{typeIstioCanonical, "Istio Canonical Service", "An Istio canonical service.",
+		[]string{labelProject, labelLocation, labelMeshUID, "namespace_name", "canonical_service_name"}},
 	{typeUptimeURL, "Uptime Check URL", "A URL checked by an uptime check.", []string{labelProject, labelHost}},
 	{"project", "Project", "A Google Cloud project.", []string{labelProject}},
 }

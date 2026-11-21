@@ -51,6 +51,7 @@ type InMemoryBackend struct {
 	parsed        map[string]*parsedNamespace
 	restoredLog   map[string][]nflogRecord
 	buckets       map[string]*tokenBucket
+	scrapeSeen    map[string]time.Time
 	accountID     string
 	region        string
 	logQueue      []logEvent

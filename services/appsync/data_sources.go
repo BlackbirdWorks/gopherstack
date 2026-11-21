@@ -1,15 +1,20 @@
 package appsync
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
+
+// maxIntrospectionJobs bounds the stored introspection jobs; the oldest are dropped first.
+const maxIntrospectionJobs = 100
 
 // isValidDataSourceType returns true if the given data source type is valid.
 func isValidDataSourceType(t DataSourceType) bool {
@@ -256,16 +261,12 @@ func (b *InMemoryBackend) UpdateDataSource(apiID, name string, ds *DataSource) (
 	return &cp, nil
 }
 
-// StartDataSourceIntrospection starts an RDS Data API introspection job. Unlike every
-// other Create/Start operation in this backend, the real AWS operation is NOT scoped
-// to an existing AppSync API or DataSource -- it introspects the RDS cluster named by
-// cfg directly (see StartDataSourceIntrospectionInput in the real SDK: the only field
-// is an optional rdsDataApiConfig). gopherstack has no real RDS Data API connectivity
-// to introspect against, so every well-formed request completes synchronously with a
-// SUCCESS status and an empty model list -- the wire-accurate shape and error
-// semantics of introspecting a genuine (if schema-less) database, persisted so it can
-// be retrieved again by ID via GetDataSourceIntrospection.
-func (b *InMemoryBackend) StartDataSourceIntrospection(cfg *RDSDataAPIConfig) (*DataSourceIntrospection, error) {
+// StartDataSourceIntrospection introspects the RDS cluster named by cfg through the RDS Data API and records the
+// outcome; unlike other Create/Start operations it is not scoped to an API or data source. The job's final status
+// is read back with GetDataSourceIntrospection.
+func (b *InMemoryBackend) StartDataSourceIntrospection(
+	ctx context.Context, cfg *RDSDataAPIConfig,
+) (*DataSourceIntrospection, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("%w: rdsDataApiConfig is required", ErrValidation)
 	}
@@ -276,20 +277,70 @@ func (b *InMemoryBackend) StartDataSourceIntrospection(cfg *RDSDataAPIConfig) (*
 		)
 	}
 
-	b.mu.Lock("StartDataSourceIntrospection")
-	defer b.mu.Unlock()
-
 	rec := &DataSourceIntrospection{
 		IntrospectionID:     randomAPIID(),
 		IntrospectionStatus: DataSourceIntrospectionStatusSuccess,
 		RDSDataAPIConfig:    cfg,
-		IntrospectionResult: &DataSourceIntrospectionResult{Models: []*DataSourceIntrospectionModel{}},
 	}
+
+	models, err := b.introspect(withRegion(ctx, b.region), cfg)
+	if err != nil {
+		rec.IntrospectionStatus, rec.IntrospectionStatusDetail = DataSourceIntrospectionStatusFailed, err.Error()
+	} else {
+		rec.IntrospectionResult = &DataSourceIntrospectionResult{Models: models}
+	}
+
+	b.mu.Lock("StartDataSourceIntrospection")
+	rec.CreatedAt = b.clock().UnixNano()
 	b.introspections.Put(rec)
+	b.pruneIntrospections()
+	b.mu.Unlock()
 
 	cp := *rec
+	cp.IntrospectionStatus = DataSourceIntrospectionStatusProcessing
+	cp.IntrospectionStatusDetail = ""
+	cp.IntrospectionResult = nil
 
 	return &cp, nil
+}
+
+func (b *InMemoryBackend) clock() time.Time {
+	if b.now != nil {
+		return b.now()
+	}
+
+	return time.Now()
+}
+
+// pruneIntrospections drops the oldest jobs beyond maxIntrospectionJobs; the caller holds b.mu.
+func (b *InMemoryBackend) pruneIntrospections() {
+	excess := b.introspections.Len() - maxIntrospectionJobs
+	if excess <= 0 {
+		return
+	}
+
+	jobs := b.introspections.All()
+	slices.SortFunc(jobs, func(x, y *DataSourceIntrospection) int {
+		return cmp.Or(cmp.Compare(x.CreatedAt, y.CreatedAt), cmp.Compare(x.IntrospectionID, y.IntrospectionID))
+	})
+
+	for _, j := range jobs[:excess] {
+		b.introspections.Delete(j.IntrospectionID)
+	}
+}
+
+func (b *InMemoryBackend) introspect(
+	ctx context.Context, cfg *RDSDataAPIConfig,
+) ([]*DataSourceIntrospectionModel, error) {
+	b.mu.RLock("introspect")
+	exec := b.rdsExec
+	b.mu.RUnlock()
+
+	if exec == nil {
+		return nil, ErrRDSNotConfigured
+	}
+
+	return introspectRDS(ctx, exec, cfg)
 }
 
 // GetDataSourceIntrospection returns the persisted record of a previously started

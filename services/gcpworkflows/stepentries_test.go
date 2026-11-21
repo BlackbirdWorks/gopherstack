@@ -87,11 +87,14 @@ func TestStepEntriesList(t *testing.T) {
 		{
 			name: "all in entry order",
 			want: []string{
-				"main.init", "main.go", "helper.double", "main.guarded", "main.boom", "main.handled", "main.done",
+				"main.init", "main.go", "helper.double", "main.guarded", "main.guarded", "main.boom", "main.guarded",
+				"main.handled", "main.done",
 			},
-			wantTotal: 7,
+			wantTotal: 9,
 		},
-		{name: "failed", filter: `state="STATE_FAILED"`, want: []string{"main.boom"}, wantTotal: 1},
+		{
+			name: "failed", filter: `state="STATE_FAILED"`, want: []string{"main.guarded", "main.boom"}, wantTotal: 2,
+		},
 		{
 			name: "routine", filter: `routine="helper"`, want: []string{"helper.double"}, wantTotal: 1,
 		},
@@ -100,13 +103,20 @@ func TestStepEntriesList(t *testing.T) {
 			want: []string{"main.init", "main.handled"},
 		},
 		{
-			name: "entry id range", filter: `entryId>=6`, want: []string{"main.handled", "main.done"}, wantTotal: 2,
+			name: "entry id range", filter: `entryId>=8`, want: []string{"main.handled", "main.done"}, wantTotal: 2,
 		},
 		{
-			name: "descending", orderBy: "entryId desc", wantTotal: 7,
+			name: "descending", orderBy: "entryId desc", wantTotal: 9,
 			want: []string{
-				"main.done", "main.handled", "main.boom", "main.guarded", "helper.double", "main.go", "main.init",
+				"main.done", "main.handled", "main.guarded", "main.boom", "main.guarded", "main.guarded",
+				"helper.double", "main.go", "main.init",
 			},
+		},
+		{
+			name: "try parts", filter: `stepType="STEP_TRY"`, want: []string{"main.guarded"}, wantTotal: 1,
+		},
+		{
+			name: "except parts", filter: `stepType="STEP_EXCEPT"`, want: []string{"main.guarded"}, wantTotal: 1,
 		},
 	}
 
@@ -143,10 +153,16 @@ func TestStepEntryContents(t *testing.T) {
 
 	list, err := svc.List(name).View("EXECUTION_ENTRY_VIEW_DETAILED").Context(t.Context()).Do()
 	require.NoError(t, err)
-	require.Len(t, list.StepEntries, 7)
+	require.Len(t, list.StepEntries, 9)
 
 	byStep := map[string]*wfexec.StepEntry{}
 	for _, en := range list.StepEntries {
+		if en.StepType == "STEP_TRY" || en.StepType == "STEP_EXCEPT" {
+			byStep[en.Routine+"."+en.Step+"."+en.StepType] = en
+
+			continue
+		}
+
 		byStep[en.Routine+"."+en.Step] = en
 	}
 
@@ -161,6 +177,13 @@ func TestStepEntryContents(t *testing.T) {
 	assert.Equal(t, guarded.EntryId, call.NavigationInfo.Next)
 	assert.Equal(t, "STEP_TRY_RETRY_EXCEPT", guarded.StepType)
 	assert.Equal(t, "STATE_SUCCEEDED", guarded.State)
+
+	tryPart, exceptPart := byStep["main.guarded.STEP_TRY"], byStep["main.guarded.STEP_EXCEPT"]
+	assert.Equal(t, guarded.EntryId, tryPart.NavigationInfo.Parent)
+	assert.Equal(t, "STATE_FAILED", tryPart.State)
+	assert.Equal(t, tryPart.EntryId, boom.NavigationInfo.Parent)
+	assert.Equal(t, tryPart.EntryId, exceptPart.NavigationInfo.Previous)
+	assert.Equal(t, exceptPart.EntryId, byStep["main.handled"].NavigationInfo.Parent)
 
 	assert.Equal(t, "STATE_FAILED", boom.State)
 	require.NotNil(t, boom.Exception)
@@ -215,7 +238,7 @@ func TestStepEntriesPaging(t *testing.T) {
 	for range 10 {
 		got, err := svc.List(name).PageSize(3).PageToken(token).Skip(0).Context(t.Context()).Do()
 		require.NoError(t, err)
-		assert.EqualValues(t, 7, got.TotalSize)
+		assert.EqualValues(t, 9, got.TotalSize)
 
 		for _, en := range got.StepEntries {
 			ids = append(ids, en.EntryId)
@@ -226,9 +249,9 @@ func TestStepEntriesPaging(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, []int64{1, 2, 3, 4, 5, 6, 7}, ids)
+	assert.Equal(t, []int64{1, 2, 3, 4, 5, 6, 7, 8, 9}, ids)
 
-	skipped, err := svc.List(name).Skip(5).Context(t.Context()).Do()
+	skipped, err := svc.List(name).Skip(7).Context(t.Context()).Do()
 	require.NoError(t, err)
 	assert.Equal(t, []string{"main.handled", "main.done"}, stepNames(skipped.StepEntries))
 }
@@ -336,8 +359,8 @@ func TestStepEntriesSurviveRestore(t *testing.T) {
 	got, err := dst.stepsService(t).Projects.Locations.Workflows.Executions.StepEntries.List(name).
 		View("EXECUTION_ENTRY_VIEW_DETAILED").Context(t.Context()).Do()
 	require.NoError(t, err)
-	assert.Len(t, got.StepEntries, 7)
-	assert.NotNil(t, got.StepEntries[6].VariableData)
+	assert.Len(t, got.StepEntries, 9)
+	assert.NotNil(t, got.StepEntries[8].VariableData)
 }
 
 func TestStepEntriesCancelled(t *testing.T) {
@@ -390,5 +413,40 @@ func TestIsStepEntriesPath(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tt.want, gcpworkflows.IsStepEntriesPath(tt.path))
 		})
+	}
+}
+
+func TestStepEntryIterationMetadata(t *testing.T) {
+	t.Parallel()
+
+	const src = `
+main:
+  steps:
+    - loop:
+        for:
+          value: i
+          range: [1, 3]
+          steps:
+            - a:
+                assign: [{x: "${i}"}]
+`
+
+	e := newEnv(t)
+	w := e.createWorkflow(t, "iter", src, func(w *workflowspb.Workflow) {
+		w.ExecutionHistoryLevel = workflowspb.ExecutionHistoryLevel_EXECUTION_HISTORY_BASIC
+	})
+	ex := e.await(t, e.execute(t, w.GetName(), "").GetName())
+	require.Equal(t, executionspb.Execution_SUCCEEDED, ex.GetState())
+
+	got, err := e.stepsService(t).Projects.Locations.Workflows.Executions.StepEntries.List(ex.GetName()).
+		Filter(`stepType="STEP_FOR_ITERATION"`).Context(t.Context()).Do()
+	require.NoError(t, err)
+	require.Len(t, got.StepEntries, 3)
+
+	for i, en := range got.StepEntries {
+		require.NotNil(t, en.StepEntryMetadata)
+		assert.Equal(t, "PROGRESS_TYPE_FOR", en.StepEntryMetadata.ProgressType)
+		assert.EqualValues(t, i+1, en.StepEntryMetadata.ProgressNumber)
+		assert.EqualValues(t, 3, en.StepEntryMetadata.ExpectedIteration)
 	}
 }

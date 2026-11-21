@@ -30,6 +30,19 @@ const (
 	StepTypeReturn        = "STEP_RETURN"
 	StepTypeRaise         = "STEP_RAISE"
 	StepTypeGoto          = "STEP_GOTO"
+	StepTypeCondition     = "STEP_CONDITION"
+	StepTypeIteration     = "STEP_FOR_ITERATION"
+	StepTypeBranchEntry   = "STEP_PARALLEL_BRANCH_ENTRY"
+	StepTypeTryPart       = "STEP_TRY"
+	StepTypeRetryPart     = "STEP_RETRY"
+	StepTypeExceptPart    = "STEP_EXCEPT"
+)
+
+// Progress types, as in StepEntryMetadata.ProgressType.
+const (
+	ProgressFor         = "PROGRESS_TYPE_FOR"
+	ProgressParallelFor = "PROGRESS_TYPE_PARALLEL_FOR"
+	ProgressRetry       = "PROGRESS_TYPE_RETRY"
 )
 
 // StepEvent reports a step starting (State StepInProgress) or finishing; both carry the same ID.
@@ -42,7 +55,12 @@ type StepEvent struct {
 	Step      string
 	Type      string
 	Exception string
-	ID        int64
+	// ProgressType, Progress and Expected describe an iteration or retry entry: its kind, 1-based position and
+	// the expected count (0 when unbounded or unknown).
+	ProgressType string
+	Progress     int64
+	Expected     int64
+	ID           int64
 	// Parent is the entry of the step that encloses this one or called its subworkflow; 0 at the top.
 	Parent int64
 	// Prev is the entry of the step that ran just before this one in the same block; 0 for the first.
@@ -86,7 +104,32 @@ func (r *rctx) stepType(s *step) string {
 	}
 }
 
+type entryInfo struct {
+	progressType string
+	progress     int64
+	expected     int64
+}
+
 func (r *rctx) loggedStep(sc *scope, s *step) (outcome, error) {
+	return r.logged(sc, s.name, r.stepType(s), entryInfo{}, func() (outcome, error) { return r.execStep(sc, s) })
+}
+
+// subEntry runs run inside its own step entry, a child of the entry being executed; its children start a new block.
+func (r *rctx) subEntry(sc *scope, name, typ string, info entryInfo, run func() (outcome, error)) (outcome, error) {
+	if r.x.host.StepLog == nil {
+		return run()
+	}
+
+	return r.logged(sc, name, typ, info, func() (outcome, error) {
+		r.prev = 0
+
+		return run()
+	})
+}
+
+func (r *rctx) logged(
+	sc *scope, name, typ string, info entryInfo, run func() (outcome, error),
+) (outcome, error) {
 	h := r.x.host
 
 	logOn, vars := true, h.StepVariables
@@ -98,20 +141,21 @@ func (r *rctx) loggedStep(sc *scope, s *step) (outcome, error) {
 	}
 
 	if !logOn {
-		return r.execStep(sc, s)
+		return run()
 	}
 
 	id := r.x.entry.Add(1)
 	parent, prev := r.cur, r.prev
 
 	ev := StepEvent{
-		ID: id, Parent: parent, Prev: prev, Thread: r.tid, Routine: r.routine.name, Step: s.name,
-		Type: r.stepType(s), State: StepInProgress, Time: h.clock().Now(),
+		ID: id, Parent: parent, Prev: prev, Thread: r.tid, Routine: r.routine.name, Step: name,
+		Type: typ, State: StepInProgress, Time: h.clock().Now(),
+		ProgressType: info.progressType, Progress: info.progress, Expected: info.expected,
 	}
 	h.StepLog(ev)
 
 	r.cur = id
-	out, err := r.execStep(sc, s)
+	out, err := run()
 	r.cur, r.prev = parent, id
 
 	ev.State, ev.Time = StepSucceeded, h.clock().Now()

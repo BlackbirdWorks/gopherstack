@@ -408,22 +408,23 @@ type RecoveryPoint struct {
 
 // CopyJob represents an AWS Backup copy job.
 type CopyJob struct {
-	CreationDate                time.Time  `json:"creationDate"`
-	CompletionDate              *time.Time `json:"completionDate,omitempty"`
-	SettleAt                    *time.Time `json:"settleAt,omitempty"`
-	Lifecycle                   *Lifecycle `json:"lifecycle,omitempty"`
-	CopyJobID                   string     `json:"copyJobId"`
-	SourceBackupVaultArn        string     `json:"sourceBackupVaultArn,omitempty"`
-	SourceRecoveryPointArn      string     `json:"sourceRecoveryPointArn,omitempty"`
-	DestinationBackupVaultArn   string     `json:"destinationBackupVaultArn,omitempty"`
-	DestinationRecoveryPointArn string     `json:"destinationRecoveryPointArn,omitempty"`
-	ResourceArn                 string     `json:"resourceArn,omitempty"`
-	ResourceType                string     `json:"resourceType,omitempty"`
-	IAMRoleArn                  string     `json:"iamRoleArn,omitempty"`
-	StatusMessage               string     `json:"statusMessage,omitempty"`
-	State                       string     `json:"state"`
-	AccountID                   string     `json:"accountId"`
-	Region                      string     `json:"region"`
+	CreationDate                time.Time      `json:"creationDate"`
+	CompletionDate              *time.Time     `json:"completionDate,omitempty"`
+	SettleAt                    *time.Time     `json:"settleAt,omitempty"`
+	Lifecycle                   *Lifecycle     `json:"lifecycle,omitempty"`
+	CopyJobID                   string         `json:"copyJobId"`
+	SourceBackupVaultArn        string         `json:"sourceBackupVaultArn,omitempty"`
+	SourceRecoveryPointArn      string         `json:"sourceRecoveryPointArn,omitempty"`
+	DestinationBackupVaultArn   string         `json:"destinationBackupVaultArn,omitempty"`
+	DestinationRecoveryPointArn string         `json:"destinationRecoveryPointArn,omitempty"`
+	ResourceArn                 string         `json:"resourceArn,omitempty"`
+	ResourceType                string         `json:"resourceType,omitempty"`
+	IAMRoleArn                  string         `json:"iamRoleArn,omitempty"`
+	StatusMessage               string         `json:"statusMessage,omitempty"`
+	State                       string         `json:"state"`
+	AccountID                   string         `json:"accountId"`
+	Region                      string         `json:"region"`
+	Snapshot                    jsontext.Value `json:"snapshot,omitempty"`
 }
 
 // VaultAccessPolicy holds an access policy document for a backup vault.

@@ -715,6 +715,7 @@ type DataSourceIntrospection struct {
 	IntrospectionID           string                         `json:"introspectionId"`
 	IntrospectionStatus       string                         `json:"introspectionStatus"`
 	IntrospectionStatusDetail string                         `json:"introspectionStatusDetail,omitempty"`
+	CreatedAt                 int64                          `json:"createdAt,omitempty"`
 }
 
 // SourceAPIAssociationConfig describes how source API merging is performed.

@@ -123,15 +123,19 @@ func (b *InMemoryBackend) ReadRows(req *btpb.ReadRowsRequest) (*ReadResult, erro
 		return nil, err
 	}
 
+	if req.GetMaterializedViewName() != "" {
+		return nil, errUnimplemented("Reading a materialized view needs the GoogleSQL engine, not implemented.")
+	}
+
 	b.mu.Lock("ReadRows")
 	defer b.mu.Unlock()
 
-	t, err := b.dataTable(req.GetTableName(), req.GetAuthorizedViewName(), req.GetAppProfileId(), false)
+	t, scope, err := b.dataTable(req.GetTableName(), req.GetAuthorizedViewName(), req.GetAppProfileId(), false)
 	if err != nil {
 		return nil, err
 	}
 
-	keys := candidateKeys(t, req.GetRows())
+	keys := scope.visibleKeys(candidateKeys(t, req.GetRows()))
 	if req.GetReversed() {
 		keys = slices.Clone(keys)
 		slices.Reverse(keys)
@@ -145,7 +149,7 @@ func (b *InMemoryBackend) ReadRows(req *btpb.ReadRowsRequest) (*ReadResult, erro
 			break
 		}
 
-		cells := t.liveCells(t.rows[k], now)
+		cells := scope.visible(t.liveCells(t.rows[k], now))
 		if len(cells) == 0 {
 			continue
 		}
@@ -170,15 +174,19 @@ func (b *InMemoryBackend) ReadRows(req *btpb.ReadRowsRequest) (*ReadResult, erro
 
 // SampleRowKeys returns approximate split points with the cumulative size of the rows before each.
 func (b *InMemoryBackend) SampleRowKeys(req *btpb.SampleRowKeysRequest) ([]*btpb.SampleRowKeysResponse, error) {
+	if req.GetMaterializedViewName() != "" {
+		return nil, errUnimplemented("Reading a materialized view needs the GoogleSQL engine, not implemented.")
+	}
+
 	b.mu.Lock("SampleRowKeys")
 	defer b.mu.Unlock()
 
-	t, err := b.dataTable(req.GetTableName(), req.GetAuthorizedViewName(), req.GetAppProfileId(), false)
+	t, scope, err := b.dataTable(req.GetTableName(), req.GetAuthorizedViewName(), req.GetAppProfileId(), false)
 	if err != nil {
 		return nil, err
 	}
 
-	return b.cachedSamples(t), nil
+	return scope.visibleSamples(b.cachedSamples(t)), nil
 }
 
 // sampleTTL is how long the size-based samples of an unchanged key set are reused: the response is approximate by

@@ -316,6 +316,10 @@ func (p *NetworkProvider) normalizeSubnet(
 		}
 	}
 
+	if err = checkIPv6SubnetSizes(name, vnetID.Names[0], parsed); err != nil {
+		return nil, err
+	}
+
 	out := takeProps(map[string]any{fieldProperties: props}, netFieldAddrPrefix, fieldProvisioningState,
 		"ipConfigurations", "privateEndpoints", "purpose", "resourceNavigationLinks", "serviceAssociationLinks",
 		"ipConfigurationProfiles")

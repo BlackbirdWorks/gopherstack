@@ -38,7 +38,9 @@ func Test_InMemoryBackend_SnapshotRestore(t *testing.T) {
 	// DataSourceIntrospection: not scoped to any API (see models.go's doc comment
 	// on the type), so it isn't covered by populateRegistryFixture. Proves the
 	// "introspections" table added to store_setup.go round-trips too.
-	introspection, err := b.StartDataSourceIntrospection(&appsync.RDSDataAPIConfig{
+	b.SetRDSData(postgresCatalog())
+
+	introspection, err := b.StartDataSourceIntrospection(ctx, &appsync.RDSDataAPIConfig{
 		DatabaseName: "mydb",
 		ResourceARN:  "arn:aws:rds:us-east-1:000000000000:cluster:mycluster",
 		SecretARN:    "arn:aws:secretsmanager:us-east-1:000000000000:secret:mysecret",

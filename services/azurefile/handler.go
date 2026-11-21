@@ -316,6 +316,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		h.trimTrailingDots(rc)
 
+		restoreMetadataCase(r)
+
 		started := h.now()
 		rs, aerr := fn(rc)
 		if aerr != nil {
@@ -388,6 +390,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 
 	srv := &http.Server{
 		Handler:           e,
+		ConnContext:       connContext,
 		ReadHeaderTimeout: readHeaderTimeout,
 		ReadTimeout:       readTimeout,
 		IdleTimeout:       idleTimeout,
@@ -403,7 +406,9 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	log.InfoContext(workerCtx, "azurefile: starting dedicated listener", "port", h.Port)
 
 	go func() {
-		if serveErr := srv.Serve(listener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+		tracked := trackedListener{Listener: listener}
+
+		if serveErr := srv.Serve(tracked); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 			log.ErrorContext(workerCtx, "azurefile: listener stopped", "error", serveErr)
 		}
 	}()

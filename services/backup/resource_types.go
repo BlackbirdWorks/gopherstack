@@ -19,14 +19,14 @@ func resourceTypeFromARN(resourceArn string) string {
 	}
 
 	return map[string]string{
-		"dynamodb":          "DynamoDB",
-		"s3":                "S3",
-		"elasticfilesystem": "EFS",
-		"fsx":               "FSx",
-		"storagegateway":    "Storage Gateway",
-		"redshift":          "Redshift",
-		"timestream":        "Timestream",
-		"cloudformation":    "CloudFormation",
+		"dynamodb":            "DynamoDB",
+		"s3":                  "S3",
+		"elasticfilesystem":   "EFS",
+		"fsx":                 "FSx",
+		storageGatewayService: "Storage Gateway",
+		"redshift":            "Redshift",
+		"timestream":          "Timestream",
+		"cloudformation":      "CloudFormation",
 	}[parts[2]]
 }
 
