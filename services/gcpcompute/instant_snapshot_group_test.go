@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
+	"google.golang.org/protobuf/proto"
 )
 
 func (e *env) isgInsert(t *testing.T, group string) error {
@@ -127,4 +128,89 @@ func TestInstantSnapshotGroupRestore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "READY", g.GetStatus())
 	assert.Equal(t, []string{"g-d1"}, dst.instantSnapshotNames(t))
+}
+
+func TestRegionInstantSnapshotGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		region  string
+		policy  string
+		members int
+		status  int
+	}{
+		{name: "regional disks", region: region, policy: "cg", members: 1},
+		{name: "unknown region", region: "nowhere1", policy: "cg", status: http.StatusNotFound},
+		{name: "no member disks", region: region, policy: "empty", status: http.StatusBadRequest},
+		{name: "unknown policy", region: region, policy: "ghost", status: http.StatusNotFound},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t)
+			e.baseNet(t)
+
+			for _, name := range []string{"cg", "empty"} {
+				require.NoError(t, e.resPolicy(t, &computepb.ResourcePolicy{
+					Name: s(name), DiskConsistencyGroupPolicy: &computepb.ResourcePolicyDiskConsistencyGroupPolicy{},
+				}))
+			}
+
+			rd := e.regionDisks(t)
+			op, err := rd.Insert(t.Context(), &computepb.InsertRegionDiskRequest{
+				Project: project, Region: region, DiskResource: &computepb.Disk{
+					Name: s("rd"), SizeGb: proto.Int64(200),
+					ReplicaZones:     []string{"zones/" + region + "-a", "zones/" + region + "-b"},
+					ResourcePolicies: []string{rpRef("cg")},
+				},
+			})
+			e.done(t, op, err)
+
+			g := client(t, e, compute.NewRegionInstantSnapshotGroupsRESTClient)
+			op, err = g.Insert(t.Context(), &computepb.InsertRegionInstantSnapshotGroupRequest{
+				Project: project, Region: tt.region, SourceConsistencyGroup: s(rpRef(tt.policy)),
+				InstantSnapshotGroupResource: &computepb.InstantSnapshotGroup{Name: s("g")},
+			})
+
+			if tt.status != 0 {
+				assertAPIError(t, e.finish(t, op, err), tt.status, "")
+
+				return
+			}
+
+			e.done(t, op, err)
+
+			got, err := g.Get(t.Context(), &computepb.GetRegionInstantSnapshotGroupRequest{
+				Project: project, Region: region, InstantSnapshotGroup: "g",
+			})
+			require.NoError(t, err)
+			assert.Equal(t, "READY", got.GetStatus())
+			assert.Contains(t, got.GetRegion(), "/regions/"+region)
+			assert.Empty(t, got.GetZone())
+			assert.Contains(t, got.GetSelfLink(), "/regions/"+region+"/instantSnapshotGroups/g")
+
+			is, err := e.regionInstantSnaps(t).Get(t.Context(), &computepb.GetRegionInstantSnapshotRequest{
+				Project: project, Region: region, InstantSnapshot: "g-rd",
+			})
+			require.NoError(t, err)
+			assert.Contains(t, is.GetSourceInstantSnapshotGroup(), "/regions/"+region+"/instantSnapshotGroups/g")
+
+			_, err = client(t, e, compute.NewInstantSnapshotGroupsRESTClient).Get(t.Context(),
+				&computepb.GetInstantSnapshotGroupRequest{Project: project, Zone: zone, InstantSnapshotGroup: "g"})
+			assertAPIError(t, err, http.StatusNotFound, "notFound")
+
+			op, err = g.Delete(t.Context(), &computepb.DeleteRegionInstantSnapshotGroupRequest{
+				Project: project, Region: region, InstantSnapshotGroup: "g",
+			})
+			e.done(t, op, err)
+
+			_, err = e.regionInstantSnaps(t).Get(t.Context(), &computepb.GetRegionInstantSnapshotRequest{
+				Project: project, Region: region, InstantSnapshot: "g-rd",
+			})
+			assertAPIError(t, err, http.StatusNotFound, "notFound")
+		})
+	}
 }

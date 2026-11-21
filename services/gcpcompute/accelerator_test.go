@@ -96,6 +96,35 @@ func TestInstanceGuestAcceleratorsAtInsert(t *testing.T) {
 				i.Disks = append(i.Disks, &computepb.AttachedDisk{Type: s("SCRATCH")})
 			},
 		},
+		{name: "custom n1 at the t4 vcpu ceiling", mod: func(i *computepb.Instance) {
+			i.MachineType = s("custom-48-49152")
+		}},
+		{name: "custom n1 over the t4 vcpu ceiling", status: http.StatusBadRequest, reason: "invalid",
+			mod: func(i *computepb.Instance) { i.MachineType = s("custom-50-51200") }},
+		{name: "custom n1 at the v100 memory ceiling", mod: func(i *computepb.Instance) {
+			i.MachineType = s("custom-12-79872")
+			i.GuestAccelerators[0].AcceleratorType = s("nvidia-tesla-v100")
+		}},
+		{name: "custom n1 over the v100 memory ceiling", status: http.StatusBadRequest, reason: "invalid",
+			mod: func(i *computepb.Instance) {
+				i.MachineType = s("custom-12-80128")
+				i.GuestAccelerators[0].AcceleratorType = s("nvidia-tesla-v100")
+			}},
+		{name: "legacy p100 in any zone", mod: func(i *computepb.Instance) {
+			i.GuestAccelerators[0].AcceleratorType = s("nvidia-tesla-p100")
+		}},
+		{name: "legacy t4 vws", mod: func(i *computepb.Instance) {
+			i.GuestAccelerators[0].AcceleratorType = s("nvidia-tesla-t4-vws")
+			i.GuestAccelerators[0].AcceleratorCount = proto.Int32(2)
+		}},
+		{name: "legacy needs n1", status: http.StatusBadRequest, reason: "invalid", mod: func(i *computepb.Instance) {
+			i.GuestAccelerators[0].AcceleratorType = s("nvidia-l4")
+			i.MachineType = s(e2Medium)
+		}},
+		{name: "legacy zero count", status: http.StatusBadRequest, reason: "invalid", mod: func(i *computepb.Instance) {
+			i.GuestAccelerators[0].AcceleratorType = s("nvidia-tesla-k80")
+			i.GuestAccelerators[0].AcceleratorCount = proto.Int32(0)
+		}},
 		{name: "t4 local ssd", mod: func(i *computepb.Instance) {
 			i.Disks = append(i.Disks, &computepb.AttachedDisk{Type: s("SCRATCH")})
 		}},

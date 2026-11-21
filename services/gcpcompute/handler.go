@@ -136,7 +136,7 @@ func (h *Handler) Reset() { h.Backend.Reset() }
 var readVerbs = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
 	verbList: true, verbAggList: true, verbGet: true, "getRouterStatus": true, "getFromFamily": true,
 	"listPeeringRoutes": true, "getStatus": true, "getRule": true, "serialPort": true,
-	"getGuestAttributes": true, "referrers": true, "listErrors": true, "listPreconfiguredExpressionSets": true,
+	"getGuestAttributes": true, "referrers": true, "listErrors": true,
 }
 
 var verbMethods = map[string]string{ //nolint:gochecknoglobals // read-only lookup table

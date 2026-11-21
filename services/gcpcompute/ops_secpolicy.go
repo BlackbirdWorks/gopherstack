@@ -211,10 +211,6 @@ func (h *Handler) registerSecurityOps() {
 		h.registerSecurityScope(scope)
 	}
 
-	h.reg(collSecPolicy, scopeGlobal, "listPreconfiguredExpressionSets", func(*Handler, *request) (any, error) {
-		return preconfiguredExpressionSets(), nil
-	})
-
 	regSetter(h, bsSpec(), both, "setSecurityPolicy",
 		func(cur *computeapi.BackendService, r *computeapi.SecurityPolicyReference) {
 			cur.SecurityPolicy = r.SecurityPolicy

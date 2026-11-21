@@ -183,10 +183,6 @@ func prepBackendService(b *InMemoryBackend, c lbCtx, in *computeapi.BackendServi
 		return err
 	}
 
-	if in.EdgeSecurityPolicy != "" && c.scope != scopeGlobal {
-		return errField("resource.edgeSecurityPolicy", in.EdgeSecurityPolicy, "Edge security policies are global.")
-	}
-
 	edge, err := b.resolveEdgePolicyLocked(c.project, "resource.edgeSecurityPolicy", in.EdgeSecurityPolicy)
 	if err != nil {
 		return err

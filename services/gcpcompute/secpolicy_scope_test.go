@@ -162,24 +162,24 @@ func TestSecurityPolicyAggregatedList(t *testing.T) {
 	assert.Equal(t, map[string]string{"g1": "global", "r1": "regions/" + region}, got)
 }
 
-func TestListPreconfiguredExpressionSets(t *testing.T) {
+func TestListPreconfiguredExpressionSetsNotRouted(t *testing.T) {
 	t.Parallel()
 
-	e := newEnv(t)
-	resp, err := e.armor(t).ListPreconfiguredExpressionSets(t.Context(),
-		&computepb.ListPreconfiguredExpressionSetsSecurityPoliciesRequest{Project: project})
-	require.NoError(t, err)
-
-	ids := map[string]bool{}
-	for _, set := range resp.GetPreconfiguredExpressionSets().GetWafRules().GetExpressionSets() {
-		ids[set.GetId()] = true
+	tests := []struct{ name, path string }{
+		{
+			"project scope",
+			"/compute/v1/projects/" + project + "/global/securityPolicies/listPreconfiguredExpressionSets",
+		},
 	}
 
-	for _, want := range []string{"sqli-v33-stable", "xss-v422-canary", "sqli-stable", "cve-canary", "nodejs-v33-stable"} {
-		assert.True(t, ids[want], want)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.False(t, ids["java-stable"])
+			status, _ := rawDo(t, newEnv(t), http.MethodGet, tt.path, "")
+			assert.Equal(t, http.StatusNotFound, status)
+		})
+	}
 }
 
 func TestRegionSecurityPolicyAttachment(t *testing.T) {

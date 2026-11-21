@@ -60,6 +60,12 @@ var gpuModels = []gpuModel{ //nolint:gochecknoglobals // read-only catalogue
 	},
 }
 
+// legacyAcceleratorTypes are real accelerator types without a catalogue entry; they keep the earlier rules
+// (any zone, N1 machine, TERMINATE) rather than becoming 404.
+var legacyAcceleratorTypes = []string{ //nolint:gochecknoglobals // read-only lookup table
+	"nvidia-tesla-t4-vws", "nvidia-tesla-p100", "nvidia-tesla-k80", "nvidia-tesla-a100", "nvidia-l4",
+}
+
 func findGPUModel(name string) (gpuModel, bool) {
 	for _, m := range gpuModels {
 		if m.name == name {
@@ -130,6 +136,11 @@ func getAcceleratorType(project, zone, name string) (*computeapi.AcceleratorType
 	return nil, errNotFound(relPath(project, scopeZone, zone, collAccelTypes, name))
 }
 
+// isN1Machine reports predefined N1 and custom machine types; unprefixed custom types are N1.
+func isN1Machine(name string) bool {
+	return strings.HasPrefix(name, "n1-") || strings.HasPrefix(name, "custom-")
+}
+
 func machineShape(machine string) (int64, int64) {
 	name := lastSegment(machine)
 	if m, ok := findMachine(name); ok {
@@ -160,6 +171,10 @@ func (b *InMemoryBackend) validateAcceleratorsLocked(
 
 	a := accels[0]
 
+	if t := lastSegment(a.AcceleratorType); slices.Contains(legacyAcceleratorTypes, t) {
+		return validateLegacyAccelerator(project, zone, machine, sched, t, a)
+	}
+
 	m, ok := findGPUModel(lastSegment(a.AcceleratorType))
 	if !ok || !m.inZone(zone) {
 		return nil, errNotFound(relPath(project, scopeZone, zone, collAccelTypes, lastSegment(a.AcceleratorType)))
@@ -173,7 +188,7 @@ func (b *InMemoryBackend) validateAcceleratorsLocked(
 	}
 
 	name := lastSegment(machine)
-	if !strings.HasPrefix(name, "n1-") {
+	if !isN1Machine(name) {
 		return nil, errInvalid("Invalid value for field '%s': GPUs can only be attached to N1 machine types, "+
 			"not '%s'.", field, name)
 	}
@@ -198,6 +213,31 @@ func (b *InMemoryBackend) validateAcceleratorsLocked(
 
 	return []*computeapi.AcceleratorConfig{{
 		AcceleratorType: zoneLink(project, zone, collAccelTypes, m.name), AcceleratorCount: a.AcceleratorCount,
+	}}, nil
+}
+
+func validateLegacyAccelerator(
+	project, zone, machine string,
+	sched *computeapi.Scheduling,
+	name string,
+	a *computeapi.AcceleratorConfig,
+) ([]*computeapi.AcceleratorConfig, *APIError) {
+	if a.AcceleratorCount < 1 {
+		return nil, errField("resource.guestAccelerators.acceleratorCount", "", "Must be at least 1.")
+	}
+
+	if m := lastSegment(machine); !isN1Machine(m) {
+		return nil, errInvalid("Invalid value for field 'resource.guestAccelerators': GPUs cannot be attached to "+
+			"machine type '%s'.", m)
+	}
+
+	if sched == nil || sched.OnHostMaintenance != maintTerminate {
+		return nil, errInvalid("Invalid value for field 'resource.scheduling.onHostMaintenance': " +
+			"instances with GPUs must use TERMINATE.")
+	}
+
+	return []*computeapi.AcceleratorConfig{{
+		AcceleratorType: zoneLink(project, zone, collAccelTypes, name), AcceleratorCount: a.AcceleratorCount,
 	}}, nil
 }
 

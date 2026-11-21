@@ -379,6 +379,10 @@ func (b *InMemoryBackend) updatePeering(
 
 	if cur.UpdateStrategy == stratConsensus {
 		_, back := b.peerSideLocked(n, cur)
+		if back != nil && back.UpdateStrategy != stratConsensus {
+			back = nil
+		}
+
 		proposeConsensusUpdate(cur, back)
 	}
 

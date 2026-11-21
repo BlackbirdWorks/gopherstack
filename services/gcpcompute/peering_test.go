@@ -1,6 +1,7 @@
 package gcpcompute_test
 
 import (
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"testing"
@@ -9,6 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func netRef(name string) string { return "projects/" + project + "/global/networks/" + name }
@@ -500,4 +503,63 @@ func TestPeeringConsensusStackType(t *testing.T) {
 	assert.Equal(t, "IPV4_ONLY",
 		e.peerings(t, "a")["a-to-b"].GetConnectionStatus().GetTrafficConfiguration().GetStackType(),
 		"a single IPV4_IPV6 side stays IPV4_ONLY")
+}
+
+func TestPeeringConsensusLeavesIndependentSideUntouched(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		export bool
+	}{
+		{"export proposal", true},
+		{"import proposal", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t)
+			e.peerNet(t, "a", "10.1.0.0/24")
+			e.peerNet(t, "b", "10.2.0.0/24")
+			require.NoError(t, e.addPeering(t, "a", "a-to-b", "b", func(p *computepb.NetworkPeering) {
+				p.UpdateStrategy = s("CONSENSUS")
+			}))
+			require.NoError(t, e.addPeering(t, "b", "b-to-a", "a", nil))
+
+			cp := &computepb.NetworkPeering{Name: s("a-to-b")}
+			if tt.export {
+				cp.ExportCustomRoutes = new(true)
+			} else {
+				cp.ImportCustomRoutes = new(true)
+			}
+
+			op, err := e.networks(t).UpdatePeering(t.Context(), &computepb.UpdatePeeringNetworkRequest{
+				Project: project, Network: "a",
+				NetworksUpdatePeeringRequestResource: &computepb.NetworksUpdatePeeringRequest{NetworkPeering: cp},
+			})
+			require.NoError(t, e.finish(t, op, err))
+
+			var snap struct {
+				Networks map[string]struct {
+					Name     string           `json:"name"`
+					Peerings []map[string]any `json:"peerings"`
+				} `json:"networks"`
+			}
+
+			require.NoError(t, json.Unmarshal(e.backend.Snapshot(t.Context()), &snap, jsonx.V1()))
+
+			for _, n := range snap.Networks {
+				if n.Name != "b" {
+					continue
+				}
+
+				require.Len(t, n.Peerings, 1)
+				assert.NotContains(t, n.Peerings[0], "connectionStatus")
+			}
+
+			assert.Nil(t, e.peerings(t, "b")["b-to-a"].GetConnectionStatus())
+		})
+	}
 }

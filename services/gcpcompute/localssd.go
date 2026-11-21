@@ -44,6 +44,8 @@ func localSSDCounts(machine string, cpus int64) []int {
 	switch family {
 	case "n1":
 		return all
+	case famN2D:
+		return []int{1, 2, 4, 8, 16, 24}
 	case "n2":
 		for _, t := range n2Tiers {
 			if cpus <= t.maxCPUs {

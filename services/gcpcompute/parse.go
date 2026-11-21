@@ -197,10 +197,6 @@ func finishRoute(rt reqRoute, rest []string) (reqRoute, bool) {
 		rt.name, rt.action = "", "bulkInsert"
 	}
 
-	if rt.collection == collSecPolicy && rt.name == "listPreconfiguredExpressionSets" && rt.action == "" {
-		rt.name, rt.action = "", rt.name
-	}
-
 	if rt.collection == "images" && rt.name == "family" && rt.action != "" {
 		rt.name, rt.action = rt.action, "getFromFamily"
 	}
