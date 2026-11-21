@@ -87,30 +87,43 @@ type sourceSecret struct {
 // resolveSourceAuth returns the clone credentials of src: from its Secrets Manager secret, or, for OAUTH and
 // no auth, from the imported credentials of its server type. A CODECONNECTIONS connection must be AVAILABLE.
 func (r *buildRunner) resolveSourceAuth(ctx context.Context, src *ProjectSource) (string, string, error) {
-	switch src.Auth.Type {
-	case authTypeSecretsManager:
-		return r.secretSourceCredentials(ctx, src)
-	case authTypeCodeConnections:
-		return "", "", r.checkConnection(ctx, src)
-	default:
-		token, user, _ := r.b.sourceToken(src.Type)
+	auth := src.Auth
 
-		return token, user, nil
+	if auth.Type != authTypeSecretsManager && auth.Type != authTypeCodeConnections {
+		if token, user, ok := r.b.sourceToken(src.Type); ok {
+			return token, user, nil
+		}
+
+		imported, ok := r.b.importedAuth(src.Type)
+		if !ok {
+			return "", "", nil
+		}
+
+		auth = imported
+	}
+
+	switch auth.Type {
+	case authTypeSecretsManager:
+		return r.secretSourceCredentials(ctx, src, auth.Resource)
+	default:
+		return "", "", r.checkConnection(ctx, src, auth.Resource)
 	}
 }
 
-func (r *buildRunner) secretSourceCredentials(ctx context.Context, src *ProjectSource) (string, string, error) {
+func (r *buildRunner) secretSourceCredentials(
+	ctx context.Context, src *ProjectSource, resource string,
+) (string, string, error) {
 	if r.svc.Values == nil {
 		return "", "", fmt.Errorf("%w: Secrets Manager", errSourceDependency)
 	}
 
-	if err := r.sameAccountRegion(src.Auth.Resource); err != nil {
+	if err := r.sameAccountRegion(resource); err != nil {
 		return "", "", fmt.Errorf("%w: %w", errAuthSecret, err)
 	}
 
-	raw, err := r.svc.Values.SecretValue(ctx, r.region, src.Auth.Resource, "", "")
+	raw, err := r.svc.Values.SecretValue(ctx, r.region, resource, "", "")
 	if err != nil {
-		return "", "", fmt.Errorf("%w: cannot read secret %s: %w", errAuthSecret, src.Auth.Resource, err)
+		return "", "", fmt.Errorf("%w: cannot read secret %s: %w", errAuthSecret, resource, err)
 	}
 
 	if len(raw) > maxSecretPayload {
@@ -140,22 +153,26 @@ func (r *buildRunner) secretSourceCredentials(ctx context.Context, src *ProjectS
 	return sec.Token, sec.Username, nil
 }
 
-func (r *buildRunner) checkConnection(ctx context.Context, src *ProjectSource) error {
+func (r *buildRunner) checkConnection(ctx context.Context, src *ProjectSource, resource string) error {
 	if r.svc.Connections == nil {
 		return fmt.Errorf("%w: CodeConnections", errSourceDependency)
 	}
 
-	status, err := r.svc.Connections.ConnectionStatus(ctx, r.region, src.Auth.Resource)
+	if err := r.sameAccountRegion(resource); err != nil {
+		return fmt.Errorf("%w: %w", errAuthConnection, err)
+	}
+
+	status, err := r.svc.Connections.ConnectionStatus(ctx, r.region, resource)
 	if err != nil {
-		return fmt.Errorf("%w: %s: %w", errAuthConnection, src.Auth.Resource, err)
+		return fmt.Errorf("%w: %s: %w", errAuthConnection, resource, err)
 	}
 
 	if status != connectionAvailable {
-		return fmt.Errorf("%w: %s is %s, not %s", errAuthConnection, src.Auth.Resource, status, connectionAvailable)
+		return fmt.Errorf("%w: %s is %s, not %s", errAuthConnection, resource, status, connectionAvailable)
 	}
 
 	logger.Load(ctx).InfoContext(ctx, "codebuild: would obtain a provider token from the connection",
-		"connection", src.Auth.Resource, "serverType", src.Type, "cloning", "without a token")
+		"connection", resource, "serverType", src.Type, "cloning", "without a token")
 
 	return nil
 }
@@ -168,7 +185,8 @@ func (r *buildRunner) sameAccountRegion(resource string) error {
 	}
 
 	if parsed.Region != r.region || parsed.AccountID != r.b.accountID {
-		return fmt.Errorf("%w: secret must be in account %s and Region %s", errAuthScope, r.b.accountID, r.region)
+		return fmt.Errorf("%w: source auth resource must be in account %s and Region %s",
+			errAuthScope, r.b.accountID, r.region)
 	}
 
 	return nil

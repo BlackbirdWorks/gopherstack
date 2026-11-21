@@ -4,6 +4,9 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	elbv2sdk "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
+	elbv2types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -78,4 +81,19 @@ func TestQuotaLimiterLoadBalancers(t *testing.T) {
 			assert.Equal(t, 0, h.LoadBalancerCount("us-west-2", lbType))
 		})
 	}
+}
+
+func TestQuotaLimitWireError(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	h.SetQuotaLimiter(func(_, _, _, _ string) (float64, bool) { return 0, true })
+
+	client := newTestELBv2Client(t, h)
+
+	_, err := client.CreateLoadBalancer(t.Context(), &elbv2sdk.CreateLoadBalancerInput{Name: aws.String("over")})
+
+	var limitErr *elbv2types.TooManyLoadBalancersException
+
+	require.ErrorAs(t, err, &limitErr)
 }

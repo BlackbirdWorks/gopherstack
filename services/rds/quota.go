@@ -79,3 +79,27 @@ func (b *InMemoryBackend) checkNewClusterLocked(id string, quota quotalimit.Limi
 
 	return nil
 }
+
+func (b *InMemoryBackend) checkNewInstanceIDLocked(id string, quota quotalimit.Limit) error {
+	if _, exists := b.instances.Get(normalizeID(id)); exists {
+		return fmt.Errorf("%w: instance %s already exists", ErrInstanceAlreadyExists, id)
+	}
+
+	return b.checkInstanceQuotaLocked(quota)
+}
+
+func (b *InMemoryBackend) checkInstanceQuotaLocked(quota quotalimit.Limit) error {
+	if quota.Reached(len(b.instances.All())) {
+		return quotaExceededErr(ErrInstanceQuotaExceeded, "DB instances", quota)
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) checkClusterQuotaLocked(quota quotalimit.Limit) error {
+	if quota.Reached(len(b.clusters.All())) {
+		return quotaExceededErr(ErrClusterQuotaExceeded, "DB clusters", quota)
+	}
+
+	return nil
+}

@@ -82,3 +82,17 @@ func (b *InMemoryBackend) sourceToken(serverType string) (string, string, bool) 
 
 	return "", "", false
 }
+
+// importedAuth returns the ARN-typed credential imported for serverType as a source auth.
+func (b *InMemoryBackend) importedAuth(serverType string) (SourceAuth, bool) {
+	b.mu.RLock("importedAuth")
+	defer b.mu.RUnlock()
+
+	for _, sc := range b.sourceCredentials.All() {
+		if sc.ServerType == serverType && sc.Resource != "" {
+			return SourceAuth{Type: sc.AuthType, Resource: sc.Resource}, true
+		}
+	}
+
+	return SourceAuth{}, false
+}

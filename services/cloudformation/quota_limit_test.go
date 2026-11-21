@@ -4,6 +4,9 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	cfnsdk "github.com/aws/aws-sdk-go-v2/service/cloudformation"
+	cfntypes "github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -69,4 +72,23 @@ func TestQuotaLimiterExistingStackKeepsAlreadyExists(t *testing.T) {
 
 	_, err = b.CreateStack(t.Context(), "dup", simpleTemplate, nil, cloudformation.StackOptions{})
 	require.ErrorIs(t, err, cloudformation.ErrStackAlreadyExists)
+}
+
+func TestQuotaLimitWireError(t *testing.T) {
+	t.Parallel()
+
+	b := cloudformation.NewInMemoryBackend()
+	t.Cleanup(b.WaitForStackSetOperations)
+	cloudformation.NewHandler(b).SetQuotaLimiter(func(_, _, _, _ string) (float64, bool) { return 0, true })
+
+	client := newTestClientForBackend(t, b)
+
+	_, err := client.CreateStack(t.Context(), &cfnsdk.CreateStackInput{
+		StackName:    aws.String("over"),
+		TemplateBody: aws.String(`{"Resources":{"T":{"Type":"AWS::SNS::Topic"}}}`),
+	})
+
+	var limitErr *cfntypes.LimitExceededException
+
+	require.ErrorAs(t, err, &limitErr)
 }

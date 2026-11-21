@@ -25,7 +25,6 @@ func (b *InMemoryBackend) settleReportsLocked(now time.Time, dwell time.Duration
 		if r.Status == reportInProgress && !now.Before(r.Created.Add(reportStages*dwell)) {
 			r.Status = reportCompleted
 			r.Generated = r.Created.Add(reportStages * dwell)
-			r.Quotas = b.buildReportLocked(scope{account: r.Account, region: r.Region})
 		}
 	}
 }
@@ -38,19 +37,35 @@ func utilization(usage, applied float64) float64 {
 	return usage / applied * percent
 }
 
-func (b *InMemoryBackend) buildReportLocked(s scope) []UtilizationEntry {
-	var out []UtilizationEntry
+// usageSnap holds usage read from the UsageSource before the backend lock is taken: the source takes the
+// owning services' locks, and those services call back into QuotaLimit.
+type usageSnap map[string]float64
+
+func gatherUsage(src UsageSource, cat *Catalog, s scope) usageSnap {
+	snap := usageSnap{}
+	if src == nil {
+		return snap
+	}
+
+	for _, svc := range cat.Services() {
+		for i := range svc.Quotas {
+			if v, ok := src.QuotaUsage(s.account, s.region, svc.Code, svc.Quotas[i].Code); ok {
+				snap[appliedKey(s, svc.Code, svc.Quotas[i].Code)] = v
+			}
+		}
+	}
+
+	return snap
+}
+
+func (b *InMemoryBackend) buildReportLocked(s scope, snap usageSnap) []UtilizationEntry {
+	out := []UtilizationEntry{}
 
 	for _, svc := range b.catalog.Services() {
 		for i := range svc.Quotas {
 			def := &svc.Quotas[i]
 
-			var usage float64
-
-			tracked := false
-			if b.usage != nil {
-				usage, tracked = b.usage.QuotaUsage(s.account, s.region, svc.Code, def.Code)
-			}
+			usage, tracked := snap[appliedKey(s, svc.Code, def.Code)]
 
 			if def.Usage == nil && !tracked {
 				continue
@@ -112,6 +127,8 @@ func (b *InMemoryBackend) GetReport(ctx context.Context, id, token string, maxRe
 		return ReportPage{}, fail(ErrIllegalArgument, "ReportId is required")
 	}
 
+	snap := b.reportUsage(ctx, id)
+
 	b.mu.Lock("GetQuotaUtilizationReport")
 	defer b.mu.Unlock()
 
@@ -124,10 +141,32 @@ func (b *InMemoryBackend) GetReport(ctx context.Context, id, token string, maxRe
 		return ReportPage{}, fail(ErrNoSuchResource, "The report %q was not found", id)
 	}
 
+	if r.Status == reportCompleted && r.Quotas == nil {
+		r.Quotas = b.buildReportLocked(s, snap)
+	}
+
 	pg, err := paginate(r.Quotas, token, maxResults)
 	if err != nil {
 		return ReportPage{}, err
 	}
 
 	return ReportPage{Report: *r, Quotas: pg, Total: len(r.Quotas)}, nil
+}
+
+// reportUsage reads the usage a completed, not yet built report needs, without holding the backend lock.
+func (b *InMemoryBackend) reportUsage(ctx context.Context, id string) usageSnap {
+	b.mu.Lock("GetQuotaUtilizationReport")
+	b.settleLocked()
+
+	s := b.scopeOf(ctx)
+	src := b.usage
+	r, ok := b.reports.Get(id)
+	need := ok && r.Account == s.account && r.Region == s.region && r.Status == reportCompleted && r.Quotas == nil
+	b.mu.Unlock()
+
+	if !need {
+		return nil
+	}
+
+	return gatherUsage(src, b.catalog, s)
 }

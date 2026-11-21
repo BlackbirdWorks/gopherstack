@@ -328,15 +328,15 @@ func (b *InMemoryBackend) RestoreDBInstanceFromDBSnapshot(
 		err      error
 	)
 
+	quota := b.quotaLimit(quotaDBInstances)
+
 	func() {
 		b.mu.Lock("RestoreDBInstanceFromDBSnapshot")
 		defer b.mu.Unlock()
 
 		b.reconcileInstancesLocked()
 
-		if _, exists := b.instances.Get(normalizeID(id)); exists {
-			err = fmt.Errorf("%w: instance %s already exists", ErrInstanceAlreadyExists, id)
-
+		if err = b.checkNewInstanceIDLocked(id, quota); err != nil {
 			return
 		}
 

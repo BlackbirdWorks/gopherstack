@@ -299,3 +299,83 @@ func TestSourceCredentialsResourcePersists(t *testing.T) {
 		})
 	}
 }
+
+func TestEngineGitSourceImportedAuth(t *testing.T) {
+	t.Parallel()
+
+	repo := newTestRepo(t)
+	const token = "ghp_from_imported_secret"
+
+	secretBody := `{"ServerType":"GITHUB","AuthType":"PERSONAL_ACCESS_TOKEN","Token":"` + token + `"}`
+
+	tests := []struct {
+		name     string
+		authType string
+		resource string
+		auth     *cbtypes.SourceAuth
+		conns    authConnections
+		wantMsg  string
+		wantOK   bool
+	}{
+		{name: "imported secret", authType: authTypeSecretsManager, resource: authSecretARN, wantOK: true},
+		{
+			name: "imported connection pending", authType: authTypeCodeConnections, resource: authConnARN,
+			conns: authConnections{authConnARN: "PENDING"}, wantMsg: "PENDING",
+		},
+		{
+			name: "secret of another account", authType: authTypeSecretsManager, wantMsg: "account",
+			auth: &cbtypes.SourceAuth{
+				Type:     cbtypes.SourceAuthTypeSecretsManager,
+				Resource: aws.String("arn:aws:secretsmanager:us-east-1:111111111111:secret:git-AbCdEf"),
+			},
+		},
+		{
+			name: "connection of another account", authType: authTypeCodeConnections, wantMsg: "account",
+			auth: &cbtypes.SourceAuth{
+				Type: cbtypes.SourceAuthTypeCodeconnections,
+				Resource: aws.String(
+					"arn:aws:codeconnections:us-east-1:111111111111:connection/11111111-2222-3333-4444-555555555555"),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			location := gitHTTPServer(t, repo, "x-access-token", token)
+			obs, rule := gitObserver()
+			h := newHarnessWith(t, newFakeRuntime(rule), nil)
+			h.b.SetEngineServices(EngineServices{
+				Store: h.store, Logs: h.logs, Connections: tt.conns,
+				Values: authValues{secrets: map[string]string{authSecretARN: secretBody}},
+			})
+
+			if tt.resource != "" {
+				_, err := h.b.ImportSourceCredentials(tt.authType, "GITHUB", tt.resource, "", true)
+				require.NoError(t, err)
+			}
+
+			c := sdkClientFor(t, h.b)
+			createSDKProject(t, c, sdkProject{source: &cbtypes.ProjectSource{
+				Type: cbtypes.SourceTypeGithub, Location: aws.String(location), Auth: tt.auth,
+			}})
+
+			b := startAndWait(t, h, c, &codebuildsdk.StartBuildInput{})
+
+			assert.NotContains(t, h.logs.joined(), token)
+
+			if tt.wantOK {
+				require.Equal(t, cbtypes.StatusTypeSucceeded, b.BuildStatus, failedPhaseMessage(b))
+				obs.lock.RLock("read")
+				assert.Equal(t, "two", obs.version)
+				obs.lock.RUnlock()
+
+				return
+			}
+
+			assert.Equal(t, cbtypes.StatusTypeFailed, b.BuildStatus)
+			assert.Contains(t, failedPhaseMessage(b), tt.wantMsg)
+		})
+	}
+}

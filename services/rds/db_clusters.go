@@ -682,10 +682,14 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 	if snapshotID == "" {
 		return nil, fmt.Errorf("%w: SnapshotIdentifier must not be empty", ErrInvalidParameter)
 	}
+	quota := b.quotaLimit(quotaDBClusters)
 	b.mu.Lock("RestoreDBClusterFromSnapshot")
 	defer b.mu.Unlock()
 	if _, exists := b.clusters.Get(normalizeID(clusterID)); exists {
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, clusterID)
+	}
+	if err := b.checkClusterQuotaLocked(quota); err != nil {
+		return nil, err
 	}
 	snapID, byARN := snapshotRef(snapshotID)
 	snap, exists := b.clusterSnapshots.Get(normalizeID(snapID))
@@ -729,10 +733,14 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 			ErrInvalidParameter,
 		)
 	}
+	quota := b.quotaLimit(quotaDBClusters)
 	b.mu.Lock("RestoreDBClusterToPointInTime")
 	defer b.mu.Unlock()
 	if _, exists := b.clusters.Get(normalizeID(clusterID)); exists {
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, clusterID)
+	}
+	if err := b.checkClusterQuotaLocked(quota); err != nil {
+		return nil, err
 	}
 	source, exists := b.clusters.Get(normalizeID(sourceClusterID))
 	if !exists {
@@ -1251,10 +1259,14 @@ func (b *InMemoryBackend) RestoreDBClusterFromS3(
 	if sourceEngineVersion == "" {
 		return nil, fmt.Errorf("%w: sourceEngineVersion is required", ErrInvalidParameter)
 	}
+	quota := b.quotaLimit(quotaDBClusters)
 	b.mu.Lock("RestoreDBClusterFromS3")
 	defer b.mu.Unlock()
 	if _, exists := b.clusters.Get(normalizeID(id)); exists {
 		return nil, fmt.Errorf("%w: %s", ErrClusterAlreadyExists, id)
+	}
+	if err := b.checkClusterQuotaLocked(quota); err != nil {
+		return nil, err
 	}
 	secret, err := b.createMasterSecret("cluster", masterUsername, opts.MasterSecretRequest, opts.MasterUserPassword)
 	if err != nil {

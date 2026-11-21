@@ -1122,6 +1122,7 @@ ProjectSource.auth (primary and secondary sources, StartBuild sourceAuthOverride
 - SECRETS_MANAGER: the docker engine reads the secret from the emulated Secrets Manager (same account and Region as the project) and requires the documented JSON object {ServerType, AuthType (PERSONAL_ACCESS_TOKEN or BASIC_AUTH), Token, Username} (docs.aws.amazon.com/codebuild/latest/userguide/asm-create-secret.html); a mismatch fails the build in DOWNLOAD_SOURCE without echoing the token.
 - CODECONNECTIONS: the connection must exist in the emulated CodeConnections and be AVAILABLE, else the build fails in DOWNLOAD_SOURCE.
 - OAUTH: the OAuth credential is console-created (ImportSourceCredentials docs), so the clone uses the credentials imported for the source server type.
+- No `auth` or OAUTH: the clone uses the credentials imported for the source server type; an imported SECRETS_MANAGER or CODECONNECTIONS credential (stored as `resource`) is resolved like a project-level auth of that type. The secret or connection ARN must be in the project's account and Region.
 
 ## Emulator choices where the vendor is silent
 

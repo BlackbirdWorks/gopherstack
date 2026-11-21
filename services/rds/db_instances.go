@@ -826,6 +826,8 @@ func (b *InMemoryBackend) RestoreDBInstanceToPointInTime(
 		err      error
 	)
 
+	quota := b.quotaLimit(quotaDBInstances)
+
 	func() {
 		b.mu.Lock("RestoreDBInstanceToPointInTime")
 		defer b.mu.Unlock()
@@ -835,6 +837,10 @@ func (b *InMemoryBackend) RestoreDBInstanceToPointInTime(
 		if _, exists := b.instances.Get(normalizeID(id)); exists {
 			err = fmt.Errorf("%w: instance %s already exists", ErrInstanceAlreadyExists, id)
 
+			return
+		}
+
+		if err = b.checkInstanceQuotaLocked(quota); err != nil {
 			return
 		}
 
@@ -1002,11 +1008,12 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(
 	if id == "" {
 		return nil, fmt.Errorf("%w: DBInstanceIdentifier must not be empty", ErrInvalidParameter)
 	}
+	quota := b.quotaLimit(quotaDBInstances)
 	b.mu.Lock("CreateDBInstanceReadReplica")
 	b.reconcileInstancesLocked()
 	defer b.mu.Unlock()
-	if _, exists := b.instances.Get(normalizeID(id)); exists {
-		return nil, fmt.Errorf("%w: instance %s already exists", ErrInstanceAlreadyExists, id)
+	if err := b.checkNewInstanceIDLocked(id, quota); err != nil {
+		return nil, err
 	}
 
 	var (
@@ -1389,10 +1396,14 @@ func (b *InMemoryBackend) RestoreDBInstanceFromS3(
 	if paramGroupName == "" {
 		paramGroupName = "default." + engine
 	}
+	quota := b.quotaLimit(quotaDBInstances)
 	b.mu.Lock("RestoreDBInstanceFromS3")
 	defer b.mu.Unlock()
 	if _, exists := b.instances.Get(normalizeID(id)); exists {
 		return nil, fmt.Errorf("%w: %s", ErrInstanceAlreadyExists, id)
+	}
+	if err := b.checkInstanceQuotaLocked(quota); err != nil {
+		return nil, err
 	}
 	secret, err := b.createMasterSecret("db", "", opts.MasterSecretRequest, opts.MasterUserPassword)
 	if err != nil {

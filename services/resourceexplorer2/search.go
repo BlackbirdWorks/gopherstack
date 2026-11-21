@@ -171,11 +171,12 @@ func (b *InMemoryBackend) gather(ctx context.Context, plan *searchPlan, viewClau
 				continue
 			}
 
+			seen[c.arn] = true
+
 			inView, _ := evaluate(c, viewClauses)
 
 			ok, score := evaluate(c, clauses)
 			if inView && ok {
-				seen[c.arn] = true
 				scores[c.arn] = score
 				out = append(out, c)
 			}

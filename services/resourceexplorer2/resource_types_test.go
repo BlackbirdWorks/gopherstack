@@ -62,3 +62,41 @@ func TestSearchResourceTypeOfARN(t *testing.T) {
 		})
 	}
 }
+
+func TestSearchDuplicateARNKeepsFirstSourceEntry(t *testing.T) {
+	t.Parallel()
+
+	arn := "arn:aws:rds:us-east-1:" + testAccount + ":db:orders"
+	src := fakeSource{
+		{ARN: arn, Tags: map[string]string{"env": "prod"}},
+		{ARN: arn},
+	}
+
+	tests := []struct {
+		name  string
+		query string
+		want  int
+	}{
+		{name: "tag none excludes tagged", query: "tag:none", want: 0},
+		{name: "negated tag all excludes tagged", query: "-tag:all", want: 0},
+		{name: "tag filter matches", query: "tag:env=prod", want: 1},
+		{name: "plain", query: "orders", want: 1},
+	}
+
+	b := resourceexplorer2.NewInMemoryBackend(testAccount, "us-east-1")
+	b.SetResourceSource(src)
+
+	f := &fixture{backend: b, url: sdktest.Serve(t, resourceexplorer2.NewHandler(b))}
+	c := f.client(t)
+	setupViewed(t, c, "tags")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			out, err := c.Search(t.Context(), &sdk.SearchInput{QueryString: aws.String(tt.query)})
+			require.NoError(t, err)
+			assert.Len(t, out.Resources, tt.want)
+		})
+	}
+}

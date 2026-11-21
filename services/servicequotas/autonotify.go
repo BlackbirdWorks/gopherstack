@@ -63,7 +63,20 @@ func thresholdOf(util float64, optInType string) int {
 func (b *InMemoryBackend) Tick(ctx context.Context) {
 	b.mu.Lock("Tick")
 	b.settleLocked()
-	pending := b.collectNoticesLocked()
+
+	src := b.usage
+	snaps := map[scope]usageSnap{}
+	scopes := b.noticeScopesLocked()
+	b.mu.Unlock()
+
+	if src != nil {
+		for _, s := range scopes {
+			snaps[s] = gatherUsage(src, b.catalog, s)
+		}
+	}
+
+	b.mu.Lock("Tick")
+	pending := b.collectNoticesLocked(snaps)
 	notifier := b.notifier
 	b.mu.Unlock()
 
@@ -79,11 +92,19 @@ func (b *InMemoryBackend) Tick(ctx context.Context) {
 	}
 }
 
-func (b *InMemoryBackend) collectNoticesLocked() []pendingNotice {
-	if b.usage == nil {
-		return nil
+func (b *InMemoryBackend) noticeScopesLocked() []scope {
+	var out []scope
+
+	for _, am := range b.autoMgmt.All() {
+		if am.Status == optInEnabled && am.NotificationArn != "" {
+			out = append(out, scope{account: am.Account, region: am.Region})
+		}
 	}
 
+	return out
+}
+
+func (b *InMemoryBackend) collectNoticesLocked(snaps map[scope]usageSnap) []pendingNotice {
 	var out []pendingNotice
 
 	for _, am := range b.autoMgmt.All() {
@@ -91,13 +112,18 @@ func (b *InMemoryBackend) collectNoticesLocked() []pendingNotice {
 			continue
 		}
 
-		out = append(out, b.collectConfigNoticesLocked(am)...)
+		snap, ok := snaps[scope{account: am.Account, region: am.Region}]
+		if !ok {
+			continue
+		}
+
+		out = append(out, b.collectConfigNoticesLocked(am, snap)...)
 	}
 
 	return out
 }
 
-func (b *InMemoryBackend) collectConfigNoticesLocked(am *AutoManagement) []pendingNotice {
+func (b *InMemoryBackend) collectConfigNoticesLocked(am *AutoManagement, snap usageSnap) []pendingNotice {
 	s := scope{account: am.Account, region: am.Region}
 
 	var out []pendingNotice
@@ -109,7 +135,7 @@ func (b *InMemoryBackend) collectConfigNoticesLocked(am *AutoManagement) []pendi
 				continue
 			}
 
-			usage, ok := b.usage.QuotaUsage(s.account, s.region, svc.Code, def.Code)
+			usage, ok := snap[appliedKey(s, svc.Code, def.Code)]
 			if !ok {
 				continue
 			}
