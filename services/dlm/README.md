@@ -9,13 +9,9 @@
 | --- | --- |
 | PARITY entries audited | 8 (8 ok) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- Event-based (cross-account copy event) policies are accepted and stored but never run: they need a snapshot-shared event from the EC2 emulator and ModifySnapshotAttribute emits none.
 
 ## More
 

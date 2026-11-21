@@ -722,7 +722,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Backup](services/backup/README.md) | A | 66 | 1 gap; 3 structural gaps |
-| [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | 1 gap |
+| [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | clean |
 | [EFS](services/efs/README.md) | A | 31 | 1 deferred |
 | [FSx](services/fsx/README.md) | A | — | 13 families; 2 structural gaps |
 | [S3](services/s3/README.md) | A | 26 | 4 structural gaps |
@@ -962,7 +962,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cloud Bigtable](services/gcpbigtable/README.md) | B | 45 | 1 gap |
 | [Cloud Build](services/gcpcloudbuild/README.md) | B | 21 | 4 gaps |
 | [Cloud DNS](services/gcpdns/README.md) | B | — | 8 families; 1 gap |
-| [Cloud Datastore](services/gcpdatastore/README.md) | B | 13 | 2 gaps |
+| [Cloud Datastore](services/gcpdatastore/README.md) | B | 13 | clean |
 | [Cloud Functions](services/gcpfunctions/README.md) | B | 8 | 4 gaps |
 | [Cloud IAM](services/gcpiam/README.md) | B | 31 | 4 gaps |
 | [Cloud Logging](services/gcplogging/README.md) | B | 43 | 3 gaps |
@@ -984,7 +984,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Identity Platform](services/gcpidentitytoolkit/README.md) | B | 1 | 1 gap |
 | [Kubernetes Engine](services/gcpcontainer/README.md) | B | — | 5 families; 4 gaps |
 | [Memorystore for Redis](services/gcpredis/README.md) | B | 14 | 3 gaps |
-| [Workflows](services/gcpworkflows/README.md) | B | 13 | 2 gaps |
+| [Workflows](services/gcpworkflows/README.md) | B | 15 | 1 gap |
 
 ### OCI
 
