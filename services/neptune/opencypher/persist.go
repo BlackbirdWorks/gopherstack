@@ -9,6 +9,7 @@ import (
 	"math"
 	"sort"
 	"strconv"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
@@ -16,6 +17,7 @@ import (
 const (
 	floatKey = "~f"
 	mapKey   = "~m"
+	dateKey  = "~d"
 )
 
 type nodeDump struct {
@@ -126,6 +128,8 @@ func encodeValue(v any) any {
 	switch t := v.(type) {
 	case float64:
 		return map[string]any{floatKey: strconv.FormatFloat(t, 'g', -1, 64)}
+	case time.Time:
+		return map[string]any{dateKey: strconv.FormatInt(t.UnixMilli(), 10)}
 	case []any:
 		out := make([]any, len(t))
 		for i, e := range t {
@@ -181,6 +185,12 @@ func decodeTagged(m map[string]any) any {
 		}
 
 		return f
+	}
+
+	if s, ok := m[dateKey].(string); ok && len(m) == 1 {
+		if ms, err := strconv.ParseInt(s, 10, 64); err == nil {
+			return time.UnixMilli(ms).UTC()
+		}
 	}
 
 	if inner, ok := m[mapKey].(map[string]any); ok && len(m) == 1 {

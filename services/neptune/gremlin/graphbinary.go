@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"math"
+	"time"
 )
 
 const mimeGraphBinary = "application/vnd.graphbinary-v1.0"
@@ -202,7 +203,14 @@ func (r *bbReader) payload(code byte) (any, error) {
 		n, err := r.i32()
 
 		return int64(n), err
-	case gbLong, gbDate, gbTimestamp:
+	case gbDate:
+		ms, err := r.i64()
+		if err != nil {
+			return nil, err
+		}
+
+		return time.UnixMilli(ms).UTC(), nil
+	case gbLong, gbTimestamp:
 		return r.i64()
 	case gbShort:
 		b, err := r.take(2) //nolint:mnd // int16
@@ -273,7 +281,7 @@ func (r *bbReader) uuid() (any, error) {
 		return nil, err
 	}
 
-	return formatUUID(b), nil
+	return UUID(formatUUID(b)), nil
 }
 
 func (r *bbReader) enum(kind string) (any, error) {
@@ -544,6 +552,19 @@ func (w *bbWriter) fq(v any) {
 		w.mapValue(t.asMap())
 	case Token:
 		w.enum(t)
+	default:
+		w.fqTemporal(v)
+	}
+}
+
+func (w *bbWriter) fqTemporal(v any) {
+	switch t := v.(type) {
+	case time.Time:
+		w.head(gbDate)
+		w.i64(t.UnixMilli())
+	case UUID:
+		w.head(gbUUID)
+		w.buf.Write(parseUUID(string(t)))
 	default:
 		w.element(v)
 	}

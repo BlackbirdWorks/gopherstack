@@ -126,13 +126,15 @@ func TestScriptStatementExecution(t *testing.T) {
 		name   string
 		script string
 		count  string
-		want   []string
 	}{
-		{"iterate runs", `g.addV('p').iterate(); g.V().count()`, "5", nil},
-		{"next runs", "g.addV('p').next()\ng.V().count()", "5", nil},
-		{"bare earlier statement skipped", `g.addV('p'); g.V().count()`, "4", nil},
-		{"last result only", `g.V().iterate(); g.V().count()`, "4", nil},
-		{"bare last returns", `g.V().count()`, "4", nil},
+		{"iterate runs", `g.addV('p').iterate(); g.V().count()`, "5"},
+		{"next runs", "g.addV('p').next()\ng.V().count()", "5"},
+		{"toList runs", `g.addV('p').toList(); g.V().count()`, "5"},
+		{"bare earlier statement skipped", `g.addV('p'); g.V().count()`, "4"},
+		{"semicolon inside string", `g.addV('a;b').iterate(); g.V().hasLabel('a;b').count()`, "1"},
+		{"semicolon inside string not split", `g.addV('a;b'); g.V().count()`, "4"},
+		{"last result only", `g.V().iterate(); g.V().count()`, "4"},
+		{"bare last returns", `g.V().count()`, "4"},
 	}
 
 	for _, tt := range tests {

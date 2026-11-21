@@ -157,16 +157,22 @@ func (x *exec) mergeTravs(in []*trav) ([]*trav, error) {
 func (x *exec) mergeKey(t *trav) string {
 	var b strings.Builder
 
-	b.WriteString(keyOf(t.v))
-	b.WriteString("|" + strconv.Itoa(t.loops))
+	b.WriteString(lenKey(keyOf(t.v)))
+	b.WriteString(lenKey(strconv.Itoa(t.loops)))
 
 	if x.sack.on && x.sack.merge == "" {
-		b.WriteString("|" + keyOf(t.sack))
+		b.WriteString(lenKey(keyOf(t.sack)))
 	}
 
 	if x.needsPath {
 		for n := t.path; n != nil; n = n.parent {
-			b.WriteString("|" + keyOf(n.obj) + "#" + strings.Join(n.labels, ","))
+			b.WriteString(lenKey(keyOf(n.obj)))
+
+			for _, l := range n.labels {
+				b.WriteString(lenKey(l))
+			}
+
+			b.WriteString("|")
 		}
 	}
 

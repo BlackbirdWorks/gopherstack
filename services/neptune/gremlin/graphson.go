@@ -6,6 +6,7 @@ import (
 	"encoding/json/v2"
 	"math"
 	"strconv"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
@@ -38,6 +39,10 @@ func (w graphsonWriter) value(v any) any {
 		return typed("g:Double", floatJSON(t))
 	case float32:
 		return typed("g:Float", floatJSON(float64(t)))
+	case time.Time:
+		return typed("g:Date", t.UnixMilli())
+	case UUID:
+		return typed("g:UUID", string(t))
 	case []any:
 		return w.list("g:List", t)
 	case Set:
@@ -267,7 +272,10 @@ func decodeGraphSONPlainMap(m map[string]any) (any, error) {
 
 func decodeTyped(typ string, val any) (any, error) {
 	switch typ {
-	case "g:Int32", "g:Int64", "g:Float", "g:Double", "g:Short", "g:Byte", "g:Date", "g:Timestamp", "g:BigInteger":
+	case "g:Date":
+		return decodeDate(val)
+	case "g:Int32", "g:Int64", "g:Float", "g:Double", "g:Short", "g:Byte", "gx:Int16", "gx:Byte",
+		"g:Timestamp", "g:BigInteger":
 		return decodeNumber(val)
 	case "g:List":
 		l, _ := val.([]any)
@@ -280,7 +288,11 @@ func decodeTyped(typ string, val any) (any, error) {
 		return Set(out), err
 	case "g:Map":
 		return decodeGraphSONPairs(val)
-	case "g:UUID", "g:String":
+	case "g:UUID":
+		s, _ := val.(string)
+
+		return UUID(s), nil
+	case "g:String":
 		return val, nil
 	case "g:Bytecode":
 		return decodeBytecodeJSON(val)
@@ -297,6 +309,20 @@ func decodeTyped(typ string, val any) (any, error) {
 	}
 
 	return nil, unsupported("Unsupported GraphSON type %q", typ)
+}
+
+func decodeDate(val any) (any, error) {
+	n, ok := val.(jsonx.Number)
+	if !ok {
+		return nil, invalidArg("Invalid date value")
+	}
+
+	ms, err := n.Int64()
+	if err != nil {
+		return nil, invalidArg("Invalid date value %q", string(n))
+	}
+
+	return time.UnixMilli(ms).UTC(), nil
 }
 
 func decodeNumber(val any) (any, error) {

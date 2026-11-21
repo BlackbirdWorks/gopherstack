@@ -3,6 +3,7 @@ package gremlin
 import (
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
 )
@@ -71,7 +72,7 @@ func (tr *Traversal) String() string {
 
 func storableValue(v any) bool {
 	switch v.(type) {
-	case string, bool, int64, float64:
+	case string, bool, int64, float64, time.Time:
 		return true
 	}
 
@@ -114,18 +115,48 @@ func appendSet(old, val any) any {
 		return val
 	case []any:
 		for _, e := range t {
-			if equalValues(e, val) {
+			if sameValue(e, val) {
 				return old
 			}
 		}
 
 		return append(append([]any(nil), t...), val)
 	default:
-		if equalValues(t, val) {
+		if sameValue(t, val) {
 			return old
 		}
 
 		return []any{t, val}
+	}
+}
+
+// sameValue is set-membership equality: an integer and a float of equal magnitude are distinct values.
+func sameValue(a, b any) bool {
+	return isInt(a) == isInt(b) && equalValues(a, b)
+}
+
+func dropPropValue(props map[string]any, key string, val any) {
+	vals, multi := props[key].([]any)
+	if !multi {
+		delete(props, key)
+
+		return
+	}
+
+	i := slices.IndexFunc(vals, func(e any) bool { return sameValue(e, val) })
+	if i < 0 {
+		return
+	}
+
+	rest := slices.Delete(slices.Clone(vals), i, i+1)
+
+	switch len(rest) {
+	case 0:
+		delete(props, key)
+	case 1:
+		props[key] = rest[0]
+	default:
+		props[key] = rest
 	}
 }
 
@@ -377,7 +408,11 @@ func stepDrop(x *exec, _ *Step, t *trav) ([]*trav, error) {
 		x.st.DeleteRel(v)
 	case *Prop:
 		if props, ok := elemProps(v.Owner); ok {
-			delete(props, v.Key)
+			if v.VP {
+				dropPropValue(props, v.Key, v.Val)
+			} else {
+				delete(props, v.Key)
+			}
 		}
 	default:
 		return nil, malformed("The drop() step can only be applied to graph elements and properties")
