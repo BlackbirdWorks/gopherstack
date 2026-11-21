@@ -251,7 +251,7 @@ type StorageBackend interface {
 	// StartDataSourceIntrospection starts an RDS Data API introspection job. Not
 	// scoped to any existing AppSync API/DataSource -- see DataSourceIntrospection's
 	// doc comment in models.go.
-	StartDataSourceIntrospection(cfg *RDSDataAPIConfig) (*DataSourceIntrospection, error)
+	StartDataSourceIntrospection(ctx context.Context, cfg *RDSDataAPIConfig) (*DataSourceIntrospection, error)
 	// GetDataSourceIntrospection returns the persisted record of an introspection job.
 	GetDataSourceIntrospection(introspectionID string) (*DataSourceIntrospection, error)
 	// StartSchemaMerge merges one source API association's schema into its merged API.

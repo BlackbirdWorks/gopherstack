@@ -335,10 +335,10 @@ func utilTypes() map[string]utilFn {
 
 			return a[0], nil
 		},
-		"isString": func(_ *utilEnv, a []any) (any, error) { return typeName(argAt(a, 0)) == "String", nil },
+		"isString": func(_ *utilEnv, a []any) (any, error) { return typeName(argAt(a, 0)) == gqlString, nil },
 		"isNumber": func(_ *utilEnv, a []any) (any, error) { return typeName(argAt(a, 0)) == "Number", nil },
 		"isBoolean": func(_ *utilEnv, a []any) (any, error) {
-			return typeName(argAt(a, 0)) == "Boolean", nil
+			return typeName(argAt(a, 0)) == gqlBoolean, nil
 		},
 		"isList": func(_ *utilEnv, a []any) (any, error) { return typeName(argAt(a, 0)) == "List", nil },
 		"isMap":  func(_ *utilEnv, a []any) (any, error) { return typeName(argAt(a, 0)) == "Map", nil },
@@ -366,9 +366,9 @@ func typeName(v any) string {
 	case nil:
 		return "Null"
 	case string:
-		return "String"
+		return gqlString
 	case bool:
-		return "Boolean"
+		return gqlBoolean
 	case map[string]any:
 		return "Map"
 	case []any, *vlist:

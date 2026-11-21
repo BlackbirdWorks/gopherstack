@@ -10,6 +10,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // handleDataSources handles /v1/apis/{apiId}/datasources[/{name}].
@@ -185,7 +186,7 @@ func (h *Handler) startDataSourceIntrospection(ctx context.Context, c *echo.Cont
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
-	rec, startErr := h.Backend.StartDataSourceIntrospection(input.RDSDataAPIConfig)
+	rec, startErr := h.Backend.StartDataSourceIntrospection(ctx, input.RDSDataAPIConfig)
 	if startErr != nil {
 		return h.handleError(ctx, c, opStartDataSourceIntrospection, startErr)
 	}
@@ -205,10 +206,50 @@ func (h *Handler) getDataSourceIntrospection(ctx context.Context, c *echo.Contex
 		return h.handleError(ctx, c, opGetDataSourceIntrospection, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	q := c.Request().URL.Query()
+	token := q.Get("nextToken")
+
+	if tokErr := page.ValidateToken(token); tokErr != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid nextToken"))
+	}
+
+	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
+	withSDL, _ := strconv.ParseBool(q.Get("includeModelsSDL"))
+
+	out := map[string]any{
 		"introspectionId":           rec.IntrospectionID,
-		"introspectionResult":       rec.IntrospectionResult,
 		"introspectionStatus":       rec.IntrospectionStatus,
 		"introspectionStatusDetail": rec.IntrospectionStatusDetail,
-	})
+	}
+
+	if res := pageIntrospection(rec.IntrospectionResult, token, maxResults, withSDL); res != nil {
+		out["introspectionResult"] = res
+	}
+
+	return c.JSON(http.StatusOK, out)
+}
+
+const defaultIntrospectionPage = 25
+
+// pageIntrospection returns one page of the models, each with its SDL when withSDL is set; nil without a result.
+func pageIntrospection(
+	res *DataSourceIntrospectionResult, token string, limit int, withSDL bool,
+) *DataSourceIntrospectionResult {
+	if res == nil {
+		return nil
+	}
+
+	pg := page.New(res.Models, token, limit, defaultIntrospectionPage)
+	models := make([]*DataSourceIntrospectionModel, len(pg.Data))
+
+	for i, m := range pg.Data {
+		cp := *m
+		if withSDL {
+			cp.SDL = modelSDL(m)
+		}
+
+		models[i] = &cp
+	}
+
+	return &DataSourceIntrospectionResult{Models: models, NextToken: pg.Next}
 }

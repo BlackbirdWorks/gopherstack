@@ -124,7 +124,7 @@ main:
 				t.Helper()
 				assert.Equal(t, wfinterp.StepTypeTry, ev["main.guarded"].Type)
 				assert.Equal(t, wfinterp.StepFailed, ev["main.boom"].State)
-				assert.Equal(t, ev["main.guarded"].ID, ev["main.boom"].Parent)
+				assert.NotEqual(t, ev["main.guarded"].ID, ev["main.boom"].Parent)
 			},
 		},
 	}
@@ -179,9 +179,9 @@ func TestStepBudgetStopsEventsAndSnapshots(t *testing.T) {
 		wantBegun int
 		wantVars  int
 	}{
-		{func(*int) (bool, bool) { return true, true }, "unlimited", 202, 202},
+		{func(*int) (bool, bool) { return true, true }, "unlimited", 402, 402},
 		{func(b *int) (bool, bool) { return *b < 10, true }, "log_cap", 10, 10},
-		{func(*int) (bool, bool) { return true, false }, "vars_cap", 202, 0},
+		{func(*int) (bool, bool) { return true, false }, "vars_cap", 402, 0},
 	}
 
 	for _, tt := range tests {
@@ -246,4 +246,166 @@ func BenchmarkStepLogLoop(b *testing.B) {
 			}
 		})
 	}
+}
+
+func TestStepLogSubEntries(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		src       string
+		want      []string
+		unordered bool
+	}{
+		{
+			name: "switch conditions",
+			src: `
+main:
+  steps:
+    - pick:
+        switch:
+          - condition: ${false}
+            next: end
+          - condition: ${true}
+            steps:
+              - hit:
+                  assign: [{x: 1}]
+    - r:
+        return: 1`,
+			want: []string{
+				wfinterp.StepTypeSwitch, wfinterp.StepTypeCondition, wfinterp.StepTypeCondition, "",
+				wfinterp.StepTypeAssign, wfinterp.StepTypeReturn,
+			},
+		},
+		{
+			name: "for iterations",
+			src: `
+main:
+  steps:
+    - l:
+        for:
+          value: i
+          range: [1, 3]
+          steps:
+            - a:
+                assign: [{x: "${i}"}]`,
+			want: []string{
+				wfinterp.StepTypeFor,
+				wfinterp.StepTypeIteration, wfinterp.StepTypeAssign,
+				wfinterp.StepTypeIteration, wfinterp.StepTypeAssign,
+				wfinterp.StepTypeIteration, wfinterp.StepTypeAssign,
+			},
+		},
+		{
+			name:      "parallel branches",
+			unordered: true,
+			src: `
+main:
+  steps:
+    - p:
+        parallel:
+          branches:
+            - one:
+                steps:
+                  - a:
+                      assign: [{x: 1}]
+            - two:
+                steps:
+                  - b:
+                      assign: [{y: 1}]`,
+			want: []string{
+				wfinterp.StepTypeParallel, wfinterp.StepTypeBranchEntry, wfinterp.StepTypeAssign,
+				wfinterp.StepTypeBranchEntry, wfinterp.StepTypeAssign,
+			},
+		},
+		{
+			name: "try retry except",
+			src: `
+main:
+  steps:
+    - g:
+        try:
+          steps:
+            - boom:
+                raise: "bad"
+        retry:
+          predicate: ${always}
+          max_retries: 1
+          backoff: {initial_delay: 1, max_delay: 1, multiplier: 1}
+        except:
+          steps:
+            - ok:
+                return: 1
+always:
+  params: [e]
+  steps:
+    - t:
+        return: true`,
+			want: []string{
+				wfinterp.StepTypeTry, wfinterp.StepTypeTryPart, wfinterp.StepTypeRaise, wfinterp.StepTypeRetryPart,
+				wfinterp.StepTypeTryPart, wfinterp.StepTypeRaise, wfinterp.StepTypeExceptPart, wfinterp.StepTypeReturn,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			sink := &stepSink{}
+			r := run(t, tt.src, nil, func(h *wfinterp.Host) { h.StepLog = sink.add })
+			require.NoError(t, r.err)
+
+			var got []string
+
+			for _, e := range sink.events {
+				if e.State == wfinterp.StepInProgress && e.Routine == "main" {
+					got = append(got, e.Type)
+				}
+			}
+
+			if tt.unordered {
+				assert.ElementsMatch(t, tt.want, got)
+
+				return
+			}
+
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestStepLogProgress(t *testing.T) {
+	t.Parallel()
+
+	sink := &stepSink{}
+	r := run(t, `
+main:
+  steps:
+    - l:
+        for:
+          value: i
+          range: [1, 3]
+          steps:
+            - a:
+                assign: [{x: "${i}"}]`, nil, func(h *wfinterp.Host) { h.StepLog = sink.add })
+	require.NoError(t, r.err)
+
+	var iters []wfinterp.StepEvent
+
+	for _, e := range sink.events {
+		if e.State == wfinterp.StepInProgress && e.Type == wfinterp.StepTypeIteration {
+			iters = append(iters, e)
+		}
+	}
+
+	require.Len(t, iters, 3)
+
+	for i, e := range iters {
+		assert.Equal(t, wfinterp.ProgressFor, e.ProgressType)
+		assert.EqualValues(t, i+1, e.Progress)
+		assert.EqualValues(t, 3, e.Expected)
+	}
+
+	assert.Equal(t, iters[0].ID, iters[1].Prev)
 }

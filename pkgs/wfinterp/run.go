@@ -710,19 +710,32 @@ func (r *rctx) callRef(ref *FuncRef, args ...any) (any, error) {
 }
 
 func (r *rctx) doSwitch(sc *scope, s *step) (outcome, error) {
+	r.prev = 0
+
 	for _, cd := range s.sw {
-		v, err := r.evalValue(sc, cd.test)
-		if err != nil {
-			return outcome{}, err
-		}
+		var taken bool
 
-		b, ok := v.(bool)
-		if !ok {
-			return outcome{}, typeErr("switch condition must be a boolean, not %s", typeName(v))
-		}
+		out, err := r.subEntry(sc, s.name, StepTypeCondition, entryInfo{}, func() (outcome, error) {
+			v, verr := r.evalValue(sc, cd.test)
+			if verr != nil {
+				return outcome{}, verr
+			}
 
-		if b {
+			b, ok := v.(bool)
+			if !ok {
+				return outcome{}, typeErr("switch condition must be a boolean, not %s", typeName(v))
+			}
+
+			if !b {
+				return outcome{}, nil
+			}
+
+			taken = true
+
 			return r.runStep(sc, cd.body)
+		})
+		if err != nil || taken {
+			return out, err
 		}
 	}
 
@@ -803,11 +816,17 @@ func (r *rctx) doFor(sc *scope, f *forSpec) (outcome, error) {
 		return outcome{}, err
 	}
 
+	name, info := r.step, entryInfo{progressType: ProgressFor, expected: int64(len(items))}
+	r.prev = 0
+
 	for i, it := range items {
 		ls := newScope(sc)
 		r.bindLoop(ls, f, i, it)
 
-		out, berr := r.runBlock(ls, f.body)
+		info.progress = int64(i + 1)
+		out, berr := r.subEntry(ls, name, StepTypeIteration, info, func() (outcome, error) {
+			return r.runBlock(ls, f.body)
+		})
 		r.releaseLocked(ls)
 
 		if berr != nil {
@@ -855,6 +874,8 @@ func (r *rctx) doParallel(sc *scope, ps *parSpec) error {
 
 	var jobs []job
 
+	name := r.step
+
 	if ps.loop != nil {
 		items, err := r.loopItems(sc, ps.loop)
 		if err != nil {
@@ -862,11 +883,15 @@ func (r *rctx) doParallel(sc *scope, ps *parSpec) error {
 		}
 
 		for i, it := range items {
+			info := entryInfo{progressType: ProgressParallelFor, progress: int64(i + 1), expected: int64(len(items))}
+
 			jobs = append(jobs, job{id: strconv.Itoa(i), run: func(br *rctx) error {
 				bs := &scope{vars: map[string]any{}, parent: sc, shared: shared, branch: true}
 				br.bindLoop(bs, ps.loop, i, it)
 
-				_, berr := br.runBlock(bs, ps.loop.body)
+				_, berr := br.subEntry(bs, name, StepTypeIteration, info, func() (outcome, error) {
+					return br.runBlock(bs, ps.loop.body)
+				})
 				br.releaseLocked(bs)
 
 				return berr
@@ -876,7 +901,9 @@ func (r *rctx) doParallel(sc *scope, ps *parSpec) error {
 		for _, b := range ps.branches {
 			jobs = append(jobs, job{id: b.name, run: func(br *rctx) error {
 				bs := &scope{vars: map[string]any{}, parent: sc, shared: shared, branch: true}
-				_, berr := br.runBlock(bs, b.body)
+				_, berr := br.subEntry(bs, b.name, StepTypeBranchEntry, entryInfo{}, func() (outcome, error) {
+					return br.runBlock(bs, b.body)
+				})
 				br.releaseLocked(bs)
 
 				return berr
@@ -967,8 +994,13 @@ func (r *rctx) branchFailure(fails []branchErr) error {
 }
 
 func (r *rctx) doTry(sc *scope, t *trySpec) (outcome, error) {
+	name := r.step
+	r.prev = 0
+
 	for attempt := int64(0); ; attempt++ {
-		out, err := r.runBlock(sc, t.body)
+		out, err := r.subEntry(sc, name, StepTypeTryPart, entryInfo{}, func() (outcome, error) {
+			return r.runBlock(sc, t.body)
+		})
 		if err == nil {
 			return out, nil
 		}
@@ -978,14 +1010,14 @@ func (r *rctx) doTry(sc *scope, t *trySpec) (outcome, error) {
 			return out, err
 		}
 
-		retry, delay, rerr := r.retryDecision(sc, t, e, attempt)
+		retry, pol, rerr := r.retryDecision(sc, t, e, attempt)
 		if rerr != nil {
 			return outcome{}, rerr
 		}
 
 		if retry {
-			if serr := r.x.host.clock().Sleep(r.ctx, delay); serr != nil {
-				return outcome{}, r.stamp(serr, "")
+			if serr := r.backoff(sc, name, attempt, pol); serr != nil {
+				return outcome{}, serr
 			}
 
 			continue
@@ -995,40 +1027,65 @@ func (r *rctx) doTry(sc *scope, t *trySpec) (outcome, error) {
 			return outcome{}, e
 		}
 
-		r.logHandled(e)
-
-		es := newScope(sc)
-		if t.exceptAs != "" {
-			r.x.mu.Lock()
-			es.vars[t.exceptAs] = deepCopy(e.Value)
-			r.x.mu.Unlock()
-		}
-
-		out, berr := r.runBlock(es, t.except)
-		r.releaseLocked(es)
-
-		return out, berr
+		return r.runExcept(sc, name, t, e)
 	}
 }
 
-func (r *rctx) retryDecision(sc *scope, t *trySpec, e *Error, attempt int64) (bool, time.Duration, error) {
+func (r *rctx) backoff(sc *scope, name string, attempt int64, pol retryPlan) error {
+	info := entryInfo{progressType: ProgressRetry, progress: attempt + 1, expected: pol.maxRetries}
+
+	_, err := r.subEntry(sc, name, StepTypeRetryPart, info, func() (outcome, error) {
+		if serr := r.x.host.clock().Sleep(r.ctx, pol.delay); serr != nil {
+			return outcome{}, r.stamp(serr, "")
+		}
+
+		return outcome{}, nil
+	})
+
+	return err
+}
+
+func (r *rctx) runExcept(sc *scope, name string, t *trySpec, e *Error) (outcome, error) {
+	r.logHandled(e)
+
+	es := newScope(sc)
+	if t.exceptAs != "" {
+		r.x.mu.Lock()
+		es.vars[t.exceptAs] = deepCopy(e.Value)
+		r.x.mu.Unlock()
+	}
+
+	out, err := r.subEntry(es, name, StepTypeExceptPart, entryInfo{}, func() (outcome, error) {
+		return r.runBlock(es, t.except)
+	})
+	r.releaseLocked(es)
+
+	return out, err
+}
+
+type retryPlan struct {
+	maxRetries int64
+	delay      time.Duration
+}
+
+func (r *rctx) retryDecision(sc *scope, t *trySpec, e *Error, attempt int64) (bool, retryPlan, error) {
 	if !t.hasRetry {
-		return false, 0, nil
+		return false, retryPlan{}, nil
 	}
 
 	v, err := r.evalValue(sc, t.retry)
 	if err != nil {
-		return false, 0, err
+		return false, retryPlan{}, err
 	}
 
 	pol, ok := v.(map[string]any)
 	if !ok {
-		return false, 0, typeErr("retry must be a policy map, not %s", typeName(v))
+		return false, retryPlan{}, typeErr("retry must be a policy map, not %s", typeName(v))
 	}
 
 	ref, ok := pol["predicate"].(*FuncRef)
 	if !ok {
-		return false, 0, typeErr("retry.predicate must be a function reference")
+		return false, retryPlan{}, typeErr("retry.predicate must be a function reference")
 	}
 
 	maxRetries := int64(defaultMaxRetries)
@@ -1037,19 +1094,19 @@ func (r *rctx) retryDecision(sc *scope, t *trySpec, e *Error, attempt int64) (bo
 	}
 
 	if attempt >= maxRetries {
-		return false, 0, nil
+		return false, retryPlan{}, nil
 	}
 
 	res, err := r.callRef(ref, deepCopy(e.Value))
 	if err != nil {
-		return false, 0, err
+		return false, retryPlan{}, err
 	}
 
 	if b, isBool := res.(bool); !isBool || !b {
-		return false, 0, nil
+		return false, retryPlan{}, nil
 	}
 
-	return true, backoffDelay(pol["backoff"], attempt), nil
+	return true, retryPlan{maxRetries: maxRetries, delay: backoffDelay(pol["backoff"], attempt)}, nil
 }
 
 func backoffDelay(b any, attempt int64) time.Duration {

@@ -70,12 +70,14 @@ func (b *InMemoryBackend) startIndexOpLocked(
 		Common: &adminpb.CommonMetadata{
 			StartTime: now, OperationType: opType, State: adminpb.CommonMetadata_PROCESSING,
 		},
-		IndexId: idx.GetIndexId(),
+		IndexId:          idx.GetIndexId(),
+		ProgressEntities: &adminpb.Progress{WorkEstimated: b.indexableEntitiesLocked(project, idx.GetKind())},
 	}
 
 	if b.indexDelay <= 0 {
 		b.settleLocked(key, del)
 		meta.Common.EndTime, meta.Common.State = now, adminpb.CommonMetadata_SUCCESSFUL
+		meta.ProgressEntities.WorkCompleted = meta.GetProgressEntities().GetWorkEstimated()
 
 		return b.putIndexOpDone(name, meta, b.indexResultLocked(key, del, idx))
 	}
@@ -90,6 +92,19 @@ func (b *InMemoryBackend) startIndexOpLocked(
 	b.pendingIdx[name] = p
 
 	return b.ops.Put(&longrunningpb.Operation{Name: name, Metadata: m}), nil
+}
+
+// indexableEntitiesLocked counts the live entities of kind in project: the work an index build or removal covers.
+func (b *InMemoryBackend) indexableEntitiesLocked(project, kind string) int64 {
+	var n int64
+
+	for _, r := range b.ents {
+		if r.key.GetPartitionId().GetProjectId() == project && keyKind(r.key) == kind && r.cur() != nil {
+			n++
+		}
+	}
+
+	return n
 }
 
 func (b *InMemoryBackend) putIndexOpDone(
@@ -153,6 +168,7 @@ func (b *InMemoryBackend) completeIndexOp(name string) {
 	}
 
 	p.meta.Common.EndTime, p.meta.Common.State = timestamppb.New(b.wallLocked()), adminpb.CommonMetadata_SUCCESSFUL
+	p.meta.ProgressEntities.WorkCompleted = p.meta.GetProgressEntities().GetWorkEstimated()
 
 	if _, live := b.ops.Lookup(name); live {
 		_, _ = b.putIndexOpDone(name, p.meta, res)

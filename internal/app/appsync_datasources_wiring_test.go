@@ -263,3 +263,59 @@ func TestAppSyncRDSDataSource(t *testing.T) {
 	require.Len(t, recs, 1)
 	assert.Equal(t, map[string]any{"id": float64(1), "name": "rex"}, recs[0])
 }
+
+func TestAppSyncRDSDataSourceIntrospection(t *testing.T) {
+	t.Parallel()
+
+	f := newASDSFixture(t)
+	const clusterARN = "arn:aws:rds:us-east-1:000000000000:cluster:c1"
+
+	f.addDS(t, &appsync.CreateDataSourceInput{
+		Name: aws.String("RDS"), Type: astypes.DataSourceTypeRelationalDatabase,
+		RelationalDatabaseConfig: &astypes.RelationalDatabaseDataSourceConfig{
+			RelationalDatabaseSourceType: astypes.RelationalDatabaseSourceTypeRdsHttpEndpoint,
+			RdsHttpEndpointConfig: &astypes.RdsHttpEndpointConfig{
+				AwsRegion:           aws.String("us-east-1"),
+				DbClusterIdentifier: aws.String(clusterARN),
+				AwsSecretStoreArn:   aws.String("arn:aws:secretsmanager:us-east-1:000000000000:secret:s"),
+				DatabaseName:        aws.String("db"),
+			},
+		},
+	}, "rds", asDSRDSReq, `$util.toJson($util.rds.toJsonObject($ctx.result))`)
+
+	for _, ddl := range []string{
+		"CREATE TABLE pets (id INTEGER PRIMARY KEY, name VARCHAR(30) NOT NULL, born DATETIME)",
+		"CREATE INDEX pets_name ON pets (name)",
+	} {
+		f.query(t, `rds(q: $q, n: $n)`, map[string]any{"q": ddl, "n": ""})
+	}
+
+	as := appsync.NewFromConfig(f.fx.cfg)
+
+	started, err := as.StartDataSourceIntrospection(t.Context(), &appsync.StartDataSourceIntrospectionInput{
+		RdsDataApiConfig: &astypes.RdsDataApiConfig{
+			ResourceArn: aws.String(clusterARN), DatabaseName: aws.String("db"),
+			SecretArn: aws.String("arn:aws:secretsmanager:us-east-1:000000000000:secret:s"),
+		},
+	})
+	require.NoError(t, err)
+
+	got, err := as.GetDataSourceIntrospection(t.Context(), &appsync.GetDataSourceIntrospectionInput{
+		IntrospectionId: started.IntrospectionId, IncludeModelsSDL: true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, astypes.DataSourceIntrospectionStatusSuccess, got.IntrospectionStatus,
+		aws.ToString(got.IntrospectionStatusDetail))
+	require.Len(t, got.IntrospectionResult.Models, 1)
+
+	pets := got.IntrospectionResult.Models[0]
+	assert.Equal(t, "pets", aws.ToString(pets.Name))
+	assert.Equal(t, []string{"id"}, pets.PrimaryKey.Fields)
+	require.Len(t, pets.Fields, 3)
+	assert.EqualValues(t, 30, pets.Fields[1].Length)
+	assert.Equal(t, "NonNull", aws.ToString(pets.Fields[1].Type.Kind))
+	assert.Equal(t, "AWSDateTime", aws.ToString(pets.Fields[2].Type.Name))
+	require.Len(t, pets.Indexes, 1)
+	assert.Equal(t, []string{"name"}, pets.Indexes[0].Fields)
+	assert.Contains(t, aws.ToString(pets.Sdl), "type pets {")
+}

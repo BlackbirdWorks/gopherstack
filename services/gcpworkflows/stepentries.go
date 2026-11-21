@@ -32,20 +32,23 @@ const (
 
 // stepEntry is one executed step of an execution; its JSON form is the persisted one.
 type stepEntry struct {
-	Updated   time.Time      `json:"updated"`
-	Created   time.Time      `json:"created"`
-	State     string         `json:"state"`
-	Exception string         `json:"exception,omitempty"`
-	Routine   string         `json:"routine"`
-	Step      string         `json:"step"`
-	Type      string         `json:"type,omitempty"`
-	Children  []int64        `json:"children,omitempty"`
-	Vars      jsontext.Value `json:"vars,omitempty"`
-	ID        int64          `json:"id"`
-	Parent    int64          `json:"parent,omitempty"`
-	Prev      int64          `json:"prev,omitempty"`
-	Next      int64          `json:"next,omitempty"`
-	Thread    int            `json:"thread,omitempty"`
+	Updated      time.Time      `json:"updated"`
+	Created      time.Time      `json:"created"`
+	State        string         `json:"state"`
+	Exception    string         `json:"exception,omitempty"`
+	Routine      string         `json:"routine"`
+	Step         string         `json:"step"`
+	Type         string         `json:"type,omitempty"`
+	ProgressType string         `json:"progressType,omitempty"`
+	Children     []int64        `json:"children,omitempty"`
+	Vars         jsontext.Value `json:"vars,omitempty"`
+	ID           int64          `json:"id"`
+	Parent       int64          `json:"parent,omitempty"`
+	Prev         int64          `json:"prev,omitempty"`
+	Next         int64          `json:"next,omitempty"`
+	Thread       int            `json:"thread,omitempty"`
+	Progress     int64          `json:"progress,omitempty"`
+	Expected     int64          `json:"expected,omitempty"`
 }
 
 // stepLog holds the entries of one execution under the backend lock.
@@ -139,6 +142,7 @@ func (l *stepLog) begin(ev wfinterp.StepEvent) {
 	e := &stepEntry{
 		ID: ev.ID, Parent: ev.Parent, Prev: ev.Prev, Routine: ev.Routine, Step: ev.Step, Type: ev.Type,
 		State: ev.State, Thread: ev.Thread, Created: ev.Time, Updated: ev.Time,
+		ProgressType: ev.ProgressType, Progress: ev.Progress, Expected: ev.Expected,
 	}
 	l.byID[e.ID] = e
 	l.order = append(l.order, e)
@@ -295,8 +299,10 @@ type navigationJSON struct {
 }
 
 type stepMetadataJSON struct {
-	ProgressType string `json:"progressType,omitempty"`
-	ThreadID     string `json:"threadId,omitempty"`
+	ProgressType      string `json:"progressType,omitempty"`
+	ThreadID          string `json:"threadId,omitempty"`
+	ExpectedIteration int64  `json:"expectedIteration,omitempty,string"`
+	ProgressNumber    int64  `json:"progressNumber,omitempty,string"`
 }
 
 type variableDataJSON struct {
@@ -354,7 +360,10 @@ func (e *stepEntry) render(exec, view string) *stepEntryJSON {
 		out.NavigationInfo = nav
 	}
 
-	meta := &stepMetadataJSON{ProgressType: progressType(e.Type)}
+	meta := &stepMetadataJSON{
+		ProgressType: cmp.Or(e.ProgressType, progressType(e.Type)), ExpectedIteration: e.Expected,
+		ProgressNumber: e.Progress,
+	}
 	if e.Thread != 0 {
 		meta.ThreadID = strconv.Itoa(e.Thread)
 	}

@@ -15,7 +15,7 @@ ops:
   Rollback: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Unknown ids are INVALID_ARGUMENT; rolling back a transaction that already ended (committed, aborted or rolled back) is a no-op because the Go client rolls back after an ABORTED commit."}
   AllocateIds: {wire: ok, errors: ok, state: ok, persist: ok, note: "Incomplete keys only; random unique ids up to 16 digits that auto-allocation never reuses; allocated and reserved ids are persisted."}
   ReserveIds: {wire: ok, errors: ok, state: ok, persist: ok, note: "Complete keys only; numeric ids are excluded from later auto-allocation."}
-  CreateIndex: {wire: ok, errors: partial, state: ok, persist: ok, note: "Validates kind, ancestor mode, property names and directions; duplicates are ALREADY_EXISTS; limit 200 per project. The index is CREATING and the returned operation not done until the build delay (default 1 s, SetIndexBuild) elapses on the backend timer; then the index is READY and the operation done. Cancelling the operation leaves the index ERROR."}
+  CreateIndex: {wire: ok, errors: partial, state: ok, persist: ok, note: "Validates kind, ancestor mode, property names and directions; duplicates are ALREADY_EXISTS; limit 200 per project. The index is CREATING and the returned operation not done until the build delay (default 1 s, SetIndexBuild) elapses on the backend timer; then the index is READY and the operation done. Cancelling the operation leaves the index ERROR. progress_entities estimates the entities of the index's kind in the project (work_completed 0 until the operation ends, then equal to the estimate)."}
   DeleteIndex: {wire: ok, errors: ok, state: ok, persist: ok, note: "NOT_FOUND for unknown ids; FAILED_PRECONDITION while the index is CREATING or DELETING. The index is DELETING and the operation not done until the build delay elapses, then it is removed and the operation response is the index in DELETING state."}
   GetIndex: {wire: ok, errors: ok, state: ok, persist: n/a, note: "NOT_FOUND for unknown ids."}
   ListIndexes: {wire: ok, errors: partial, state: ok, persist: n/a, note: "Paged through pkgs/page in creation order (default 100); a filter is rejected with INVALID_ARGUMENT."}
@@ -29,8 +29,7 @@ families:
   routing_isolation: {status: ok, note: "Own gRPC server with the REST transcoder (gcprest) bound in StartWorker to --gcp-datastore-port / GCP_DATASTORE_PORT (default 8143, fails fast if taken); never registered on the shared AWS router. The Go client reaches it with DATASTORE_EMULATOR_HOST=localhost:8143 over plaintext gRPC. cli.go reserves the port in the shared PortAlloc pool."}
   auth: {status: partial, note: "No request is authenticated or authorised."}
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; RPC failures are logged at debug. The dashboard has a Datastore page (entity browser, GQL, index listing with state)."}
-items_still_open:
-  - "IndexOperationMetadata.progress_entities is never populated for index builds (index_ops.go startIndexOpLocked)."
+items_still_open: []
 leaks: {status: clean, note: "Background resources are the grpc.Server and its serve goroutines, joined by Shutdown, and one timer per pending index operation, stopped by Shutdown, Reset and Restore."}
 ---
 

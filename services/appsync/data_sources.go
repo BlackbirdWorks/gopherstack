@@ -256,16 +256,12 @@ func (b *InMemoryBackend) UpdateDataSource(apiID, name string, ds *DataSource) (
 	return &cp, nil
 }
 
-// StartDataSourceIntrospection starts an RDS Data API introspection job. Unlike every
-// other Create/Start operation in this backend, the real AWS operation is NOT scoped
-// to an existing AppSync API or DataSource -- it introspects the RDS cluster named by
-// cfg directly (see StartDataSourceIntrospectionInput in the real SDK: the only field
-// is an optional rdsDataApiConfig). gopherstack has no real RDS Data API connectivity
-// to introspect against, so every well-formed request completes synchronously with a
-// SUCCESS status and an empty model list -- the wire-accurate shape and error
-// semantics of introspecting a genuine (if schema-less) database, persisted so it can
-// be retrieved again by ID via GetDataSourceIntrospection.
-func (b *InMemoryBackend) StartDataSourceIntrospection(cfg *RDSDataAPIConfig) (*DataSourceIntrospection, error) {
+// StartDataSourceIntrospection introspects the RDS cluster named by cfg through the RDS Data API and records the
+// outcome; unlike other Create/Start operations it is not scoped to an API or data source. The job's final status
+// is read back with GetDataSourceIntrospection.
+func (b *InMemoryBackend) StartDataSourceIntrospection(
+	ctx context.Context, cfg *RDSDataAPIConfig,
+) (*DataSourceIntrospection, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("%w: rdsDataApiConfig is required", ErrValidation)
 	}
@@ -276,20 +272,41 @@ func (b *InMemoryBackend) StartDataSourceIntrospection(cfg *RDSDataAPIConfig) (*
 		)
 	}
 
-	b.mu.Lock("StartDataSourceIntrospection")
-	defer b.mu.Unlock()
-
 	rec := &DataSourceIntrospection{
 		IntrospectionID:     randomAPIID(),
 		IntrospectionStatus: DataSourceIntrospectionStatusSuccess,
 		RDSDataAPIConfig:    cfg,
-		IntrospectionResult: &DataSourceIntrospectionResult{Models: []*DataSourceIntrospectionModel{}},
 	}
+
+	models, err := b.introspect(withRegion(ctx, b.region), cfg)
+	if err != nil {
+		rec.IntrospectionStatus, rec.IntrospectionStatusDetail = DataSourceIntrospectionStatusFailed, err.Error()
+	} else {
+		rec.IntrospectionResult = &DataSourceIntrospectionResult{Models: models}
+	}
+
+	b.mu.Lock("StartDataSourceIntrospection")
 	b.introspections.Put(rec)
+	b.mu.Unlock()
 
 	cp := *rec
+	cp.IntrospectionStatus = DataSourceIntrospectionStatusProcessing
 
 	return &cp, nil
+}
+
+func (b *InMemoryBackend) introspect(
+	ctx context.Context, cfg *RDSDataAPIConfig,
+) ([]*DataSourceIntrospectionModel, error) {
+	b.mu.RLock("introspect")
+	exec := b.rdsExec
+	b.mu.RUnlock()
+
+	if exec == nil {
+		return nil, ErrRDSNotConfigured
+	}
+
+	return introspectRDS(ctx, exec, cfg)
 }
 
 // GetDataSourceIntrospection returns the persisted record of a previously started
