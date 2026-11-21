@@ -351,6 +351,45 @@ func TestQuery_TimeSeriesLambdaOverAggregate(t *testing.T) {
 				`GROUP BY host ORDER BY host`,
 			[][]string{{"a", "60.0"}, {"b", "30.0"}},
 		},
+		{
+			"filter literal that looks like internal reference",
+			`SELECT host, filter(` + agg + `, x -> x.value > 12.0 AND 'a' <> '"_x"."time"') FROM db.t ` +
+				`GROUP BY host ORDER BY host`,
+			[][]string{
+				{"a", "ts[2026-10-31 11:50:00.000000000=20.0, 2026-10-31 11:55:00.000000000=30.0]"},
+				{"b", "ts[2026-10-31 11:55:00.000000000=15.0]"},
+			},
+		},
+		{
+			"filter literal with commas and parentheses",
+			`SELECT host, filter(` + agg + `, x -> x.value > 12.0 AND 'a,)(' <> 'b') FROM db.t ` +
+				`GROUP BY host ORDER BY host`,
+			[][]string{
+				{"a", "ts[2026-10-31 11:50:00.000000000=20.0, 2026-10-31 11:55:00.000000000=30.0]"},
+				{"b", "ts[2026-10-31 11:55:00.000000000=15.0]"},
+			},
+		},
+		{
+			"reduce literal that looks like internal reference",
+			`SELECT host, reduce(` + agg + `, DOUBLE '0.0', (s, x) -> s + x.value + length('"_e"."value"'), s -> s) ` +
+				`FROM db.t GROUP BY host ORDER BY host`,
+			[][]string{{"a", "96.0"}, {"b", "66.0"}},
+		},
+		{
+			"nested filter",
+			`SELECT host, filter(filter(` + agg + `, x -> x.value > 6.0), y -> y.value < 25.0) FROM db.t ` +
+				`GROUP BY host ORDER BY host`,
+			[][]string{
+				{"a", "ts[2026-10-31 11:40:00.000000000=10.0, 2026-10-31 11:50:00.000000000=20.0]"},
+				{"b", "ts[2026-10-31 11:50:00.000000000=10.0, 2026-10-31 11:55:00.000000000=15.0]"},
+			},
+		},
+		{
+			"reduce over filter",
+			`SELECT host, reduce(filter(` + agg + `, x -> x.value > 6.0), DOUBLE '0.0', (s, x) -> s + x.value, s -> s) ` +
+				`FROM db.t GROUP BY host ORDER BY host`,
+			[][]string{{"a", "60.0"}, {"b", "25.0"}},
+		},
 	}
 
 	for _, tt := range tests {

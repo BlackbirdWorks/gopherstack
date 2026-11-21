@@ -78,7 +78,70 @@ func paramRef(p string) *regexp.Regexp {
 }
 
 // seriesLambda reports whether the lambda body reads p.value or p.time, i.e. iterates a timeseries.
-func seriesLambda(p, body string) bool { return paramRef(p).MatchString(body) }
+func seriesLambda(p, body string) bool { return paramRef(p).MatchString(blankQuoted(body)) }
+
+// blankQuoted overwrites quoted literals and identifiers with spaces, keeping offsets.
+func blankQuoted(s string) string {
+	mask := quoteMask(s)
+	b := []byte(s)
+
+	for i := range b {
+		if mask[i] {
+			b[i] = ' '
+		}
+	}
+
+	return string(b)
+}
+
+// mapUnquoted applies f to the parts of s outside quoted literals and identifiers.
+func mapUnquoted(s string, f func(string) string) string {
+	mask := quoteMask(s)
+
+	var sb strings.Builder
+
+	for i := 0; i < len(s); {
+		j := i
+		for j < len(s) && mask[j] == mask[i] {
+			j++
+		}
+
+		if mask[i] {
+			sb.WriteString(s[i:j])
+		} else {
+			sb.WriteString(f(s[i:j]))
+		}
+
+		i = j
+	}
+
+	return sb.String()
+}
+
+// replaceOutsideStrings replaces old with repl except inside single-quoted literals and other quoted identifiers.
+func replaceOutsideStrings(s, old, repl string) string {
+	var sb strings.Builder
+
+	for i := 0; i < len(s); {
+		switch {
+		case strings.HasPrefix(s[i:], old):
+			sb.WriteString(repl)
+
+			i += len(old)
+		case s[i] == '\'' || s[i] == '"':
+			end := closingQuote(s, i)
+			sb.WriteString(s[i:end])
+
+			i = end
+		default:
+			sb.WriteByte(s[i])
+
+			i++
+		}
+	}
+
+	return sb.String()
+}
 
 func classify(name string, args []string) (seriesSub, bool) {
 	switch strings.ToLower(name) {
@@ -187,13 +250,15 @@ func extractSeriesLambdas(q string) (string, []seriesSub, []unnestSub) {
 func colRefs(text, p, target string) string {
 	re := paramRef(p)
 
-	return re.ReplaceAllString(text, `${1}`+target+`."$2"`)
+	return mapUnquoted(text, func(seg string) string { return re.ReplaceAllString(seg, `${1}`+target+`."$2"`) })
 }
 
 func fieldRefs(text, p string) string {
 	re := regexp.MustCompile(`(?i)(^|[^\w."])` + regexp.QuoteMeta(p) + `\.([A-Za-z_]\w*)`)
 
-	return re.ReplaceAllString(text, `${1}json_extract("`+p+`",'$.$2')`)
+	return mapUnquoted(text, func(seg string) string {
+		return re.ReplaceAllString(seg, `${1}json_extract("`+p+`",'$.$2')`)
+	})
 }
 
 // rowCasts rewrites CAST(ROW(a, b) AS ROW(n1 T, n2 T)) into json_object('n1', a, 'n2', b).

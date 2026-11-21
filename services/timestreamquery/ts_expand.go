@@ -22,7 +22,7 @@ func translateTimestream(q string, set loadedSet) (string, error) {
 		}
 
 		mod := unnestModuleFor(u.cols)
-		out = strings.ReplaceAll(out, `"main".`+quoteIdent(unnestPlaceholder(i)), mod+"("+arg+")")
+		out = replaceOutsideStrings(out, `"main".`+quoteIdent(unnestPlaceholder(i)), mod+"("+arg+")")
 	}
 
 	for i, sub := range slices.Backward(subs) {
@@ -31,7 +31,7 @@ func translateTimestream(q string, set loadedSet) (string, error) {
 			return "", expandErr
 		}
 
-		out = strings.ReplaceAll(out, placeholderPrefix+strconv.Itoa(i)+"__", sql)
+		out = replaceOutsideStrings(out, placeholderPrefix+strconv.Itoa(i)+"__", sql)
 	}
 
 	return out, nil
@@ -66,8 +66,8 @@ func (s seriesSub) filterSQL(ts string) (string, error) {
 		return "", err
 	}
 
-	body = strings.ReplaceAll(body, `"_x"."time"`, `json_extract("_j".value, '$[0]')`)
-	body = strings.ReplaceAll(body, `"_x"."value"`, `json_extract("_j".value, '$[1]')`)
+	body = replaceOutsideStrings(body, `"_x"."time"`, `json_extract("_j".value, '$[0]')`)
+	body = replaceOutsideStrings(body, `"_x"."value"`, `json_extract("_j".value, '$[1]')`)
 
 	return `(CASE WHEN (` + ts + `) IS NULL THEN NULL ELSE (SELECT create_time_series(json_extract("_j".value, '$[0]'), ` +
 		`json_extract("_j".value, '$[1]')) FROM json_each(ts_series_json(` + ts + `)) AS "_j" WHERE ` + body + `) END)`, nil
@@ -96,7 +96,7 @@ func (s seriesSub) reduceSQL(ts string) (string, error) {
 		return `json_extract("_r"."_arr", '$[' || ("_r"."_i" + 1) || '][` + strconv.Itoa(field) + `]')`
 	}
 
-	stepSQL = strings.ReplaceAll(strings.ReplaceAll(stepSQL, `"_e"."time"`, cell(0)), `"_e"."value"`, cell(1))
+	stepSQL = replaceOutsideStrings(replaceOutsideStrings(stepSQL, `"_e"."time"`, cell(0)), `"_e"."value"`, cell(1))
 
 	return `(CASE WHEN (` + ts + `) IS NULL THEN NULL ELSE (WITH RECURSIVE "_r"("_i", ` + qs + `, "_arr") AS (` +
 		`SELECT -1, ` + init + `, ts_series_json(` + ts + `) UNION ALL SELECT "_r"."_i" + 1, ` + stepSQL +
