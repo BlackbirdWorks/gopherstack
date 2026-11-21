@@ -172,7 +172,7 @@ func (e *dockerEngine) preparePGSource(ctx context.Context, pass string) error {
 		return err
 	}
 
-	_, err := e.psql(ctx, "SELECT pg_reload_conf()")
+	_, err := e.psql(ctx, stmtReloadConf)
 
 	return err
 }
@@ -251,7 +251,7 @@ func (e *dockerEngine) repointPG(ctx context.Context, src ReplicaSource) error {
 		return err
 	}
 
-	_, err := e.psql(ctx, "SELECT pg_reload_conf()")
+	_, err := e.psql(ctx, stmtReloadConf)
 
 	return err
 }
@@ -306,7 +306,7 @@ func (e *dockerEngine) SetReplication(ctx context.Context, on bool) error {
 		return err
 	}
 
-	_, err := e.psql(ctx, "SELECT pg_reload_conf()")
+	_, err := e.psql(ctx, stmtReloadConf)
 
 	return err
 }
@@ -328,6 +328,23 @@ func (e *dockerEngine) Purge(ctx context.Context) {
 	e.RemoveVolumes(ctx)
 }
 
+// RetainArchive marks the engine as handing the instance's log archive to its successor: removing the engine's
+// volumes then leaves the archive.
+func (e *dockerEngine) RetainArchive() {
+	e.mu.Lock("RetainArchive")
+	e.retained = true
+	e.mu.Unlock()
+}
+
+// keepsArchive reports whether the shared log archive must outlive this engine: an unpromoted standby only
+// borrows it and a retired writer passed it on.
+func (e *dockerEngine) keepsArchive() bool {
+	e.mu.RLock("keepsArchive")
+	defer e.mu.RUnlock()
+
+	return e.retained || (e.spec.Standby && !e.promoted)
+}
+
 // RemoveVolumes implements VolumeRemover; the engine must be closed first.
 func (e *dockerEngine) RemoveVolumes(ctx context.Context) {
 	if e.vols == nil {
@@ -338,7 +355,7 @@ func (e *dockerEngine) RemoveVolumes(ctx context.Context) {
 	defer cancel()
 
 	for _, v := range []string{e.volData, e.volPITR} {
-		if v == "" {
+		if v == "" || (v == e.volPITR && e.keepsArchive()) {
 			continue
 		}
 

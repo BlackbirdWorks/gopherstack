@@ -1,6 +1,7 @@
 package azurearm
 
 import (
+	"context"
 	"encoding/json/v2"
 	"testing"
 	"time"
@@ -239,4 +240,42 @@ func (h *Handler) PutLegacyGeneric(path string, body map[string]any) error {
 	_, _, err = h.Backend.putGenericResource(id, body)
 
 	return err
+}
+
+// TestGate exposes the keyed gate used to serialise topology changes.
+type TestGate struct{ g *flexGate }
+
+// NewTestGate returns an empty gate.
+func NewTestGate() *TestGate { return &TestGate{g: newFlexGate()} }
+
+// Acquire waits for key and returns its release function.
+func (g *TestGate) Acquire(ctx context.Context, key string) (func(), error) {
+	return g.g.acquire(ctx, key)
+}
+
+// Held reports how many keys are held.
+func (g *TestGate) Held() int {
+	g.g.mu.RLock("Held")
+	defer g.g.mu.RUnlock()
+
+	return len(g.g.held)
+}
+
+// DumpPrefix is the file name prefix of the provider's own database dumps.
+func (p *FlexDBProvider) DumpPrefix() string { return p.dumpPrefix() }
+
+// SetGateWaitHook reports each time work starts waiting on a held topology or configuration gate.
+func (p *FlexDBProvider) SetGateWaitHook(f func(key string)) { p.gate.onWait = f }
+
+// EngineBoundParameters lists the server parameters the provider pushes to the running engine.
+func (p *FlexDBProvider) EngineBoundParameters() []string {
+	var out []string
+
+	for _, c := range p.flavor.configs {
+		if !c.engineless && !c.readOnly {
+			out = append(out, c.name)
+		}
+	}
+
+	return out
 }

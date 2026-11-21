@@ -6,9 +6,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
@@ -25,7 +27,10 @@ const (
 	flexMySQLImage84  = "mysql:8.4"
 )
 
-var errFlexNoServer = errors.New("azurearm: the flexible server has no running engine")
+var (
+	errFlexNoServer = errors.New("azurearm: the flexible server has no running engine")
+	errFlexNoAdmin  = errors.New("azurearm: the source server has no administrator credentials to copy")
+)
 
 // DockerFlexConfig configures the docker engine: one postgres or mysql container per server.
 type DockerFlexConfig struct {
@@ -45,7 +50,14 @@ type flexInstance interface {
 	Stop(ctx context.Context) error
 	Start(ctx context.Context) error
 	Close(ctx context.Context, purge bool)
+	Apply(ctx context.Context, params []FlexParam) error
+	Dump(ctx context.Context, dbs []string, w io.Writer) error
+	Restore(ctx context.Context, r io.Reader) error
+	Admin() (string, string)
+	SetReadOnly(ctx context.Context, on bool) error
 }
+
+type flexCreds struct{ login, password string }
 
 type dockerFlexEngine struct {
 	rt   container.Runtime
@@ -245,6 +257,41 @@ func (e *dockerFlexEngine) DropDatabase(ctx context.Context, id, name string) er
 	return e.with(id, func(i flexInstance) error { return i.DropDatabase(ctx, name) })
 }
 
+// ApplyParameters implements FlexEngine.
+func (e *dockerFlexEngine) ApplyParameters(ctx context.Context, id string, ps []FlexParam) error {
+	return e.with(id, func(i flexInstance) error { return i.Apply(ctx, ps) })
+}
+
+// Dump implements FlexEngine.
+func (e *dockerFlexEngine) Dump(ctx context.Context, id string, dbs []string, w io.Writer) error {
+	return e.with(id, func(i flexInstance) error { return i.Dump(ctx, dbs, w) })
+}
+
+// Restore implements FlexEngine.
+func (e *dockerFlexEngine) Restore(ctx context.Context, id string, r io.Reader) error {
+	return e.with(id, func(i flexInstance) error { return i.Restore(ctx, r) })
+}
+
+// SetReadOnly implements FlexEngine.
+func (e *dockerFlexEngine) SetReadOnly(ctx context.Context, id string, on bool) error {
+	return e.with(id, func(i flexInstance) error { return i.SetReadOnly(ctx, on) })
+}
+
+// CopyAdmin implements FlexEngine.
+func (e *dockerFlexEngine) CopyAdmin(ctx context.Context, src, dst string) error {
+	from, ok := e.get(src)
+	if !ok {
+		return errFlexNoServer
+	}
+
+	login, password := from.Admin()
+	if login == "" || password == "" {
+		return errFlexNoAdmin
+	}
+
+	return e.with(dst, func(i flexInstance) error { return i.EnsureAdmin(ctx, login, password) })
+}
+
 // Delete implements FlexEngine.
 func (e *dockerFlexEngine) Delete(ctx context.Context, id string) error {
 	e.mu.Lock()
@@ -276,12 +323,52 @@ func (e *dockerFlexEngine) Close() {
 	}
 }
 
-type mysqlInstance struct{ s *mysqlengine.Server }
+type mysqlInstance struct {
+	s     *mysqlengine.Server
+	creds atomic.Pointer[flexCreds]
+}
 
 func (m *mysqlInstance) Endpoint() (string, int) { return m.s.Endpoint() }
 
 func (m *mysqlInstance) EnsureAdmin(ctx context.Context, user, password string) error {
-	return m.s.EnsureAdmin(ctx, user, password) //nolint:wrapcheck // reduced to a fixed message by the operation
+	if err := m.s.EnsureAdmin(ctx, user, password); err != nil {
+		return err //nolint:wrapcheck // reduced to a fixed message by the operation
+	}
+
+	m.creds.Store(&flexCreds{login: user, password: password})
+
+	return nil
+}
+
+func (m *mysqlInstance) Admin() (string, string) {
+	c := m.creds.Load()
+	if c == nil {
+		return "", ""
+	}
+
+	return c.login, c.password
+}
+
+func (m *mysqlInstance) Apply(ctx context.Context, ps []FlexParam) error {
+	for _, p := range ps {
+		if err := m.s.SetVariable(ctx, p.Name, p.Value, p.Reset, p.Static); err != nil {
+			return err //nolint:wrapcheck // reduced to a fixed message by the operation
+		}
+	}
+
+	return nil
+}
+
+func (m *mysqlInstance) Dump(ctx context.Context, dbs []string, w io.Writer) error {
+	return m.s.DumpTo(ctx, dbs, w) //nolint:wrapcheck // reduced to a fixed message by the operation
+}
+
+func (m *mysqlInstance) Restore(ctx context.Context, r io.Reader) error {
+	return m.s.RestoreFrom(ctx, r) //nolint:wrapcheck // reduced to a fixed message by the operation
+}
+
+func (m *mysqlInstance) SetReadOnly(ctx context.Context, on bool) error {
+	return m.s.SetReadOnly(ctx, on) //nolint:wrapcheck // reduced to a fixed message by the operation
 }
 
 func (m *mysqlInstance) CreateDatabase(ctx context.Context, name, charset, collation string) error {
@@ -299,19 +386,65 @@ func (m *mysqlInstance) Close(ctx context.Context, purge bool) { m.s.Close(ctx, 
 
 type pgInstance struct {
 	s     *pgengine.Server
+	creds atomic.Pointer[flexCreds]
 	admin string
 }
 
 func (p *pgInstance) Endpoint() (string, int) { return p.s.Endpoint() }
 
 func (p *pgInstance) EnsureAdmin(ctx context.Context, user, password string) error {
-	p.admin = user
+	if err := p.s.EnsureAdmin(ctx, user, password); err != nil {
+		return err //nolint:wrapcheck // reduced to a fixed message by the operation
+	}
 
-	return p.s.EnsureAdmin(ctx, user, password) //nolint:wrapcheck // reduced to a fixed message by the operation
+	p.creds.Store(&flexCreds{login: user, password: password})
+
+	return nil
+}
+
+func (p *pgInstance) Admin() (string, string) {
+	c := p.creds.Load()
+	if c == nil {
+		return "", ""
+	}
+
+	return c.login, c.password
+}
+
+func (p *pgInstance) login() string {
+	if l, _ := p.Admin(); l != "" {
+		return l
+	}
+
+	return p.admin
+}
+
+func (p *pgInstance) Apply(ctx context.Context, ps []FlexParam) error {
+	for _, q := range ps {
+		if err := p.s.SetParameter(ctx, q.Name, q.Value, q.Reset); err != nil {
+			return err //nolint:wrapcheck // reduced to a fixed message by the operation
+		}
+	}
+
+	return p.s.ReloadConf(ctx) //nolint:wrapcheck // as above
+}
+
+func (p *pgInstance) Dump(ctx context.Context, dbs []string, w io.Writer) error {
+	all := append([]string{"postgres"}, dbs...)
+
+	return p.s.Dump(ctx, w, all, p.login()) //nolint:wrapcheck // reduced to a fixed message by the operation
+}
+
+func (p *pgInstance) Restore(ctx context.Context, r io.Reader) error {
+	return p.s.Restore(ctx, r) //nolint:wrapcheck // reduced to a fixed message by the operation
+}
+
+func (p *pgInstance) SetReadOnly(ctx context.Context, on bool) error {
+	return p.s.ReadOnly(ctx, on) //nolint:wrapcheck // reduced to a fixed message by the operation
 }
 
 func (p *pgInstance) CreateDatabase(ctx context.Context, name, charset, collation string) error {
-	return p.s.CreateDatabase(ctx, name, p.admin, charset, collation) //nolint:wrapcheck // as above
+	return p.s.CreateDatabase(ctx, name, p.login(), charset, collation) //nolint:wrapcheck // as above
 }
 
 func (p *pgInstance) DropDatabase(ctx context.Context, name string) error {

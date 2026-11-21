@@ -968,11 +968,11 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cloud Logging](services/gcplogging/README.md) | B | 43 | 3 gaps |
 | [Cloud Monitoring](services/gcpmonitoring/README.md) | B | 54 | 5 gaps |
 | [Cloud Run](services/gcprun/README.md) | B | 34 | 3 gaps |
-| [Cloud SQL](services/gcpsql/README.md) | B | 45 | 5 gaps |
+| [Cloud SQL](services/gcpsql/README.md) | B | 52 | 5 gaps |
 | [Cloud Scheduler](services/gcpscheduler/README.md) | B | 10 | clean |
 | [Cloud Spanner](services/gcpspanner/README.md) | B | 31 | 2 gaps |
 | [Cloud Tasks](services/gcpcloudtasks/README.md) | B | 20 | clean |
-| [Compute Engine](services/gcpcompute/README.md) | B | — | 8 families; 7 gaps |
+| [Compute Engine](services/gcpcompute/README.md) | B | — | 8 families; 6 gaps |
 | [Eventarc](services/gcpeventarc/README.md) | B | 47 | 3 gaps |
 | [Google Cloud Batch](services/gcpbatch/README.md) | B | 14 | 4 gaps |
 | [Google Cloud Firestore](services/gcpfirestore/README.md) | B | 17 | 3 gaps |
@@ -1019,7 +1019,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Amp](services/amp/README.md) | B | 44 | 3 gaps; 2 structural gaps |
 | [AppStream 2.0](services/appstream/README.md) | A | 44 | 5 structural gaps |
 | [Appintegrations](services/appintegrations/README.md) | B | 23 | 1 structural gap |
-| [Azurearm](services/azurearm/README.md) | B | 21 | 43 gaps; 3 deferred |
+| [Azurearm](services/azurearm/README.md) | B | 21 | 42 gaps; 3 deferred |
 | [Azurestoragevhost](services/azurestoragevhost/README.md) | B | 2 | 2 gaps; 1 deferred |
 | [Bcmdataexports](services/bcmdataexports/README.md) | B | 12 | clean |
 | [Bedrockagentcore](services/bedrockagentcore/README.md) | B | 32 | 7 gaps; 2 structural gaps |

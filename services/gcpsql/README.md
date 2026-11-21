@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 45 (33 ok, 12 partial) |
+| PARITY entries audited | 52 (38 ok, 14 partial) |
 | Feature families | 12 (9 ok, 3 partial) |
 | Known gaps | 5 |
 | Deferred items | 0 |
@@ -15,11 +15,11 @@
 
 ### Known gaps
 
-- Not served: SQL Server (the only SQL Server engine in the repo is internal to services/rds and is wired to that service's own instance model; Cloud SQL would need its own engine with logins, BAK import/export and SQLSERVER_* versions, and the image is amd64-only), demote and demoteMaster (no route in route.go; the on-premises source has no emulated counterpart, so only the state change could be kept), rescheduleMaintenance (no route; Google schedules maintenance events and the emulator never creates one, so there is nothing to reschedule), cross-project replicas (replicas.go prepareReplicaLocked: a replica must share its primary's project), the CAS-based server certificate and Entra ID certificate calls, major version upgrade, the projects/backups resource (sqladmin v1 Backups service createBackup, getBackup, listBackups, updateBackup, deleteBackup and the backup field of restoreBackup: no route in route.go), DNS connect settings, Auth Proxy and IAM database authentication.
-- After a failover or switchover the promoted engine starts a new point-in-time recovery base (standby.go, docker_pitr.go), so the recovery window restarts at the hand-over instead of continuing across it.
+- Not served: SQL Server (the only SQL Server engine in the repo is internal to services/rds and is wired to that service's own instance model; Cloud SQL would need its own engine with logins, BAK import/export and SQLSERVER_* versions, and the image is amd64-only), rescheduleMaintenance (no route; Google schedules maintenance events and the emulator never creates one, so there is nothing to reschedule), cross-project replicas (replicas.go prepareReplicaLocked: a replica must share its primary's project), the CAS-based server certificate and Entra ID certificate calls, major version upgrade, the backupdrBackup field of restoreBackup (Backup and DR vaults are not emulated), DNS connect settings, Auth Proxy and IAM database authentication.
+- Point-in-time recovery continues across a PostgreSQL failover (the archive volume belongs to the instance, not to the engine slot) but still restarts its window after a MySQL failover (the binary log lives on the data volume that pkgs/mysqlengine manages) and after a switchover, where the promoted replica is another instance with its own archive volume.
 - sslMode and requireSsl are not enforced because the engine speaks plain TCP (netfront.go forwards bytes without a TLS layer); dataDiskType, insightsConfig and maintenanceWindow are echoed only.
 - PostgreSQL ignores database charset and collation (stored only); MySQL users get GRANT ALL on *.*; PostgreSQL users join a cloudsqlsuperuser role the emulator creates. Backups keep object ownership, so restoring one into a different instance needs the same roles to exist.
-- Flags are validated by the engine when the restart applies them, not when the patch is accepted; flags.list is a static subset and tiers.list a fixed list. crash_recovery: {status: ok, note: "Engine containers carry gopherstack.managed/owner/service/resource labels; after a crash a restart with the same data dir adopts the running container of a restored primary (same image, tier and dump directory, reachable with the persisted password) and removes the rest. Replicas, recoveries and fresh instances relaunch; the private replication network of a crashed run is not removed."}
+- flags.list is a static subset (about 60 flags) and tiers.list a fixed list; a flag outside the subset is rejected although the engine would accept it. crash_recovery: {status: ok, note: "Engine containers carry gopherstack.managed/owner/service/resource labels; after a crash a restart with the same data dir adopts the running container of a restored primary (same image, tier and dump directory, reachable with the persisted password) and removes the rest. Replicas, recoveries and fresh instances relaunch; the private replication network of a crashed run is not removed."}
 
 ## More
 

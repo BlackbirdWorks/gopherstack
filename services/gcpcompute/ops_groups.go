@@ -185,6 +185,7 @@ func (h *Handler) registerMIGActions(scope string) {
 	})
 
 	h.registerMIGMemberOps(scope)
+	h.registerMIGErrorOps(scope)
 	h.registerMIGStateOps(scope)
 }
 
@@ -221,6 +222,31 @@ func (h *Handler) registerMIGMemberOps(scope string) {
 		for _, e := range pg.Data {
 			if mi, ok := e.item.(*computeapi.ManagedInstance); ok {
 				out.ManagedInstances = append(out.ManagedInstances, mi)
+			}
+		}
+
+		return out, nil
+	})
+}
+
+func (h *Handler) registerMIGErrorOps(scope string) {
+	h.reg(collMIG, scope, "listErrors", func(h *Handler, rq *request) (any, error) {
+		entries, err := h.Backend.listMIGErrors(rq.rt.project, scope, rq.rt.loc, rq.rt.name)
+		if err != nil {
+			return nil, err
+		}
+
+		lq, perr := parseListQuery(rq.q)
+		if perr != nil {
+			return nil, perr
+		}
+
+		pg := applyList(entries, lq)
+		out := &computeapi.InstanceGroupManagersListErrorsResponse{NextPageToken: pg.Next}
+
+		for _, e := range pg.Data {
+			if it, ok := e.item.(*computeapi.InstanceManagedByIgmError); ok {
+				out.Items = append(out.Items, it)
 			}
 		}
 

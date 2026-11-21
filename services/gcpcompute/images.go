@@ -102,6 +102,11 @@ var imageCatalog = []imageSpec{ //nolint:gochecknoglobals // read-only lookup ta
 	},
 }
 
+const (
+	kindImage      = "compute#image"
+	imageSourceRaw = "RAW"
+)
+
 func publicImageProject(project string) bool {
 	for _, s := range imageCatalog {
 		if s.project == project {
@@ -114,12 +119,12 @@ func publicImageProject(project string) bool {
 
 func catalogImage(s imageSpec) *computeapi.Image {
 	return &computeapi.Image{
-		Kind:              "compute#image",
+		Kind:              kindImage,
 		Id:                stableID("image", s.project, s.name),
 		CreationTimestamp: s.date + "T12:00:00.000-08:00",
 		Name:              s.name,
 		Description:       s.desc,
-		SourceType:        "RAW",
+		SourceType:        imageSourceRaw,
 		Status:            statusReady,
 		DiskSizeGb:        s.sizeGb,
 		Family:            s.family,

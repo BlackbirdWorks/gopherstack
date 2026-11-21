@@ -58,6 +58,13 @@ const (
 	opGetOperation       = "GetOperation"
 	opListOperations     = "ListOperations"
 	opCancelOperation    = "CancelOperation"
+	opDemote             = "Demote"
+	opDemoteMaster       = "DemoteMaster"
+	opCreateBackup       = "CreateBackup"
+	opGetBackup          = "GetBackup"
+	opListBackups        = "ListBackups"
+	opUpdateBackup       = "UpdateBackup"
+	opDeleteBackup       = "DeleteBackup"
 	unknownOperation     = "Unknown"
 
 	segProjects   = "projects"
@@ -132,6 +139,22 @@ func parseRoute(r *http.Request) route {
 		return operationRoute(r.Method, segs, rt)
 	case segInstances:
 		return instanceRoute(r.Method, segs, rt)
+	case "backups":
+		return backupsRoute(r.Method, segs, rt)
+	}
+
+	return rt
+}
+
+func backupsRoute(method string, s []string, rt route) route {
+	switch len(s) {
+	case minInstance - 1:
+		rt.op = pick(method, map[string]string{http.MethodGet: opListBackups, http.MethodPost: opCreateBackup})
+	case minInstance:
+		rt.name = s[3]
+		rt.op = pick(method, map[string]string{
+			http.MethodGet: opGetBackup, http.MethodPatch: opUpdateBackup, http.MethodDelete: opDeleteBackup,
+		})
 	}
 
 	return rt
@@ -195,6 +218,8 @@ func subCollectionOp(method, sub string) string {
 		"stopReplica":           {http.MethodPost: opStopReplica},
 		"failover":              {http.MethodPost: opFailover},
 		"switchover":            {http.MethodPost: opSwitchover},
+		"demote":                {http.MethodPost: opDemote},
+		"demoteMaster":          {http.MethodPost: opDemoteMaster},
 		"executeSql":            {http.MethodPost: opExecuteSQL},
 		"truncateLog":           {http.MethodPost: opTruncateLog},
 		"resetSslConfig":        {http.MethodPost: opResetSslConfig},

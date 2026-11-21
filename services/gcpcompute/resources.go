@@ -41,14 +41,14 @@ func (b *InMemoryBackend) insertImage(project string, in *computeapi.Image) (*co
 	}
 
 	img := &computeapi.Image{
-		Kind:              "compute#image",
+		Kind:              kindImage,
 		Id:                newID(),
 		CreationTimestamp: b.stamp(),
 		Name:              in.Name,
 		Description:       in.Description,
 		Family:            in.Family,
 		Status:            statusReady,
-		SourceType:        "RAW",
+		SourceType:        imageSourceRaw,
 		Labels:            in.Labels,
 		LabelFingerprint:  labelFP(in.Labels),
 		SelfLink:          globalLink(project, "images", in.Name),

@@ -328,7 +328,9 @@ func (b *InMemoryBackend) normalizeMIGLocked(project, scope, loc string, m *comp
 		return errField("resource.targetSize", "", "Must not be negative.")
 	}
 
-	if err := validStatefulPolicy(m.StatefulPolicy); err != nil {
+	if err := firstErr(
+		validStatefulPolicy(m.StatefulPolicy), b.validFlexibilityPolicy(scope, m.InstanceFlexibilityPolicy),
+	); err != nil {
 		return err
 	}
 

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/dbrepl"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/mysqlengine"
 )
 
@@ -197,6 +198,12 @@ func (e *mysqlEngine) Restart(ctx context.Context, flags []Flag) error {
 	_ = e.exec(ctx, "RESET PERSIST")
 
 	for _, f := range flags {
+		if !appliedFlag(false, f.Name) {
+			logger.Load(ctx).InfoContext(ctx, "gcpsql: database flag stored, not applied to the engine", "flag", f.Name)
+
+			continue
+		}
+
 		if !flagNameRe.MatchString(f.Name) {
 			return errInvalid("flag name %q is invalid", f.Name)
 		}
@@ -211,6 +218,57 @@ func (e *mysqlEngine) Restart(ctx context.Context, flags []Flag) error {
 	}
 
 	return e.Start(ctx)
+}
+
+// ReloadFlags implements FlagReloader: dynamic variables are changed live and persisted in one statement, and a
+// removed flag returns to its default.
+func (e *mysqlEngine) ReloadFlags(ctx context.Context, old, next []Flag) error {
+	conn, err := e.srv.DB("")
+	if err != nil {
+		return err //nolint:wrapcheck // already wrapped by the engine
+	}
+	defer conn.Close()
+
+	kept := map[string]bool{}
+	for _, f := range next {
+		kept[f.Name] = true
+	}
+
+	for _, f := range old {
+		if kept[f.Name] || !appliedFlag(false, f.Name) || !flagNameRe.MatchString(f.Name) {
+			continue
+		}
+
+		name, qerr := mysqlQuoteDotted(ctx, conn, f.Name)
+		if qerr != nil {
+			return qerr
+		}
+
+		if err = e.exec(ctx, "SET PERSIST "+name+" = DEFAULT"); err != nil {
+			return err
+		}
+	}
+
+	for _, f := range next {
+		if !appliedFlag(false, f.Name) {
+			continue
+		}
+
+		if !flagNameRe.MatchString(f.Name) {
+			return errInvalid("flag name %q is invalid", f.Name)
+		}
+
+		name, qerr := mysqlQuoteDotted(ctx, conn, f.Name)
+		if qerr != nil {
+			return qerr
+		}
+
+		if err = e.exec(ctx, "SET PERSIST "+name+" = ?", mysqlFlagArg(f.Value)); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // setFlag persists a server variable; numbers and booleans must not be quoted.

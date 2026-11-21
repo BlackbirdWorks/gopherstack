@@ -263,6 +263,7 @@ func registerFlexProviders(ctx *service.AppContext, registry *Registry, network 
 				},
 				Ports: ctx.PortAlloc, Logger: ctx.Logger,
 			}))
+			p.SetDumpDir(settings.FlexDumpDir, 0)
 		}
 
 		registry.Register(p)

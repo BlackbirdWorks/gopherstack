@@ -244,7 +244,7 @@ func (b *InMemoryBackend) failoverTask(ctx context.Context, rec *instRec) error 
 		rec.Inst.IPAddresses, rec.Inst.GopherstackEndpoint = addresses(b.clientEndpoint(rec))
 		b.mu.Unlock()
 
-		purgeEngine(ctx, old)
+		retireWriter(ctx, old)
 
 		b.finishPromotion(ctx, rec, next)
 
@@ -479,4 +479,13 @@ func (b *InMemoryBackend) FailoverPromote(project, name string) (*Operation, err
 	return b.submitLocked(rep, project, "PROMOTE_REPLICA", opMeta{}, func(ctx context.Context) error {
 		return b.switchoverTask(ctx, rep)
 	}), nil
+}
+
+// retireWriter deletes the engine a failover replaced, leaving the log archive its successor continues.
+func retireWriter(ctx context.Context, old Engine) {
+	if r, ok := old.(interface{ RetainArchive() }); ok {
+		r.RetainArchive()
+	}
+
+	purgeEngine(ctx, old)
 }

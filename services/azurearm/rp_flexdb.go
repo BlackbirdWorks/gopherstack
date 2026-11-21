@@ -90,6 +90,7 @@ type flexServer struct {
 	CreateMode    string                  `json:"createMode,omitempty"`
 	ThreatState   string                  `json:"threatState,omitempty"`
 	StorageType   string                  `json:"storageType,omitempty"`
+	Seed          *flexSeed               `json:"-"`
 	SourceID      string                  `json:"sourceId,omitempty"`
 	StorageGB     int                     `json:"storageGb"`
 	Iops          int                     `json:"iops,omitempty"`
@@ -116,18 +117,22 @@ type flexResult struct {
 // servers (one instance per namespace). ARM keeps the server metadata and child resources; with an engine
 // wired, real database servers run behind the FlexEngine seam.
 type FlexDBProvider struct {
-	now     func() time.Time
-	flavor  *flexFlavor
-	engine  FlexEngine
-	network *NetworkProvider
-	mu      *lockmetrics.RWMutex
-	opMu    *lockmetrics.RWMutex
-	res     map[string]*flexServer
-	ops     map[string]*flexOp
-	ctx     context.Context
-	cancel  context.CancelFunc
-	opOrder []string
-	wg      sync.WaitGroup
+	now      func() time.Time
+	flavor   *flexFlavor
+	engine   FlexEngine
+	network  *NetworkProvider
+	mu       *lockmetrics.RWMutex
+	opMu     *lockmetrics.RWMutex
+	res      map[string]*flexServer
+	ops      map[string]*flexOp
+	ctx      context.Context
+	cancel   context.CancelFunc
+	dumps    *flexDumpStore
+	gate     *flexGate
+	instance string
+	opOrder  []string
+	wg       sync.WaitGroup
+	janitor  sync.Once
 }
 
 func newFlexDBProvider(f *flexFlavor) *FlexDBProvider {
@@ -136,7 +141,8 @@ func newFlexDBProvider(f *flexFlavor) *FlexDBProvider {
 	return &FlexDBProvider{
 		now: time.Now, flavor: f, mu: lockmetrics.New("azurearm.flexdb." + f.kind),
 		opMu: lockmetrics.New("azurearm.flexdb.ops." + f.kind), res: map[string]*flexServer{},
-		ops: map[string]*flexOp{}, ctx: ctx, cancel: cancel,
+		ops: map[string]*flexOp{}, ctx: ctx, cancel: cancel, dumps: newFlexDumpStore("", 0), gate: newFlexGate(),
+		instance: newFlexInstanceID(),
 	}
 }
 
@@ -160,6 +166,10 @@ func (p *FlexDBProvider) SetEngine(e FlexEngine) {
 	p.mu.Lock("SetEngine")
 	p.engine = e
 	p.mu.Unlock()
+
+	if e != nil {
+		p.startJanitor()
+	}
 }
 
 // SetNetwork lets the provider validate delegated subnets against Microsoft.Network.
@@ -442,9 +452,12 @@ func (p *FlexDBProvider) ListKeys(context.Context, ResourceID) (map[string]any, 
 func (p *FlexDBProvider) Reset() {
 	p.mu.Lock("Reset")
 	keys := slices.Collect(maps.Keys(p.res))
+	files := p.allBackupFiles()
 	p.res = map[string]*flexServer{}
 	eng := p.engine
 	p.mu.Unlock()
+
+	p.dropFiles(files)
 
 	p.opMu.Lock("Reset")
 	p.ops, p.opOrder = map[string]*flexOp{}, nil
@@ -457,17 +470,23 @@ func (p *FlexDBProvider) Reset() {
 func (p *FlexDBProvider) DeleteResourcesInGroup(_ context.Context, resourceGroup string) {
 	p.mu.Lock("DeleteResourcesInGroup")
 
-	var keys []string
+	var (
+		keys  []string
+		files []string
+	)
 
 	for key, rec := range p.res {
 		if resourceGroupsEqual(rec.ResourceGrp, resourceGroup) {
 			keys = append(keys, key)
+			files = append(files, backupFiles(rec.Backups)...)
 			delete(p.res, key)
 		}
 	}
 
 	eng := p.engine
 	p.mu.Unlock()
+
+	p.dropFiles(files)
 
 	p.dropEngines(eng, keys)
 }
@@ -494,6 +513,18 @@ func (p *FlexDBProvider) Close() {
 	if c, ok := eng.(interface{ Close() }); ok {
 		c.Close()
 	}
+
+	p.dumpStore().close()
+}
+
+func (p *FlexDBProvider) allBackupFiles() []string {
+	out := make([]string, 0, len(p.res))
+
+	for _, r := range p.res {
+		out = append(out, backupFiles(r.Backups)...)
+	}
+
+	return out
 }
 
 // newOp registers an operation. With run set and an engine wired it completes when run returns; otherwise it
@@ -524,6 +555,14 @@ func (p *FlexDBProvider) newOp(target string, returns bool, key string, run func
 	return opID
 }
 
+func flexOpMessage(err error) string {
+	if fe, ok := errors.AsType[*flexError](err); ok {
+		return fe.msg
+	}
+
+	return flexOpFailedMsg
+}
+
 func (p *FlexDBProvider) finishOp(opID, key string, err error) {
 	if err != nil && p.ctx.Err() == nil {
 		p.mu.Lock("finishOp")
@@ -543,7 +582,7 @@ func (p *FlexDBProvider) finishOp(opID, key string, err error) {
 		op.ReadyAt = p.now()
 
 		if err != nil {
-			op.ErrMsg = flexOpFailedMsg
+			op.ErrMsg = flexOpMessage(err)
 		}
 	}
 }

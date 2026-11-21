@@ -13,7 +13,7 @@ const catchUpPoll = 200 * time.Millisecond
 func (e *dockerEngine) Quiesce(ctx context.Context) (string, error) {
 	for _, stmt := range []string{
 		"ALTER SYSTEM SET default_transaction_read_only = on",
-		"SELECT pg_reload_conf()",
+		stmtReloadConf,
 		"SELECT pg_terminate_backend(pid) FROM pg_stat_activity " +
 			"WHERE backend_type = 'client backend' AND pid <> pg_backend_pid()",
 	} {
@@ -57,7 +57,7 @@ func (e *dockerEngine) Unquiesce(ctx context.Context) error {
 		return err
 	}
 
-	for _, stmt := range []string{"ALTER SYSTEM RESET default_transaction_read_only", "SELECT pg_reload_conf()"} {
+	for _, stmt := range []string{"ALTER SYSTEM RESET default_transaction_read_only", stmtReloadConf} {
 		if _, err := e.psql(ctx, stmt); err != nil {
 			return err
 		}

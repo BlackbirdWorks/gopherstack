@@ -33,13 +33,15 @@ var (
 
 type fakeEngine struct {
 	enableBase   time.Time
+	waitErr      error
+	dumpErr      error
 	users        map[string]string
 	dbs          map[string]bool
+	restoreFail  string
 	replSrc      gcpsql.ReplicaSource
 	execOut      gcpsql.ExecOutcome
-	waitErr      error
-	execReqs     []gcpsql.ExecRequest
-	waited       []string
+	readOnly     []bool
+	reloads      [][]gcpsql.Flag
 	rows         [][]string
 	inserted     [][]string
 	flags        []gcpsql.Flag
@@ -48,19 +50,20 @@ type fakeEngine struct {
 	applied      []gcpsql.Recovery
 	prepared     []time.Time
 	replCalls    []bool
-	readOnly     []bool
+	execReqs     []gcpsql.ExecRequest
 	restored     []string
-	usage        int64
-	statusLag    float64
-	quiesced     int
+	waited       []string
+	restarts     int
+	port         int
 	sealed       int
 	settled      int
 	unquiesced   int
 	pitrEnabled  int
 	starts       int
 	stops        int
-	restarts     int
-	port         int
+	quiesced     int
+	statusLag    float64
+	usage        int64
 	pitrDisabled int
 	attached     int
 	promoted     int
@@ -138,6 +141,16 @@ func (f *fakeEngine) Restart(_ context.Context, flags []gcpsql.Flag) error {
 	return nil
 }
 
+func (f *fakeEngine) ReloadFlags(_ context.Context, _, next []gcpsql.Flag) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.reloads = append(f.reloads, next)
+	f.flags = next
+
+	return nil
+}
+
 func (f *fakeEngine) Stop(context.Context) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -154,7 +167,22 @@ func (f *fakeEngine) Start(context.Context) error {
 	return nil
 }
 
+func (f *fakeEngine) setFailures(dumpErr error, restoreFail string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.dumpErr, f.restoreFail = dumpErr, restoreFail
+}
+
 func (f *fakeEngine) Dump(_ context.Context, dbs []string, opts gcpsql.DumpOptions) ([]byte, error) {
+	f.mu.Lock()
+	derr := f.dumpErr
+	f.mu.Unlock()
+
+	if derr != nil {
+		return nil, derr
+	}
+
 	var sb strings.Builder
 
 	for _, d := range dbs {
@@ -173,6 +201,10 @@ func (f *fakeEngine) Restore(_ context.Context, db string, data []byte) error {
 	defer f.mu.Unlock()
 
 	f.restored = append(f.restored, db+"|"+string(data))
+	if f.restoreFail != "" && strings.Contains(string(data), f.restoreFail) {
+		return errFakeRole
+	}
+
 	if strings.Contains(string(data), "newdb") {
 		f.dbs["newdb"] = true
 	}
@@ -299,7 +331,8 @@ func (f *fakeEngine) snapshot() fakeEngine {
 	defer f.mu.Unlock()
 
 	return fakeEngine{
-		restarts: f.restarts, stops: f.stops, starts: f.starts, closed: f.closed, flags: f.flags,
+		restarts: f.restarts, reloads: append([][]gcpsql.Flag(nil), f.reloads...), stops: f.stops, starts: f.starts,
+		closed: f.closed, flags: f.flags,
 		restored: append([]string(nil), f.restored...), inserted: append([][]string(nil), f.inserted...),
 		dbs: copyBool(f.dbs), users: copyStr(f.users), replSrc: f.replSrc, seed: f.seed,
 		replCalls: append([]bool(nil), f.replCalls...), prepared: append([]time.Time(nil), f.prepared...),

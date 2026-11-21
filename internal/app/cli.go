@@ -1090,7 +1090,12 @@ func (c *CLI) GetAzureServiceBusSettings() azureservicebusbackend.Settings {
 // GetAzureARMSettings returns Azure Resource Manager settings
 // (azurearm.ConfigProvider).
 func (c *CLI) GetAzureARMSettings() azurearmbackend.Settings {
-	return c.AzureARM
+	s := c.AzureARM
+	if s.FlexDumpDir == "" && c.Persist {
+		s.FlexDumpDir = filepath.Join(c.resolvedDataDir(), "azure-flex-dumps")
+	}
+
+	return s
 }
 
 // GetAzureStorageVHostSettings returns the shared Azure Storage

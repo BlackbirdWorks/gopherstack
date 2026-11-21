@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -149,16 +151,183 @@ func flexServerPath(ns, name string) string {
 }
 
 type fakeFlexEngine struct {
-	dbs        map[string][]string
-	pw         map[string]string
-	live       map[string]bool
-	calls      []string
-	mu         sync.Mutex
-	failEnsure bool
+	dbs      map[string][]string
+	pw       map[string]string
+	live     map[string]bool
+	data     map[string]string
+	loaded   map[string]string
+	readOnly map[string]bool
+	params   map[string]map[string]azurearm.FlexParam
+	// dumpHold, when set, parks every dump until it is closed; dumpEntered then receives the dumped server and
+	// overlap is closed the moment two dumps run at once.
+	dumpHold    chan struct{}
+	dumpEntered chan string
+	overlap     chan struct{}
+	// applyEntered and applyRelease park the first ApplyParameters call, which then fails when applyFirstFails.
+	applyEntered    chan struct{}
+	applyRelease    chan struct{}
+	calls           []string
+	overlapOnce     sync.Once
+	mu              sync.Mutex
+	inDump          int
+	maxDump         int
+	applyCalls      int
+	failEnsure      bool
+	failApply       bool
+	failRestore     bool
+	failDump        bool
+	applyFirstFails bool
 }
 
 func newFakeFlexEngine() *fakeFlexEngine {
-	return &fakeFlexEngine{dbs: map[string][]string{}, pw: map[string]string{}, live: map[string]bool{}}
+	return &fakeFlexEngine{
+		dbs: map[string][]string{}, pw: map[string]string{}, live: map[string]bool{}, data: map[string]string{},
+		loaded: map[string]string{}, readOnly: map[string]bool{}, params: map[string]map[string]azurearm.FlexParam{},
+	}
+}
+
+func (f *fakeFlexEngine) ApplyParameters(ctx context.Context, id string, ps []azurearm.FlexParam) error {
+	f.record("apply")
+
+	if f.failApply {
+		return io.ErrUnexpectedEOF
+	}
+
+	f.mu.Lock()
+	f.applyCalls++
+	first, entered, release, fails := f.applyCalls == 1, f.applyEntered, f.applyRelease, f.applyFirstFails
+	f.mu.Unlock()
+
+	if first && entered != nil {
+		entered <- struct{}{}
+
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+
+		if fails {
+			return io.ErrUnexpectedEOF
+		}
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.params[id] == nil {
+		f.params[id] = map[string]azurearm.FlexParam{}
+	}
+
+	for _, p := range ps {
+		f.params[id][p.Name] = p
+	}
+
+	return nil
+}
+
+func (f *fakeFlexEngine) param(id, name string) (azurearm.FlexParam, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	p, ok := f.params[id][name]
+
+	return p, ok
+}
+
+func (f *fakeFlexEngine) setData(id, data string) {
+	f.mu.Lock()
+	f.data[id] = data
+	f.mu.Unlock()
+}
+
+func (f *fakeFlexEngine) Dump(ctx context.Context, id string, dbs []string, w io.Writer) error {
+	f.record("dump")
+
+	if f.failDump {
+		return io.ErrUnexpectedEOF
+	}
+
+	f.mu.Lock()
+	data := f.data[id]
+	f.inDump++
+	f.maxDump = max(f.maxDump, f.inDump)
+	hold, entered, overlap := f.dumpHold, f.dumpEntered, f.overlap
+	overlapping := f.inDump > 1
+	f.mu.Unlock()
+
+	if overlapping && overlap != nil {
+		f.overlapOnce.Do(func() { close(overlap) })
+	}
+
+	if hold != nil {
+		entered <- id
+
+		select {
+		case <-hold:
+		case <-ctx.Done():
+		}
+	}
+
+	runtime.Gosched()
+
+	f.mu.Lock()
+	f.inDump--
+	f.mu.Unlock()
+
+	_, err := io.WriteString(w, strings.Join(dbs, ",")+"|"+data)
+
+	return err
+}
+
+func (f *fakeFlexEngine) Restore(_ context.Context, id string, r io.Reader) error {
+	f.record("restore")
+
+	if f.failRestore {
+		return io.ErrUnexpectedEOF
+	}
+
+	b, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+
+	f.mu.Lock()
+	f.loaded[id] = string(b)
+	f.mu.Unlock()
+
+	return nil
+}
+
+func (f *fakeFlexEngine) CopyAdmin(_ context.Context, src, dst string) error {
+	f.record("copyadmin")
+	f.mu.Lock()
+	f.pw[dst] = f.pw[src]
+	f.mu.Unlock()
+
+	return nil
+}
+
+func (f *fakeFlexEngine) SetReadOnly(_ context.Context, id string, on bool) error {
+	f.record("readonly:" + strconv.FormatBool(on))
+	f.mu.Lock()
+	f.readOnly[id] = on
+	f.mu.Unlock()
+
+	return nil
+}
+
+func (f *fakeFlexEngine) isReadOnly(id string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.readOnly[id]
+}
+
+func (f *fakeFlexEngine) loadedData(id string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.loaded[id]
 }
 
 func (f *fakeFlexEngine) record(call string) {

@@ -2,6 +2,7 @@ package azurearm
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"slices"
 	"strconv"
@@ -92,6 +93,7 @@ type flexSKU struct {
 }
 
 type flexConfigDef struct {
+	valueRE  *regexp.Regexp
 	name     string
 	dataType string
 	def      string
@@ -102,6 +104,8 @@ type flexConfigDef struct {
 	enum     []string
 	readOnly bool
 	static   bool
+
+	engineless bool
 }
 
 // flexFlavor is everything that differs between the PostgreSQL and MySQL flexible server resource providers.
@@ -320,6 +324,8 @@ func mysqlSKUs() []flexSKU {
 	return out
 }
 
+var flexTimeZoneRE = regexp.MustCompile(`^([+-](0?[0-9]|1[0-3]):[0-5][0-9]|SYSTEM|[A-Za-z]+(/[A-Za-z_+-]+)*)$`)
+
 func pgExtensions() string {
 	return "AGE,ANON,AZURE_AI,AZURE_STORAGE,BLOOM,BTREE_GIN,BTREE_GIST,CITEXT,CUBE,DBLINK,DICT_INT,DICT_XSYN," +
 		"EARTHDISTANCE,FUZZYSTRMATCH,HSTORE,INTARRAY,ISN,LO,LTREE,PG_BUFFERCACHE,PG_CRON,PG_FREESPACEMAP," +
@@ -371,7 +377,7 @@ func pgConfigs() []flexConfigDef {
 			desc: "Logs end of a session, including duration."},
 		{name: "autovacuum", dataType: cfgBoolean, def: flexOn, enum: []string{flexOn, flexOff},
 			desc: "Starts the autovacuum subprocess."},
-		{name: "azure.extensions", dataType: cfgSet, def: "", allowed: pgExtensions(), static: false,
+		{name: "azure.extensions", dataType: cfgSet, def: "", allowed: pgExtensions(), static: false, engineless: true,
 			desc: "Specifies which extensions are allowed to be created in the server."},
 		{name: "server_version", dataType: "String", def: "", readOnly: true,
 			desc: "Shows the server version."},
@@ -396,8 +402,14 @@ func mysqlConfigs() []flexConfigDef {
 			desc: "Whether the slow query log is enabled."},
 		{name: "event_scheduler", dataType: cfgEnum, def: cfgOff, enum: []string{cfgOn, cfgOff},
 			desc: "Indicates the status of the Event Scheduler."},
-		{name: "require_secure_transport", dataType: cfgEnum, def: cfgOn, enum: []string{cfgOn, cfgOff},
-			desc: "Whether client connections to the server are required to use some form of secure transport."},
+		{
+			name:       "require_secure_transport",
+			dataType:   cfgEnum,
+			def:        cfgOn,
+			enum:       []string{cfgOn, cfgOff},
+			engineless: true,
+			desc:       "Whether client connections to the server are required to use some form of secure transport.",
+		},
 		{
 			name:     "log_bin_trust_function_creators",
 			dataType: cfgEnum,
@@ -420,7 +432,7 @@ func mysqlConfigs() []flexConfigDef {
 		{name: "character_set_server", dataType: cfgEnum, def: flexUTF8MB4, static: true,
 			enum: []string{flexUTF8MB4, "utf8mb3", "utf8", "latin1", "ascii", "binary"},
 			desc: "The server's default character set."},
-		{name: "time_zone", dataType: "String", def: "+00:00", desc: "The server time zone."},
+		{name: "time_zone", dataType: "String", def: "+00:00", valueRE: flexTimeZoneRE, desc: "The server time zone."},
 		{name: "lower_case_table_names", dataType: cfgInteger, def: "1", rng: "1..2", readOnly: true,
 			desc: "Whether table names are stored in lowercase."},
 	}
@@ -565,16 +577,13 @@ func (c flexConfigDef) bounds() (float64, float64) {
 
 // configValueProblem returns why value is not allowed for def, or "" when it is.
 func configValueProblem(def flexConfigDef, value string) string {
+	if def.valueRE != nil && !def.valueRE.MatchString(value) {
+		return "the value is not a valid " + def.name
+	}
+
 	switch def.dataType {
 	case cfgInteger, cfgNumeric:
-		lo, hi := def.bounds()
-
-		f, err := strconv.ParseFloat(value, 64)
-		if err == nil && def.dataType == cfgInteger {
-			_, err = strconv.ParseInt(value, 10, 64)
-		}
-
-		if err != nil || f < lo || f > hi {
+		if !def.validNumber(value) {
 			return "allowed values are " + def.allowedValues()
 		}
 	case cfgBoolean, cfgEnum:
@@ -592,6 +601,34 @@ func configValueProblem(def flexConfigDef, value string) string {
 	}
 
 	return ""
+}
+
+func (c flexConfigDef) validNumber(value string) bool {
+	lo, hi := c.bounds()
+
+	f, err := strconv.ParseFloat(value, 64)
+	if err == nil && c.dataType == cfgInteger {
+		_, err = strconv.ParseInt(value, 10, 64)
+	}
+
+	return err == nil && !math.IsNaN(f) && f >= lo && f <= hi
+}
+
+// engineValue is the value as the engine takes it: numbers in plain decimal ("+5", "007", "1e3" and hex floats
+// are valid for the catalogue but not for SET).
+func (c flexConfigDef) engineValue(v string) string {
+	switch c.dataType {
+	case cfgInteger:
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			return strconv.FormatInt(n, 10)
+		}
+	case cfgNumeric:
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return strconv.FormatFloat(f, 'f', -1, 64)
+		}
+	}
+
+	return v
 }
 
 func (c flexConfigDef) allowedValues() string {

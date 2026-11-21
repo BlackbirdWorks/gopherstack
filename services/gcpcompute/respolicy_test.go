@@ -49,9 +49,10 @@ func instanceSchedule(cron string) *computepb.ResourcePolicy {
 }
 
 func named(p *computepb.ResourcePolicy, name string) *computepb.ResourcePolicy {
-	p.Name = s(name)
+	c := proto.Clone(p).(*computepb.ResourcePolicy)
+	c.Name = s(name)
 
-	return p
+	return c
 }
 
 func TestResourcePolicyCRUD(t *testing.T) {

@@ -213,16 +213,7 @@ func (b *InMemoryBackend) RestoreBackup(project, instance string, in RestoreBack
 	dump := run.Dump
 
 	return b.submitLocked(rec, project, "RESTORE_VOLUME", opMeta{}, func(ctx context.Context) error {
-		eng := b.engineOf(rec)
-		if eng == nil || len(dump) == 0 {
-			return nil
-		}
-
-		if rerr := eng.Restore(ctx, "", dump); rerr != nil {
-			return rerr
-		}
-
-		return b.reconcile(ctx, rec, eng)
+		return b.restoreDump(ctx, rec, dump)
 	}), nil
 }
 

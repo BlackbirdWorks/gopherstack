@@ -168,7 +168,7 @@ func (s *Server) ReplicaSeed(ctx context.Context, dbs []string) ([]byte, error) 
 
 	cmd := append([]string{
 		mysqldumpBin, "-u" + RootUser, argSingleTx, "--skip-dump-date",
-		argRoutines, "--events", "--triggers", "--set-gtid-purged=ON", argAddDrop,
+		argRoutines, argEvents, argTriggers, "--set-gtid-purged=ON", argAddDrop,
 		"-r", dumpMount + "/seed.sql", argDatabases,
 	}, dbs...)
 

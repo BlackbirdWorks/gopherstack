@@ -17,8 +17,7 @@ const (
 )
 
 var (
-	hhmmRE      = regexp.MustCompile(`^(\d{2}):(\d{2})(?:([+-]\d{1,2}))?$`)
-	cronFieldRE = regexp.MustCompile(`^[0-9A-Za-z*,/\-?]+$`)
+	hhmmRE = regexp.MustCompile(`^(\d{2}):(\d{2})(?:([+-]\d{1,2}))?$`)
 )
 
 const (
@@ -54,7 +53,8 @@ func resPolicySpec() lbSpec[computeapi.ResourcePolicy] {
 				region: &v.Region, id: &v.Id,
 			}
 		},
-		prep: prepResourcePolicy,
+		prep:  prepResourcePolicy,
+		viewB: func(b *InMemoryBackend, v *computeapi.ResourcePolicy) { b.schedStatusLocked(v) },
 	}
 }
 
@@ -265,18 +265,8 @@ func validWeekly(w *computeapi.ResourcePolicyWeeklyCycle, f string) *APIError {
 }
 
 func validCron(field, expr string) *APIError {
-	fields := 0
-
-	for _, tok := range splitFields(expr) {
-		if !cronFieldRE.MatchString(tok) {
-			return errField(field, expr, "Not a valid unix-cron expression.")
-		}
-
-		fields++
-	}
-
-	if fields != 5 { //nolint:mnd // minute hour day-of-month month day-of-week
-		return errField(field, expr, "A unix-cron expression has five fields.")
+	if _, err := parseCron(expr); err != nil {
+		return errField(field, expr, "Not a valid unix-cron expression.")
 	}
 
 	return nil

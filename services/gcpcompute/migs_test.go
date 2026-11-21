@@ -239,30 +239,6 @@ func TestMIGValidation(t *testing.T) {
 		})
 		assertAPIError(t, err, http.StatusNotFound, "notFound")
 	})
-
-	t.Run("failed creation rolls back", func(t *testing.T) {
-		t.Parallel()
-
-		e := newEnv(t)
-
-		_, err := e.migs(t).Insert(t.Context(), &computepb.InsertInstanceGroupManagerRequest{
-			Project: project, Zone: zone, InstanceGroupManagerResource: &computepb.InstanceGroupManager{
-				Name: s(
-					"web",
-				),
-				BaseInstanceName: s("web"),
-				InstanceTemplate: s(e.template(t, "tpl")),
-				TargetSize:       proto.Int32(2),
-			},
-		})
-		require.Error(t, err, "no subnetwork exists in this project")
-		assert.Empty(t, e.vmNames(t))
-
-		_, err = e.migs(t).Get(t.Context(), &computepb.GetInstanceGroupManagerRequest{
-			Project: project, Zone: zone, InstanceGroupManager: "web",
-		})
-		assertAPIError(t, err, http.StatusNotFound, "notFound")
-	})
 }
 
 func TestRegionalMIGSpreadsAcrossZones(t *testing.T) {

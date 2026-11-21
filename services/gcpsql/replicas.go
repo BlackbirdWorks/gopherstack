@@ -242,6 +242,13 @@ func (b *InMemoryBackend) primaryEngine(ctx context.Context, rec *instRec) (Engi
 	}
 }
 
+func (b *InMemoryBackend) demotedRec(rec *instRec) bool {
+	b.mu.RLock("demotedRec")
+	defer b.mu.RUnlock()
+
+	return rec.Demoted != nil
+}
+
 func (b *InMemoryBackend) replicaOnly(project, name string) (*instRec, error) {
 	rec, err := b.opRec(project, name)
 	if err != nil {
@@ -266,7 +273,11 @@ func (b *InMemoryBackend) PromoteReplica(project, name string) (*Operation, erro
 	}
 
 	return b.submitLocked(rec, project, "PROMOTE_REPLICA", opMeta{}, func(ctx context.Context) error {
-		if eng := b.engineOf(rec); eng != nil {
+		if b.demotedRec(rec) {
+			if rerr := b.releaseDemoted(ctx, rec); rerr != nil {
+				return rerr
+			}
+		} else if eng := b.engineOf(rec); eng != nil {
 			rp, ok := eng.(Replicator)
 			if !ok {
 				return errNoReplication
@@ -297,6 +308,10 @@ func (b *InMemoryBackend) SetReplicaRunning(project, name string, on bool) (*Ope
 	rec, err := b.replicaOnly(project, name)
 	if err != nil {
 		return nil, err
+	}
+
+	if rec.Demoted != nil {
+		return nil, errInvalid("%v.", errNotReplicating)
 	}
 
 	opType := "STOP_REPLICA"

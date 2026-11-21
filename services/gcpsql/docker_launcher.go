@@ -89,7 +89,7 @@ func (l *dockerLauncher) Launch(ctx context.Context, spec LaunchSpec) (Engine, e
 		e.volData = volumeName("data", spec.Slot, spec.Project, spec.ID)
 
 		if spec.Replica == nil || spec.Standby {
-			e.volPITR = volumeName("pitr", spec.Slot, spec.Project, spec.ID)
+			e.volPITR = volumeName("pitr", "", spec.Project, spec.ID)
 		}
 	}
 
@@ -174,6 +174,7 @@ type dockerEngine struct {
 	spec     LaunchSpec
 	port     int
 	promoted bool
+	retained bool
 }
 
 func (e *dockerEngine) boot(ctx context.Context) error {
@@ -217,7 +218,7 @@ func (e *dockerEngine) createVolumes(ctx context.Context) error {
 			continue
 		}
 
-		if e.spec.Fresh {
+		if e.spec.Fresh && (v != e.volPITR || !e.spec.Standby) {
 			if err := e.vols.RemoveVolume(ctx, v); err != nil {
 				return fmt.Errorf("discard stale volume %s: %w", v, err)
 			}
