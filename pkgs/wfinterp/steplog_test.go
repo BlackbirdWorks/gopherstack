@@ -158,3 +158,92 @@ func TestStepLogOffByDefault(t *testing.T) {
 	require.NoError(t, r.err)
 	assert.Empty(t, sink.events)
 }
+
+func TestStepBudgetStopsEventsAndSnapshots(t *testing.T) {
+	t.Parallel()
+
+	const loop = `
+- l:
+    for:
+      value: i
+      range: [1, 200]
+      steps:
+        - a:
+            assign: [{x: "${i}"}]
+- r:
+    return: 1`
+
+	tests := []struct {
+		budget    func(begun *int) (bool, bool)
+		name      string
+		wantBegun int
+		wantVars  int
+	}{
+		{func(*int) (bool, bool) { return true, true }, "unlimited", 202, 202},
+		{func(b *int) (bool, bool) { return *b < 10, true }, "log_cap", 10, 10},
+		{func(*int) (bool, bool) { return true, false }, "vars_cap", 202, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var begun, withVars int
+
+			r := run(t, loop, nil, func(h *wfinterp.Host) {
+				h.StepVariables = true
+				h.StepBudget = func() (bool, bool) { return tt.budget(&begun) }
+				h.StepLog = func(e wfinterp.StepEvent) {
+					if e.State == wfinterp.StepInProgress {
+						begun++
+					} else if e.Vars != nil {
+						withVars++
+					}
+				}
+			})
+			require.NoError(t, r.err)
+			assert.Equal(t, tt.wantBegun, begun)
+			assert.Equal(t, tt.wantVars, withVars)
+		})
+	}
+}
+
+func BenchmarkStepLogLoop(b *testing.B) {
+	const src = `
+- init:
+    assign: [{big: {a: 1, b: [1, 2, 3, 4, 5, 6, 7, 8], c: {d: "xxxxxxxx"}}}]
+- l:
+    for:
+      value: i
+      range: [1, 40000]
+      steps:
+        - a:
+            assign: [{x: "${i}"}]
+- r:
+    return: 1`
+
+	for _, mode := range []string{"off", "log", "log_vars", "log_vars_capped"} {
+		b.Run(mode, func(b *testing.B) {
+			eng := wfinterp.NewEngine()
+			prog, err := eng.Compile(src)
+			require.NoError(b, err)
+
+			for b.Loop() {
+				n := 0
+				host := &wfinterp.Host{Clock: newClock()}
+
+				if mode != "off" {
+					host.StepLog = func(wfinterp.StepEvent) { n++ }
+					host.StepVariables = mode != "log"
+				}
+
+				if mode == "log_vars_capped" {
+					host.StepBudget = func() (bool, bool) { return n < 20000, n < 20000 }
+				}
+
+				_, err = eng.Run(b.Context(), prog, nil, host)
+				require.NoError(b, err)
+			}
+		})
+	}
+}

@@ -183,6 +183,16 @@ func TestDeployErrorsFailTheOperation(t *testing.T) {
 			"main:\n  steps:\n    - a:\n        call: googleapis.nothing.v1.things.get\n",
 			"not found",
 		},
+		{
+			"cloudkms is not a workflows connector",
+			"main:\n  steps:\n    - a:\n        call: googleapis.cloudkms.v1.projects.locations.keyRings.cryptoKeys.encrypt\n",
+			"not found",
+		},
+		{
+			"logging is not a workflows connector",
+			"main:\n  steps:\n    - a:\n        call: googleapis.logging.v2.entries.write\n",
+			"not found",
+		},
 	}
 
 	e := newEnv(t)

@@ -136,11 +136,13 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
+	b.failPendingIndexOpMetadata()
 	b.ops.AbortPending(status.New(codes.Aborted, "The operation did not survive a restart."))
-	b.stopPendingIndexOps()
 
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
+
+	b.stopPendingIndexOpsLocked()
 
 	b.ents, b.indexes = ents, indexes
 	b.failInFlightIndexesLocked()

@@ -213,8 +213,11 @@ func (b *InMemoryBackend) runEventCopy(
 	}
 
 	b.mu.Lock("HandleSnapshotShared")
-	b.managed.Put(cp)
-	b.mu.Unlock()
+	defer b.mu.Unlock()
+
+	if b.policies.Has(policyID) {
+		b.managed.Put(cp)
+	}
 }
 
 // runEventPolicy expires the policy's cross-region copies whose RetainRule has elapsed.

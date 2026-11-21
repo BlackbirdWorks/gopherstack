@@ -15,7 +15,7 @@
 
 ### Known gaps
 
-- Connectors exist for Pub/Sub, Secret Manager, Firestore, Cloud Storage, Cloud Tasks, Cloud KMS (encrypt, decrypt), Cloud Logging (entries.write), Cloud Build and Workflow Executions (connectors.go connectors()); connectors and googleapis.com host rewriting for the other emulated services (BigQuery, Cloud Run, Cloud Functions, Compute, DNS, Redis, Spanner, SQL and the rest of the GCP emulators) are not implemented.
+- Connectors exist for Pub/Sub, Secret Manager, Firestore, Cloud Storage, Cloud Tasks, Cloud Build and Workflow Executions (connectors.go connectors()); connectors and googleapis.com host rewriting for the other emulated services (BigQuery, Cloud Run, Cloud Functions, Compute, DNS, Redis, Spanner, SQL and the rest of the GCP emulators) are not implemented.
 
 ## More
 

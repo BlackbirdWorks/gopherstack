@@ -204,10 +204,36 @@ func (b *InMemoryBackend) stopPendingIndexOps() {
 	b.mu.Lock("stopPendingIndexOps")
 	defer b.mu.Unlock()
 
+	b.stopPendingIndexOpsLocked()
+}
+
+func (b *InMemoryBackend) stopPendingIndexOpsLocked() {
 	for name, p := range b.pendingIdx {
 		p.stop()
 		close(p.done)
 		delete(b.pendingIdx, name)
+	}
+}
+
+// failPendingIndexOpMetadata marks the metadata of every restored unfinished index operation FAILED, to match the
+// ABORTED result AbortPending is about to give it.
+func (b *InMemoryBackend) failPendingIndexOpMetadata() {
+	b.mu.RLock("failPendingIndexOpMetadata")
+	end := timestamppb.New(b.wallLocked())
+	b.mu.RUnlock()
+
+	for _, op := range b.ops.Under("projects/") {
+		meta := &adminpb.IndexOperationMetadata{}
+		if op.GetDone() || op.GetMetadata().UnmarshalTo(meta) != nil || meta.GetCommon() == nil {
+			continue
+		}
+
+		meta.Common.EndTime, meta.Common.State = end, adminpb.CommonMetadata_FAILED
+
+		if m, err := anypb.New(meta); err == nil {
+			op.Metadata = m
+			b.ops.Put(op)
+		}
 	}
 }
 

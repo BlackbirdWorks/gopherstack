@@ -246,4 +246,9 @@ func TestAsyncIndexSurvivesRestoreAsError(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, got.GetDone())
 	assert.EqualValues(t, codes.Aborted, got.GetError().GetCode())
+
+	gotMeta := &adminpb.IndexOperationMetadata{}
+	require.NoError(t, got.GetMetadata().UnmarshalTo(gotMeta))
+	assert.Equal(t, adminpb.CommonMetadata_FAILED, gotMeta.GetCommon().GetState())
+	assert.NotNil(t, gotMeta.GetCommon().GetEndTime())
 }

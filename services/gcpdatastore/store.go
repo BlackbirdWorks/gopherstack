@@ -174,8 +174,8 @@ func (b *InMemoryBackend) SetEnforceIndexes(on bool) {
 
 // Reset clears all entities, transactions, reserved ids, indexes and operations.
 func (b *InMemoryBackend) Reset() {
-	b.stopPendingIndexOps()
 	b.mu.Lock("Reset")
+	b.stopPendingIndexOpsLocked()
 	b.ents = make(map[string]*entRec)
 	b.txns = make(map[string]*txnRec)
 	b.ended = make(map[string]time.Time)

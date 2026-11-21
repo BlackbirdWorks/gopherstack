@@ -175,6 +175,7 @@ func (b *InMemoryBackend) hostFor(
 		CallLog:       func(e wfinterp.CallEvent) { b.emitCall(info, level, e) },
 		StepLog:       func(e wfinterp.StepEvent) { b.recordStep(execName, e) },
 		StepVariables: detailedHistory(wf),
+		StepBudget:    func() (bool, bool) { return b.stepBudget(execName) },
 		Progress: func(frames []wfinterp.Frame) {
 			b.setSteps(execName, frames)
 			b.failIfKeyDisabled(execName)

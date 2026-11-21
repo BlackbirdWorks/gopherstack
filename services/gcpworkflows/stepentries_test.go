@@ -278,6 +278,24 @@ func TestStepEntriesErrors(t *testing.T) {
 			want: http.StatusBadRequest,
 		},
 		{
+			name: "bad list view",
+			call: func(svc *wfexec.ProjectsLocationsWorkflowsExecutionsStepEntriesService, name string) error {
+				_, err := svc.List(name).View("EXECUTION_ENTRY_VIEW_BOGUS").Do()
+
+				return err
+			},
+			want: http.StatusBadRequest,
+		},
+		{
+			name: "bad get view",
+			call: func(svc *wfexec.ProjectsLocationsWorkflowsExecutionsStepEntriesService, name string) error {
+				_, err := svc.Get(name + "/stepEntries/1").View("nope").Do()
+
+				return err
+			},
+			want: http.StatusBadRequest,
+		},
+		{
 			name: "bad token",
 			call: func(svc *wfexec.ProjectsLocationsWorkflowsExecutionsStepEntriesService, name string) error {
 				_, err := svc.List(name).PageToken("!!").Do()

@@ -982,11 +982,13 @@ func (h *Handler) handleModifySnapshotAttribute(vals url.Values, reqID string) (
 	if vals.Get("Attribute") == "createVolumePermission" {
 		legacyIDs, legacyPublic := parseLegacyPermissionArgs(vals)
 
-		switch vals.Get("OperationType") {
-		case "add":
+		switch op := vals.Get("OperationType"); {
+		case op == "add":
 			addIDs, addPublic = append(addIDs, legacyIDs...), addPublic || legacyPublic
-		case "remove":
+		case op == "remove":
 			removeIDs, removePublic = append(removeIDs, legacyIDs...), removePublic || legacyPublic
+		case len(legacyIDs) > 0 || legacyPublic:
+			return nil, fmt.Errorf("%w: OperationType must be add or remove", ErrInvalidParameter)
 		}
 	}
 

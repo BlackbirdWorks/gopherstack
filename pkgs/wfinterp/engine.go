@@ -91,6 +91,9 @@ type Host struct {
 	Progress func([]Frame)
 	// StepLog receives an event when every step starts and when it finishes.
 	StepLog func(StepEvent)
+	// StepBudget is asked before each step whether to emit its events and whether to snapshot its variables, so a
+	// consumer that has stopped recording does not pay for events it would drop. Nil means both.
+	StepBudget func() (log, vars bool)
 	// StepVariables adds the visible variables to the finish events of StepLog.
 	StepVariables bool
 }

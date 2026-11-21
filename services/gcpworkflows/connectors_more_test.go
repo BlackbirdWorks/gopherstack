@@ -36,20 +36,6 @@ func TestRESTConnectors(t *testing.T) {
 			wantReq: "POST /v2/projects/p/locations/l/queues/q/tasks/t:run",
 		},
 		{
-			name: "kms encrypt", svc: "kms",
-			step: `call: googleapis.cloudkms.v1.projects.locations.keyRings.cryptoKeys.encrypt
-        args: {name: "projects/p/locations/l/keyRings/r/cryptoKeys/k", body: {plaintext: "aGk="}}
-        result: out`,
-			wantReq: "POST /v1/projects/p/locations/l/keyRings/r/cryptoKeys/k:encrypt",
-		},
-		{
-			name: "logging write", svc: "logging",
-			step: `call: googleapis.logging.v2.entries.write
-        args: {body: {entries: []}}
-        result: out`,
-			wantReq: "POST /v2/entries:write",
-		},
-		{
 			name: "build get", svc: "cloudbuild",
 			step: `call: googleapis.cloudbuild.v1.projects.builds.get
         args: {projectId: p, id: b1}

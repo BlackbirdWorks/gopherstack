@@ -87,6 +87,23 @@ func (b *InMemoryBackend) recordStep(execName string, ev wfinterp.StepEvent) {
 	rec.steps.apply(ev)
 }
 
+// stepBudget reports whether the execution can still record entries and variable snapshots.
+func (b *InMemoryBackend) stepBudget(execName string) (bool, bool) {
+	b.mu.RLock("stepBudget")
+	defer b.mu.RUnlock()
+
+	rec, ok := b.execs[execName]
+	if !ok {
+		return false, false
+	}
+
+	if rec.steps == nil {
+		return true, true
+	}
+
+	return len(rec.steps.order) < maxStepEntries, rec.steps.varBytes < maxStepVarsTotal
+}
+
 func (l *stepLog) apply(ev wfinterp.StepEvent) {
 	if ev.State == wfinterp.StepInProgress {
 		l.begin(ev)
@@ -379,6 +396,15 @@ func (e *stepEntry) navigation() *navigationJSON {
 	return nav
 }
 
+func validEntryView(view string) error {
+	switch view {
+	case "", "EXECUTION_ENTRY_VIEW_UNSPECIFIED", "EXECUTION_ENTRY_VIEW_BASIC", viewDetailed:
+		return nil
+	default:
+		return errInvalid("view %q is not a valid EXECUTION_ENTRY_VIEW.", view)
+	}
+}
+
 func (b *InMemoryBackend) stepsOf(execName string) ([]*stepEntry, error) {
 	if err := validateExecutionName(execName); err != nil {
 		return nil, err
@@ -410,6 +436,10 @@ func (b *InMemoryBackend) stepsOf(execName string) ([]*stepEntry, error) {
 func (b *InMemoryBackend) ListStepEntries(execName string, q stepListQuery) (*listStepEntriesJSON, error) {
 	if q.pageSize < 0 || q.skip < 0 {
 		return nil, errInvalid("page_size and skip must not be negative.")
+	}
+
+	if err := validEntryView(q.view); err != nil {
+		return nil, err
 	}
 
 	if q.pageToken != "" {
@@ -451,6 +481,10 @@ func (b *InMemoryBackend) ListStepEntries(execName string, q stepListQuery) (*li
 
 // GetStepEntry returns one step entry of an execution.
 func (b *InMemoryBackend) GetStepEntry(name, view string) (*stepEntryJSON, error) {
+	if err := validEntryView(view); err != nil {
+		return nil, err
+	}
+
 	execName, id, ok := splitStepEntryName(name)
 	if !ok {
 		return nil, errInvalid("Invalid step entry name %q.", name)

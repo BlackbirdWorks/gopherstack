@@ -88,6 +88,19 @@ func (r *rctx) stepType(s *step) string {
 
 func (r *rctx) loggedStep(sc *scope, s *step) (outcome, error) {
 	h := r.x.host
+
+	logOn, vars := true, h.StepVariables
+	if h.StepBudget != nil {
+		var wantVars bool
+
+		logOn, wantVars = h.StepBudget()
+		vars = vars && wantVars
+	}
+
+	if !logOn {
+		return r.execStep(sc, s)
+	}
+
 	id := r.x.entry.Add(1)
 	parent, prev := r.cur, r.prev
 
@@ -112,7 +125,7 @@ func (r *rctx) loggedStep(sc *scope, s *step) (outcome, error) {
 		}
 	}
 
-	if h.StepVariables {
+	if vars {
 		ev.Vars = sc.snapshot()
 	}
 

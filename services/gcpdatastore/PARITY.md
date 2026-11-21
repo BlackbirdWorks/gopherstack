@@ -30,6 +30,7 @@ families:
   auth: {status: partial, note: "No request is authenticated or authorised."}
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; RPC failures are logged at debug. The dashboard has a Datastore page (entity browser, GQL, index listing with state)."}
 items_still_open:
+  - "IndexOperationMetadata.progress_entities is never populated for index builds (index_ops.go startIndexOpLocked)."
 leaks: {status: clean, note: "Background resources are the grpc.Server and its serve goroutines, joined by Shutdown, and one timer per pending index operation, stopped by Shutdown, Reset and Restore."}
 ---
 

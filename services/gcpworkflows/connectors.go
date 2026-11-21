@@ -51,7 +51,6 @@ const (
 	fsPrefix   = "googleapis.firestore.v1.projects.databases.documents."
 	storageV1  = "googleapis.storage.v1."
 	ctPrefix   = "googleapis.cloudtasks.v2.projects.locations.queues."
-	kmsPrefix  = "googleapis.cloudkms.v1.projects.locations.keyRings.cryptoKeys."
 	cbPrefix   = "googleapis.cloudbuild.v1.projects.builds."
 	wePrefix   = "googleapis.workflowexecutions.v1.projects.locations.workflows.executions."
 	pathV2Name = "/v2/{+name}"
@@ -102,11 +101,6 @@ func connectors() map[string]connDef {
 		ctPrefix + "tasks.list":   {get, svcCloudTasks, "/v2/{+parent}/tasks", false},
 		ctPrefix + "tasks.delete": {del, svcCloudTasks, pathV2Name, false},
 		ctPrefix + "tasks.run":    {post, svcCloudTasks, "/v2/{+name}:run", false},
-
-		kmsPrefix + "encrypt": {post, svcKMS, "/v1/{+name}:encrypt", false},
-		kmsPrefix + "decrypt": {post, svcKMS, "/v1/{+name}:decrypt", false},
-
-		"googleapis.logging.v2.entries.write": {post, svcLogging, "/v2/entries:write", false},
 
 		cbPrefix + "create": {post, svcCloudBuild, pathBuild, true},
 		cbPrefix + "get":    {get, svcCloudBuild, pathBuild + "/{id}", false},
