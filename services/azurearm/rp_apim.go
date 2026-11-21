@@ -141,6 +141,7 @@ type APIMProvider struct {
 	quotas        *apimQuotaStore
 	cache         *apimCache
 	jwks          *apimJWKS
+	bg            *apimBG
 	certClients   *apimCertClients
 	rootCAs       *x509.CertPool
 	oneWay        chan struct{}
@@ -154,11 +155,20 @@ type APIMProvider struct {
 // NewAPIMProvider creates an APIMProvider.
 func NewAPIMProvider() *APIMProvider {
 	p := &APIMProvider{
-		now: time.Now, mu: lockmetrics.New("azurearm.apim"), svcs: map[string]*apimService{}, ops: map[string]*apimOp{},
-		limiter: newAPIMLimiter(), quotas: newAPIMQuotaStore(), cache: newAPIMCache(), jwks: newAPIMJWKS(),
-		certClients: newAPIMCertClients(),
-		oneWay:      make(chan struct{}, apimMaxOneWay), wsSlots: make(chan struct{}, apimWSMaxSessions),
-		fastActivate: apimActivateFast, classicActive: apimActivateClassic,
+		now:           time.Now,
+		mu:            lockmetrics.New("azurearm.apim"),
+		svcs:          map[string]*apimService{},
+		ops:           map[string]*apimOp{},
+		limiter:       newAPIMLimiter(),
+		quotas:        newAPIMQuotaStore(),
+		cache:         newAPIMCache(),
+		jwks:          newAPIMJWKS(),
+		bg:            newAPIMBG(),
+		certClients:   newAPIMCertClients(),
+		oneWay:        make(chan struct{}, apimMaxOneWay),
+		wsSlots:       make(chan struct{}, apimWSMaxSessions),
+		fastActivate:  apimActivateFast,
+		classicActive: apimActivateClassic,
 	}
 	p.client = p.newBackendClient()
 
@@ -718,6 +728,7 @@ func (p *APIMProvider) ListKeys(context.Context, ResourceID) (map[string]any, er
 
 // Reset implements ResourceProvider.
 func (p *APIMProvider) Reset() {
+	p.bg.stop(false)
 	p.mu.Lock(apimCReset)
 	p.svcs = map[string]*apimService{}
 	p.ops = map[string]*apimOp{}

@@ -261,7 +261,17 @@ func (g *gwState) sendOneWay(n *polNode) {
 		return
 	}
 
+	id, ok := g.p.bg.begin(cancel)
+	if !ok {
+		<-g.p.oneWay
+		cancel()
+		g.failR(http.StatusServiceUnavailable, "BackendConnectionFailure", "The gateway is shutting down.")
+
+		return
+	}
+
 	go func() {
+		defer g.p.bg.end(id)
 		defer func() { <-g.p.oneWay }()
 		defer cancel()
 

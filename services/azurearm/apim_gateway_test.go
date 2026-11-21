@@ -1,7 +1,6 @@
 package azurearm_test
 
 import (
-	"context"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"io"
@@ -485,11 +484,11 @@ func TestAPIMGateway_Persistence(t *testing.T) {
 		http.StatusCreated,
 	)
 
-	data := e.handler.Snapshot(context.Background())
+	data := e.handler.Snapshot(t.Context())
 	require.NotEmpty(t, data)
 
 	fresh := newAPIMStack(t)
-	require.NoError(t, fresh.handler.Restore(context.Background(), data))
+	require.NoError(t, fresh.handler.Restore(t.Context(), data))
 	fresh.clock.Advance(2 * time.Hour)
 
 	got, err := fresh.f.NewServiceClient().Get(t.Context(), apimRG, apimSvc, nil)
@@ -517,7 +516,7 @@ func TestAPIMGateway_Persistence(t *testing.T) {
 	assert.Equal(t, 3, ops)
 
 	empty := newAPIMStack(t)
-	require.NoError(t, fresh.handler.Restore(context.Background(), empty.handler.Snapshot(context.Background())))
+	require.NoError(t, fresh.handler.Restore(t.Context(), empty.handler.Snapshot(t.Context())))
 
 	_, err = fresh.f.NewServiceClient().Get(t.Context(), apimRG, apimSvc, nil)
 	require.Error(t, err)

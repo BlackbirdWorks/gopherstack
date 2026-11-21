@@ -1,6 +1,7 @@
 package azurearm
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -87,6 +88,19 @@ func (g *gwState) proxyWebSocket(u *url.URL) {
 		return
 	}
 
+	ctx, cancel := context.WithCancel(g.r.Context())
+
+	id, ok := g.p.bg.begin(cancel)
+	if !ok {
+		cancel()
+		g.failR(http.StatusServiceUnavailable, "BackendConnectionFailure", "The gateway is shutting down.")
+
+		return
+	}
+
+	defer g.p.bg.end(id)
+	defer cancel()
+
 	rp := &httputil.ReverseProxy{
 		Transport: wsTransport{base: g.httpClient().Transport, max: apimWSMaxLifetime},
 		Rewrite: func(pr *httputil.ProxyRequest) {
@@ -97,11 +111,16 @@ func (g *gwState) proxyWebSocket(u *url.URL) {
 			pr.Out.Header.Set(apimHeaderXForward, hostOnly(g.r.RemoteAddr))
 			pr.Out.Header.Set("Upgrade", "websocket")
 			pr.Out.Header.Set("Connection", "Upgrade")
+			g.applyCredentials(pr.Out)
+
+			if g.basicAuth != "" {
+				pr.Out.Header.Set(apimCAuthorizationX, g.basicAuth)
+			}
 		},
 		ErrorHandler: func(_ http.ResponseWriter, _ *http.Request, err error) { g.upstreamError(err) },
 	}
 
-	rp.ServeHTTP(g.w, g.r)
+	rp.ServeHTTP(g.w, g.r.WithContext(ctx))
 
 	if !g.errored {
 		g.wrote = true

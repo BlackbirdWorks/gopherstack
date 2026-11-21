@@ -27,6 +27,15 @@ const (
 	apimCDuration         = "duration"
 )
 
+// apimUncacheableHeaders are per-client or per-connection headers; the docs are silent, so a cached response
+// never replays them to another client (emulator choice).
+func apimUncacheableHeaders() []string {
+	return []string{
+		"Set-Cookie", "Set-Cookie2", "Connection", "Keep-Alive", "Proxy-Authenticate", "Proxy-Authorization", "Te",
+		"Trailer", "Transfer-Encoding", "Upgrade",
+	}
+}
+
 type gwCacheKey struct {
 	lookup *polNode
 	key    string
@@ -132,8 +141,11 @@ func (g *gwState) cacheStore(n *polNode) {
 	g.respBody = io.NopCloser(bytes.NewReader(body))
 
 	h := http.Header{}
+
 	for k, v := range g.respHeader {
-		h[k] = slices.Clone(v)
+		if !slices.Contains(apimUncacheableHeaders(), k) {
+			h[k] = slices.Clone(v)
+		}
 	}
 
 	ttl := time.Duration(secs) * time.Second
