@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/orcio"
@@ -253,15 +254,14 @@ type quotedCSV struct {
 
 func splitQuotedCSV(text string, delim, q rune) ([][]string, error) {
 	p := &quotedCSV{delim: delim, quote: q, start: true}
-	rs := []rune(text)
 
-	for i := 0; i < len(rs); i++ {
-		skip, err := p.step(rs, i)
+	for i := 0; i < len(text); {
+		n, err := p.step(text, i)
 		if err != nil {
 			return nil, err
 		}
 
-		i += skip
+		i += n
 	}
 
 	if p.quoted {
@@ -283,17 +283,25 @@ func (p *quotedCSV) flush() {
 	p.wasQ, p.start = false, true
 }
 
-// step consumes rs[i] and returns how many further runes it consumed.
-func (p *quotedCSV) step(rs []rune, i int) (int, error) {
-	c := rs[i]
+// step consumes the rune at text[i] (plus a following doubled quote or LF of a CRLF) and returns the bytes used.
+func (p *quotedCSV) step(text string, i int) (int, error) {
+	c, w := utf8.DecodeRuneInString(text[i:])
 
-	var next rune
-	if i+1 < len(rs) {
-		next = rs[i+1]
+	var (
+		next rune
+		nw   int
+	)
+
+	if i+w < len(text) {
+		next, nw = utf8.DecodeRuneInString(text[i+w:])
 	}
 
 	if p.quoted {
-		return p.inQuotes(c, next), nil
+		if p.inQuotes(c, next) {
+			return w + nw, nil
+		}
+
+		return w, nil
 	}
 
 	switch {
@@ -307,7 +315,7 @@ func (p *quotedCSV) step(rs []rune, i int) (int, error) {
 		p.recs, p.rec = append(p.recs, p.rec), nil
 
 		if c == '\r' {
-			return 1, nil
+			return w + 1, nil
 		}
 	case p.wasQ:
 		return 0, fmt.Errorf("%w: data between close quote and field separator", errLoad)
@@ -317,20 +325,21 @@ func (p *quotedCSV) step(rs []rune, i int) (int, error) {
 		p.start = false
 	}
 
-	return 0, nil
+	return w, nil
 }
 
-func (p *quotedCSV) inQuotes(c, next rune) int {
+// inQuotes consumes c inside a quoted field and reports whether it also swallowed a doubled quote's second half.
+func (p *quotedCSV) inQuotes(c, next rune) bool {
 	switch {
 	case c == p.quote && next == p.quote:
 		p.field.WriteRune(p.quote)
 
-		return 1
+		return true
 	case c == p.quote:
 		p.quoted = false
 	default:
 		p.field.WriteRune(c)
 	}
 
-	return 0
+	return false
 }

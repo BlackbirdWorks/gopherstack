@@ -99,6 +99,7 @@ Pass 2026-11-14: row access policies per https://docs.cloud.google.com/bigquery/
 
 ## Emulator choices where the vendor is silent (additions)
 
+- An extract job with more than 500 destinationUris is 400 invalid: quotas page documents 500 wildcard URIs per extract job and states no limit on destinationUris, so the emulator applies 500 to every URI.
 - Group grantees never match a caller because group membership is unknown; domain: matches the caller's email domain.
 - Row access policy filters are evaluated per row with NULL treated as FALSE; DML and extract ignore policies; tabledata.list on a protected table is 403 accessDenied.
 - Dropping the last row access policy without DROP ALL or force is 400 with the emulator's own message.

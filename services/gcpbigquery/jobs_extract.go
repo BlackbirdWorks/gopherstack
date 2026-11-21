@@ -51,6 +51,9 @@ func decodeExtract(cfg map[string]any) extractConfig {
 	return ec
 }
 
+// maxExtractURIs is the documented 500 wildcard URIs per extract job, applied to every destination URI.
+const maxExtractURIs = 500
+
 type extractFile struct {
 	uri   string
 	ctype string
@@ -74,6 +77,10 @@ func (b *InMemoryBackend) execExtractPlan(cfg map[string]any, plan bool) (*outco
 
 	if ids["tableId"] == "" || len(ec.URIs) == 0 {
 		return nil, nil, errInvalid("Required parameter is missing: extract sourceTable and destinationUris")
+	}
+
+	if len(ec.URIs) > maxExtractURIs {
+		return nil, nil, errInvalid("Too many destination URIs: an extract job can have at most %d", maxExtractURIs)
 	}
 
 	_, t, err := b.tableLocked(ids[litProjectid], ids["datasetId"], ids["tableId"])

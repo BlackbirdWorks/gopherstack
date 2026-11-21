@@ -1,13 +1,16 @@
 package gcpbigquery_test
 
 import (
+	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
 	"cloud.google.com/go/bigquery"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/api/googleapi"
 )
 
 func runExtract(
@@ -180,6 +183,49 @@ func TestAvroExtractRoundTrip(t *testing.T) {
 
 			assert.Equal(t,
 				env.rows(t, "SELECT * FROM av.src ORDER BY id"), env.rows(t, "SELECT * FROM av.back ORDER BY id"))
+		})
+	}
+}
+
+func TestExtractURILimit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		wantErr string
+		uris    int
+	}{
+		{name: "at limit", uris: 500},
+		{name: "over limit", uris: 501, wantErr: "Too many destination URIs"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			env := newSDK(t)
+			ds := env.dataset(t, "ex")
+			_, err := env.client.Query("CREATE TABLE ex.src AS SELECT 1 AS id").Run(t.Context())
+			require.NoError(t, err)
+
+			uris := make([]string, tt.uris)
+			for i := range uris {
+				uris[i] = "gs://b/o" + strconv.Itoa(i) + "-*.csv"
+			}
+
+			_, err = ds.Table("src").ExtractorTo(bigquery.NewGCSReference(uris...)).Run(t.Context())
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+
+				var apiErr *googleapi.Error
+
+				require.ErrorAs(t, err, &apiErr)
+				assert.Equal(t, http.StatusBadRequest, apiErr.Code)
+
+				return
+			}
+
+			require.NoError(t, err)
 		})
 	}
 }
