@@ -65,7 +65,7 @@ type APIKey struct {
 }
 
 // Credential is an auth token, secret key or SMTP credential.
-// Auth tokens keep only a digest; the other kinds keep their secret.
+// Only customer secret keys keep their secret (HMAC needs it); the others keep a salted digest.
 type Credential struct {
 	TimeCreated time.Time `json:"timeCreated"`
 	ID          string    `json:"id"`

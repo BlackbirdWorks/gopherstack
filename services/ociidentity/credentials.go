@@ -302,7 +302,8 @@ func (b *InMemoryBackend) CreateCredential(userID string, kind credKind, text, t
 	case kindSecretKey:
 		c.ID, c.Secret = hex.EncodeToString(randBytes(accessKeyBytes)), secret
 	case kindSMTP:
-		c.Username, c.Secret = userID+"@"+TenancyID+"."+smtpDomainTag+".com", secret
+		c.Username = userID + "@" + TenancyID + "." + smtpDomainTag + ".com"
+		c.Salt, c.Digest = hashAuthToken(secret)
 	case kindAuthToken:
 		c.Salt, c.Digest = hashAuthToken(secret)
 	}
@@ -310,7 +311,7 @@ func (b *InMemoryBackend) CreateCredential(userID string, kind credKind, text, t
 	*slot = append(*slot, c)
 	b.retry.Remember(scope, token, c.ID, b.nowUTC())
 
-	if token != "" && kind.name == kindAuthToken {
+	if token != "" && kind.name != kindSecretKey {
 		b.authReplay[c.ID] = replaySecret{secret: secret, at: b.nowUTC()}
 	}
 
@@ -378,6 +379,7 @@ func (b *InMemoryBackend) DeleteCredential(userID, id string, kind credKind) err
 		return errNotFound(id)
 	}
 
+	delete(b.authReplay, id)
 	*slot = slices.Delete(*slot, idx, idx+1)
 
 	return nil
@@ -438,6 +440,12 @@ func (b *InMemoryBackend) ResetUIPasswordWithToken(userID, token string) (uiPass
 	pw := newUIPassword()
 	u.UIPasswordSalt, u.UIPasswordDigest = hashAuthToken(pw)
 	b.retry.Remember(scope, token, userID, now)
+
+	for k := range b.authReplay {
+		if strings.HasPrefix(k, scope+"|") {
+			delete(b.authReplay, k)
+		}
+	}
 
 	if token != "" {
 		b.authReplay[scope+"|"+token] = replaySecret{secret: pw, at: now}

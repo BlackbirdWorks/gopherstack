@@ -21,6 +21,7 @@ const (
 
 	maxBulkResources = 1000
 	maxBulkOps       = 50
+	maxTagsPerRes    = 64
 	bulkStartDelay   = transitionWindow / 2
 
 	statusAccepted  = "ACCEPTED"
@@ -217,7 +218,9 @@ func (b *InMemoryBackend) BulkEditTags(in BulkEditTagsIn) (string, error) {
 	b.mu.Lock("BulkEditTags")
 	defer b.mu.Unlock()
 
-	if v, ok := b.retry.Lookup("BulkEditTags", in.RetryToken, b.nowUTC()); ok {
+	scope := "BulkEditTags/" + in.CompartmentID
+
+	if v, ok := b.retry.Lookup(scope, in.RetryToken, b.nowUTC()); ok {
 		return v, nil
 	}
 
@@ -226,7 +229,7 @@ func (b *InMemoryBackend) BulkEditTags(in BulkEditTagsIn) (string, error) {
 	}
 
 	wr := b.newBulkWR(wrBulkEditTags, in.CompartmentID, &BulkJob{Targets: targets, Ops: ops})
-	b.retry.Remember("BulkEditTags", in.RetryToken, wr.ID, b.nowUTC())
+	b.retry.Remember(scope, in.RetryToken, wr.ID, b.nowUTC())
 
 	return wr.ID, nil
 }
@@ -402,6 +405,45 @@ func removeDefined(out map[string]map[string]any, nsKey, tagKey string) {
 	}
 }
 
+func scalarTagValue(v any) bool {
+	switch v.(type) {
+	case float64, bool:
+		return true
+	default:
+		return false
+	}
+}
+
+func definedTagCount(m map[string]map[string]any) int {
+	n := 0
+	for _, keys := range m {
+		n += len(keys)
+	}
+
+	return n
+}
+
+func checkBulkValue(n *TagNamespace, d *TagDef, val any) string {
+	s, isStr := val.(string)
+	if !isStr && !scalarTagValue(val) {
+		return "Tag " + n.Name + "." + d.Name + " value must be a string, number or boolean"
+	}
+
+	if isStr {
+		if aerr := validateTagValue(d, s); aerr != nil {
+			return aerr.Message
+		}
+
+		return ""
+	}
+
+	if kind, _ := d.Validator["validatorType"].(string); strs.Equal(kind, "ENUM") {
+		return "Tag " + n.Name + "." + d.Name + " has an ENUM validator and takes only string values"
+	}
+
+	return ""
+}
+
 func applyBulkOp(out map[string]map[string]any, opType string, n *TagNamespace, d *TagDef, val any) string {
 	nsKey, nsOK := foldKey(out, n.Name)
 	if !nsOK {
@@ -425,10 +467,8 @@ func applyBulkOp(out map[string]map[string]any, opType string, n *TagNamespace, 
 		return "Tag " + n.Name + "." + d.Name + " is retired and cannot be applied"
 	}
 
-	if s, isStr := val.(string); isStr {
-		if aerr := validateTagValue(d, s); aerr != nil {
-			return aerr.Message
-		}
+	if msg := checkBulkValue(n, d, val); msg != "" {
+		return msg
 	}
 
 	if (opType == bulkAdd && present) || (opType == bulkSet && !present) {
@@ -476,6 +516,12 @@ func (b *InMemoryBackend) applyBulkEdit(wr *WorkRequest) {
 		edited, msg := b.editDefined(res.meta.DefinedTags, job.Ops)
 		if msg != "" {
 			fail("InvalidParameter", t.ID+": "+msg)
+
+			continue
+		}
+
+		if definedTagCount(edited)+len(res.meta.FreeformTags) > maxTagsPerRes {
+			fail("LimitExceeded", t.ID+": a resource holds at most 64 tags")
 
 			continue
 		}

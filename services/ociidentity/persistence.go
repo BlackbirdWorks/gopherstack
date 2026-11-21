@@ -89,6 +89,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.retry.Load(snap.Retry)
 	b.authReplay = map[string]replaySecret{}
+	b.digestLegacySMTP()
 	b.Auth.Load(snap.Auth)
 
 	return nil
@@ -137,4 +138,16 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	}
 
 	return nil
+}
+
+// digestLegacySMTP replaces plaintext SMTP passwords from older snapshots with a salted digest.
+func (b *InMemoryBackend) digestLegacySMTP() {
+	for _, u := range b.users {
+		for i := range u.SMTP {
+			if c := &u.SMTP[i]; c.Secret != "" {
+				c.Salt, c.Digest = hashAuthToken(c.Secret)
+				c.Secret = ""
+			}
+		}
+	}
 }

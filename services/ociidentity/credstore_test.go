@@ -237,6 +237,7 @@ func TestStoredCredentialsSurviveRestore(t *testing.T) {
 
 	snap := e.backend.Snapshot(t.Context())
 	assert.NotContains(t, string(snap), *pw.Password, "the console password is kept only as a digest")
+	assert.NotContains(t, string(snap), smtpPW, "the SMTP password is kept only as a digest")
 
 	fresh := oci.NewInMemoryBackend()
 	fresh.SetClock(e.clock.Now)
@@ -276,7 +277,7 @@ func TestStoredCredentialsSurviveRestore(t *testing.T) {
 	h := oci.NewHandler(restored)
 	h.Port = 0
 	require.NoError(t, h.StartWorker(t.Context()))
-	t.Cleanup(func() { h.Shutdown(context.Background()) })
+	t.Cleanup(func() { h.Shutdown(context.WithoutCancel(t.Context())) })
 
 	e2 := &env{
 		backend: restored,
@@ -290,7 +291,6 @@ func TestStoredCredentialsSurviveRestore(t *testing.T) {
 	_, _, err = cases[0].create(t, e2, *u.Id, "auth", "a")
 	assert.Equal(t, "InvalidatedRetryToken", svcErr(t, err).GetCode(), "the auth token plaintext is not persisted")
 
-	_, sec, err := cases[2].create(t, e2, *u.Id, "tok", "s")
-	require.NoError(t, err, "an SMTP replay survives a restart because its secret is stored")
-	assert.Equal(t, smtpPW, sec)
+	_, _, err = cases[2].create(t, e2, *u.Id, "tok", "s")
+	assert.Equal(t, "InvalidatedRetryToken", svcErr(t, err).GetCode(), "the SMTP plaintext is not persisted")
 }

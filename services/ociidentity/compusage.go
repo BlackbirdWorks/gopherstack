@@ -1,5 +1,11 @@
 package ociidentity
 
+import (
+	"context"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+)
+
 // CompartmentUsage names a resource another service still holds in a compartment, or returns "".
 type CompartmentUsage func(compartmentID string) string
 
@@ -17,10 +23,29 @@ func (b *InMemoryBackend) usageFuncs() []CompartmentUsage {
 	return append([]CompartmentUsage(nil), b.usage...)
 }
 
+// safeUsage runs a hook; a panicking hook is logged and treated as holding nothing, so it cannot kill the sweeper
+// or fail every DeleteCompartment.
+func safeUsage(fn CompartmentUsage, id string) string {
+	what := ""
+
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				ctx := context.Background()
+				logger.Load(ctx).ErrorContext(ctx, "ociidentity: compartment usage hook panicked", "panic", r)
+			}
+		}()
+
+		what = fn(id)
+	}()
+
+	return what
+}
+
 // foreignUsage asks the other services without holding the backend lock.
 func (b *InMemoryBackend) foreignUsage(id string) string {
 	for _, fn := range b.usageFuncs() {
-		if what := fn(id); what != "" {
+		if what := safeUsage(fn, id); what != "" {
 			return what
 		}
 	}

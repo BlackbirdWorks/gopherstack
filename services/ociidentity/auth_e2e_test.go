@@ -29,7 +29,7 @@ func storageEnv(t *testing.T, e *env, link bool) string {
 	}
 
 	require.NoError(t, h.StartWorker(t.Context()))
-	t.Cleanup(func() { h.Shutdown(context.Background()) })
+	t.Cleanup(func() { h.Shutdown(context.WithoutCancel(t.Context())) })
 
 	return fmt.Sprintf("http://localhost:%d", h.Port)
 }

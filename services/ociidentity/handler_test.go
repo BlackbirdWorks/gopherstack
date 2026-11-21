@@ -2,7 +2,6 @@ package ociidentity_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json/v2"
 	"net/http"
 	"testing"
@@ -19,7 +18,7 @@ import (
 func rawDo(t *testing.T, method, url string, body []byte) (*http.Response, []byte) {
 	t.Helper()
 
-	req, err := http.NewRequestWithContext(context.Background(), method, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(t.Context(), method, url, bytes.NewReader(body))
 	require.NoError(t, err)
 
 	resp, err := testclient.New(t).Do(req)

@@ -92,13 +92,17 @@ func validIPOrCIDR(s string) bool {
 		return err == nil
 	}
 
-	_, err := netip.ParseAddr(s)
+	a, err := netip.ParseAddr(s)
 
-	return err == nil
+	return err == nil && a.Zone() == ""
 }
 
-func validSources(public []string, virtual []VirtualSource) *APIError {
+func validSources(public []string, virtual []VirtualSource, services []string) *APIError {
 	total := len(public)
+
+	if len(services) > maxSourceEntries {
+		return errLimit("A network source holds at most 500 services")
+	}
 
 	for _, ip := range public {
 		if !validIPOrCIDR(ip) {
@@ -150,7 +154,7 @@ func (b *InMemoryBackend) CreateNetworkSource(in CreateNetworkSourceIn) (Network
 		return NetworkSourceWire{}, "", aerr
 	}
 
-	if aerr := validSources(in.PublicSourceList, in.VirtualSourceList); aerr != nil {
+	if aerr := validSources(in.PublicSourceList, in.VirtualSourceList, in.Services); aerr != nil {
 		return NetworkSourceWire{}, "", aerr
 	}
 
@@ -253,7 +257,7 @@ func (b *InMemoryBackend) UpdateNetworkSource(
 		virtual = in.VirtualSourceList
 	}
 
-	if aerr = validSources(public, virtual); aerr != nil {
+	if aerr = validSources(public, virtual, in.Services); aerr != nil {
 		return NetworkSourceWire{}, "", aerr
 	}
 

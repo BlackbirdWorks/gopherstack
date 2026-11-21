@@ -1,10 +1,12 @@
 package ociidentity
 
 import (
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"io"
 	"maps"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -177,6 +179,10 @@ func (p *samlParser) certificate(t xml.StartElement) *APIError {
 	p.stack = p.stack[:len(p.stack)-1]
 	p.info.certificate = strings.Join(strings.Fields(cert), "")
 
+	if _, err := base64.StdEncoding.DecodeString(p.info.certificate); err != nil {
+		return errParam("metadata X509Certificate is not base64")
+	}
+
 	return nil
 }
 
@@ -228,6 +234,10 @@ func parseSAMLMetadata(doc string) (samlInfo, *APIError) {
 		}
 	}
 
+	return p.finish()
+}
+
+func (p *samlParser) finish() (samlInfo, *APIError) {
 	if !p.sawEntity || !p.sawIDPDesc {
 		return samlInfo{}, errParam("metadata must describe a SAML2 IDPSSODescriptor")
 	}
@@ -238,6 +248,11 @@ func parseSAMLMetadata(doc string) (samlInfo, *APIError) {
 
 	if p.info.certificate == "" || p.info.redirectURL == "" {
 		return samlInfo{}, errParam("metadata must contain a signing certificate and a SingleSignOnService location")
+	}
+
+	u, err := url.Parse(p.info.redirectURL)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		return samlInfo{}, errParam("metadata SingleSignOnService location must be an http or https URL")
 	}
 
 	return p.info, nil
@@ -411,26 +426,39 @@ func (b *InMemoryBackend) ListIdentityProviders(
 	return listNamed(b.idps, f, o, acc, (*IdentityProvider).view), nil
 }
 
+func validIDPUpdate(in UpdateIDPIn) (samlInfo, *APIError) {
+	if in.Protocol != "" && in.Protocol != protocolSAML2 {
+		return samlInfo{}, errParam("protocol must be SAML2")
+	}
+
+	if in.Description != nil {
+		if aerr := validateDescription(*in.Description); aerr != nil {
+			return samlInfo{}, aerr
+		}
+	}
+
+	if in.MetadataURL != nil && *in.MetadataURL == "" {
+		return samlInfo{}, errParam("metadataUrl must not be empty")
+	}
+
+	if aerr := validFreeformAttrs(in.FreeformAttributes); aerr != nil {
+		return samlInfo{}, aerr
+	}
+
+	if in.Metadata == nil {
+		return samlInfo{}, nil
+	}
+
+	return parseSAMLMetadata(*in.Metadata)
+}
+
 // UpdateIdentityProvider changes the description, metadata, attributes and tags.
 func (b *InMemoryBackend) UpdateIdentityProvider(
 	id, ifMatch string,
 	in UpdateIDPIn,
 ) (IdentityProviderWire, string, error) {
-	if in.Protocol != "" && in.Protocol != protocolSAML2 {
-		return IdentityProviderWire{}, "", errParam("protocol must be SAML2")
-	}
-
-	var info samlInfo
-
-	if in.Metadata != nil {
-		var aerr *APIError
-
-		if info, aerr = parseSAMLMetadata(*in.Metadata); aerr != nil {
-			return IdentityProviderWire{}, "", aerr
-		}
-	}
-
-	if aerr := validFreeformAttrs(in.FreeformAttributes); aerr != nil {
+	info, aerr := validIDPUpdate(in)
+	if aerr != nil {
 		return IdentityProviderWire{}, "", aerr
 	}
 
@@ -447,18 +475,10 @@ func (b *InMemoryBackend) UpdateIdentityProvider(
 	}
 
 	if in.Description != nil {
-		if aerr = validateDescription(*in.Description); aerr != nil {
-			return IdentityProviderWire{}, "", aerr
-		}
-
 		p.Description = *in.Description
 	}
 
 	if in.MetadataURL != nil {
-		if *in.MetadataURL == "" {
-			return IdentityProviderWire{}, "", errParam("metadataUrl must not be empty")
-		}
-
 		p.MetadataURL = *in.MetadataURL
 	}
 

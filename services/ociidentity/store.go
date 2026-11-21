@@ -43,6 +43,7 @@ type InMemoryBackend struct {
 	tagNS       map[string]*TagNamespace
 	netSources  map[string]*NetworkSource
 	now         func() time.Time
+	derive      func(secret string, salt []byte) []byte
 	tagDefaults map[string]*TagDefault
 	mu          *lockmetrics.RWMutex
 	regionSubs  map[string]*RegionSubscription
@@ -59,7 +60,9 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates an empty backend.
 func NewInMemoryBackend() *InMemoryBackend {
-	b := &InMemoryBackend{mu: lockmetrics.New("ociidentity"), now: time.Now, Auth: ociauth.NewRegistry()}
+	b := &InMemoryBackend{
+		mu: lockmetrics.New("ociidentity"), now: time.Now, Auth: ociauth.NewRegistry(), derive: deriveAuthToken,
+	}
 	b.initMaps()
 	b.created = b.nowUTC()
 
@@ -153,6 +156,7 @@ func (b *InMemoryBackend) Sweep() {
 	defer b.mu.Unlock()
 
 	now := b.nowUTC()
+	b.pruneReplay(now)
 	b.sweepBulk(now)
 
 	for _, c := range b.compartment {
