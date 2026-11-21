@@ -66,7 +66,7 @@ leaks: {status: clean, note: "StartWorker's http.Server is stopped by Shutdown (
 
 ## Metadata name case
 
-The listener wraps each accepted connection (rawheaders.go) to frame its HTTP/1.1 requests (Content-Length and chunked bodies, pipelining) and remember the x-ms-meta-* names as sent; the handler renames the canonicalised request headers back before parsing metadata, and responses write x-ms-meta-<name> with the stored case. Requests served through a non-listener harness (httptest) keep Go's canonical case.
+The listener wraps each accepted plaintext connection (rawheaders.go) to follow HTTP/1.1 request framing and remember x-ms-meta-* names as sent; net/http canonicalises names while parsing. The tracker fails safe: anything it cannot frame exactly as net/http does (Content-Length with Transfer-Encoding, duplicate or malformed lengths, non-chunked codings, obs-fold, bare LF, Upgrade, CONNECT, non-HTTP/1.1, oversized heads or chunk sizes) stops recording for that connection. A recorded head is applied only when its request line and metadata values equal the request net/http parsed, so mismatched framing yields Go's canonical case, never another request's names. Duplicate metadata names (including ones differing only in case) get 400 InvalidMetadata. Requests served through a non-listener harness (httptest) keep Go's canonical case; responses write x-ms-meta-<name> in the stored case.
 
 ## 2026-11-05 enforcement pass (history)
 

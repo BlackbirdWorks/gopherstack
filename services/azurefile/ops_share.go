@@ -24,6 +24,10 @@ func metadataFromHeaders(h http.Header) (map[string]string, *apiError) {
 				md = make(map[string]string)
 			}
 
+			if len(v) > 1 {
+				return nil, newErr(http.StatusBadRequest, "InvalidMetadata", "The metadata specified is invalid.")
+			}
+
 			md[k[len(metaPrefix):]] = v[0]
 		}
 	}

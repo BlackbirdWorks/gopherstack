@@ -406,7 +406,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	log.InfoContext(workerCtx, "azurefile: starting dedicated listener", "port", h.Port)
 
 	go func() {
-		tracked := trackedListener{Listener: listener, mu: h.srvMu}
+		tracked := trackedListener{Listener: listener}
 
 		if serveErr := srv.Serve(tracked); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 			log.ErrorContext(workerCtx, "azurefile: listener stopped", "error", serveErr)
