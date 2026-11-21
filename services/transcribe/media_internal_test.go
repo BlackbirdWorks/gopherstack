@@ -94,14 +94,9 @@ func TestParseWAV(t *testing.T) {
 
 	info, err := parseWAV(stereo)
 	require.NoError(t, err)
-	assert.True(t, info.isPCM16())
+	assert.Equal(t, wavFormatPCM, info.codec())
 	assert.Equal(t, 16000, info.sampleRate)
 	assert.Equal(t, 2, info.channels)
-
-	ch := info.channelPCM()
-	assert.Equal(t, [][]byte{{1, 0, 3, 0}, {2, 0, 4, 0}}, ch)
-	assert.Equal(t, []byte{1, 0}[:2], downmix([][]byte{{1, 0}, {1, 0}})[:2])
-	assert.Equal(t, 0, info.durationMillis())
 
 	for _, bad := range [][]byte{nil, []byte("RIFF"), []byte("RIFF\x00\x00\x00\x00WAVEdata\x00\x00\x00\x00")} {
 		_, err = parseWAV(bad)

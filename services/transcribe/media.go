@@ -164,6 +164,7 @@ type wavInfo struct {
 	channels   int
 	bits       int
 	formatTag  int
+	subTag     int
 }
 
 const (
@@ -204,6 +205,12 @@ func parseWAV(data []byte) (wavInfo, error) {
 			info.channels = int(binary.LittleEndian.Uint16(f[2:4]))
 			info.sampleRate = int(binary.LittleEndian.Uint32(f[4:8]))
 			info.bits = int(binary.LittleEndian.Uint16(f[14:16]))
+			info.subTag = 0
+
+			if info.formatTag == wavFormatExtensible && len(f) >= wavFmtExtMin {
+				info.subTag = int(binary.LittleEndian.Uint16(f[wavFmtExtSubTag:wavFmtExtMin]))
+			}
+
 			haveFmt = true
 		case "data":
 			if !haveFmt {
@@ -221,45 +228,16 @@ func parseWAV(data []byte) (wavInfo, error) {
 	return info, errBadWAV
 }
 
-// isPCM16 reports whether the WAV holds 16-bit linear PCM the engine can consume.
-func (w wavInfo) isPCM16() bool {
-	return (w.formatTag == wavFormatPCM || w.formatTag == wavFormatExtensible) && w.bits == pcmBits && w.channels > 0
+// codec is the effective format tag, resolving WAVE_FORMAT_EXTENSIBLE to its sub-format.
+func (w wavInfo) codec() int {
+	if w.formatTag == wavFormatExtensible {
+		return w.subTag
+	}
+
+	return w.formatTag
 }
 
 const (
 	pcmBits     = 16
 	bitsPerByte = 8
 )
-
-// channelPCM de-interleaves 16-bit PCM into one mono stream per channel.
-func (w wavInfo) channelPCM() [][]byte {
-	const sampleBytes = 2
-
-	frame := w.channels * sampleBytes
-	frames := len(w.pcm) / frame
-	out := make([][]byte, w.channels)
-
-	for c := range out {
-		out[c] = make([]byte, 0, frames*sampleBytes)
-	}
-
-	for i := range frames {
-		for c := range out {
-			off := i*frame + c*sampleBytes
-			out[c] = append(out[c], w.pcm[off], w.pcm[off+1])
-		}
-	}
-
-	return out
-}
-
-// durationMillis is the playing time of the audio data.
-func (w wavInfo) durationMillis() int {
-	if w.sampleRate == 0 || w.channels == 0 || w.bits == 0 {
-		return 0
-	}
-
-	bytesPerFrame := w.channels * max(w.bits/bitsPerByte, 1)
-
-	return len(w.pcm) / bytesPerFrame * millisPerSecond / w.sampleRate
-}
