@@ -432,8 +432,8 @@ func (b *InMemoryBackend) stepsOf(execName string) ([]*stepEntry, error) {
 	return out, nil
 }
 
-// ListStepEntries lists the step entries of an execution, ascending by entry id unless ordered otherwise.
-func (b *InMemoryBackend) ListStepEntries(execName string, q stepListQuery) (*listStepEntriesJSON, error) {
+// listStepEntries lists the step entries of an execution, ascending by entry id unless ordered otherwise.
+func (b *InMemoryBackend) listStepEntries(execName string, q stepListQuery) (*listStepEntriesJSON, error) {
 	if q.pageSize < 0 || q.skip < 0 {
 		return nil, errInvalid("page_size and skip must not be negative.")
 	}
@@ -479,8 +479,8 @@ func (b *InMemoryBackend) ListStepEntries(execName string, q stepListQuery) (*li
 	return &listStepEntriesJSON{StepEntries: out, NextPageToken: pg.Next, TotalSize: len(all)}, nil
 }
 
-// GetStepEntry returns one step entry of an execution.
-func (b *InMemoryBackend) GetStepEntry(name, view string) (*stepEntryJSON, error) {
+// getStepEntry returns one step entry of an execution.
+func (b *InMemoryBackend) getStepEntry(name, view string) (*stepEntryJSON, error) {
 	if err := validEntryView(view); err != nil {
 		return nil, err
 	}
@@ -591,13 +591,13 @@ func (b *InMemoryBackend) serveStepEntries(w http.ResponseWriter, r *http.Reques
 	)
 
 	if id != "" {
-		out, err = b.GetStepEntry(execName+"/"+stepEntriesSegment+"/"+id, q.Get("view"))
+		out, err = b.getStepEntry(execName+"/"+stepEntriesSegment+"/"+id, q.Get("view"))
 	} else {
 		var lq stepListQuery
 
 		lq, err = parseStepListQuery(q.Get)
 		if err == nil {
-			out, err = b.ListStepEntries(execName, lq)
+			out, err = b.listStepEntries(execName, lq)
 		}
 	}
 
