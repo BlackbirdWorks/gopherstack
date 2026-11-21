@@ -278,6 +278,10 @@ func (b *InMemoryBackend) addPeering(
 		return nil, err
 	}
 
+	if p.UpdateStrategy == stratConsensus {
+		applyConsensus(p, p.ExportCustomRoutes, p.ImportCustomRoutes)
+	}
+
 	n.Peerings = append(n.Peerings, p)
 
 	return b.newOpLocked("addPeering", netTarget(project, n), b.timing.Done), nil
@@ -373,6 +377,15 @@ func (b *InMemoryBackend) updatePeering(
 		cur.ImportCustomRoutes = in.ImportCustomRoutes
 	}
 
+	if cur.UpdateStrategy == stratConsensus {
+		_, back := b.peerSideLocked(n, cur)
+		if back != nil && back.UpdateStrategy != stratConsensus {
+			back = nil
+		}
+
+		proposeConsensusUpdate(cur, back)
+	}
+
 	return b.newOpLocked("updatePeering", netTarget(project, n), b.timing.Done), nil
 }
 
@@ -392,7 +405,7 @@ func (b *InMemoryBackend) customRoutesLocked(n *computeapi.Network) []*computeap
 func (b *InMemoryBackend) exportedRoutesLocked(
 	from *computeapi.Network,
 	exp *computeapi.NetworkPeering,
-	subnetImported, customImported bool,
+	exportCustom, subnetImported, customImported bool,
 ) []*computeapi.ExchangedPeeringRoute {
 	var out []*computeapi.ExchangedPeeringRoute
 
@@ -413,7 +426,7 @@ func (b *InMemoryBackend) exportedRoutesLocked(
 		}
 	}
 
-	if exp.ExportCustomRoutes {
+	if exportCustom {
 		customs := b.customRoutesLocked(from)
 		sort.Slice(customs, func(i, j int) bool { return customs[i].Name < customs[j].Name })
 
@@ -461,10 +474,14 @@ func (b *InMemoryBackend) listPeeringRoutes(project, name, peering, direction st
 		}
 
 		var routes []*computeapi.ExchangedPeeringRoute
+
+		localExp, localImp := appliedCustomRoutes(p)
+		peerExp, peerImp := appliedCustomRoutes(back)
+
 		if direction == dirOutgoing {
-			routes = b.exportedRoutesLocked(n, p, back.ExchangeSubnetRoutes, back.ImportCustomRoutes)
+			routes = b.exportedRoutesLocked(n, p, localExp, back.ExchangeSubnetRoutes, peerImp)
 		} else {
-			routes = b.exportedRoutesLocked(peer, back, p.ExchangeSubnetRoutes, p.ImportCustomRoutes)
+			routes = b.exportedRoutesLocked(peer, back, peerExp, p.ExchangeSubnetRoutes, localImp)
 		}
 
 		for _, r := range routes {
@@ -535,7 +552,23 @@ const (
 	deleteLocalCancel  = "LOCAL_CANCEL_REQUESTED"
 	deletePeerCancel   = "PEER_CANCEL_REQUESTED"
 	updateInSync       = "IN_SYNC"
+	updatePendingPeer  = "PENDING_PEER_ACKNOWLEDGEMENT"
+	updatePendingLocal = "PENDING_LOCAL_ACKNOWLEDMENT"
 )
+
+func consensusOf(p *computeapi.NetworkPeering) *computeapi.NetworkPeeringConnectionStatusConsensusState {
+	if p.ConnectionStatus == nil {
+		p.ConnectionStatus = &computeapi.NetworkPeeringConnectionStatus{}
+	}
+
+	if p.ConnectionStatus.ConsensusState == nil {
+		p.ConnectionStatus.ConsensusState = &computeapi.NetworkPeeringConnectionStatusConsensusState{
+			UpdateStatus: updateInSync,
+		}
+	}
+
+	return p.ConnectionStatus.ConsensusState
+}
 
 func storedDeleteIntent(p *computeapi.NetworkPeering) string {
 	if p == nil || p.ConnectionStatus == nil || p.ConnectionStatus.ConsensusState == nil {
@@ -546,15 +579,61 @@ func storedDeleteIntent(p *computeapi.NetworkPeering) string {
 }
 
 func setDeleteIntent(p *computeapi.NetworkPeering, v string) {
-	if v == "" {
-		p.ConnectionStatus = nil
+	consensusOf(p).DeleteStatus = v
+}
+
+// applyConsensus records the custom route settings in effect for p and its update status.
+func applyConsensus(p *computeapi.NetworkPeering, export, imp bool) {
+	consensusOf(p).UpdateStatus = updateInSync
+	p.ConnectionStatus.UpdateStrategy = stratConsensus
+	p.ConnectionStatus.TrafficConfiguration = &computeapi.NetworkPeeringConnectionStatusTrafficConfiguration{
+		ExportCustomRoutesToPeer: export, ImportCustomRoutesFromPeer: imp, StackType: p.StackType,
+	}
+}
+
+// appliedCustomRoutes returns the custom route settings in effect: for a CONSENSUS peering the last agreed ones.
+func appliedCustomRoutes(p *computeapi.NetworkPeering) (bool, bool) {
+	if p.UpdateStrategy == stratConsensus && p.ConnectionStatus != nil &&
+		p.ConnectionStatus.TrafficConfiguration != nil {
+		tc := p.ConnectionStatus.TrafficConfiguration
+
+		return tc.ExportCustomRoutesToPeer, tc.ImportCustomRoutesFromPeer
+	}
+
+	return p.ExportCustomRoutes, p.ImportCustomRoutes
+}
+
+// proposeConsensusUpdate applies a local custom route change under the CONSENSUS strategy: it takes effect once
+// the matching peering holds the complementary setting (one side's export equals the other side's import).
+func proposeConsensusUpdate(p, back *computeapi.NetworkPeering) {
+	curExp, curImp := appliedCustomRoutes(p)
+	changed := p.ExportCustomRoutes != curExp || p.ImportCustomRoutes != curImp
+
+	if back == nil || !changed {
+		applyConsensus(p, p.ExportCustomRoutes, p.ImportCustomRoutes)
+
+		if back != nil && !peerHasProposal(back) {
+			consensusOf(back).UpdateStatus = updateInSync
+		}
 
 		return
 	}
 
-	p.ConnectionStatus = &computeapi.NetworkPeeringConnectionStatus{
-		ConsensusState: &computeapi.NetworkPeeringConnectionStatusConsensusState{DeleteStatus: v},
+	if p.ExportCustomRoutes == back.ImportCustomRoutes && p.ImportCustomRoutes == back.ExportCustomRoutes {
+		applyConsensus(p, p.ExportCustomRoutes, p.ImportCustomRoutes)
+		applyConsensus(back, back.ExportCustomRoutes, back.ImportCustomRoutes)
+
+		return
 	}
+
+	consensusOf(p).UpdateStatus = updatePendingPeer
+	consensusOf(back).UpdateStatus = updatePendingLocal
+}
+
+func peerHasProposal(p *computeapi.NetworkPeering) bool {
+	exp, imp := appliedCustomRoutes(p)
+
+	return p.ExportCustomRoutes != exp || p.ImportCustomRoutes != imp
 }
 
 // deleteStatus derives the view of a consensus delete from the two stored local intents.
@@ -582,12 +661,46 @@ func connectionStatus(p, back *computeapi.NetworkPeering) *computeapi.NetworkPee
 		return nil
 	}
 
+	status := updateInSync
+	if p.ConnectionStatus != nil && p.ConnectionStatus.ConsensusState != nil &&
+		p.ConnectionStatus.ConsensusState.UpdateStatus != "" {
+		status = p.ConnectionStatus.ConsensusState.UpdateStatus
+	}
+
 	return &computeapi.NetworkPeeringConnectionStatus{
 		UpdateStrategy: stratConsensus,
 		ConsensusState: &computeapi.NetworkPeeringConnectionStatusConsensusState{
-			DeleteStatus: deleteStatus(p, back), UpdateStatus: updateInSync,
+			DeleteStatus: deleteStatus(p, back), UpdateStatus: status,
 		},
+		TrafficConfiguration: trafficConfiguration(p, back),
 	}
+}
+
+// trafficConfiguration reports the settings in effect: both peerings must agree before traffic flows.
+func trafficConfiguration(
+	p, back *computeapi.NetworkPeering,
+) *computeapi.NetworkPeeringConnectionStatusTrafficConfiguration {
+	tc := &computeapi.NetworkPeeringConnectionStatusTrafficConfiguration{
+		StackType:       stackIPv4Only,
+		ForceSendFields: []string{"ExportCustomRoutesToPeer", "ImportCustomRoutesFromPeer"},
+	}
+
+	if back == nil {
+		return tc
+	}
+
+	exp, imp := appliedCustomRoutes(p)
+	peerExp, peerImp := appliedCustomRoutes(back)
+	tc.ExportCustomRoutesToPeer = exp && peerImp
+	tc.ImportCustomRoutesFromPeer = imp && peerExp
+	tc.ExportSubnetRoutesWithPublicIpToPeer = p.ExportSubnetRoutesWithPublicIp && back.ImportSubnetRoutesWithPublicIp
+	tc.ImportSubnetRoutesWithPublicIpFromPeer = p.ImportSubnetRoutesWithPublicIp && back.ExportSubnetRoutesWithPublicIp
+
+	if p.StackType == stackIPv4IPv6 && back.StackType == stackIPv4IPv6 {
+		tc.StackType = stackIPv4IPv6
+	}
+
+	return tc
 }
 
 func (b *InMemoryBackend) consensusPeeringLocked(

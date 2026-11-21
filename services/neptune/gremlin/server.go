@@ -465,11 +465,6 @@ func encodeFrame(msg *message, code int, text string, data []any, hasData bool) 
 	if msg.codec == codecBinary {
 		w := &bbWriter{}
 
-		if containsGraph(data) {
-			return websocket.BinaryMessage, w.response(msg.id, StatusSerializationErr,
-				"GraphBinary cannot serialize a Graph; request a GraphSON serializer to receive a subgraph", nil, false)
-		}
-
 		return websocket.BinaryMessage, w.response(msg.id, code, text, data, hasData)
 	}
 

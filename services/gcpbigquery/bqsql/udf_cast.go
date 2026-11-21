@@ -10,6 +10,7 @@ import (
 
 func addCastUDFs(d map[string]udfDef) {
 	d["cast"] = udfDef{n: argc3, fn: udfCast}
+	d["cast_format"] = udfDef{n: argc5, fn: udfCastFormat}
 }
 
 func udfCast(a []driver.Value) (driver.Value, error) {

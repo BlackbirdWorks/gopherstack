@@ -1,8 +1,6 @@
 package gremlin
 
 import (
-	"slices"
-
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
 )
 
@@ -119,24 +117,4 @@ func graphProps(owner any) []GraphProp {
 	}
 
 	return out
-}
-
-func containsGraph(v any) bool {
-	switch t := v.(type) {
-	case *SubGraph:
-		return true
-	case []any:
-		return slices.ContainsFunc(t, containsGraph)
-	case Set:
-		return containsGraph([]any(t))
-	case *Map:
-		for i := range t.Len() {
-			k, val := t.Entry(i)
-			if containsGraph(k) || containsGraph(val) {
-				return true
-			}
-		}
-	}
-
-	return false
 }

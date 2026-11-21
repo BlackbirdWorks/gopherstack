@@ -23,6 +23,14 @@ const (
 	gbN1               = 3.75
 )
 
+const (
+	regAsiaNE1  = "asia-northeast1"
+	regEuropeW2 = "europe-west2"
+	regEuropeW3 = "europe-west3"
+	regUSEast4  = "us-east4"
+	regUSWest2  = "us-west2"
+)
+
 type regionSpec struct {
 	name      string
 	autoRange string
@@ -30,23 +38,53 @@ type regionSpec struct {
 	platform  string
 }
 
-// regionCatalog lists the supported regions with their documented auto-mode subnet ranges.
+// regionCatalog lists the supported regions with their documented auto-mode subnet ranges
+// (docs.cloud.google.com/compute/docs/regions-zones, docs.cloud.google.com/vpc/docs/subnets). New regions are
+// appended: the position of a region selects its external address pool.
 var regionCatalog = []regionSpec{ //nolint:gochecknoglobals // read-only lookup table
 	{"asia-east1", "10.140.0.0/20", zonesABC, platBroadwell},
-	{"asia-northeast1", "10.146.0.0/20", zonesABC, platBroadwell},
+	{regAsiaNE1, "10.146.0.0/20", zonesABC, platBroadwell},
 	{"asia-south1", "10.160.0.0/20", zonesABC, platBroadwell},
 	{"asia-southeast1", "10.148.0.0/20", zonesABC, platBroadwell},
 	{"australia-southeast1", "10.152.0.0/20", zonesABC, platBroadwell},
 	{"europe-west1", "10.132.0.0/20", "bcd", platBroadwell},
-	{"europe-west2", "10.154.0.0/20", zonesABC, platBroadwell},
-	{"europe-west3", "10.156.0.0/20", zonesABC, platBroadwell},
+	{regEuropeW2, "10.154.0.0/20", zonesABC, platBroadwell},
+	{regEuropeW3, "10.156.0.0/20", zonesABC, platBroadwell},
 	{"europe-west4", "10.164.0.0/20", zonesABC, platBroadwell},
 	{"southamerica-east1", "10.158.0.0/20", zonesABC, platBroadwell},
 	{"us-central1", "10.128.0.0/20", "abcf", platBroadwell},
 	{"us-east1", "10.142.0.0/20", "bcd", platBroadwell},
-	{"us-east4", "10.150.0.0/20", zonesABC, platBroadwell},
+	{regUSEast4, "10.150.0.0/20", zonesABC, platBroadwell},
 	{"us-west1", "10.138.0.0/20", zonesABC, platBroadwell},
-	{"us-west2", "10.168.0.0/20", zonesABC, platBroadwell},
+	{regUSWest2, "10.168.0.0/20", zonesABC, platBroadwell},
+	{"africa-south1", "10.218.0.0/20", zonesABC, platBroadwell},
+	{"asia-east2", "10.170.0.0/20", zonesABC, platBroadwell},
+	{"asia-northeast2", "10.174.0.0/20", zonesABC, platBroadwell},
+	{"asia-northeast3", "10.178.0.0/20", zonesABC, platBroadwell},
+	{"asia-south2", "10.190.0.0/20", zonesABC, platBroadwell},
+	{"asia-southeast2", "10.184.0.0/20", zonesABC, platBroadwell},
+	{"asia-southeast3", "10.232.0.0/20", zonesABC, platBroadwell},
+	{"australia-southeast2", "10.192.0.0/20", zonesABC, platBroadwell},
+	{"europe-central2", "10.186.0.0/20", zonesABC, platBroadwell},
+	{"europe-north1", "10.166.0.0/20", zonesABC, platBroadwell},
+	{"europe-north2", "10.226.0.0/20", zonesABC, platBroadwell},
+	{"europe-southwest1", "10.204.0.0/20", zonesABC, platBroadwell},
+	{"europe-west10", "10.214.0.0/20", zonesABC, platBroadwell},
+	{"europe-west12", "10.210.0.0/20", zonesABC, platBroadwell},
+	{"europe-west6", "10.172.0.0/20", zonesABC, platBroadwell},
+	{"europe-west8", "10.198.0.0/20", zonesABC, platBroadwell},
+	{"europe-west9", "10.200.0.0/20", zonesABC, platBroadwell},
+	{"me-central1", "10.212.0.0/20", zonesABC, platBroadwell},
+	{"me-central2", "10.216.0.0/20", zonesABC, platBroadwell},
+	{"me-west1", "10.208.0.0/20", zonesABC, platBroadwell},
+	{"northamerica-northeast1", "10.162.0.0/20", zonesABC, platBroadwell},
+	{"northamerica-northeast2", "10.188.0.0/20", zonesABC, platBroadwell},
+	{"northamerica-south1", "10.224.0.0/20", zonesABC, platBroadwell},
+	{"southamerica-west1", "10.194.0.0/20", zonesABC, platBroadwell},
+	{"us-east5", "10.202.0.0/20", zonesABC, platBroadwell},
+	{"us-south1", "10.206.0.0/20", zonesABC, platBroadwell},
+	{"us-west3", "10.180.0.0/20", zonesABC, platBroadwell},
+	{"us-west4", "10.182.0.0/20", zonesABC, platBroadwell},
 }
 
 var cpuPlatforms = []string{ //nolint:gochecknoglobals // read-only lookup table
@@ -135,53 +173,113 @@ type machineSpec struct {
 	cpus   int64
 	memMb  int64
 	shared bool
+	arm    bool
+}
+
+type machineFamily struct {
+	totalGB  map[int64]float64
+	family   string
+	kind     string
+	cpus     []int64
+	gbPerCPU float64
+	arm      bool
+}
+
+const (
+	kindStandard = "standard"
+	kindHighmem  = "highmem"
+	kindHighcpu  = "highcpu"
+	famN2D       = "n2d"
+	gbN1High     = 6.5
+	gbN1HighCPU  = 0.9
+	gbHighCPU    = 2
+	gbN2High128  = 864
+	e2SharedCPUs = 2
+	f1MicroMb    = 614
+	g1SmallMb    = 1740
+)
+
+func family(name, kind string, gbPerCPU float64, cpus []int64) machineFamily {
+	return machineFamily{family: name, kind: kind, cpus: cpus, gbPerCPU: gbPerCPU}
+}
+
+// machineFamilies are the predefined machine types of
+// docs.cloud.google.com/compute/docs/general-purpose-machines: memory is vCPUs times gbPerCPU, except where the
+// page lists a total (totalGB).
+var machineFamilies = []machineFamily{ //nolint:gochecknoglobals // read-only catalogue
+	family("e2", kindStandard, gbStd, []int64{2, 4, 8, 16, 32}),
+	family("e2", kindHighmem, gbHigh, []int64{2, 4, 8, 16}),
+	family("e2", kindHighcpu, 1, []int64{2, 4, 8, 16, 32}),
+	family("n1", kindStandard, gbN1, []int64{1, 2, 4, 8, 16, 32, 64, 96}),
+	family("n1", kindHighmem, gbN1High, []int64{2, 4, 8, 16, 32, 64, 96}),
+	family("n1", kindHighcpu, gbN1HighCPU, []int64{2, 4, 8, 16, 32, 64, 96}),
+	family("n2", kindStandard, gbStd, []int64{2, 4, 8, 16, 32, 48, 64, 80, 96, 128}),
+	func() machineFamily {
+		f := family("n2", kindHighmem, gbHigh, []int64{2, 4, 8, 16, 32, 48, 64, 80, 96, 128})
+		f.totalGB = map[int64]float64{128: gbN2High128}
+
+		return f
+	}(),
+	family("n2", kindHighcpu, 1, []int64{2, 4, 8, 16, 32, 48, 64, 80, 96}),
+	family(famN2D, kindStandard, gbStd, []int64{2, 4, 8, 16, 32, 48, 64, 80, 96, 128, 224}),
+	family(famN2D, kindHighmem, gbHigh, []int64{2, 4, 8, 16, 32, 48, 64, 80, 96}),
+	family(famN2D, kindHighcpu, 1, []int64{2, 4, 8, 16, 32, 48, 64, 80, 96, 128, 224}),
+	family("n4", kindStandard, gbStd, []int64{2, 4, 8, 16, 32, 48, 64, 80}),
+	family("n4", kindHighmem, gbHigh, []int64{2, 4, 8, 16, 32, 48, 64, 80}),
+	family("n4", kindHighcpu, gbHighCPU, []int64{2, 4, 8, 16, 32, 48, 64, 80}),
+	family("c3", kindStandard, gbStd, []int64{4, 8, 22, 44, 88, 176}),
+	family("c3", kindHighmem, gbHigh, []int64{4, 8, 22, 44, 88, 176}),
+	family("c3", kindHighcpu, gbHighCPU, []int64{4, 8, 22, 44, 88, 176}),
+	family("t2d", kindStandard, gbStd, []int64{1, 2, 4, 8, 16, 32, 48, 60}),
+	func() machineFamily {
+		f := family("t2a", kindStandard, gbStd, []int64{1, 2, 4, 8, 16, 32, 48})
+		f.arm = true
+
+		return f
+	}(),
+}
+
+var sharedMachines = []machineSpec{ //nolint:gochecknoglobals // read-only catalogue
+	{
+		name: "e2-micro", desc: "Efficient Instance, 2 vCPU (1/4 shared physical core) and 1 GB RAM",
+		cpus: e2SharedCPUs, memMb: 1 * gbToMb, shared: true,
+	},
+	{
+		name: "e2-small", desc: "Efficient Instance, 2 vCPU (1/2 shared physical core) and 2 GB RAM",
+		cpus: e2SharedCPUs, memMb: e2SharedCPUs * gbToMb, shared: true,
+	},
+	{
+		name: "e2-medium", desc: "Efficient Instance, 2 vCPU (1/2 shared physical core) and 4 GB RAM",
+		cpus: e2SharedCPUs, memMb: gbStd * gbToMb, shared: true,
+	},
+	{
+		name: "f1-micro", desc: "Micro instance with 0.2 vCPU (shared physical core) and 0.6 GB RAM",
+		cpus: 1, memMb: f1MicroMb, shared: true,
+	},
+	{
+		name: "g1-small", desc: "Small instance with 0.5 vCPU (shared physical core) and 1.7 GB RAM",
+		cpus: 1, memMb: g1SmallMb, shared: true,
+	},
 }
 
 func buildMachineSpecs() []machineSpec {
 	var out []machineSpec
 
-	add := func(family, kind string, cpus []int64, gbPerCPU float64) {
-		for _, c := range cpus {
+	for _, f := range machineFamilies {
+		for _, c := range f.cpus {
+			gb := float64(c) * f.gbPerCPU
+			if total, ok := f.totalGB[c]; ok {
+				gb = total
+			}
+
 			out = append(out, machineSpec{
-				name: fmt.Sprintf("%s-%s-%d", family, kind, c), cpus: c, memMb: int64(float64(c) * gbPerCPU * gbToMb),
-				desc: fmt.Sprintf("%d vCPUs %s GB RAM", c, trimFloat(float64(c)*gbPerCPU)),
+				name: fmt.Sprintf("%s-%s-%d", f.family, f.kind, c), cpus: c, memMb: int64(gb * gbToMb),
+				desc: fmt.Sprintf("%d vCPUs %s GB RAM", c, trimFloat(gb)), arm: f.arm,
 			})
 		}
 	}
 
-	out = append(
-		out,
-		machineSpec{
-			"e2-micro",
-			"Efficient Instance, 2 vCPU (1/4 shared physical core) and 1 GB RAM",
-			2,
-			1 * gbToMb,
-			true,
-		},
-		machineSpec{
-			"e2-small",
-			"Efficient Instance, 2 vCPU (1/2 shared physical core) and 2 GB RAM",
-			2,
-			2 * gbToMb,
-			true,
-		},
-		machineSpec{
-			"e2-medium",
-			"Efficient Instance, 2 vCPU (1/2 shared physical core) and 4 GB RAM",
-			2,
-			4 * gbToMb,
-			true,
-		},
-	)
-	add("e2", "standard", []int64{2, 4, 8, 16, 32}, gbStd)
-	add("e2", "highmem", []int64{2, 4, 8, 16}, gbHigh)
-	add("e2", "highcpu", []int64{2, 4, 8, 16, 32}, 1)
-	add("n2", "standard", []int64{2, 4, 8, 16, 32, 48, 64, 80, 96, 128}, gbStd)
-	add("n2", "highmem", []int64{2, 4, 8, 16, 32, 48, 64, 80, 96, 128}, gbHigh)
-	add("n2", "highcpu", []int64{2, 4, 8, 16, 32, 48, 64, 80, 96}, 1)
-	add("n1", "standard", []int64{1, 2, 4, 8, 16, 32, 64, 96}, gbN1)
-
-	return out
+	return append(out, sharedMachines...)
 }
 
 func trimFloat(f float64) string {
@@ -204,12 +302,20 @@ func findMachine(name string) (machineSpec, bool) {
 	return machineSpec{}, false
 }
 
+func machineArch(m machineSpec) string {
+	if m.arm {
+		return "ARM64"
+	}
+
+	return archX86
+}
+
 func machineResource(project, zone string, m machineSpec) *computeapi.MachineType {
 	return &computeapi.MachineType{
 		Kind: "compute#machineType", Id: stableID("machineType", zone, m.name), CreationTimestamp: catalogCreated,
 		Name: m.name, Description: m.desc, GuestCpus: m.cpus, MemoryMb: m.memMb, ImageSpaceGb: 0,
 		MaximumPersistentDisks: maxPDs, MaximumPersistentDisksSizeGb: maxPDSizeGb, IsSharedCpu: m.shared,
-		Zone: zone, SelfLink: zoneLink(project, zone, "machineTypes", m.name), Architecture: archX86,
+		Zone: zone, SelfLink: zoneLink(project, zone, "machineTypes", m.name), Architecture: machineArch(m),
 	}
 }
 

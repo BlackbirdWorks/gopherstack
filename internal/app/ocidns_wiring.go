@@ -21,6 +21,7 @@ func wireOCIDNS(byName map[string]service.Registerable) {
 		dnsH.Backend.Auth.Link(identityH.Backend.Auth)
 		dnsH.Backend.SetCompartmentChecker(identityH.Backend.CompartmentActive)
 		dnsH.Backend.SetTagLookup(identityH.Backend.TagDefinition)
+		identityH.Backend.AddCompartmentUsage(dnsH.Backend.HoldsInCompartment)
 	}
 
 	if coreH, found := byName["OCICore"].(*ocicorebackend.Handler); found {

@@ -83,7 +83,7 @@ func newEnv(t *testing.T, enforce bool) *env {
 	h.EnforceAuth = enforce
 
 	require.NoError(t, h.StartWorker(t.Context()))
-	t.Cleanup(func() { h.Shutdown(context.Background()) })
+	t.Cleanup(func() { h.Shutdown(context.WithoutCancel(t.Context())) })
 
 	kp := newKeyPair(t)
 	e := &env{backend: be, handler: h, clock: clock, kp: kp, base: fmt.Sprintf("http://localhost:%d", h.Port)}

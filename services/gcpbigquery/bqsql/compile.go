@@ -708,7 +708,7 @@ func (c *compiler) compileItems(s *selectStmt, sc *scope) ([]*outItem, error) {
 
 func defaultType(t Type) Type {
 	if t.Kind == KindUnknown {
-		return scalar(KindString)
+		return scalar(KindInt)
 	}
 
 	return t

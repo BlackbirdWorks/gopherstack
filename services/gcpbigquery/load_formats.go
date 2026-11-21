@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/orcio"
@@ -62,7 +63,15 @@ func readCSVRecords(lc loadConfig, data []byte) ([][]string, error) {
 	}
 
 	if lc.Quote != nil && *lc.Quote != `"` {
-		return nil, fmt.Errorf("%w: only the default quote character is supported", errLoad)
+		q := []rune(*lc.Quote)
+		if len(q) != 1 || q[0] == delim || q[0] == '\n' || q[0] == '\r' {
+			return nil, fmt.Errorf(
+				"%w: quote must be a single character other than the delimiter or a newline",
+				errLoad,
+			)
+		}
+
+		return splitQuotedCSV(string(text), delim, q[0])
 	}
 
 	r := csv.NewReader(bytes.NewReader(text))
@@ -228,4 +237,109 @@ func parseColumnar(lc loadConfig, fields []bqsql.Field, f columnarFile, label st
 
 func selfDescribing(format string) bool {
 	return format == formatParquet || format == formatAvro || format == formatORC
+}
+
+// quotedCSV reads CSV records whose quote character is q: a field is quoted only when it starts with q, a doubled q
+// inside it is one literal q, and quoted fields may span lines.
+type quotedCSV struct {
+	recs   [][]string
+	rec    []string
+	field  strings.Builder
+	delim  rune
+	quote  rune
+	quoted bool
+	wasQ   bool
+	start  bool
+}
+
+func splitQuotedCSV(text string, delim, q rune) ([][]string, error) {
+	p := &quotedCSV{delim: delim, quote: q, start: true}
+
+	for i := 0; i < len(text); {
+		n, err := p.step(text, i)
+		if err != nil {
+			return nil, err
+		}
+
+		i += n
+	}
+
+	if p.quoted {
+		return nil, fmt.Errorf("%w: unclosed quoted field", errLoad)
+	}
+
+	if len(p.rec) > 0 || p.field.Len() > 0 || p.wasQ {
+		p.flush()
+
+		p.recs = append(p.recs, p.rec)
+	}
+
+	return p.recs, nil
+}
+
+func (p *quotedCSV) flush() {
+	p.rec = append(p.rec, p.field.String())
+	p.field.Reset()
+	p.wasQ, p.start = false, true
+}
+
+// step consumes the rune at text[i] (plus a following doubled quote or LF of a CRLF) and returns the bytes used.
+func (p *quotedCSV) step(text string, i int) (int, error) {
+	c, w := utf8.DecodeRuneInString(text[i:])
+
+	var (
+		next rune
+		nw   int
+	)
+
+	if i+w < len(text) {
+		next, nw = utf8.DecodeRuneInString(text[i+w:])
+	}
+
+	if p.quoted {
+		if p.inQuotes(c, next) {
+			return w + nw, nil
+		}
+
+		return w, nil
+	}
+
+	switch {
+	case p.start && c == p.quote:
+		p.quoted, p.wasQ, p.start = true, true, false
+	case c == p.delim:
+		p.flush()
+	case c == '\n' || c == '\r' && next == '\n':
+		p.flush()
+
+		p.recs, p.rec = append(p.recs, p.rec), nil
+
+		if c == '\r' {
+			return w + 1, nil
+		}
+	case p.wasQ:
+		return 0, fmt.Errorf("%w: data between close quote and field separator", errLoad)
+	default:
+		p.field.WriteRune(c)
+
+		p.start = false
+	}
+
+	return w, nil
+}
+
+// inQuotes consumes c inside a quoted field and reports whether it also swallowed a doubled quote's second half.
+func (p *quotedCSV) inQuotes(c, next rune) bool {
+	switch {
+	case c == p.quote && next == p.quote:
+		p.field.WriteRune(p.quote)
+
+		return true
+	case c == p.quote:
+		p.quoted = false
+	default:
+		p.field.WriteRune(c)
+	}
+
+	return false
 }

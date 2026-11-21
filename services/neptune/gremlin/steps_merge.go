@@ -271,7 +271,7 @@ func combinedCreate(search, create *mergeMap) (*mergeMap, error) {
 
 func applyMergeProps(el any, kvs []mergeKV) error {
 	for _, kv := range kvs {
-		if err := applyProp(el, propSpec{key: kv.key, val: kv.val}); err != nil {
+		if err := applyProp(el, propSpec{key: kv.key, val: kv.val, card: cardSingle}); err != nil {
 			return err
 		}
 	}

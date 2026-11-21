@@ -82,6 +82,29 @@ func TestHealthCheckSpecs(t *testing.T) {
 				assert.Equal(t, "svc", h.GetGrpcHealthCheck().GetGrpcServiceName())
 			},
 		},
+		{
+			name:     "grpc with tls",
+			wantType: "GRPC_WITH_TLS",
+			hc: &computepb.HealthCheck{
+				GrpcTlsHealthCheck: &computepb.GRPCTLSHealthCheck{Port: proto.Int32(8443), GrpcServiceName: s("svc")},
+			},
+			check: func(t *testing.T, h *computepb.HealthCheck) {
+				t.Helper()
+				assert.Equal(t, "USE_FIXED_PORT", h.GetGrpcTlsHealthCheck().GetPortSpecification())
+				assert.Equal(t, int32(8443), h.GetGrpcTlsHealthCheck().GetPort())
+			},
+		},
+		{
+			name:     "grpc with tls serving port",
+			wantType: "GRPC_WITH_TLS",
+			hc: &computepb.HealthCheck{
+				GrpcTlsHealthCheck: &computepb.GRPCTLSHealthCheck{PortSpecification: s("USE_SERVING_PORT")},
+			},
+			check: func(t *testing.T, h *computepb.HealthCheck) {
+				t.Helper()
+				assert.Equal(t, int32(0), h.GetGrpcTlsHealthCheck().GetPort())
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -182,6 +205,24 @@ func TestHealthCheckValidation(t *testing.T) {
 			name:   "grpc needs a port",
 			hc:     &computepb.HealthCheck{GrpcHealthCheck: &computepb.GRPCHealthCheck{}},
 			status: http.StatusBadRequest,
+		},
+		{
+			name:   "grpc tls needs a port",
+			hc:     &computepb.HealthCheck{GrpcTlsHealthCheck: &computepb.GRPCTLSHealthCheck{}},
+			status: http.StatusBadRequest,
+		},
+		{
+			name: "grpc tls named port", status: http.StatusBadRequest,
+			hc: &computepb.HealthCheck{GrpcTlsHealthCheck: &computepb.GRPCTLSHealthCheck{
+				PortSpecification: s("USE_NAMED_PORT"),
+			}},
+		},
+		{
+			name: "grpc and grpc tls", status: http.StatusBadRequest,
+			hc: &computepb.HealthCheck{
+				GrpcHealthCheck:    &computepb.GRPCHealthCheck{Port: proto.Int32(1)},
+				GrpcTlsHealthCheck: &computepb.GRPCTLSHealthCheck{Port: proto.Int32(2)},
+			},
 		},
 	}
 

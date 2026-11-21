@@ -64,7 +64,8 @@ type APIKey struct {
 	PEM         string    `json:"pem"`
 }
 
-// Credential is an auth token, customer secret key or SMTP credential; the secret itself is never stored.
+// Credential is an auth token, secret key or SMTP credential.
+// Only customer secret keys keep their secret (HMAC needs it); the others keep a salted digest.
 type Credential struct {
 	TimeCreated time.Time `json:"timeCreated"`
 	ID          string    `json:"id"`
@@ -72,20 +73,23 @@ type Credential struct {
 	Username    string    `json:"username,omitempty"`
 	Salt        string    `json:"salt,omitempty"`
 	Digest      string    `json:"digest,omitempty"`
+	Secret      string    `json:"secret,omitempty"`
 }
 
 // User is a stored IAM user with its credentials.
 type User struct {
 	UIPasswordCreated *time.Time `json:"uiPasswordCreated,omitempty"`
 	Meta
-	Email        string       `json:"email,omitempty"`
-	DBUserName   string       `json:"dbUserName,omitempty"`
-	Internal     Internal     `json:"internal"`
-	APIKeys      []APIKey     `json:"apiKeys"`
-	AuthTokens   []Credential `json:"authTokens"`
-	SecretKeys   []Credential `json:"secretKeys"`
-	SMTP         []Credential `json:"smtp"`
-	Capabilities Capabilities `json:"capabilities"`
+	Email            string       `json:"email,omitempty"`
+	DBUserName       string       `json:"dbUserName,omitempty"`
+	UIPasswordSalt   string       `json:"uiPasswordSalt,omitempty"`
+	UIPasswordDigest string       `json:"uiPasswordDigest,omitempty"`
+	Internal         Internal     `json:"internal"`
+	APIKeys          []APIKey     `json:"apiKeys"`
+	AuthTokens       []Credential `json:"authTokens"`
+	SecretKeys       []Credential `json:"secretKeys"`
+	SMTP             []Credential `json:"smtp"`
+	Capabilities     Capabilities `json:"capabilities"`
 }
 
 type userWire struct {
@@ -215,7 +219,17 @@ type WorkRequest struct {
 	EntityType    string    `json:"entityType"`
 	EntityID      string    `json:"entityId"`
 	Action        string    `json:"action"`
+	Bulk          *BulkJob  `json:"bulk,omitempty"`
+	FailedAt      time.Time `json:"failedAt,omitzero"`
+	FailCode      string    `json:"failCode,omitempty"`
+	FailMessage   string    `json:"failMessage,omitempty"`
 	Seq           int64     `json:"seq"`
+}
+
+type wrErrorWire struct {
+	Timestamp time.Time `json:"timestamp"`
+	Code      string    `json:"code"`
+	Message   string    `json:"message"`
 }
 
 type wrResourceWire struct {
@@ -235,6 +249,6 @@ type WorkRequestWire struct {
 	ID              string           `json:"id"`
 	CompartmentID   string           `json:"compartmentId"`
 	Resources       []wrResourceWire `json:"resources"`
-	Errors          []string         `json:"errors"`
+	Errors          []wrErrorWire    `json:"errors"`
 	PercentComplete float32          `json:"percentComplete"`
 }

@@ -62,7 +62,7 @@ func secPolicySpec() lbSpec[computeapi.SecurityPolicy] {
 		meta: func(v *computeapi.SecurityPolicy) lbMeta {
 			return lbMeta{
 				name: &v.Name, kind: &v.Kind, created: &v.CreationTimestamp, self: &v.SelfLink,
-				fp: &v.Fingerprint, id: &v.Id,
+				region: &v.Region, fp: &v.Fingerprint, id: &v.Id,
 			}
 		},
 		prep: prepSecurityPolicy,
@@ -90,16 +90,28 @@ func defaultRule(policyType string) *computeapi.SecurityPolicyRule {
 	return r
 }
 
-func prepSecurityPolicy(_ *InMemoryBackend, _ lbCtx, in *computeapi.SecurityPolicy, _ map[string]any) *APIError {
-	if in.Type == "" {
-		in.Type = spTypeArmor
-	}
-
+func validPolicyShape(c lbCtx, in *computeapi.SecurityPolicy) *APIError {
 	if !validSecPolicyType(in.Type) {
 		return errField("resource.type", in.Type, "Must be CLOUD_ARMOR, CLOUD_ARMOR_EDGE or CLOUD_ARMOR_NETWORK.")
 	}
 
+	if c.scope == scopeRegion && in.Type == spTypeEdge {
+		return errField("resource.type", in.Type, "Edge security policies are global.")
+	}
+
 	if err := validLabels(in.Labels); err != nil {
+		return err
+	}
+
+	return validAdaptiveProtection(c, in)
+}
+
+func prepSecurityPolicy(_ *InMemoryBackend, c lbCtx, in *computeapi.SecurityPolicy, _ map[string]any) *APIError {
+	if in.Type == "" {
+		in.Type = spTypeArmor
+	}
+
+	if err := validPolicyShape(c, in); err != nil {
 		return err
 	}
 
@@ -145,6 +157,26 @@ func prepSecurityPolicy(_ *InMemoryBackend, _ lbCtx, in *computeapi.SecurityPoli
 
 		return 0
 	})
+
+	return nil
+}
+
+func validAdaptiveProtection(c lbCtx, in *computeapi.SecurityPolicy) *APIError {
+	a := in.AdaptiveProtectionConfig
+	if a == nil || a.Layer7DdosDefenseConfig == nil || !a.Layer7DdosDefenseConfig.Enable {
+		return nil
+	}
+
+	if c.scope != scopeGlobal || in.Type != spTypeArmor {
+		return errField("resource.adaptiveProtectionConfig.layer7DdosDefenseConfig", "",
+			"Layer 7 DDoS defense is only supported in global security policies of type CLOUD_ARMOR.")
+	}
+
+	switch r := a.Layer7DdosDefenseConfig.RuleVisibility; r {
+	case "", "STANDARD", "PREMIUM":
+	default:
+		return errField("resource.adaptiveProtectionConfig.layer7DdosDefenseConfig.ruleVisibility", r, "")
+	}
 
 	return nil
 }
@@ -451,14 +483,17 @@ func (b *InMemoryBackend) resolveBSSecurityPolicyLocked(c lbCtx, bs *computeapi.
 		return nil
 	}
 
-	if c.scope != scopeGlobal {
-		return errField("resource.securityPolicy", bs.SecurityPolicy,
-			"Regional backend services use regional security policies, which are not supported.")
+	ok := bs.LoadBalancingScheme == schemeExternal || bs.LoadBalancingScheme == schemeExternalManaged
+	if c.scope == scopeRegion {
+		ok = ok || bs.LoadBalancingScheme == schemeInternalManaged
 	}
 
-	if bs.LoadBalancingScheme != schemeExternal && bs.LoadBalancingScheme != schemeExternalManaged {
-		return errField("resource.securityPolicy", bs.SecurityPolicy,
-			"Security policies attach only to EXTERNAL and EXTERNAL_MANAGED backend services.")
+	if !ok {
+		return errField(
+			"resource.securityPolicy",
+			bs.SecurityPolicy,
+			"Security policies attach only to EXTERNAL, EXTERNAL_MANAGED and regional INTERNAL_MANAGED backend services.",
+		)
 	}
 
 	self, err := lbResolve(b, secPolicySpec(), c, "resource.securityPolicy", bs.SecurityPolicy)
@@ -474,4 +509,22 @@ func (b *InMemoryBackend) resolveBSSecurityPolicyLocked(c lbCtx, bs *computeapi.
 	bs.SecurityPolicy = self
 
 	return nil
+}
+
+// resolveEdgePolicyLocked resolves a global CLOUD_ARMOR_EDGE policy reference to its selfLink.
+func (b *InMemoryBackend) resolveEdgePolicyLocked(project, field, ref string) (string, *APIError) {
+	if ref == "" {
+		return "", nil
+	}
+
+	self, err := lbResolve(b, secPolicySpec(), lbCtx{project: project, scope: scopeGlobal}, field, ref)
+	if err != nil {
+		return "", err
+	}
+
+	if p := lbFind(b, secPolicySpec(), self); p != nil && p.Type != spTypeEdge {
+		return "", errField(field, ref, "Only CLOUD_ARMOR_EDGE security policies attach as edge security policies.")
+	}
+
+	return self, nil
 }

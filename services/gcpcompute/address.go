@@ -3,6 +3,7 @@ package gcpcompute
 import (
 	"fmt"
 	"net/netip"
+	"slices"
 	"sort"
 	"strings"
 
@@ -95,6 +96,9 @@ func (b *InMemoryBackend) allocExternalLocked(region string, extra ...string) (s
 	second := poolGlobalOctet
 	if region != "" {
 		second = poolRegionBase + regionIndex(region)
+		if second >= poolGlobalOctet {
+			second++
+		}
 	}
 
 	used := b.usedExternalLocked()
@@ -170,6 +174,12 @@ func (b *InMemoryBackend) addressUsersLocked(a *computeapi.Address) []string {
 	for _, r := range b.fwdRules {
 		if r.IPAddress == a.Address && (a.Region == r.Region) {
 			users = append(users, r.SelfLink)
+		}
+	}
+
+	for _, att := range b.icAttachments {
+		if slices.Contains(att.IpsecInternalAddresses, a.SelfLink) {
+			users = append(users, att.SelfLink)
 		}
 	}
 

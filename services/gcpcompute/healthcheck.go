@@ -8,6 +8,7 @@ import (
 
 const (
 	collHealth         = "healthChecks"
+	protoGRPCTLS       = "GRPC_WITH_TLS"
 	hcMaxPort          = 65535
 	portHTTP           = 80
 	portHTTPS          = 443
@@ -98,12 +99,22 @@ func hcSpecs(h *computeapi.HealthCheck) []hcSpec {
 		})
 	}
 
+	if s := h.GrpcTlsHealthCheck; s != nil {
+		out = append(out, hcSpec{
+			typ:      protoGRPCTLS,
+			field:    "grpcTlsHealthCheck",
+			port:     &s.Port,
+			portName: new(""),
+			portSpec: &s.PortSpecification,
+		})
+	}
+
 	return out
 }
 
 func hcExactlyOne() *APIError {
 	return errInvalid("Invalid value for field 'resource': ''. Exactly one of httpHealthCheck, httpsHealthCheck, " +
-		"http2HealthCheck, tcpHealthCheck, sslHealthCheck or grpcHealthCheck must be specified.")
+		"http2HealthCheck, tcpHealthCheck, sslHealthCheck, grpcHealthCheck or grpcTlsHealthCheck must be specified.")
 }
 
 func validateSpec(sp hcSpec) *APIError {
@@ -332,6 +343,7 @@ func (b *InMemoryBackend) listHealthChecks(project, scope, loc string) []entry {
 
 var hcSpecKeys = []string{ //nolint:gochecknoglobals // read-only lookup table
 	"httpHealthCheck", "httpsHealthCheck", "http2HealthCheck", "tcpHealthCheck", "sslHealthCheck", "grpcHealthCheck",
+	"grpcTlsHealthCheck",
 }
 
 func (b *InMemoryBackend) updateHealthCheck(

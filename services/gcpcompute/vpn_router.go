@@ -66,24 +66,8 @@ func (b *InMemoryBackend) normalizeRouterInterfacesLocked(project, region string
 
 		seen[ifc.Name] = true
 
-		if ifc.LinkedInterconnectAttachment != "" {
-			return errField("resource.interfaces.linkedInterconnectAttachment", ifc.LinkedInterconnectAttachment,
-				"Interconnect attachments are not supported by this emulator.")
-		}
-
-		if ifc.IpRange != "" {
-			if err := validInterfaceRange("resource.interfaces.ipRange", ifc.IpRange); err != nil {
-				return err
-			}
-		}
-
-		if ifc.LinkedVpnTunnel != "" {
-			t, err := b.resolveRouterTunnelLocked(project, region, ifc.LinkedVpnTunnel)
-			if err != nil {
-				return err
-			}
-
-			ifc.LinkedVpnTunnel = t.SelfLink
+		if err := b.linkRouterInterfaceLocked(project, region, ifc); err != nil {
+			return err
 		}
 
 		if ifc.ManagementType == "" {
@@ -92,6 +76,53 @@ func (b *InMemoryBackend) normalizeRouterInterfacesLocked(project, region string
 	}
 
 	return nil
+}
+
+func (b *InMemoryBackend) linkRouterInterfaceLocked(
+	project, region string, ifc *computeapi.RouterInterface,
+) *APIError {
+	if ifc.LinkedInterconnectAttachment != "" {
+		a, err := b.resolveRouterAttachmentLocked(project, region, ifc.LinkedInterconnectAttachment)
+		if err != nil {
+			return err
+		}
+
+		ifc.LinkedInterconnectAttachment = a.SelfLink
+	}
+
+	if ifc.IpRange != "" {
+		if err := validInterfaceRange("resource.interfaces.ipRange", ifc.IpRange); err != nil {
+			return err
+		}
+	}
+
+	if ifc.LinkedVpnTunnel != "" {
+		t, err := b.resolveRouterTunnelLocked(project, region, ifc.LinkedVpnTunnel)
+		if err != nil {
+			return err
+		}
+
+		ifc.LinkedVpnTunnel = t.SelfLink
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) resolveRouterAttachmentLocked(
+	project, region, raw string,
+) (*computeapi.InterconnectAttachment, *APIError) {
+	r, ok := parseRef(raw, collICAttachments, project, region)
+	if !ok || r.loc != region {
+		return nil, errField("resource.interfaces.linkedInterconnectAttachment", raw,
+			"The attachment must be in the router's region.")
+	}
+
+	a, found := b.icAttachments[key(r.project, region, r.name)]
+	if !found {
+		return nil, errNotFound(relPath(r.project, scopeRegion, region, collICAttachments, r.name))
+	}
+
+	return a, nil
 }
 
 func (b *InMemoryBackend) resolveRouterTunnelLocked(project, region, raw string) (*computeapi.VpnTunnel, *APIError) {

@@ -8,7 +8,15 @@ import (
 func regReduce(m map[string]stepFn) {
 	m["count"] = stepCount
 	m["fold"] = func(_ *exec, _ *Step, in []*trav) ([]*trav, error) {
-		return []*trav{rootTrav()[0].next(values(in))}, nil
+		vals := make([]any, 0, totalBulk(in))
+
+		for _, t := range in {
+			for range t.weight() {
+				vals = append(vals, t.v)
+			}
+		}
+
+		return []*trav{rootTrav()[0].next(vals)}, nil
 	}
 	m[stepSum] = reduceNumbers(sumValues)
 	m["mean"] = reduceNumbers(meanValues)
@@ -34,10 +42,15 @@ func regReduce(m map[string]stepFn) {
 
 func stepCount(_ *exec, s *Step, in []*trav) ([]*trav, error) {
 	if scope(s) == nameLocal {
-		return mapLocal(in, func(v any) (any, bool) { return int64(collectionLen(v)), true }), nil
+		flat, err := expandBulk(in)
+		if err != nil {
+			return nil, err
+		}
+
+		return mapLocal(flat, func(v any) (any, bool) { return int64(collectionLen(v)), true }), nil
 	}
 
-	return []*trav{rootTrav()[0].next(int64(len(in)))}, nil
+	return []*trav{rootTrav()[0].next(totalBulk(in))}, nil
 }
 
 func collectionLen(v any) int {
@@ -434,7 +447,7 @@ func stepGroupCount(x *exec, s *Step, in []*trav) ([]*trav, error) {
 			keys[ks] = k
 		}
 
-		n[ks]++
+		n[ks] += t.weight()
 	}
 
 	for _, ks := range order {

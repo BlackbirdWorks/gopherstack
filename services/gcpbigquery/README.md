@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 28 (27 ok, 1 partial) |
+| PARITY entries audited | 28 (28 ok) |
 | Feature families | 18 (15 ok, 3 partial) |
 | Known gaps | 8 |
 | Deferred items | 0 |
@@ -16,13 +16,13 @@
 ### Known gaps
 
 - Not served: models, table and dataset IAM policies (including row access policy IAM), datasets undelete, snapshots/clones as storage objects, BigLake tables and connections, data transfers, analytics hub, reservation groups, reservation failover and reservation IAM, and the Storage Read/Write gRPC APIs.
-- Unsupported GoogleSQL: CAST ... FORMAT, AT TIME ZONE, EXPORT DATA, JavaScript, Python and remote UDFs and CREATE AGGREGATE FUNCTION, wildcard tables (_TABLE_SUFFIX), partition pseudo columns (_PARTITIONTIME and _PARTITIONDATE need a per-row ingestion time that rows do not carry; DML rewrites whole row slices in jobs_query.go effectWrite), selecting a whole row as a STRUCT, legacy SQL.
+- Unsupported GoogleSQL: CAST ... FORMAT between numeric or BYTES types and STRING (date and time types are supported, with AT TIME ZONE), EXPORT DATA, JavaScript, Python and remote UDFs and CREATE AGGREGATE FUNCTION, wildcard tables (_TABLE_SUFFIX), partition pseudo columns (_PARTITIONTIME and _PARTITIONDATE need a per-row ingestion time that rows do not carry; DML rewrites whole row slices in jobs_query.go effectWrite), selecting a whole row as a STRUCT, legacy SQL.
 - Unsupported functions: RANGE values, ML.*, GEOGRAPHY beyond the implemented ST_* set (use_spheroid => TRUE, make_valid => TRUE, ST_UNION, ST_BUFFER and the other constructors and aggregates), SEARCH over a table reference or a tuple, JSON constructors and mutators beyond JSON_VALUE/JSON_QUERY/PARSE_JSON/TO_JSON_STRING, FORMAT patterns beyond %s %d %i %f %g %e %t %T %x %o, collation.
 - ST_MAKELINE concatenates vertices and does not node overlapping or backtracking edges, so the documented MULTILINESTRING result for retraced segments is not reproduced.
 - SEARCH: the documented example where a phrase containing AND/OR matches plain terms is not reproduced.
-- Engine fidelity: the int64 overflow error text ("int64 overflow: a + b") is not documented (the operators page only says all operators throw on overflow); NUMERIC and BIGNUMERIC are computed in float64, and result types of untyped expressions (for example an all-NULL column) default to STRING.
-- Jobs run synchronously: there are no PENDING/RUNNING states, no slot or priority scheduling, no query cache, no timeoutMs waiting and no cancellation of running work (execution holds the backend write lock in jobs.go InsertJob, and the SQL catalog reads live state under that lock); anonymous result tables are not created; script expression evaluations are not recorded as EXPRESSION child jobs.
-- Load: Datastore and Firestore backups, hive partitioning options on load jobs, nested CSV, custom quote characters, schemaUpdateOptions and column-name flexibility options are not supported. External tables: GOOGLE_SHEETS, DATASTORE_BACKUP, BIGTABLE and DELTA_LAKE sources and WITH CONNECTION need services the emulator does not have. Extract: AVRO and ORC are not supported, output is a single object (no 1 GB size-based sharding; with several destination URIs only the first is written because the exporting-data page does not say how rows are split between them), and the NDJSON TIMESTAMP and CSV float rendering have not been checked against the live service.
+- Engine fidelity: NUMERIC and BIGNUMERIC are computed in float64, so values past 15 significant digits lose precision.
+- Jobs: no slot or priority scheduling, no query cache, anonymous result tables are not created, script expression evaluations are not recorded as EXPRESSION child jobs, and execution holds the backend write lock (jobs_async.go runLocked), so jobs.cancel and jobTimeoutMs stop a job before it executes and a script between statements, not a plain statement in flight.
+- Load: Datastore and Firestore backups, nested CSV and column-name flexibility options are not supported. External tables: GOOGLE_SHEETS, DATASTORE_BACKUP, BIGTABLE and DELTA_LAKE sources and WITH CONNECTION need services the emulator does not have. External tables and CREATE EXTERNAL TABLE read Cloud Storage while the backend lock is held (external.go readExternalRows). The NDJSON TIMESTAMP and CSV float rendering of extract have not been checked against the live service.
 
 ## More
 

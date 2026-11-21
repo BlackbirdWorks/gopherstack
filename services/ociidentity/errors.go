@@ -44,4 +44,9 @@ func errAuth(msg string) *APIError { return newErr(http.StatusUnauthorized, "Not
 
 func errLimit(msg string) *APIError { return newErr(http.StatusBadRequest, "LimitExceeded", msg) }
 
+func errInvalidatedToken() *APIError {
+	return errConflict("InvalidatedRetryToken",
+		"The retry token was used by an earlier request whose resource has since been deleted or replaced")
+}
+
 func errConflict(code, msg string) *APIError { return newErr(http.StatusConflict, code, msg) }

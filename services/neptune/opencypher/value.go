@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
@@ -398,6 +399,8 @@ func typeName(v any) string {
 		return "Boolean"
 	case []any:
 		return "List"
+	case time.Time:
+		return "DateTime"
 	case map[string]any:
 		return "Map"
 	case *Node:

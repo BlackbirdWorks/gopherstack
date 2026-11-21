@@ -66,6 +66,7 @@ func TestInitializeServices_ConnectWiring(t *testing.T) {
 			assert.Equal(t, "InvalidRequestException", connectErrCode(err))
 		}},
 		{name: "prompts read S3 objects", run: connectPromptCase},
+		{name: "attached files use S3 pre-signed URLs", run: connectAttachedFileCase},
 		{name: "outbound email is delivered through SES", run: connectOutboundEmailCase},
 		{name: "analytics association owns a RAM share", run: connectAnalyticsShareCase},
 		{name: "storage config needs its bucket", run: func(t *testing.T, e *connectWiringEnv) {

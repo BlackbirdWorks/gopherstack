@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
 )
@@ -97,6 +98,9 @@ func (m *Map) Get(k any) (any, bool) {
 
 	return nil, false
 }
+
+// UUID is a java.util.UUID value; Neptune rejects it as a property value.
+type UUID string
 
 // Set is an ordered collection with set semantics on the wire.
 type Set []any
@@ -227,6 +231,13 @@ func compareValues(a, b any) (int, bool) {
 		return compareBools(ab, bb), true
 	}
 
+	at, aok := a.(time.Time)
+	bt, bok := b.(time.Time)
+
+	if aok && bok {
+		return at.Compare(bt), true
+	}
+
 	return 0, false
 }
 
@@ -281,7 +292,7 @@ func keyOf(v any) string {
 	case *opencypher.Rel:
 		return "e:" + t.ID
 	case *Prop:
-		return "p:" + elementID(t.Owner) + "/" + t.Key
+		return "p:" + lenKey(elementID(t.Owner)) + lenKey(t.Key) + keyOf(t.Val)
 	case Token:
 		return "t:" + t.Kind + "." + t.Name
 	case []any:
@@ -294,6 +305,17 @@ func keyOf(v any) string {
 		return "P:" + joinKeys(t.Objects)
 	case *Tree:
 		return "T:" + mapKey(t.asMap())
+	}
+
+	return keyOfScalar(v)
+}
+
+func keyOfScalar(v any) string {
+	switch t := v.(type) {
+	case time.Time:
+		return "d:" + strconv.FormatInt(t.UnixMilli(), 10)
+	case UUID:
+		return "u:" + string(t)
 	}
 
 	if isInt(v) {
@@ -310,22 +332,25 @@ func keyOf(v any) string {
 func joinKeys(vs []any) string {
 	parts := make([]string, len(vs))
 	for i, e := range vs {
-		parts[i] = keyOf(e)
+		parts[i] = lenKey(keyOf(e))
 	}
 
-	return "[" + strings.Join(parts, ",") + "]"
+	return "[" + strings.Join(parts, "") + "]"
 }
+
+// lenKey length-prefixes s so concatenated key parts cannot collide.
+func lenKey(s string) string { return strconv.Itoa(len(s)) + ":" + s }
 
 func mapKey(m *Map) string {
 	parts := make([]string, m.Len())
 	for i := range parts {
 		k, v := m.Entry(i)
-		parts[i] = keyOf(k) + "=" + keyOf(v)
+		parts[i] = lenKey(keyOf(k)) + lenKey(keyOf(v))
 	}
 
 	sort.Strings(parts)
 
-	return "{" + strings.Join(parts, ",") + "}"
+	return "{" + strings.Join(parts, "") + "}"
 }
 
 // idString renders an id the way the graph stores it.

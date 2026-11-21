@@ -206,6 +206,7 @@ func (b *InMemoryBackend) getProject(project string) *computeapi.Project {
 		CreationTimestamp:      catalogCreated,
 		CommonInstanceMetadata: clone(b.projectMetaLocked(project)),
 		SelfLink:               apiBase + "projects/" + project,
+		Quotas:                 b.quotasLocked(project, allRegions, projectQuotaDefs),
 		DefaultNetworkTier:     tierPremium,
 		XpnProjectStatus:       "UNSPECIFIED_XPN_PROJECT_STATUS",
 		DefaultServiceAccount: strconv.FormatUint(
@@ -250,11 +251,21 @@ func (b *InMemoryBackend) listZones(project string) []entry {
 }
 
 func (b *InMemoryBackend) listRegions(project string) []entry {
+	b.mu.RLock("ListRegions")
+	defer b.mu.RUnlock()
+
 	out := make([]entry, 0, len(regionCatalog))
 
 	for _, r := range regionCatalog {
-		out = append(out, entry{scope: scopeGlobal, item: regionResource(project, r)})
+		out = append(out, entry{scope: scopeGlobal, item: b.regionViewLocked(project, r)})
 	}
+
+	return out
+}
+
+func (b *InMemoryBackend) regionViewLocked(project string, r regionSpec) *computeapi.Region {
+	out := regionResource(project, r)
+	out.Quotas = b.quotasLocked(project, r.name, regionQuotaDefs)
 
 	return out
 }
@@ -333,11 +344,14 @@ func getZone(project, name string) (*computeapi.Zone, error) {
 	return zoneResource(project, name), nil
 }
 
-func getRegion(project, name string) (*computeapi.Region, error) {
+func (b *InMemoryBackend) getRegion(project, name string) (*computeapi.Region, error) {
 	r, ok := findRegion(name)
 	if !ok {
 		return nil, errNotFound(scopePath(project, scopeRegion, name))
 	}
 
-	return regionResource(project, r), nil
+	b.mu.RLock("GetRegion")
+	defer b.mu.RUnlock()
+
+	return b.regionViewLocked(project, r), nil
 }

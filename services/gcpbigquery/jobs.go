@@ -34,14 +34,15 @@ func jobIDPattern() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9_-]+$
 
 // outcome is what a job produced.
 type outcome struct {
-	Err     *jobError
-	Dest    *tableRef
-	Stats   map[string]any
-	Extra   map[string]any
-	Fields  []bqsql.Field
-	Rows    [][]any
-	NumDML  int64
-	IsQuery bool
+	Err      *jobError
+	Warnings []*jobError
+	Dest     *tableRef
+	Stats    map[string]any
+	Extra    map[string]any
+	Fields   []bqsql.Field
+	Rows     [][]any
+	NumDML   int64
+	IsQuery  bool
 }
 
 func jobKind(cfg map[string]any) string {
@@ -57,7 +58,7 @@ func jobKind(cfg map[string]any) string {
 func jobKey(project, id string) string { return project + "/" + id }
 
 func (b *InMemoryBackend) newJob(project string, ref map[string]string, kind string, cfg map[string]any) (*Job, error) {
-	id := ref["jobId"]
+	id := ref[litJobID]
 	if id == "" {
 		id = awsid.NewN("job_", 24) //nolint:mnd // job id length
 	}
@@ -83,7 +84,7 @@ func (b *InMemoryBackend) newJob(project string, ref map[string]string, kind str
 	now := nowMs()
 
 	return &Job{
-		Config: cfg, Project: project, ID: id, Location: loc, Type: strings.ToUpper(kind), State: stateDone,
+		Config: cfg, Project: project, ID: id, Location: loc, Type: strings.ToUpper(kind), State: statePending,
 		User: userEmail, Created: now, Started: now,
 	}, nil
 }
@@ -123,33 +124,43 @@ func (b *InMemoryBackend) insertJob(
 	b.mu.Lock("InsertJob")
 	defer b.mu.Unlock()
 
-	job, err := b.newJob(project, refIDs(body, "jobReference"), kind, cfg)
+	job, err := b.newJob(project, refIDs(body, litJobRef), kind, cfg)
 	if err != nil {
 		return nil, err
 	}
 
 	job.DryRun, _ = cfg["dryRun"].(bool)
 
-	out, err := b.execute(ctx, job, kind, cfg, media)
-	if err != nil {
+	if job.DryRun {
+		out, derr := b.execute(ctx, job, kind, cfg, true)
+		if derr != nil {
+			return nil, derr
+		}
+
+		b.finishJob(job, kind, out)
+
+		return jobWire(job), nil
+	}
+
+	if _, err = b.execute(ctx, job, kind, cfg, true); err != nil {
 		return nil, err
 	}
 
-	b.finishJob(job, kind, out)
-
-	if !job.DryRun {
-		b.storeJob(job)
+	if err = b.startJob(ctx, job, kind, cfg, media); err != nil {
+		return nil, err
 	}
 
 	return jobWire(job), nil
 }
 
+// execute analyses (dryRun) or runs a job; the caller holds the write lock. Load and extract jobs only validate
+// here: their Cloud Storage traffic runs outside the lock.
 func (b *InMemoryBackend) execute(
 	ctx context.Context,
 	job *Job,
 	kind string,
 	cfg map[string]any,
-	media []byte,
+	dryRun bool,
 ) (*outcome, error) {
 	switch kind {
 	case jobQuery:
@@ -158,19 +169,21 @@ func (b *InMemoryBackend) execute(
 			return nil, err
 		}
 
-		return b.execQuery(ctx, job.Project, job.ID, qc, job.DryRun)
+		return b.execQuery(ctx, job.Project, job.ID, qc, dryRun)
 	case jobLoad:
-		return b.execLoad(job.Project, objectOf(cfg, jobLoad), media, job.DryRun)
+		return b.execLoad(objectOf(cfg, jobLoad))
 	case jobCopy:
-		return b.execCopy(job.Project, objectOf(cfg, jobCopy), job.DryRun)
+		return b.execCopy(job.Project, objectOf(cfg, jobCopy), dryRun)
 	}
 
-	return b.execExtract(job.Project, objectOf(cfg, jobExtract), job.DryRun)
+	return b.execExtract(objectOf(cfg, jobExtract))
 }
 
 func (b *InMemoryBackend) finishJob(job *Job, kind string, out *outcome) {
+	job.State = stateDone
 	job.Ended = nowMs()
 	job.ErrorResult = out.Err
+	job.Errors = out.Warnings
 	job.Dest = out.Dest
 	job.NumDML = out.NumDML
 	job.HasResult = out.IsQuery
@@ -200,12 +213,18 @@ func (b *InMemoryBackend) storeJob(job *Job) {
 	oldest := ""
 
 	for k, j := range b.jobs {
+		if j.State != stateDone && j.State != "" {
+			continue
+		}
+
 		if oldest == "" || j.Created < b.jobs[oldest].Created {
 			oldest = k
 		}
 	}
 
-	delete(b.jobs, oldest)
+	if oldest != "" {
+		delete(b.jobs, oldest)
+	}
 }
 
 func (b *InMemoryBackend) jobLocked(project, id string) (*Job, error) {
@@ -230,17 +249,27 @@ func (b *InMemoryBackend) GetJob(project, id string) (map[string]any, error) {
 	return jobWire(j), nil
 }
 
-// CancelJob implements jobs.cancel; every job finishes inside the insert call so this reports the final job.
+// CancelJob implements jobs.cancel: a PENDING or RUNNING job is asked to stop and finishes with errorResult
+// stopped; a finished job is returned as is.
 func (b *InMemoryBackend) CancelJob(project, id string) (map[string]any, error) {
 	b.mu.RLock("CancelJob")
-	defer b.mu.RUnlock()
 
 	j, err := b.jobLocked(project, id)
 	if err != nil {
+		b.mu.RUnlock()
+
 		return nil, err
 	}
 
-	return map[string]any{litKind: "bigquery#jobCancelResponse", "job": jobWire(j)}, nil
+	wire := jobWire(j)
+	b.mu.RUnlock()
+
+	if run, ok := b.runs.Get(jobKey(project, id)); ok {
+		run.cancelled.Store(true)
+		run.cancel()
+	}
+
+	return map[string]any{litKind: "bigquery#jobCancelResponse", "job": wire}, nil
 }
 
 // DeleteJob implements jobs.delete.
@@ -248,8 +277,13 @@ func (b *InMemoryBackend) DeleteJob(project, id string) error {
 	b.mu.Lock("DeleteJob")
 	defer b.mu.Unlock()
 
-	if _, err := b.jobLocked(project, id); err != nil {
+	j, err := b.jobLocked(project, id)
+	if err != nil {
 		return err
+	}
+
+	if j.State != stateDone {
+		return errInvalid("Job %s:%s is not done and cannot be deleted", project, id)
 	}
 
 	delete(b.jobs, jobKey(project, id))
@@ -277,7 +311,7 @@ func (b *InMemoryBackend) ListJobs(project string, o JobListOptions) page.Page[m
 	for _, j := range b.jobs {
 		parent, _ := j.Stats[litParentJobID].(string)
 
-		if j.Project != project || !stateWanted(o.StateFilter) || j.Created < o.MinCreated ||
+		if j.Project != project || !stateWanted(o.StateFilter, j.State) || j.Created < o.MinCreated ||
 			o.MaxCreated > 0 && j.Created > o.MaxCreated || parent != o.Parent {
 			continue
 		}
@@ -303,14 +337,14 @@ func (b *InMemoryBackend) ListJobs(project string, o JobListOptions) page.Page[m
 	return page.New(all, o.PageToken, o.Max, defaultListMax)
 }
 
-// stateWanted reports whether a DONE job passes the stateFilter list (empty means all states).
-func stateWanted(filter []string) bool {
+// stateWanted reports whether state passes the stateFilter list (empty means all states).
+func stateWanted(filter []string, state string) bool {
 	if len(filter) == 0 {
 		return true
 	}
 
 	for _, s := range filter {
-		if strings.EqualFold(s, stateDone) {
+		if strings.EqualFold(s, state) {
 			return true
 		}
 	}
@@ -321,9 +355,12 @@ func stateWanted(filter []string) bool {
 func jobWire(j *Job) map[string]any {
 	status := map[string]any{"state": j.State}
 
-	if j.ErrorResult != nil {
+	switch {
+	case j.ErrorResult != nil:
 		status["errorResult"] = j.ErrorResult
-		status["errors"] = []*jobError{j.ErrorResult}
+		status["errors"] = append(append([]*jobError{}, j.Errors...), j.ErrorResult)
+	case len(j.Errors) > 0:
+		status["errors"] = j.Errors
 	}
 
 	stats := cloneMap(j.Stats)
@@ -343,31 +380,52 @@ func jobWire(j *Job) map[string]any {
 		"id":         j.Project + ":" + j.Location + "." + j.ID,
 		litSelflink:  selfLinkBase + "projects/" + j.Project + "/jobs/" + j.ID + "?location=" + j.Location,
 		"user_email": j.User, "principal_subject": "user:" + j.User,
-		"jobReference":  map[string]any{litProjectid: j.Project, "jobId": j.ID, litLocation: j.Location},
+		litJobRef:       map[string]any{litProjectid: j.Project, litJobID: j.ID, litLocation: j.Location},
 		"configuration": cfg, "status": status, "statistics": stats,
 	}
 }
 
 // QueryResultOptions are the getQueryResults parameters.
 type QueryResultOptions struct {
+	TimeoutMs      *int
 	PageToken      string
 	StartIndex     int
 	Max            int
 	Int64Timestamp bool
 }
 
-// GetQueryResults implements jobs.getQueryResults.
+// GetQueryResults implements jobs.getQueryResults; it waits up to timeoutMs (default 10 s) for a job that is not
+// done and then answers jobComplete=false.
 func (b *InMemoryBackend) GetQueryResults(project, id string, o QueryResultOptions) (map[string]any, error) {
 	b.mu.RLock("GetQueryResults")
-	defer b.mu.RUnlock()
 
 	j, err := b.jobLocked(project, id)
 	if err != nil {
+		b.mu.RUnlock()
+
 		return nil, err
 	}
 
 	if j.Type != "QUERY" {
+		b.mu.RUnlock()
+
 		return nil, errInvalid("Job %s:%s is not a query job", project, id)
+	}
+
+	run, _ := b.runs.Get(jobKey(project, id))
+	b.mu.RUnlock()
+
+	b.waitFor(waitTimeout(o.TimeoutMs), run)
+
+	b.mu.RLock("GetQueryResults")
+	defer b.mu.RUnlock()
+
+	if j, err = b.jobLocked(project, id); err != nil {
+		return nil, err
+	}
+
+	if j.State != stateDone && j.State != "" {
+		return incompleteWire(j, "bigquery#getQueryResultsResponse"), nil
 	}
 
 	if j.ErrorResult != nil {
@@ -381,10 +439,17 @@ func (b *InMemoryBackend) GetQueryResults(project, id string, o QueryResultOptio
 	), nil
 }
 
+func incompleteWire(j *Job, kind string) map[string]any {
+	return map[string]any{
+		litKind: kind, "jobComplete": false,
+		litJobRef: map[string]any{litProjectid: j.Project, litJobID: j.ID, litLocation: j.Location},
+	}
+}
+
 func queryResultsWire(j *Job, o DataOptions, kind string) map[string]any {
 	out := map[string]any{
 		litKind: kind, "jobComplete": true, "cacheHit": false, litTotalbytesprocessed: "0",
-		"jobReference": map[string]any{litProjectid: j.Project, "jobId": j.ID, litLocation: j.Location},
+		litJobRef: map[string]any{litProjectid: j.Project, litJobID: j.ID, litLocation: j.Location},
 	}
 
 	if j.HasResult {
@@ -431,39 +496,74 @@ func (b *InMemoryBackend) RunQuery(ctx context.Context, project string, req map[
 		return nil, errInvalid("requestId must be at most %d characters long.", maxRequestIDLen)
 	}
 
+	run, job, resp, err := b.prepareQuery(ctx, project, req, cfg, reqID)
+	if err != nil || resp != nil {
+		return resp, err
+	}
+
+	var timeout *int
+	if _, ok := req["timeoutMs"]; ok {
+		ms, _ := intOf(req["timeoutMs"])
+		timeout = &ms
+	}
+
+	b.waitFor(waitTimeout(timeout), run)
+
+	b.mu.RLock("RunQuery")
+	defer b.mu.RUnlock()
+
+	if job.State != stateDone && job.State != "" {
+		return incompleteWire(job, "bigquery#queryResponse"), nil
+	}
+
+	if job.ErrorResult != nil {
+		return nil, jobFailure(job.ErrorResult)
+	}
+
+	return queryResponse(job, req), nil
+}
+
+// prepareQuery creates and starts the job of a jobs.query call; a replayed requestId or a dry run answers at once.
+func (b *InMemoryBackend) prepareQuery(
+	ctx context.Context, project string, req, cfg map[string]any, reqID string,
+) (*jobRun, *Job, map[string]any, error) {
 	b.mu.Lock("RunQuery")
 	defer b.mu.Unlock()
 
 	if prev := b.jobByRequestID(project, reqID); prev != nil {
-		return queryResponse(prev, req), nil
+		run, _ := b.runs.Get(jobKey(project, prev.ID))
+
+		return run, prev, nil, nil
 	}
 
 	loc, _ := req[litLocation].(string)
 
 	job, err := b.newJob(project, map[string]string{litLocation: loc}, jobQuery, cfg)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
 	job.DryRun, _ = req["dryRun"].(bool)
 	job.RequestID = reqID
 
-	out, err := b.execute(ctx, job, jobQuery, cfg, nil)
+	out, err := b.execute(ctx, job, jobQuery, cfg, true)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
-	b.finishJob(job, jobQuery, out)
+	if job.DryRun {
+		b.finishJob(job, jobQuery, out)
 
-	if job.ErrorResult != nil {
-		return nil, jobFailure(job.ErrorResult)
+		return nil, nil, queryResponse(job, req), nil
 	}
 
-	if !job.DryRun {
-		b.storeJob(job)
+	if err = b.startJob(ctx, job, jobQuery, cfg, nil); err != nil {
+		return nil, nil, nil, err
 	}
 
-	return queryResponse(job, req), nil
+	run, _ := b.runs.Get(jobKey(project, job.ID))
+
+	return run, job, nil, nil
 }
 
 // jobByRequestID returns the query job a requestId created within the idempotency window.
@@ -493,7 +593,7 @@ func queryResponse(job *Job, req map[string]any) map[string]any {
 	useInt, _ := fo["useInt64Timestamp"].(bool)
 	resp := queryResultsWire(job, DataOptions{Max: limit, Int64Timestamp: useInt}, "bigquery#queryResponse")
 	if job.DryRun {
-		delete(resp, "jobReference")
+		delete(resp, litJobRef)
 	}
 
 	return resp

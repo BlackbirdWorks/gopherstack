@@ -682,6 +682,29 @@ func (p *ldParser) emit(s, pr, o, g Term) {
 	p.out = append(p.out, Quad{Triple{S: s, P: pr, O: o}, g})
 }
 
+func (c ldContext) withScoped(def ldDef) (ldContext, error) {
+	if def.scoped == nil {
+		return c, nil
+	}
+
+	return c.extend(def.scoped)
+}
+
+func (p *ldParser) jsonProperty(subj Term, pred string, v any, def ldDef, graph Term) error {
+	o, err := ldJSONLiteral(v)
+	if err != nil {
+		return err
+	}
+
+	if def.cont.list {
+		o = p.listOf(o, graph)
+	}
+
+	p.emit(subj, IRI(pred), o, graph)
+
+	return nil
+}
+
 func (p *ldParser) property(subj Term, key string, v any, ctx ldContext, graph Term) error {
 	def := ctx.terms[key]
 	pred := ctx.expandIRI(key, true)
@@ -690,11 +713,13 @@ func (p *ldParser) property(subj Term, key string, v any, ctx ldContext, graph T
 		return nil
 	}
 
-	if def.scoped != nil {
-		var err error
-		if ctx, err = ctx.extend(def.scoped); err != nil {
-			return err
-		}
+	ctx, err := ctx.withScoped(def)
+	if err != nil {
+		return err
+	}
+
+	if def.typ == ldJSONType && !def.reverse {
+		return p.jsonProperty(subj, pred, v, def, graph)
 	}
 
 	items, err := p.valueItems(v, def, ctx)
@@ -884,6 +909,14 @@ func (p *ldParser) graphValue(gm map[string]any, ctx ldContext) (Term, error) {
 	return name, nil
 }
 
+func (p *ldParser) listOf(item, graph Term) Term {
+	head := p.fresh()
+	p.emit(head, IRI(RDFFirst), item, graph)
+	p.emit(head, IRI(RDFRest), IRI(RDFNil), graph)
+
+	return head
+}
+
 func (p *ldParser) list(items []any, def ldDef, ctx ldContext, graph Term) (Term, error) {
 	if len(items) == 0 {
 		return IRI(RDFNil), nil
@@ -915,6 +948,10 @@ func (p *ldParser) list(items []any, def ldDef, ctx ldContext, graph Term) (Term
 }
 
 func (p *ldParser) object(v any, def ldDef, ctx ldContext, graph Term) (Term, error) {
+	if def.typ == ldJSONType {
+		return ldJSONLiteral(v)
+	}
+
 	switch t := v.(type) {
 	case string:
 		switch def.typ {
@@ -1009,8 +1046,25 @@ func ldIsGraphObject(m map[string]any) bool {
 }
 
 func ldValueObject(raw any, m map[string]any, ctx ldContext) (Term, error) {
+	if err := ldCheckDirection(m); err != nil {
+		return Term{}, err
+	}
+
 	lang, _ := m[jsonLDLanguage].(string)
 	dt, _ := m[jsonLDType].(string)
+
+	if _, typed := m[jsonLDType]; typed {
+		_, hasLang := m[jsonLDLanguage]
+		_, hasDir := m[jsonLDDirection]
+
+		if hasLang || hasDir {
+			return Term{}, fmt.Errorf("%w: invalid value object: @type with @language or @direction", errJSONLD)
+		}
+	}
+
+	if dt == ldJSONType {
+		return ldJSONLiteral(raw)
+	}
 
 	var t Term
 

@@ -1,37 +1,54 @@
 package gcpbigquery
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpaudit"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/safemap"
 	"github.com/blackbirdworks/gopherstack/services/gcpbigquery/bqsql"
 )
 
 // InMemoryBackend holds every dataset, table, row and job under one lock.
 type InMemoryBackend struct {
-	mu       *lockmetrics.RWMutex
-	datasets map[string]*Dataset
-	jobs     map[string]*Job
-	objects  ObjectStore
-	res      *reservationState
+	mu         *lockmetrics.RWMutex
+	datasets   map[string]*Dataset
+	jobs       map[string]*Job
+	runs       *safemap.Map[string, *jobRun]
+	res        *reservationState
+	baseCancel context.CancelFunc
+	startHook  func(ctx context.Context, phase, project, id string)
+	objects    ObjectStore
+	baseCtx    context.Context
 	// Audit records Cloud Audit Logs entries for dataset, table and job changes.
 	Audit gcpaudit.Emitter
+	wg    sync.WaitGroup
 	seq   int64
+	// extractShardBytes is the logical size at which an extract shards (default 1 GiB).
+	extractShardBytes int64
+	loadMaxBytes      int64
+	loadMaxFiles      int
 }
 
 // NewInMemoryBackend creates an empty backend.
 func NewInMemoryBackend() *InMemoryBackend {
+	ctx, cancel := context.WithCancel(context.Background())
+
 	return &InMemoryBackend{
-		mu:       lockmetrics.New("gcpbigquery"),
-		datasets: make(map[string]*Dataset),
-		jobs:     make(map[string]*Job),
-		res:      newReservationState(),
+		mu:         lockmetrics.New("gcpbigquery"),
+		datasets:   make(map[string]*Dataset),
+		jobs:       make(map[string]*Job),
+		res:        newReservationState(),
+		runs:       safemap.New[string, *jobRun]("gcpbigquery.runs"),
+		baseCtx:    ctx,
+		baseCancel: cancel,
 	}
 }
 
@@ -44,6 +61,14 @@ func (b *InMemoryBackend) Reset() {
 	b.jobs = make(map[string]*Job)
 	b.res = newReservationState()
 	b.seq = 0
+}
+
+// SetExtractShardBytes sets the shard size of extract jobs; n <= 0 restores the 1 GiB default.
+func (b *InMemoryBackend) SetExtractShardBytes(n int64) {
+	b.mu.Lock("SetExtractShardBytes")
+	defer b.mu.Unlock()
+
+	b.extractShardBytes = n
 }
 
 // SetObjectStore wires the object store load and extract jobs read from and write to.

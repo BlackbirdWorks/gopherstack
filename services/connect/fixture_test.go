@@ -13,8 +13,11 @@ import (
 	sdk "github.com/aws/aws-sdk-go-v2/service/connect"
 	"github.com/aws/aws-sdk-go-v2/service/connect/types"
 	"github.com/aws/smithy-go"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	cn "github.com/blackbirdworks/gopherstack/services/connect"
 )
@@ -26,6 +29,7 @@ type fixture struct {
 	handler *cn.Handler
 	client  *sdk.Client
 	clock   *testClock
+	url     string
 }
 
 type testClock struct {
@@ -55,7 +59,7 @@ func newFixture(t *testing.T) *fixture {
 	b.SetClock(clock.now)
 
 	h := cn.NewHandler(b)
-	url := sdktest.Serve(t, h)
+	url := sdktest.Serve(t, regionAware{h})
 
 	cfg, err := awscfg.LoadDefaultConfig(t.Context(),
 		awscfg.WithRegion("us-east-1"),
@@ -64,7 +68,7 @@ func newFixture(t *testing.T) *fixture {
 	require.NoError(t, err)
 
 	return &fixture{
-		backend: b, handler: h, clock: clock,
+		backend: b, handler: h, clock: clock, url: url,
 		client: sdk.NewFromConfig(cfg, func(o *sdk.Options) { o.BaseEndpoint = aws.String(url) }),
 	}
 }
@@ -141,4 +145,37 @@ func (f fakeResolvers) ReadObject(_ context.Context, b, k string) ([]byte, error
 	}
 
 	return nil, errNoObject
+}
+
+// inRegion returns a client of the same server signing for another Region.
+func (f *fixture) inRegion(t *testing.T, region string) *sdk.Client {
+	t.Helper()
+
+	cfg, err := awscfg.LoadDefaultConfig(t.Context(),
+		awscfg.WithRegion(region),
+		awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(testAccount, "test", "")),
+	)
+	require.NoError(t, err)
+
+	return sdk.NewFromConfig(cfg, func(o *sdk.Options) { o.BaseEndpoint = aws.String(f.url) })
+}
+
+// regionAware stamps the signing Region on the request context, as the application middleware does.
+type baseHandler = cn.Handler
+
+type regionAware struct{ *baseHandler }
+
+func (r regionAware) Handler() echo.HandlerFunc {
+	inner := r.baseHandler.Handler()
+
+	return func(c *echo.Context) error {
+		req := c.Request()
+		meta := &awsmeta.Metadata{
+			Account: testAccount, Region: httputils.ExtractRegionFromRequest(req, "us-east-1"),
+			Partition: awsmeta.DefaultPartition,
+		}
+		c.SetRequest(req.WithContext(awsmeta.Set(req.Context(), meta)))
+
+		return inner(c)
+	}
 }

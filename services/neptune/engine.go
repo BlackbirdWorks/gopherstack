@@ -279,6 +279,7 @@ func (b *InMemoryBackend) provisionClusterLocked(c *DBCluster) {
 	}
 
 	lb.rdf.info = b.engineInfoFn(lb)
+	b.syncLabModesLocked()
 	b.applyStreamPolicyLocked(lb.region, lb.id)
 
 	if old, ok := e.units[lb.key]; ok {

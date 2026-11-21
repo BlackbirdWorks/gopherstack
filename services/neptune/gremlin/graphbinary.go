@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"math"
+	"time"
 )
 
 const mimeGraphBinary = "application/vnd.graphbinary-v1.0"
@@ -24,8 +25,10 @@ const (
 	gbEdge        = 0x0d
 	gbPath        = 0x0e
 	gbProperty    = 0x0f
+	gbGraph       = 0x10
 	gbVertex      = 0x11
 	gbVertexProp  = 0x12
+	gbBarrier     = 0x13
 	gbBinding     = 0x14
 	gbBytecode    = 0x15
 	gbCardinality = 0x16
@@ -57,6 +60,8 @@ var errShort error = &Error{
 
 func enumKind(code byte) (string, bool) {
 	switch code {
+	case gbBarrier:
+		return kindSackBarrier, true
 	case gbCardinality:
 		return kindCardinality, true
 	case gbColumn:
@@ -83,7 +88,7 @@ func enumKind(code byte) (string, bool) {
 }
 
 func enumCode(kind string) byte {
-	for c := byte(gbCardinality); c <= gbMerge; c++ {
+	for c := byte(gbBarrier); c <= gbMerge; c++ {
 		if k, ok := enumKind(c); ok && k == kind {
 			return c
 		}
@@ -198,7 +203,14 @@ func (r *bbReader) payload(code byte) (any, error) {
 		n, err := r.i32()
 
 		return int64(n), err
-	case gbLong, gbDate, gbTimestamp:
+	case gbDate:
+		ms, err := r.i64()
+		if err != nil {
+			return nil, err
+		}
+
+		return time.UnixMilli(ms).UTC(), nil
+	case gbLong, gbTimestamp:
 		return r.i64()
 	case gbShort:
 		b, err := r.take(2) //nolint:mnd // int16
@@ -269,7 +281,7 @@ func (r *bbReader) uuid() (any, error) {
 		return nil, err
 	}
 
-	return formatUUID(b), nil
+	return UUID(formatUUID(b)), nil
 }
 
 func (r *bbReader) enum(kind string) (any, error) {
@@ -541,6 +553,19 @@ func (w *bbWriter) fq(v any) {
 	case Token:
 		w.enum(t)
 	default:
+		w.fqTemporal(v)
+	}
+}
+
+func (w *bbWriter) fqTemporal(v any) {
+	switch t := v.(type) {
+	case time.Time:
+		w.head(gbDate)
+		w.i64(t.UnixMilli())
+	case UUID:
+		w.head(gbUUID)
+		w.buf.Write(parseUUID(string(t)))
+	default:
 		w.element(v)
 	}
 }
@@ -598,8 +623,56 @@ func (w *bbWriter) element(v any) {
 		w.property(t)
 	case *Path:
 		w.path(t)
+	case *SubGraph:
+		w.graph(t)
 	default:
 		w.fqString(keyOf(v))
+	}
+}
+
+// graph writes the TinkerPop GraphSerializer layout (DataType.GRAPH 0x10, gremlin-core 3.7.3 GraphSerializer.java).
+func (w *bbWriter) graph(g *SubGraph) {
+	w.head(gbGraph)
+	w.i32(len(g.Vertices))
+
+	for _, v := range g.Vertices {
+		w.fqString(v.ID)
+		w.str(v.Label)
+
+		n := 0
+		for _, p := range v.Props {
+			n += len(p.Vals)
+		}
+
+		w.i32(n)
+
+		for _, p := range v.Props {
+			for i, val := range p.Vals {
+				w.head(gbLong)
+				w.i64(p.IDs[i])
+				w.str(p.Key)
+				w.fq(val)
+				w.null()
+				w.i32(0)
+			}
+		}
+	}
+
+	w.i32(len(g.Edges))
+
+	for _, e := range g.Edges {
+		w.fqString(e.Edge.ID)
+		w.str(e.Edge.Label)
+		w.fqString(e.Edge.InID)
+		w.null()
+		w.fqString(e.Edge.OutID)
+		w.null()
+		w.null()
+		w.i32(len(e.Props))
+
+		for _, p := range e.Props {
+			w.property(&Property{Key: p.Key, Val: p.Vals[0]})
+		}
 	}
 }
 

@@ -141,6 +141,11 @@ type InMemoryBackend struct {
 	negEndpoints    map[string][]*computeapi.NetworkEndpoint
 	secPolicies     map[string]*computeapi.SecurityPolicy
 	resPolicies     map[string]*computeapi.ResourcePolicy
+	licenses        map[string]*computeapi.License
+	interconnects   map[string]*computeapi.Interconnect
+	icAttachments   map[string]*computeapi.InterconnectAttachment
+	futureRes       map[string]*computeapi.FutureReservation
+	instSnapGroups  map[string]*computeapi.InstantSnapshotGroup
 	schedRuns       map[string]*schedRun
 	ops             map[string]*opRec
 	projects        map[string]*computeapi.Metadata
@@ -230,6 +235,11 @@ func (b *InMemoryBackend) resetMaps() {
 	b.negEndpoints = map[string][]*computeapi.NetworkEndpoint{}
 	b.secPolicies = map[string]*computeapi.SecurityPolicy{}
 	b.resPolicies = map[string]*computeapi.ResourcePolicy{}
+	b.licenses = map[string]*computeapi.License{}
+	b.interconnects = map[string]*computeapi.Interconnect{}
+	b.icAttachments = map[string]*computeapi.InterconnectAttachment{}
+	b.futureRes = map[string]*computeapi.FutureReservation{}
+	b.instSnapGroups = map[string]*computeapi.InstantSnapshotGroup{}
 	b.schedRuns = map[string]*schedRun{}
 	b.ops = map[string]*opRec{}
 	b.projects = map[string]*computeapi.Metadata{}

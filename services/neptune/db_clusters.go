@@ -501,6 +501,7 @@ func (b *InMemoryBackend) ModifyDBCluster(
 		b.rekeyUnitLocked(region, id, c.DBClusterIdentifier)
 	}
 	b.reapplyLiveLocked(c)
+	b.syncLabModesLocked()
 	cp := cloneCluster(c)
 
 	return &cp, nil

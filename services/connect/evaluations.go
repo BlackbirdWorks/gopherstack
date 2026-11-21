@@ -3,13 +3,11 @@ package connect
 import (
 	"context"
 	"encoding/json/jsontext"
-	"encoding/json/v2"
 	"maps"
 	"slices"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
-	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -45,11 +43,13 @@ type EvaluationNote struct {
 
 // EvaluationScore is a computed score.
 type EvaluationScore struct {
-	Percentage    float64 `json:"Percentage"`
-	NotApplicable bool    `json:"NotApplicable"`
-	AutomaticFail bool    `json:"AutomaticFail"`
-	EarnedPoints  int32   `json:"EarnedPoints"`
-	MaxBasePoint  int32   `json:"MaxBasePoint"`
+	AppliedWeight       *float64 `json:"AppliedWeight,omitempty"`
+	PerformanceCategory string   `json:"PerformanceCategory,omitempty"`
+	Percentage          float64  `json:"Percentage"`
+	EarnedPoints        int32    `json:"EarnedPoints"`
+	MaxBasePoint        int32    `json:"MaxBasePoint"`
+	NotApplicable       bool     `json:"NotApplicable"`
+	AutomaticFail       bool     `json:"AutomaticFail"`
 }
 
 type evaluationRec struct {
@@ -185,14 +185,22 @@ type evalQuestion struct {
 }
 
 type evalOptions struct {
-	Options []struct {
-		RefID         string `json:"RefId"`
-		Score         int32  `json:"Score"`
-		AutomaticFail bool   `json:"AutomaticFail"`
-	} `json:"Options"`
+	Options []evalOption `json:"Options"`
+}
+
+type evalOption struct {
+	AutoFail *struct {
+		TargetSection string `json:"TargetSection"`
+	} `json:"AutomaticFailConfiguration"`
+	RefID         string `json:"RefId"`
+	Score         int32  `json:"Score"`
+	AutomaticFail bool   `json:"AutomaticFail"`
 }
 
 type evalNumRange struct {
+	AutoFail *struct {
+		TargetSection string `json:"TargetSection"`
+	} `json:"AutomaticFailConfiguration"`
 	MinValue      float64 `json:"MinValue"`
 	MaxValue      float64 `json:"MaxValue"`
 	Score         int32   `json:"Score"`
@@ -202,129 +210,6 @@ type evalNumRange struct {
 type evalSection struct {
 	RefID string           `json:"RefId"`
 	Items []jsontext.Value `json:"Items"`
-}
-
-// evalTally accumulates points over answered questions.
-type evalTally struct {
-	earned, maxPoints int32
-	fail, scored      bool
-}
-
-func (t evalTally) plus(o evalTally) evalTally {
-	return evalTally{
-		earned:    t.earned + o.earned,
-		maxPoints: t.maxPoints + o.maxPoints,
-		fail:      t.fail || o.fail,
-		scored:    t.scored || o.scored,
-	}
-}
-
-func (t evalTally) score() EvaluationScore {
-	s := EvaluationScore{
-		EarnedPoints:  t.earned,
-		MaxBasePoint:  t.maxPoints,
-		AutomaticFail: t.fail,
-		NotApplicable: !t.scored,
-	}
-	if t.maxPoints > 0 && !t.fail {
-		s.Percentage = float64(t.earned) / float64(t.maxPoints) * pctScale
-	}
-
-	return s
-}
-
-// formQuestions flattens the questions of the form items, calling visit for each with the enclosing section refs.
-func formQuestions(items []jsontext.Value, sections []string, visit func(q evalQuestion, sections []string)) {
-	for _, raw := range items {
-		var u struct {
-			Question *evalQuestion `json:"Question"`
-			Section  *evalSection  `json:"Section"`
-		}
-
-		if json.Unmarshal(raw, &u, jsonx.V1()) != nil {
-			continue
-		}
-
-		if u.Question != nil {
-			visit(*u.Question, sections)
-		}
-
-		if u.Section != nil {
-			formQuestions(u.Section.Items, append(slices.Clone(sections), u.Section.RefID), visit)
-		}
-	}
-}
-
-// questionTally scores one answered question from its option scores.
-func questionTally(q evalQuestion, a EvaluationAnswer) evalTally {
-	if a.Value.NotApplicable != nil && *a.Value.NotApplicable {
-		return evalTally{}
-	}
-
-	t := evalTally{scored: true}
-
-	switch {
-	case q.Props.SingleSelect != nil:
-		for _, o := range q.Props.SingleSelect.Options {
-			t.maxPoints = max(t.maxPoints, o.Score)
-
-			if o.RefID == a.Value.StringValue {
-				t.earned, t.fail = o.Score, o.AutomaticFail
-			}
-		}
-	case q.Props.Numeric != nil && a.Value.NumericValue != nil:
-		for _, o := range q.Props.Numeric.Options {
-			t.maxPoints = max(t.maxPoints, o.Score)
-
-			if *a.Value.NumericValue >= o.MinValue && *a.Value.NumericValue <= o.MaxValue {
-				t.earned, t.fail = o.Score, o.AutomaticFail
-			}
-		}
-	default:
-		return evalTally{}
-	}
-
-	return t
-}
-
-// scoreEvaluation scores answered questions per section and overall; unscored forms yield no scores.
-func scoreEvaluation(
-	c *formContent,
-	answers map[string]EvaluationAnswer,
-) (map[string]EvaluationScore, *EvaluationScore) {
-	var strategy struct {
-		Status string `json:"Status"`
-	}
-
-	if len(c.ScoringStrategy) == 0 || json.Unmarshal(c.ScoringStrategy, &strategy, jsonx.V1()) != nil ||
-		strategy.Status != "ENABLED" {
-		return nil, nil
-	}
-
-	total, sections := evalTally{}, map[string]evalTally{}
-
-	formQuestions(c.Items, nil, func(q evalQuestion, within []string) {
-		a, ok := answers[q.RefID]
-		if !ok {
-			return
-		}
-
-		t := questionTally(q, a)
-		total = total.plus(t)
-
-		for _, s := range within {
-			sections[s] = sections[s].plus(t)
-		}
-	})
-
-	scores := map[string]EvaluationScore{}
-	for ref, t := range sections {
-		scores[ref] = t.score()
-	}
-
-	overall := total.score()
-
-	return scores, &overall
 }
 
 func checkAnswer(q evalQuestion, a EvaluationAnswer) error {
@@ -374,14 +259,7 @@ func checkNumericAnswer(q evalQuestion, v EvaluationAnswerData) error {
 }
 
 func hasOption(o *evalOptions, ref string) bool {
-	return slices.ContainsFunc(o.Options, func(x struct {
-		RefID         string `json:"RefId"`
-		Score         int32  `json:"Score"`
-		AutomaticFail bool   `json:"AutomaticFail"`
-	},
-	) bool {
-		return x.RefID == ref
-	})
+	return slices.ContainsFunc(o.Options, func(x evalOption) bool { return x.RefID == ref })
 }
 
 func (b *Backend) evalFormVersion(inst string, r *evaluationRec) (*evalFormVersion, error) {

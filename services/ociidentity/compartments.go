@@ -405,38 +405,59 @@ func (b *InMemoryBackend) compartmentContents(id string) string {
 	return ""
 }
 
-// DeleteCompartment starts the asynchronous deletion of an empty compartment and returns the work request id.
-func (b *InMemoryBackend) DeleteCompartment(id, ifMatch string) (string, error) {
-	b.mu.Lock("DeleteCompartment")
-	defer b.mu.Unlock()
-
+func (b *InMemoryBackend) deletableCompartment(id, ifMatch string) (*Compartment, *APIError) {
 	if id == TenancyID {
-		return "", errParam("The root compartment cannot be deleted")
+		return nil, errParam("The root compartment cannot be deleted")
 	}
 
 	c, aerr := b.compartmentByID(id)
 	if aerr != nil {
-		return "", aerr
+		return nil, aerr
 	}
 
 	if aerr = checkEtag(c.Internal.Etag, ifMatch); aerr != nil {
-		return "", aerr
+		return nil, aerr
 	}
 
 	if c.LifecycleState != stateActive {
-		return "", errState(
+		return nil, errState(
 			"Compartment " + id + " is in state " + c.LifecycleState + "; the operation requires ACTIVE",
 		)
 	}
 
 	if what := b.compartmentContents(id); what != "" {
+		return nil, errConflict("Conflict", "Compartment "+id+" is not empty: it still contains "+what)
+	}
+
+	return c, nil
+}
+
+// DeleteCompartment starts the asynchronous deletion of an empty compartment and returns the work request id.
+func (b *InMemoryBackend) DeleteCompartment(id, ifMatch string) (string, error) {
+	b.mu.RLock("DeleteCompartment")
+	_, aerr := b.deletableCompartment(id, ifMatch)
+	b.mu.RUnlock()
+
+	if aerr != nil {
+		return "", aerr
+	}
+
+	if what := b.foreignUsage(id); what != "" {
 		return "", errConflict("Conflict", "Compartment "+id+" is not empty: it still contains "+what)
+	}
+
+	b.mu.Lock("DeleteCompartment")
+	defer b.mu.Unlock()
+
+	c, aerr := b.deletableCompartment(id, ifMatch)
+	if aerr != nil {
+		return "", aerr
 	}
 
 	finish := b.nowUTC().Add(transitionWindow)
 	c.LifecycleState, c.Internal.TransitionAt = stateDeleting, &finish
 
-	return b.newWR("DELETE_COMPARTMENT", c.CompartmentID, "compartment", id, "DELETED", finish), nil
+	return b.newWR(wrDeleteCompartment, c.CompartmentID, "compartment", id, "DELETED", finish), nil
 }
 
 // MoveCompartment re-parents a compartment tree and returns the work request id.

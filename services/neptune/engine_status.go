@@ -2,6 +2,7 @@ package neptune
 
 import (
 	"encoding/json/v2"
+	"maps"
 	"net/http"
 	"strconv"
 	"strings"
@@ -39,6 +40,7 @@ const (
 
 // engineInfo is the live cluster state /status reports.
 type engineInfo struct {
+	labMode      map[string]string
 	version      string
 	queryTimeout string
 	slowLog      string
@@ -137,6 +139,13 @@ func (f *cypherFront) serveEngineStatus(w http.ResponseWriter, r *http.Request) 
 		"AuditLog": enabledWord(info.audit), "QueryTimeout": info.queryTimeout,
 	}
 
+	labMode := map[string]string{
+		"ObjectIndex":                statusDisabled,
+		"ReadWriteConflictDetection": statusEnabled,
+	}
+
+	maps.Copy(labMode, info.labMode)
+
 	body := map[string]any{
 		keyStatus:         "healthy",
 		"startTime":       f.started.UTC().Format(javaDateLayout),
@@ -146,11 +155,8 @@ func (f *cypherFront) serveEngineStatus(w http.ResponseWriter, r *http.Request) 
 		keyGremlin:        map[string]string{keyVersion: gremlinEngineLabel},
 		"sparql":          map[string]string{keyVersion: sparqlEngineLabel},
 		"opencypher":      map[string]string{keyVersion: openCypherLabel},
-		"labMode": map[string]string{
-			"ObjectIndex":                statusDisabled,
-			"ReadWriteConflictDetection": statusEnabled,
-		},
-		"features": features,
+		"labMode":         labMode,
+		"features":        features,
 		"settings": map[string]string{
 			"clusterQueryTimeoutInMs": info.queryTimeout,
 			"SlowQueryLogsThreshold":  info.slowMs,
@@ -299,6 +305,7 @@ func (b *InMemoryBackend) engineInfoFn(lb *liveCluster) func() engineInfo {
 			slowMs:       paramValue(params, "neptune_slow_query_log_threshold", defaultSlowLogMs),
 		}
 
+		info.labMode = parseLabMode(paramValue(params, "neptune_lab_mode", ""))
 		info.slowLog = statusDisabled
 		if v := strings.ToLower(paramValue(params, "neptune_enable_slow_query_log", "")); v == "info" || v == "debug" {
 			info.slowLog = v
@@ -309,5 +316,44 @@ func (b *InMemoryBackend) engineInfoFn(lb *liveCluster) func() engineInfo {
 		}
 
 		return info
+	}
+}
+
+const labDatetimeMillisecond = "DatetimeMillisecond"
+
+// parseLabMode reads a neptune_lab_mode value such as "Streams=disabled, ObjectIndex=enabled".
+func parseLabMode(v string) map[string]string {
+	out := map[string]string{}
+
+	for part := range strings.SplitSeq(v, ",") {
+		k, val, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+
+		k, val = strings.TrimSpace(k), strings.ToLower(strings.TrimSpace(val))
+		if k != "" && (val == statusEnabled || val == statusDisabled) {
+			out[k] = val
+		}
+	}
+
+	return out
+}
+
+// syncLabModesLocked pushes each cluster's DatetimeMillisecond lab mode to its graph so queries never take b.mu.
+func (b *InMemoryBackend) syncLabModesLocked() {
+	for _, c := range b.clusters.All() {
+		g, ok := b.graphs[regionKey(c.region, c.DBClusterIdentifier)]
+		if !ok {
+			continue
+		}
+
+		params := describeParameters(
+			neptuneClusterParameterCatalog(),
+			b.clusterParameterOverrides[regionKey(c.region, c.DBClusterParameterGroupName)],
+		)
+
+		lab := parseLabMode(paramValue(params, "neptune_lab_mode", ""))
+		g.SetExtendedDatetime(lab[labDatetimeMillisecond] == statusEnabled)
 	}
 }

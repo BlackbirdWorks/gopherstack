@@ -4,7 +4,6 @@ import (
 	"net/netip"
 	"slices"
 	"strconv"
-	"strings"
 
 	computeapi "google.golang.org/api/compute/v1"
 )
@@ -13,11 +12,6 @@ const (
 	maintMigrate   = "MIGRATE"
 	maintTerminate = "TERMINATE"
 )
-
-var acceleratorTypes = []string{ //nolint:gochecknoglobals // read-only lookup table
-	"nvidia-tesla-t4", "nvidia-tesla-t4-vws", "nvidia-tesla-p4", "nvidia-tesla-p100", "nvidia-tesla-v100",
-	"nvidia-tesla-k80", "nvidia-tesla-a100", "nvidia-l4",
-}
 
 type setNameRequest struct {
 	CurrentName string `json:"currentName"`
@@ -109,33 +103,16 @@ func (b *InMemoryBackend) setInstanceMachineResources(
 		return nil, err
 	}
 
-	out := make([]*computeapi.AcceleratorConfig, 0, len(accels))
-
-	for _, a := range accels {
-		t := lastSegment(a.AcceleratorType)
-		if !slices.Contains(acceleratorTypes, t) {
-			return nil, errField("guestAccelerators.acceleratorType", a.AcceleratorType, "Unknown accelerator type.")
-		}
-
-		if a.AcceleratorCount < 1 {
-			return nil, errField("guestAccelerators.acceleratorCount", "", "Must be at least 1.")
-		}
-
-		out = append(out, &computeapi.AcceleratorConfig{
-			AcceleratorType: zoneLink(project, zone, "acceleratorTypes", t), AcceleratorCount: a.AcceleratorCount,
-		})
-	}
-
-	if len(out) > 0 {
-		if machine := lastSegment(r.Inst.MachineType); !strings.HasPrefix(machine, "n1-") {
-			return nil, errInvalid(
-				"Invalid value for field 'guestAccelerators': GPUs cannot be attached to machine type '%s'.", machine)
-		}
-
-		if r.Inst.Scheduling == nil || r.Inst.Scheduling.OnHostMaintenance != maintTerminate {
-			return nil, errInvalid(
-				"Invalid value for field 'scheduling.onHostMaintenance': instances with GPUs must use TERMINATE.")
-		}
+	out, verr := b.validateAcceleratorsLocked(
+		project,
+		zone,
+		r.Inst.MachineType,
+		r.Inst.Scheduling,
+		r.Inst.Disks,
+		accels,
+	)
+	if verr != nil {
+		return nil, verr
 	}
 
 	r.Inst.GuestAccelerators = out

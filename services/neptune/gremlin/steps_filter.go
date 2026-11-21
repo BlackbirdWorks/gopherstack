@@ -431,7 +431,9 @@ func stepDedup(x *exec, s *Step, in []*trav) ([]*trav, error) {
 		if !seen[k] {
 			seen[k] = true
 
-			out = append(out, t)
+			c := *t
+			c.bulk = 0
+			out = append(out, &c)
 		}
 	}
 

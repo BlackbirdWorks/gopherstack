@@ -468,3 +468,107 @@ func TestGetContactMetrics(t *testing.T) {
 	_, err = get(second, "BOGUS")
 	assert.Equal(t, "InvalidParameterException", apiCode(err))
 }
+
+func TestContactMetricsFollowRoutingData(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		update func(e *contactEnv, c [3]string) *sdk.UpdateContactRoutingDataInput
+		name   string
+		want   [3]float64
+	}{
+		{name: "first come first served", want: [3]float64{1, 2, 3}},
+		{
+			name: "a lower priority number goes first",
+			update: func(e *contactEnv, c [3]string) *sdk.UpdateContactRoutingDataInput {
+				return &sdk.UpdateContactRoutingDataInput{
+					InstanceId: aws.String(e.inst), ContactId: aws.String(c[2]), QueuePriority: aws.Int64(1),
+				}
+			},
+			want: [3]float64{2, 3, 1},
+		},
+		{
+			name: "a higher number goes last",
+			update: func(e *contactEnv, c [3]string) *sdk.UpdateContactRoutingDataInput {
+				return &sdk.UpdateContactRoutingDataInput{
+					InstanceId: aws.String(e.inst), ContactId: aws.String(c[0]), QueuePriority: aws.Int64(9),
+				}
+			},
+			want: [3]float64{3, 1, 2},
+		},
+		{
+			name: "routing age moves a contact ahead",
+			update: func(e *contactEnv, c [3]string) *sdk.UpdateContactRoutingDataInput {
+				return &sdk.UpdateContactRoutingDataInput{
+					InstanceId: aws.String(
+						e.inst,
+					),
+					ContactId:                  aws.String(c[2]),
+					QueueTimeAdjustmentSeconds: aws.Int32(60),
+				}
+			},
+			want: [3]float64{2, 3, 1},
+		},
+		{
+			name: "negative routing age moves a contact back",
+			update: func(e *contactEnv, c [3]string) *sdk.UpdateContactRoutingDataInput {
+				return &sdk.UpdateContactRoutingDataInput{
+					InstanceId: aws.String(
+						e.inst,
+					),
+					ContactId:                  aws.String(c[0]),
+					QueueTimeAdjustmentSeconds: aws.Int32(-60),
+				}
+			},
+			want: [3]float64{3, 1, 2},
+		},
+		{
+			name: "a small routing age keeps the order",
+			update: func(e *contactEnv, c [3]string) *sdk.UpdateContactRoutingDataInput {
+				return &sdk.UpdateContactRoutingDataInput{
+					InstanceId: aws.String(
+						e.inst,
+					),
+					ContactId:                  aws.String(c[2]),
+					QueueTimeAdjustmentSeconds: aws.Int32(3),
+				}
+			},
+			want: [3]float64{1, 2, 3},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newContactEnv(t)
+
+			var ids [3]string
+
+			for i := range ids {
+				ids[i] = e.outbound(t, "+44207123000"+string(rune('1'+i)), true)
+
+				e.f.clock.advance(10 * time.Second)
+			}
+
+			if tt.update != nil {
+				_, err := e.f.client.UpdateContactRoutingData(t.Context(), tt.update(e, ids))
+				require.NoError(t, err)
+			}
+
+			for i, id := range ids {
+				out, err := e.f.client.GetContactMetrics(t.Context(), &sdk.GetContactMetricsInput{
+					InstanceId: aws.String(e.inst), ContactId: aws.String(id),
+					Metrics: []types.ContactMetricInfo{{Name: types.ContactMetricNamePositionInQueue}},
+				})
+				require.NoError(t, err)
+				assert.InDelta(
+					t,
+					tt.want[i],
+					out.MetricResults[0].Value.(*types.ContactMetricValueMemberNumber).Value,
+					0.001,
+				)
+			}
+		})
+	}
+}

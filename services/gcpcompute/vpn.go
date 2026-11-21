@@ -44,6 +44,17 @@ func vpnGatewaySpec() lbSpec[computeapi.VpnGateway] {
 			}
 		},
 		prep: prepVPNGateway,
+		refs: func(v *computeapi.VpnGateway) []string {
+			var out []string
+
+			for _, vi := range v.VpnInterfaces {
+				if vi.InterconnectAttachment != "" {
+					out = append(out, vi.InterconnectAttachment)
+				}
+			}
+
+			return out
+		},
 	}
 }
 
@@ -127,11 +138,11 @@ func prepVPNGateway(b *InMemoryBackend, c lbCtx, in *computeapi.VpnGateway, raw 
 
 	switch in.StackType {
 	case "":
-		in.StackType = "IPV4_ONLY"
+		in.StackType = stackIPv4Only
 		if in.GatewayIpVersion == ipv6 {
-			in.StackType = "IPV4_IPV6"
+			in.StackType = stackIPv4IPv6
 		}
-	case "IPV4_ONLY", "IPV4_IPV6", "IPV6_ONLY":
+	case stackIPv4Only, stackIPv4IPv6, "IPV6_ONLY":
 	default:
 		return errField("resource.stackType", in.StackType, "")
 	}
@@ -142,18 +153,56 @@ func prepVPNGateway(b *InMemoryBackend, c lbCtx, in *computeapi.VpnGateway, raw 
 
 	in.LabelFingerprint = labelFP(in.Labels)
 
-	for _, vi := range in.VpnInterfaces {
-		if vi.InterconnectAttachment != "" {
-			return errField("resource.vpnInterfaces.interconnectAttachment", vi.InterconnectAttachment,
-				"HA VPN over Cloud Interconnect is not supported by this emulator.")
-		}
+	attached, err := b.resolveVPNAttachmentsLocked(c, in.VpnInterfaces)
+	if err != nil {
+		return err
 	}
 
-	return b.allocVPNInterfacesLocked(c, in, raw != nil)
+	return b.allocVPNInterfacesLocked(c, in, raw != nil, attached)
+}
+
+// resolveVPNAttachmentsLocked resolves the VLAN attachment of each interface, keyed by interface index.
+func (b *InMemoryBackend) resolveVPNAttachmentsLocked(
+	c lbCtx, ifaces []*computeapi.VpnGatewayVpnGatewayInterface,
+) (map[int]*computeapi.InterconnectAttachment, *APIError) {
+	out := map[int]*computeapi.InterconnectAttachment{}
+
+	for i, vi := range ifaces {
+		if vi.InterconnectAttachment == "" {
+			continue
+		}
+
+		field := "resource.vpnInterfaces.interconnectAttachment"
+
+		if i >= vpnInterfaceCount {
+			return nil, errField("resource.vpnInterfaces", "", "An HA VPN gateway has two interfaces.")
+		}
+
+		r, ok := parseRef(vi.InterconnectAttachment, collICAttachments, c.project, c.loc)
+		if !ok || r.loc != c.loc {
+			return nil, errField(field, vi.InterconnectAttachment, "The attachment must be in "+c.loc+".")
+		}
+
+		a, found := b.icAttachments[key(r.project, c.loc, r.name)]
+		if !found {
+			return nil, errNotFound(relPath(r.project, scopeRegion, c.loc, collICAttachments, r.name))
+		}
+
+		if a.Encryption != iaEncIPsec {
+			return nil, errField(field, vi.InterconnectAttachment,
+				"HA VPN over Cloud Interconnect needs an attachment created with IPSEC encryption.")
+		}
+
+		out[i] = a
+	}
+
+	return out, nil
 }
 
 // allocVPNInterfacesLocked gives an HA gateway its two interfaces; addresses are kept unless fresh is set.
-func (b *InMemoryBackend) allocVPNInterfacesLocked(c lbCtx, in *computeapi.VpnGateway, fresh bool) *APIError {
+func (b *InMemoryBackend) allocVPNInterfacesLocked(
+	c lbCtx, in *computeapi.VpnGateway, fresh bool, attached map[int]*computeapi.InterconnectAttachment,
+) *APIError {
 	old := in.VpnInterfaces
 	in.VpnInterfaces = make([]*computeapi.VpnGatewayVpnGatewayInterface, 0, vpnInterfaceCount)
 
@@ -165,6 +214,14 @@ func (b *InMemoryBackend) allocVPNInterfacesLocked(c lbCtx, in *computeapi.VpnGa
 			vi.IpAddress, vi.Ipv6Address = old[i].IpAddress, old[i].Ipv6Address
 		}
 
+		if a := attached[i]; a != nil {
+			vi.InterconnectAttachment = a.SelfLink
+
+			if vi.IpAddress == "" && len(a.IpsecInternalAddresses) > 0 {
+				vi.IpAddress = b.internalAddressValueLocked(a.IpsecInternalAddresses[0])
+			}
+		}
+
 		if err := b.fillVPNAddressLocked(c, in.GatewayIpVersion, vi, taken); err != nil {
 			return err
 		}
@@ -174,6 +231,16 @@ func (b *InMemoryBackend) allocVPNInterfacesLocked(c lbCtx, in *computeapi.VpnGa
 	}
 
 	return nil
+}
+
+func (b *InMemoryBackend) internalAddressValueLocked(self string) string {
+	for _, a := range b.addresses {
+		if a.SelfLink == self {
+			return a.Address
+		}
+	}
+
+	return ""
 }
 
 func (b *InMemoryBackend) fillVPNAddressLocked(

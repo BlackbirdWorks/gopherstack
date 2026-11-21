@@ -285,7 +285,7 @@ func (b *InMemoryBackend) deleteNetwork(project, name string) (*computeapi.Opera
 var networkPatchable = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
 	jsonName: true, "routingConfig": true, "mtu": true, jsonDesc: true,
 	"networkFirewallPolicyEnforcementOrder": true, jsonKind: true, "id": true, jsonSelfLink: true,
-	jsonCreated: true, "autoCreateSubnetworks": true, "subnetworks": true, "selfLinkWithId": true,
+	jsonCreated: true, "autoCreateSubnetworks": true, "subnetworks": true, jsonSelfLinkID: true,
 	"peerings": true, "enableUlaInternalIpv6": true, "internalIpv6Range": true,
 }
 

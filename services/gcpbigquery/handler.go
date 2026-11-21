@@ -467,7 +467,7 @@ func (h *Handler) query(c *echo.Context, rt route) error {
 func (h *Handler) getQueryResults(c *echo.Context, rt route) error {
 	out, err := h.Backend.GetQueryResults(rt.project, rt.job, QueryResultOptions{
 		PageToken: c.QueryParam("pageToken"), StartIndex: queryInt(c, "startIndex"), Max: queryInt(c, "maxResults"),
-		Int64Timestamp: queryBool(c, "formatOptions.useInt64Timestamp"),
+		Int64Timestamp: queryBool(c, "formatOptions.useInt64Timestamp"), TimeoutMs: queryIntPtr(c, "timeoutMs"),
 	})
 	if err != nil {
 		return err
@@ -518,6 +518,8 @@ func (h *Handler) Shutdown(ctx context.Context) {
 	srv := h.srv
 	h.srv = nil
 	h.srvMu.Unlock()
+
+	h.Backend.Close()
 
 	if srv == nil {
 		return
@@ -693,4 +695,18 @@ func (h *Handler) listRowPolicies(c *echo.Context, rt route) error {
 	}
 
 	return c.JSON(http.StatusOK, out)
+}
+
+func queryIntPtr(c *echo.Context, key string) *int {
+	v := c.QueryParam(key)
+	if v == "" {
+		return nil
+	}
+
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return nil
+	}
+
+	return new(n)
 }

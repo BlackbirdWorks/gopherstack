@@ -21,6 +21,15 @@ const (
 	litType                = "type"
 	litUselegacysql        = "useLegacySql"
 	litSpecialGroup        = "specialGroup"
+	litJobRef              = "jobReference"
+	litJobID               = "jobId"
+	litBytes               = "BYTES"
+	litNumeric             = "NUMERIC"
+	litBignumeric          = "BIGNUMERIC"
+	litTimestamp           = "TIMESTAMP"
+	litDate                = "DATE"
+	litStringType          = "string"
+	litTrue                = "true"
 )
 
 const litClusterFields = "fields"

@@ -116,6 +116,10 @@ func (x *exec) evalCall(c callExpr, r row, grp []row) (any, error) {
 	}
 
 	fn, ok := x.g.funcs[c.name]
+	if c.name == "datetime" && x.g.extendedDatetime() {
+		fn = funcDatetimeExt
+	}
+
 	if !ok {
 		return nil, &Error{Code: CodeMalformedQuery, Detail: "Unknown function '" + c.name + "'"}
 	}

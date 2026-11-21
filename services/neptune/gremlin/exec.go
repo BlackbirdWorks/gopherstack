@@ -26,6 +26,7 @@ type trav struct {
 	sack  any
 	path  *pathNode
 	loops int
+	bulk  int64
 }
 
 func (t *trav) next(v any) *trav {
@@ -96,12 +97,13 @@ func (t *trav) toPath() *Path {
 type stepFn func(x *exec, s *Step, in []*trav) ([]*trav, error)
 
 type exec struct {
-	ctx   context.Context //nolint:containedctx // lives for one query
-	st    *opencypher.Store
-	steps map[string]stepFn
-	side  map[string]any
-	rnd   *rand.Rand
-	sack  sackConfig
+	ctx       context.Context //nolint:containedctx // lives for one query
+	st        *opencypher.Store
+	steps     map[string]stepFn
+	side      map[string]any
+	rnd       *rand.Rand
+	sack      sackConfig
+	needsPath bool
 }
 
 func newExec(ctx context.Context, st *opencypher.Store, steps map[string]stepFn, rnd *rand.Rand) *exec {
@@ -122,6 +124,13 @@ func (x *exec) run(tr *Traversal, in []*trav) ([]*trav, error) {
 				"graph.GraphTraversal.%s() is applicable for argument types: values: %v", s.Name, s.Args)
 		}
 
+		if !bulkAware(s.Name) {
+			var xerr error
+			if in, xerr = expandBulk(in); xerr != nil {
+				return nil, xerr
+			}
+		}
+
 		out, err := fn(x, s, in)
 		if err != nil {
 			return nil, err
@@ -134,7 +143,7 @@ func (x *exec) run(tr *Traversal, in []*trav) ([]*trav, error) {
 		in = out
 	}
 
-	return in, nil
+	return expandBulk(in)
 }
 
 func ctxError(err error) error {

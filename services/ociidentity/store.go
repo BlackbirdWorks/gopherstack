@@ -31,9 +31,9 @@ const (
 
 // InMemoryBackend holds all IAM state under one lock.
 type InMemoryBackend struct {
-	mu          *lockmetrics.RWMutex
-	now         func() time.Time
 	created     time.Time
+	tagDefs     map[string]*TagDef
+	workReqs    map[string]*WorkRequest
 	compartment map[string]*Compartment
 	users       map[string]*User
 	groups      map[string]*Group
@@ -41,18 +41,28 @@ type InMemoryBackend struct {
 	dynGroups   map[string]*DynamicGroup
 	policies    map[string]*Policy
 	tagNS       map[string]*TagNamespace
-	tagDefs     map[string]*TagDef
+	netSources  map[string]*NetworkSource
+	now         func() time.Time
+	derive      func(secret string, salt []byte) []byte
 	tagDefaults map[string]*TagDefault
-	workReqs    map[string]*WorkRequest
+	mu          *lockmetrics.RWMutex
+	regionSubs  map[string]*RegionSubscription
+	authPolicy  *AuthPolicy
+	idps        map[string]*IdentityProvider
+	idpMappings map[string]*IdpGroupMapping
 	retry       *ociretry.Store
+	authReplay  map[string]replaySecret
 	// Auth is the API-key registry shared with the other OCI services.
-	Auth *ociauth.Registry
-	seq  int64
+	Auth  *ociauth.Registry
+	usage []CompartmentUsage
+	seq   int64
 }
 
 // NewInMemoryBackend creates an empty backend.
 func NewInMemoryBackend() *InMemoryBackend {
-	b := &InMemoryBackend{mu: lockmetrics.New("ociidentity"), now: time.Now, Auth: ociauth.NewRegistry()}
+	b := &InMemoryBackend{
+		mu: lockmetrics.New("ociidentity"), now: time.Now, Auth: ociauth.NewRegistry(), derive: deriveAuthToken,
+	}
 	b.initMaps()
 	b.created = b.nowUTC()
 
@@ -70,7 +80,13 @@ func (b *InMemoryBackend) initMaps() {
 	b.tagDefs = map[string]*TagDef{}
 	b.tagDefaults = map[string]*TagDefault{}
 	b.workReqs = map[string]*WorkRequest{}
+	b.netSources = map[string]*NetworkSource{}
+	b.regionSubs = map[string]*RegionSubscription{}
+	b.authPolicy = nil
+	b.idps = map[string]*IdentityProvider{}
+	b.idpMappings = map[string]*IdpGroupMapping{}
 	b.retry = ociretry.New()
+	b.authReplay = map[string]replaySecret{}
 }
 
 // SetClock injects the time source used for lifecycle transitions.
@@ -134,13 +150,23 @@ func (b *InMemoryBackend) newInternal() Internal { return Internal{Etag: newEtag
 
 // Sweep applies due lifecycle transitions.
 func (b *InMemoryBackend) Sweep() {
+	blocked := b.blockedCompartments()
+
 	b.mu.Lock("Sweep")
 	defer b.mu.Unlock()
 
 	now := b.nowUTC()
+	b.pruneReplay(now)
+	b.sweepBulk(now)
 
 	for _, c := range b.compartment {
 		if c.LifecycleState == stateDeleting && c.Internal.TransitionAt != nil && !c.Internal.TransitionAt.After(now) {
+			if why, held := blocked[c.ID]; held {
+				b.abortCompartmentDelete(c, why)
+
+				continue
+			}
+
 			deletedAt := *c.Internal.TransitionAt
 			c.LifecycleState, c.Internal.TransitionAt, c.Internal.TimeDeleted = stateDeleted, nil, &deletedAt
 		}

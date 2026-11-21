@@ -1,6 +1,7 @@
 package gcpcompute_test
 
 import (
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"testing"
@@ -9,6 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func netRef(name string) string { return "projects/" + project + "/global/networks/" + name }
@@ -394,4 +397,169 @@ func TestPeeringConsensusErrors(t *testing.T) {
 		NetworksRequestRemovePeeringRequestResource: &computepb.NetworksRequestRemovePeeringRequest{Name: s("a-to-b")},
 	})
 	assertAPIError(t, e.finish(t, op, err), http.StatusBadRequest, "invalid")
+}
+
+func TestPeeringConsensusUpdate(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	e.peerNet(t, "a", "10.1.0.0/24")
+	e.peerNet(t, "b", "10.2.0.0/24")
+
+	op, err := e.routes(t).Insert(t.Context(), &computepb.InsertRouteRequest{
+		Project: project, RouteResource: &computepb.Route{
+			Name: s("b-custom"), Network: s(netRef("b")), DestRange: s("192.168.50.0/24"), NextHopIp: s("10.2.0.5"),
+		},
+	})
+	e.done(t, op, err)
+
+	dual := func(p *computepb.NetworkPeering) {
+		p.UpdateStrategy = s("CONSENSUS")
+		p.StackType = s("IPV4_IPV6")
+	}
+	require.NoError(t, e.addPeering(t, "a", "a-to-b", "b", dual))
+	require.NoError(t, e.addPeering(t, "b", "b-to-a", "a", dual))
+
+	update := func(net, peering string, export, imp *bool) {
+		t.Helper()
+
+		upOp, uerr := e.networks(t).UpdatePeering(t.Context(), &computepb.UpdatePeeringNetworkRequest{
+			Project: project, Network: net,
+			NetworksUpdatePeeringRequestResource: &computepb.NetworksUpdatePeeringRequest{
+				NetworkPeering: &computepb.NetworkPeering{
+					Name: s(peering), ExportCustomRoutes: export, ImportCustomRoutes: imp,
+				},
+			},
+		})
+		require.NoError(t, e.finish(t, upOp, uerr))
+	}
+	status := func(net, name string) string {
+		return e.peerings(t, net)[name].GetConnectionStatus().GetConsensusState().GetUpdateStatus()
+	}
+	traffic := func(net, name string) *computepb.NetworkPeeringConnectionStatusTrafficConfiguration {
+		return e.peerings(t, net)[name].GetConnectionStatus().GetTrafficConfiguration()
+	}
+
+	assert.Equal(t, "IN_SYNC", status("a", "a-to-b"))
+	assert.Equal(t, "IPV4_IPV6", traffic("a", "a-to-b").GetStackType())
+
+	update("b", "b-to-a", new(true), nil)
+	assert.True(t, e.peerings(t, "b")["b-to-a"].GetExportCustomRoutes(), "the local peering reflects the proposal")
+	assert.Equal(t, "PENDING_PEER_ACKNOWLEDGEMENT", status("b", "b-to-a"))
+	assert.Equal(t, "PENDING_LOCAL_ACKNOWLEDMENT", status("a", "a-to-b"))
+	assert.False(t, traffic("b", "b-to-a").GetExportCustomRoutesToPeer())
+	assert.NotContains(t, e.peeringRoutes(t, "a", "a-to-b", "INCOMING"), "192.168.50.0/24")
+
+	update("a", "a-to-b", nil, new(true))
+	assert.Equal(t, "IN_SYNC", status("a", "a-to-b"))
+	assert.Equal(t, "IN_SYNC", status("b", "b-to-a"))
+	assert.True(t, traffic("b", "b-to-a").GetExportCustomRoutesToPeer())
+	assert.True(t, traffic("a", "a-to-b").GetImportCustomRoutesFromPeer())
+
+	in := e.peeringRoutes(t, "a", "a-to-b", "INCOMING")
+	require.Contains(t, in, "192.168.50.0/24")
+	assert.True(t, in["192.168.50.0/24"].GetImported())
+
+	update("b", "b-to-a", new(false), nil)
+	assert.Equal(t, "PENDING_PEER_ACKNOWLEDGEMENT", status("b", "b-to-a"))
+	assert.Contains(
+		t,
+		e.peeringRoutes(t, "a", "a-to-b", "INCOMING"),
+		"192.168.50.0/24",
+		"not applied until acknowledged",
+	)
+
+	data := e.backend.Snapshot(t.Context())
+	dst := newEnv(t)
+	require.NoError(t, dst.backend.Restore(t.Context(), data))
+	assert.Equal(t, "PENDING_PEER_ACKNOWLEDGEMENT",
+		dst.peerings(t, "b")["b-to-a"].GetConnectionStatus().GetConsensusState().GetUpdateStatus())
+	assert.Contains(t, dst.peeringRoutes(t, "a", "a-to-b", "INCOMING"), "192.168.50.0/24")
+
+	update("a", "a-to-b", nil, new(false))
+	assert.Equal(t, "IN_SYNC", status("b", "b-to-a"))
+	assert.NotContains(t, e.peeringRoutes(t, "a", "a-to-b", "INCOMING"), "192.168.50.0/24")
+
+	update("a", "a-to-b", nil, new(false))
+	assert.Equal(t, "IN_SYNC", status("a", "a-to-b"), "a no-op update stays in sync")
+}
+
+func TestPeeringConsensusStackType(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	e.peerNet(t, "a", "10.1.0.0/24")
+	e.peerNet(t, "b", "10.2.0.0/24")
+	require.NoError(t, e.addPeering(t, "a", "a-to-b", "b", func(p *computepb.NetworkPeering) {
+		p.UpdateStrategy = s("CONSENSUS")
+		p.StackType = s("IPV4_IPV6")
+	}))
+	assert.Equal(t, "IPV4_ONLY",
+		e.peerings(t, "a")["a-to-b"].GetConnectionStatus().GetTrafficConfiguration().GetStackType(),
+		"no peer peering, nothing is active")
+	require.NoError(t, e.addPeering(t, "b", "b-to-a", "a", func(p *computepb.NetworkPeering) {
+		p.UpdateStrategy = s("CONSENSUS")
+	}))
+	assert.Equal(t, "IPV4_ONLY",
+		e.peerings(t, "a")["a-to-b"].GetConnectionStatus().GetTrafficConfiguration().GetStackType(),
+		"a single IPV4_IPV6 side stays IPV4_ONLY")
+}
+
+func TestPeeringConsensusLeavesIndependentSideUntouched(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		export bool
+	}{
+		{"export proposal", true},
+		{"import proposal", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t)
+			e.peerNet(t, "a", "10.1.0.0/24")
+			e.peerNet(t, "b", "10.2.0.0/24")
+			require.NoError(t, e.addPeering(t, "a", "a-to-b", "b", func(p *computepb.NetworkPeering) {
+				p.UpdateStrategy = s("CONSENSUS")
+			}))
+			require.NoError(t, e.addPeering(t, "b", "b-to-a", "a", nil))
+
+			cp := &computepb.NetworkPeering{Name: s("a-to-b")}
+			if tt.export {
+				cp.ExportCustomRoutes = new(true)
+			} else {
+				cp.ImportCustomRoutes = new(true)
+			}
+
+			op, err := e.networks(t).UpdatePeering(t.Context(), &computepb.UpdatePeeringNetworkRequest{
+				Project: project, Network: "a",
+				NetworksUpdatePeeringRequestResource: &computepb.NetworksUpdatePeeringRequest{NetworkPeering: cp},
+			})
+			require.NoError(t, e.finish(t, op, err))
+
+			var snap struct {
+				Networks map[string]struct {
+					Name     string           `json:"name"`
+					Peerings []map[string]any `json:"peerings"`
+				} `json:"networks"`
+			}
+
+			require.NoError(t, json.Unmarshal(e.backend.Snapshot(t.Context()), &snap, jsonx.V1()))
+
+			for _, n := range snap.Networks {
+				if n.Name != "b" {
+					continue
+				}
+
+				require.Len(t, n.Peerings, 1)
+				assert.NotContains(t, n.Peerings[0], "connectionStatus")
+			}
+
+			assert.Nil(t, e.peerings(t, "b")["b-to-a"].GetConnectionStatus())
+		})
+	}
 }

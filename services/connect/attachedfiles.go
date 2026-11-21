@@ -2,6 +2,7 @@ package connect
 
 import (
 	"context"
+	"net/http"
 	"path"
 	"regexp"
 	"slices"
@@ -16,6 +17,7 @@ const (
 	labelAttachedConfig   = "AttachedFilesConfiguration"
 	fileStatusProcessing  = "PROCESSING"
 	fileStatusApproved    = "APPROVED"
+	fileStatusFailed      = "FAILED"
 	useCaseAttachment     = "ATTACHMENT"
 	useCaseVoiceRecording = "VOICE_RECORDING"
 	scopeEmail            = "EMAIL"
@@ -31,6 +33,7 @@ const (
 	maxBatchFiles         = 100
 	isoMillis             = "2006-01-02T15:04:05.000Z"
 	attachedContentPath   = "/attached-files-content/"
+	attachUploadWindow    = time.Hour
 )
 
 var (
@@ -80,6 +83,8 @@ type attachedFileRec struct {
 	Resource     string            `json:"resource"`
 	CreationTime string            `json:"creationTime"`
 	Source       string            `json:"source,omitempty"`
+	Bucket       string            `json:"bucket,omitempty"`
+	Key          string            `json:"key,omitempty"`
 	Content      []byte            `json:"content,omitempty"`
 	Size         int64             `json:"size"`
 	Uploaded     bool              `json:"uploaded,omitempty"`
@@ -218,6 +223,23 @@ type configRef struct {
 }
 
 func isoTime(t time.Time) string { return t.UTC().Format(isoMillis) }
+
+// uploadExpired reports whether a file still PROCESSING outlived the upload window. The SDK states no
+// window, so it is an emulator choice: such a file reads as FAILED and can no longer be completed.
+func (b *Backend) uploadExpired(r *attachedFileRec) bool {
+	created, err := time.Parse(isoMillis, r.CreationTime)
+
+	return err == nil && r.Status == fileStatusProcessing && !b.now().Before(created.Add(attachUploadWindow))
+}
+
+func (b *Backend) viewFile(r *attachedFileRec) AttachedFile {
+	v := r.view()
+	if b.uploadExpired(r) {
+		v.FileStatus = fileStatusFailed
+	}
+
+	return v
+}
 
 func (r *attachedFileRec) view() AttachedFile {
 	return AttachedFile{
@@ -379,6 +401,24 @@ func (b *Backend) StartAttachedFileUpload(
 	ctx context.Context,
 	in *StartAttachedFileUploadInput,
 ) (*AttachedFileCreated, error) {
+	store := b.attachStore()
+	bucket := b.attachBucket(ctx)
+
+	if store != nil {
+		_, err := readInstance(b, "StartAttachedFileUpload", in.InstanceID, func(inst string) (struct{}, error) {
+			_, cerr := b.checkAttachUpload(inst, in)
+
+			return struct{}{}, cerr
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		if err = store.EnsureBucket(ctx, bucket); err != nil {
+			return nil, invalidRequestErr("the attachment bucket is unavailable: %v", err)
+		}
+	}
+
 	return writeInstance(b, "StartAttachedFileUpload", in.InstanceID, func(inst string) (*AttachedFileCreated, error) {
 		expiry, err := b.checkAttachUpload(inst, in)
 		if err != nil {
@@ -387,12 +427,19 @@ func (b *Backend) StartAttachedFileUpload(
 
 		rec := b.newAttachedFile(ctx, inst, in.FileName, in.FileUseCaseType, in.AssociatedResourceArn, in.Tags)
 		rec.Size, rec.Status, rec.CreatedBy = in.FileSizeInBytes, fileStatusProcessing, in.CreatedBy
+
+		upload := b.contentURL(ctx, "put", inst, rec.FileID, expiry)
+
+		if store != nil {
+			rec.Bucket, rec.Key = bucket, attachedKey(inst, rec.FileID)
+			upload = b.storeURL(ctx, store, http.MethodPut, rec, expiry)
+		}
+
 		b.attachedFiles.put(rec)
 
 		return &AttachedFileCreated{
 			FileArn: rec.Arn, FileID: rec.FileID, CreationTime: rec.CreationTime, FileStatus: rec.Status,
-			CreatedBy:         rec.CreatedBy,
-			UploadURLMetadata: b.contentURL(ctx, "put", inst, rec.FileID, expiry),
+			CreatedBy: rec.CreatedBy, UploadURLMetadata: upload,
 		}, nil
 	})
 }
@@ -411,31 +458,87 @@ func (b *Backend) CreateAttachedFile(ctx context.Context, in *CreateAttachedFile
 		return nil, err
 	}
 
-	return writeInstance(b, "CreateAttachedFile", in.InstanceID, func(inst string) (*AttachedFileCreated, error) {
-		c, err := b.contactByARN(inst, in.AssociatedResourceArn)
-		if err != nil {
-			return nil, err
+	check := func(inst string) error { return b.checkVoiceRecordingTarget(inst, in.AssociatedResourceArn) }
+
+	if _, err := readInstance(b, "CreateAttachedFile", in.InstanceID, func(inst string) (struct{}, error) {
+		return struct{}{}, check(inst)
+	}); err != nil {
+		return nil, err
+	}
+
+	data, err := b.readSource(ctx, bucket, key)
+	if err != nil {
+		return nil, err
+	}
+
+	store := b.attachStore()
+	dest := b.attachBucket(ctx)
+
+	if store != nil {
+		if err = store.EnsureBucket(ctx, dest); err != nil {
+			return nil, invalidRequestErr("the attachment bucket is unavailable: %v", err)
+		}
+	}
+
+	rec, err := writeInstance(b, "CreateAttachedFile", in.InstanceID, func(inst string) (*attachedFileRec, error) {
+		if cerr := check(inst); cerr != nil {
+			return nil, cerr
 		}
 
-		if c.Contact.Channel != channelVoice || c.active() {
-			return nil, invalidRequestErr("AssociatedResourceArn must be a completed voice contact")
+		r := b.newAttachedFile(ctx, inst, path.Base(key), in.FileUseCaseType, in.AssociatedResourceArn, in.Tags)
+		r.Size, r.Status, r.Source, r.Uploaded = int64(len(data)), fileStatusApproved, in.FileSourceURI, true
+
+		if store != nil {
+			r.Bucket, r.Key = dest, attachedKey(inst, r.FileID)
+		} else {
+			r.Content = data
 		}
 
-		data, err := b.readSource(ctx, bucket, key)
-		if err != nil {
-			return nil, err
-		}
+		b.attachedFiles.put(r)
 
-		rec := b.newAttachedFile(ctx, inst, path.Base(key), in.FileUseCaseType, in.AssociatedResourceArn, in.Tags)
-		rec.Size, rec.Status, rec.Source, rec.Content, rec.Uploaded = int64(
-			len(data),
-		), fileStatusApproved, in.FileSourceURI, data, true
-		b.attachedFiles.put(rec)
-
-		return &AttachedFileCreated{
-			FileArn: rec.Arn, FileID: rec.FileID, CreationTime: rec.CreationTime, FileStatus: rec.Status,
-		}, nil
+		return r, nil
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	if err = b.storeRecording(ctx, store, rec, data); err != nil {
+		return nil, err
+	}
+
+	return &AttachedFileCreated{
+		FileArn: rec.Arn, FileID: rec.FileID, CreationTime: rec.CreationTime, FileStatus: rec.Status,
+	}, nil
+}
+
+func (b *Backend) checkVoiceRecordingTarget(inst, resourceARN string) error {
+	c, err := b.contactByARN(inst, resourceARN)
+	if err != nil {
+		return err
+	}
+
+	if c.Contact.Channel != channelVoice || c.active() {
+		return invalidRequestErr("AssociatedResourceArn must be a completed voice contact")
+	}
+
+	return nil
+}
+
+// storeRecording writes a copied recording to S3, dropping the file when the write fails.
+func (b *Backend) storeRecording(ctx context.Context, store AttachmentStore, rec *attachedFileRec, data []byte) error {
+	if store == nil {
+		return nil
+	}
+
+	if err := store.PutObject(ctx, rec.Bucket, rec.Key, data); err != nil {
+		b.mu.Lock("CreateAttachedFile")
+		_ = b.attachedFiles.del(rec.InstanceID, rec.FileID)
+		b.mu.Unlock()
+
+		return invalidRequestErr("the attachment could not be stored: %v", err)
+	}
+
+	return nil
 }
 
 func parseS3URI(uri string) (string, string, bool) {
@@ -481,7 +584,96 @@ func (b *Backend) fileOf(inst, id, resource string) (*attachedFileRec, error) {
 }
 
 // CompleteAttachedFileUpload approves a file once its content was uploaded.
-func (b *Backend) CompleteAttachedFileUpload(in *fileRef) (*EmptyOutput, error) {
+func (b *Backend) CompleteAttachedFileUpload(ctx context.Context, in *fileRef) (*EmptyOutput, error) {
+	store := b.attachStore()
+	if store == nil {
+		return b.completeLocalUpload(in)
+	}
+
+	pending, err := readInstance(
+		b,
+		"CompleteAttachedFileUpload",
+		in.InstanceID,
+		func(inst string) (attachedFileRec, error) {
+			r, ferr := b.fileOf(inst, in.FileID, in.AssociatedResourceArn)
+			if ferr != nil {
+				return attachedFileRec{}, ferr
+			}
+
+			if r.Status != fileStatusProcessing {
+				return attachedFileRec{}, invalidRequestErr("file %q is already %s", in.FileID, r.Status)
+			}
+
+			return attachedFileRec{InstanceID: inst, Bucket: r.Bucket, Key: r.Key, Size: r.Size}, nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	size, found, err := store.ObjectSize(ctx, pending.Bucket, pending.Key)
+	if err != nil {
+		return nil, invalidRequestErr("the content of file %q could not be read: %v", in.FileID, err)
+	}
+
+	out, err := writeInstance(b, "CompleteAttachedFileUpload", in.InstanceID, func(inst string) (*completion, error) {
+		r, ferr := b.fileOf(inst, in.FileID, in.AssociatedResourceArn)
+		if ferr != nil {
+			return nil, ferr
+		}
+
+		if r.Status != fileStatusProcessing {
+			return nil, invalidRequestErr("file %q is already %s", in.FileID, r.Status)
+		}
+
+		if b.expireUpload(r) {
+			return &completion{reject: invalidRequestErr("the upload window of file %q has passed", in.FileID)}, nil
+		}
+
+		switch {
+		case !found:
+			return &completion{reject: invalidRequestErr("the content of file %q was not uploaded", in.FileID)}, nil
+		case size != r.Size:
+			r.Status = fileStatusFailed
+
+			return &completion{reject: invalidRequestErr(
+				"the uploaded content of file %q has %d bytes, not %d", in.FileID, size, r.Size,
+			)}, nil
+		}
+
+		r.Status, r.Uploaded = fileStatusApproved, true
+
+		return &completion{}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if out.reject != nil {
+		if found {
+			b.dropStoredObject(ctx, store, pending.Bucket, pending.Key)
+		}
+
+		return nil, out.reject
+	}
+
+	return &EmptyOutput{}, nil
+}
+
+type completion struct{ reject error }
+
+// expireUpload persists FAILED on a file whose upload window passed; callers hold the write lock.
+func (b *Backend) expireUpload(r *attachedFileRec) bool {
+	if !b.uploadExpired(r) {
+		return false
+	}
+
+	r.Status = fileStatusFailed
+
+	return true
+}
+
+func (b *Backend) completeLocalUpload(in *fileRef) (*EmptyOutput, error) {
 	return writeInstance(b, "CompleteAttachedFileUpload", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		r, err := b.fileOf(inst, in.FileID, in.AssociatedResourceArn)
 		if err != nil {
@@ -490,6 +682,10 @@ func (b *Backend) CompleteAttachedFileUpload(in *fileRef) (*EmptyOutput, error) 
 
 		if r.Status != fileStatusProcessing {
 			return nil, invalidRequestErr("file %q is already %s", in.FileID, r.Status)
+		}
+
+		if b.expireUpload(r) {
+			return nil, invalidRequestErr("the upload window of file %q has passed", in.FileID)
 		}
 
 		if !r.Uploaded || int64(len(r.Content)) != r.Size {
@@ -509,15 +705,20 @@ func (b *Backend) GetAttachedFile(ctx context.Context, in *GetAttachedFileInput)
 		return nil, err
 	}
 
+	store := b.attachStore()
+
 	return readInstance(b, "GetAttachedFile", in.InstanceID, func(inst string) (*AttachedFileOut, error) {
 		r, ferr := b.fileOf(inst, in.FileID, in.AssociatedResourceArn)
 		if ferr != nil {
 			return nil, ferr
 		}
 
-		out := &AttachedFileOut{AttachedFile: r.view()}
+		out := &AttachedFileOut{AttachedFile: b.viewFile(r)}
 		if r.Status == fileStatusApproved {
 			out.DownloadURLMetadata = b.contentURL(ctx, "get", inst, r.FileID, expiry)
+			if store != nil && r.Bucket != "" {
+				out.DownloadURLMetadata = b.storeURL(ctx, store, http.MethodGet, r, expiry)
+			}
 		}
 
 		return out, nil
@@ -543,7 +744,7 @@ func (b *Backend) BatchGetAttachedFileMetadata(in *BatchGetAttachedFileMetadataI
 				continue
 			}
 
-			out.Files = append(out.Files, r.view())
+			out.Files = append(out.Files, b.viewFile(r))
 		}
 
 		return out, nil
@@ -551,14 +752,26 @@ func (b *Backend) BatchGetAttachedFileMetadata(in *BatchGetAttachedFileMetadataI
 }
 
 // DeleteAttachedFile removes a file and its content.
-func (b *Backend) DeleteAttachedFile(in *fileRef) (*EmptyOutput, error) {
-	return writeInstance(b, "DeleteAttachedFile", in.InstanceID, func(inst string) (*EmptyOutput, error) {
-		if _, err := b.fileOf(inst, in.FileID, in.AssociatedResourceArn); err != nil {
-			return nil, err
+func (b *Backend) DeleteAttachedFile(ctx context.Context, in *fileRef) (*EmptyOutput, error) {
+	store := b.attachStore()
+
+	gone, err := writeInstance(b, "DeleteAttachedFile", in.InstanceID, func(inst string) (attachedFileRec, error) {
+		r, ferr := b.fileOf(inst, in.FileID, in.AssociatedResourceArn)
+		if ferr != nil {
+			return attachedFileRec{}, ferr
 		}
 
-		return nil, b.attachedFiles.del(inst, in.FileID)
+		loc := attachedFileRec{Bucket: r.Bucket, Key: r.Key}
+
+		return loc, b.attachedFiles.del(inst, in.FileID)
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	b.dropStoredObject(ctx, store, gone.Bucket, gone.Key)
+
+	return &EmptyOutput{}, nil
 }
 
 // DescribeAttachedFilesConfiguration returns the attachment policy of a scope, defaults when never updated.

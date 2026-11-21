@@ -248,15 +248,38 @@ func (b *Backend) ListInstances(token string, maxResults int32) ([]InstanceSumma
 
 // DeleteInstance removes an instance and everything scoped to it.
 func (b *Backend) DeleteInstance(ctx context.Context, ref string) error {
+	store := b.attachStore()
+
+	objects, err := b.deleteInstanceLocked(ctx, ref)
+	if err != nil {
+		return err
+	}
+
+	for _, o := range objects {
+		b.dropStoredObject(ctx, store, o.Bucket, o.Key)
+	}
+
+	return nil
+}
+
+func (b *Backend) deleteInstanceLocked(ctx context.Context, ref string) ([]attachedFileRec, error) {
 	b.mu.Lock("DeleteInstance")
 	defer b.mu.Unlock()
 
 	r, err := b.instanceLocked(ref)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	id := r.Instance.ID
+
+	var objects []attachedFileRec
+
+	for _, f := range b.attachedFiles.in(id) {
+		if f.Bucket != "" {
+			objects = append(objects, attachedFileRec{Bucket: f.Bucket, Key: f.Key})
+		}
+	}
 
 	for _, ir := range b.integrations.in(id) {
 		b.dropExternalAssociation(ctx, &ir.Association, ir.ExternalID)
@@ -286,7 +309,7 @@ func (b *Backend) DeleteInstance(ctx context.Context, ref string) error {
 
 	b.instances.Delete(id)
 
-	return nil
+	return objects, nil
 }
 
 // DescribeInstanceAttribute returns one attribute.

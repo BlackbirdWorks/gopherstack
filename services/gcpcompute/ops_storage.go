@@ -15,6 +15,7 @@ func (h *Handler) registerStorageOps() {
 	h.registerSnapshotOps()
 	h.registerImageOps()
 	h.registerInstantSnapshotOps()
+	h.registerInstantSnapshotGroupOps()
 	h.registerMachineImageOps()
 	h.registerReservationOps()
 }

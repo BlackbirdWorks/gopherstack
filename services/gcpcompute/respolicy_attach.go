@@ -174,7 +174,7 @@ func (b *InMemoryBackend) changeInstancePolicies(
 	return b.newOpLocked(verb, instTarget(project, zone, r.Inst), b.timing.Done), nil
 }
 
-// resPolicyUserLocked names a disk or instance that references the policy, or "".
+// resPolicyUserLocked names a disk, instance or instant snapshot group that references the policy, or "".
 func (b *InMemoryBackend) resPolicyUserLocked(self string) string {
 	for _, d := range b.disks {
 		if slices.Contains(d.ResourcePolicies, self) {
@@ -185,6 +185,12 @@ func (b *InMemoryBackend) resPolicyUserLocked(self string) string {
 	for _, r := range b.instances {
 		if slices.Contains(r.Inst.ResourcePolicies, self) {
 			return trimURL(r.Inst.SelfLink)
+		}
+	}
+
+	for _, g := range b.instSnapGroups {
+		if g.SourceConsistencyGroup == self {
+			return trimURL(g.SelfLink)
 		}
 	}
 

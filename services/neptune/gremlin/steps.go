@@ -18,6 +18,7 @@ func buildSteps() map[string]stepFn {
 	regSample(m)
 	regTree(m)
 	regSubgraph(m)
+	regUnsupported(m)
 
 	return m
 }
@@ -83,4 +84,14 @@ func flatStep(f func(x *exec, s *Step, t *trav) ([]any, error)) stepFn {
 
 		return out, nil
 	})
+}
+
+func regUnsupported(m map[string]stepFn) {
+	refuse := func(msg string) stepFn {
+		return func(*exec, *Step, []*trav) ([]*trav, error) { return nil, unsupported("%s", msg) }
+	}
+
+	m["io"] = refuse("The io() step supports only reads in Neptune; writing with io() is not supported")
+	m["program"] = refuse("program() takes a Java VertexProgram and is not supported")
+	m["tx"] = refuse("Manual transaction logic using tx.commit() and tx.rollback() is not supported")
 }

@@ -16,6 +16,7 @@ type lbOpts[T any] struct {
 	patch    bool
 	put      bool
 	noInsert bool
+	noAgg    bool
 }
 
 func registerLB[T any](h *Handler, sp lbSpec[T], o lbOpts[T]) {
@@ -23,7 +24,7 @@ func registerLB[T any](h *Handler, sp lbSpec[T], o lbOpts[T]) {
 
 	for i, scope := range o.scopes {
 		aggKind := ""
-		if i == 0 {
+		if i == 0 && !o.noAgg {
 			aggKind = sp.kind + "AggregatedList"
 		}
 

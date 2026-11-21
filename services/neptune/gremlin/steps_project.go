@@ -21,7 +21,7 @@ func regProject(m map[string]stepFn) {
 		return normalizeValue(s.Args[0]), nil
 	})
 	m["identity"] = func(_ *exec, _ *Step, in []*trav) ([]*trav, error) { return in, nil }
-	m["barrier"] = m["identity"]
+	m["barrier"] = stepBarrier
 	m["as"] = perTrav(func(_ *exec, s *Step, t *trav) ([]*trav, error) {
 		return []*trav{t.labeled(stringArgs(s.Args))}, nil
 	})
@@ -105,6 +105,10 @@ func keyFilter(keys []string) func(string) bool {
 
 func stepValues(_ *exec, s *Step, t *trav) ([]any, error) {
 	if p, ok := t.v.(*Prop); ok {
+		if p.VP {
+			return nil, nil
+		}
+
 		return nil, malformed("The values() step cannot be applied to property %q", p.Key)
 	}
 
@@ -127,6 +131,10 @@ func stepValues(_ *exec, s *Step, t *trav) ([]any, error) {
 }
 
 func stepProperties(_ *exec, s *Step, t *trav) ([]any, error) {
+	if p, ok := t.v.(*Prop); ok && p.VP {
+		return nil, nil
+	}
+
 	props, ok := elemProps(t.v)
 	if !ok {
 		return nil, malformed("The properties() step can only be applied to graph elements")
@@ -169,6 +177,10 @@ func wantsTokens(s *Step) bool {
 }
 
 func stepValueMap(_ *exec, s *Step, t *trav) (any, error) {
+	if p, ok := t.v.(*Prop); ok && p.VP {
+		return vertexPropertyMap(p, wantsTokens(s)), nil
+	}
+
 	props, ok := elemProps(t.v)
 	if !ok {
 		return nil, malformed("The valueMap() step can only be applied to graph elements")
@@ -198,6 +210,19 @@ func stepValueMap(_ *exec, s *Step, t *trav) (any, error) {
 	}
 
 	return out, nil
+}
+
+// vertexPropertyMap is valueMap() of a vertex property: Neptune has no meta-properties, so only the tokens remain.
+func vertexPropertyMap(p *Prop, tokens bool) *Map {
+	out := NewMap()
+
+	if tokens {
+		out.Put(Token{Kind: kindT, Name: tokID}, p.ID())
+		out.Put(Token{Kind: kindT, Name: tokKey}, p.Key)
+		out.Put(Token{Kind: kindT, Name: tokValue}, p.Val)
+	}
+
+	return out
 }
 
 func stepElementMap(x *exec, s *Step, t *trav) (any, error) {

@@ -3975,6 +3975,7 @@ func wireOCIIdentityKeys(byName map[string]service.Registerable) {
 	if h, found := byName["OCIObjectStorage"].(*ociobjectstoragebackend.Handler); found {
 		h.Backend.Auth.Link(identityH.Backend.Auth)
 		h.Backend.SetTagLookup(identityH.Backend.TagDefinition)
+		identityH.Backend.AddCompartmentUsage(h.Backend.HoldsInCompartment)
 	}
 
 	if h, found := byName["OCIVault"].(*ocivaultbackend.Handler); found {
@@ -3990,6 +3991,7 @@ func wireOCIIdentityKeys(byName map[string]service.Registerable) {
 			return valid
 		})
 		h.Backend.SetTagLookup(identityH.Backend.TagDefinition)
+		identityH.Backend.AddCompartmentUsage(h.Backend.HoldsInCompartment)
 	}
 
 	if h, found := byName["OCIFunctions"].(*ocifunctionsbackend.Handler); found {

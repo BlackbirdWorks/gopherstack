@@ -213,6 +213,29 @@ func v2Specs() map[string]v2Spec {
 			return most
 		}},
 		metricServiceLevel: {threshold: true, eval: serviceLevel},
+		"CONTACTS_TRANSFERRED_OUT": countSpec(nil, func(c *contactRec, w window) (float64, bool) {
+			return one(w.has(c.TransferredAt))
+		}),
+		"SUM_HANDLE_TIME": sumSpec(func(c *contactRec, w window) (float64, bool) {
+			return span(connected(c), c.Contact.DisconnectTimestamp, w.has(c.Contact.DisconnectTimestamp))
+		}),
+	}
+}
+
+func sumSpec(sample func(c *contactRec, w window) (float64, bool)) v2Spec {
+	return v2Spec{
+		sample: sample,
+		eval: func(cs []*contactRec, w window, _ *ThresholdV2) float64 {
+			var sum float64
+
+			for _, c := range cs {
+				if v, ok := sample(c, w); ok {
+					sum += v
+				}
+			}
+
+			return sum
+		},
 	}
 }
 

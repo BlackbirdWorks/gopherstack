@@ -43,8 +43,8 @@ func elemLabel(v any) string {
 func labelMatches(v any, label string) bool {
 	switch t := v.(type) {
 	case *opencypher.Node:
-		if vertexLabel(t) == label {
-			return true
+		if len(t.Labels) == 0 {
+			return label == labelVertex
 		}
 
 		if slices.Contains(t.Labels, label) {

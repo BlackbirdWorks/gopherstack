@@ -7,7 +7,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
-const halfComplete = 50
+const (
+	halfComplete        = 50
+	wrDeleteCompartment = "DELETE_COMPARTMENT"
+)
 
 func itoa(n int) string { return strconv.Itoa(n) }
 
@@ -23,10 +26,23 @@ func (b *InMemoryBackend) newWR(op, compartment, entityType, id, action string, 
 }
 
 func (b *InMemoryBackend) wrView(wr *WorkRequest) WorkRequestWire {
+	if wr.Bulk != nil {
+		return b.bulkView(wr)
+	}
+
 	out := WorkRequestWire{
 		OperationType: wr.Operation, ID: wr.ID, CompartmentID: wr.CompartmentID, TimeAccepted: wr.Accepted,
-		Status: "IN_PROGRESS", PercentComplete: halfComplete, TimeStarted: &wr.Accepted, Errors: []string{},
-		Resources: []wrResourceWire{{EntityType: wr.EntityType, ActionType: "IN_PROGRESS", Identifier: wr.EntityID}},
+		Status: statusProgress, PercentComplete: halfComplete, TimeStarted: &wr.Accepted, Errors: []wrErrorWire{},
+		Resources: []wrResourceWire{{EntityType: wr.EntityType, ActionType: statusProgress, Identifier: wr.EntityID}},
+	}
+
+	if wr.FailCode != "" {
+		finished := wr.FailedAt
+		out.Status, out.PercentComplete, out.TimeFinished = statusFailed, 100, &finished
+		out.Resources[0].ActionType = statusFailed
+		out.Errors = []wrErrorWire{{Timestamp: wr.FailedAt, Code: wr.FailCode, Message: wr.FailMessage}}
+
+		return out
 	}
 
 	if !wr.FinishAt.After(b.nowUTC()) {

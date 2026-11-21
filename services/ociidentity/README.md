@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 76 (56 ok, 20 partial) |
+| PARITY entries audited | 97 (69 ok, 28 partial) |
 | Feature families | 6 (5 ok, 1 partial) |
 | Known gaps | 7 |
 | Deferred items | 0 |
@@ -16,12 +16,12 @@
 ### Known gaps
 
 - IAM policy enforcement is not implemented: policies and dynamic groups are stored and validated but never evaluated, so no request is authorised or denied by them; any verified principal may call any operation.
-- Identity domains (domains, SCIM-style users, MFA devices, OAuth2 client credentials, DB credentials, Swift passwords), identity providers and group mappings, network sources, authentication policy and the tenancy-level region subscription, bulk tag operations (BulkDeleteTags, BulkEditTags, ListBulkEditTagsResourceTypes), standard tag templates and the IAM work request operations (/iamWorkRequests, whose operation types in oci-go-sdk identity/iam_work_request.go are all identity-domain operations) are not implemented. Tag retire and reactivate are not separate SDK operations: they are isRetired on UpdateTag and UpdateTagNamespace (identity_client.go).
-- Customer secret keys, SMTP credentials and the UI password are generated and listed but not stored, so they cannot be used for S3-compatible, SMTP or console authentication. Auth tokens authenticate OCI Container Registry logins only.
-- DeleteCompartment only checks the IAM resources it owns; resources other emulated OCI services keep in a compartment do not block deletion.
-- Statement subjects and locations are parsed but group, dynamic-group and compartment names are not resolved against existing resources, and variable and resource-type names are not checked against the documented lists.
+- Identity domains (domains, SCIM-style users, MFA devices, OAuth2 client credentials, DB credentials, Swift passwords), ListIdentityProviderGroups and ResetIdpScimClient (the emulator has no identity provider group directory or SCIM server; SAML metadata carries no groups), standard tag templates (ListStandardTagNamespaces, GetStandardTagTemplate, ImportStandardTags: the SDK has only the shapes, not the template catalogue) and the IAM work request operations (/iamWorkRequests: every operation type in oci-go-sdk identity/iam_work_request.go is an identity-domain operation, so none can exist without domains) are not implemented. Tag retire and reactivate are not separate SDK operations: they are isRetired on UpdateTag and UpdateTagNamespace (identity_client.go).
+- Customer secret keys, SMTP credentials and the UI password are stored but not used: they do not authenticate S3-compatible, SMTP or console requests. Auth tokens authenticate OCI Container Registry logins only.
+- DeleteCompartment consults Object Storage, DNS and Streaming only; resources the other emulated OCI services (Core, Database, Functions, Load Balancer, Events, Logging, NoSQL, File Storage, Queue, Vault, API Gateway, Container Engine and Instances, Artifacts, Notifications, Monitoring, MySQL) keep in a compartment do not block deletion.
+- Statement subjects and locations are parsed but group, dynamic-group and compartment names are not resolved against existing resources, and variable and resource-type names are not checked against the documented lists (the OCI documentation reachable here does not say whether unknown names are rejected, so they are accepted).
 - Access levels are not modelled: accessLevel is validated but every caller sees every compartment, and inactive states other than DELETING and DELETED are never produced.
-- opc-retry-token replay is not applied to credential creation (auth tokens, secret keys, SMTP credentials, API keys), whose replies carry secrets that are not stored; resource principals and instance principals are not applied and only API-key signatures are verified.
+- Resource principals and instance principals are not applied and only API-key signatures are verified.
 
 ## More
 

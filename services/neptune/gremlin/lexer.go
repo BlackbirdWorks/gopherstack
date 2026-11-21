@@ -80,6 +80,10 @@ func lexOne(src string, i int) (token, int, error) {
 		return token{kind: tPunct, text: string(c), pos: i}, i + 1, nil
 	}
 
+	if c == '{' {
+		return token{}, 0, unsupported("Lambda steps are not supported")
+	}
+
 	return token{}, 0, malformed("Unexpected character '%c' at offset %d", c, i)
 }
 

@@ -3,7 +3,9 @@ package ociidentity
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"maps"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -98,7 +100,16 @@ func (b *InMemoryBackend) ListRegionSubscriptions(id string) ([]regionSubWire, e
 		return nil, errNotFound(id)
 	}
 
-	return []regionSubWire{{RegionKey: homeRegionKey, RegionName: Region, Status: "READY", IsHomeRegion: true}}, nil
+	b.mu.RLock("ListRegionSubscriptions")
+	defer b.mu.RUnlock()
+
+	out := []regionSubWire{{RegionKey: homeRegionKey, RegionName: Region, Status: "READY", IsHomeRegion: true}}
+
+	for _, k := range slices.Sorted(maps.Keys(b.regionSubs)) {
+		out = append(out, b.regionSubView(b.regionSubs[k]))
+	}
+
+	return out, nil
 }
 
 // ListAvailabilityDomains returns the region's availability domains.
