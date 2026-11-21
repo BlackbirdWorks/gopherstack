@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/sns"
 )
 
@@ -281,7 +282,7 @@ func TestSNSHandler_Shutdown(t *testing.T) {
 			}()
 
 			b := sns.NewInMemoryBackend()
-			b.SetHTTPDeliveryClient(&http.Client{Timeout: 10 * time.Second})
+			b.SetHTTPDeliveryClient(&http.Client{Transport: testclient.New(t).Transport, Timeout: 10 * time.Second})
 			h := sns.NewHandler(b)
 
 			tp, err := b.CreateTopic("shutdown-"+tt.name, nil)

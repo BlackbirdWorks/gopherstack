@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 )
@@ -162,7 +163,7 @@ func TestResourceCreator_CustomResource_ResponseURL_RoundTrip(t *testing.T) {
 		}
 
 		body, _ := json.Marshal(resp, jsonx.V1())
-		client := &http.Client{}
+		client := testclient.New(t)
 		putReq, _ := http.NewRequestWithContext(t.Context(), http.MethodPut, url,
 			newBytesReader(body))
 		putReq.ContentLength = int64(len(body))
@@ -365,7 +366,7 @@ func TestResourceCreator_CustomResource_FAILEDResponse(t *testing.T) {
 			"PhysicalResourceId": "failing-resource-001",
 		}
 		body, _ := json.Marshal(resp, jsonx.V1())
-		client := &http.Client{}
+		client := testclient.New(t)
 		req, _ := http.NewRequestWithContext(t.Context(), http.MethodPut, url, newBytesReader(body))
 		req.ContentLength = int64(len(body))
 		res, err := client.Do(req)
@@ -461,7 +462,7 @@ func TestStack_CustomResource_GetAtt_DataOutputs(t *testing.T) {
 			},
 		}
 		body, _ := json.Marshal(resp, jsonx.V1())
-		client := &http.Client{}
+		client := testclient.New(t)
 		req, _ := http.NewRequestWithContext(t.Context(), http.MethodPut, url, newBytesReader(body))
 		req.ContentLength = int64(len(body))
 		res, err := client.Do(req)

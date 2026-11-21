@@ -1,6 +1,9 @@
 package guards_test
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,9 +17,14 @@ import (
 var defaultTransportTestUse = regexp.MustCompile(
 	`\bhttp\.(?:DefaultClient|DefaultTransport|Get\(|Post\(|Head\(|PostForm\()`)
 
+var clientMention = regexp.MustCompile(`http\.Client\b`)
+
 func defaultClientTestAllowlist() map[string]string {
 	return map[string]string{
 		"pkgs/httpclient/httpclient_test.go":                   "proves clients are isolated from http.DefaultTransport",
+		"services/cognitoidp/localstack_alias_test.go":         "TEMPORARY: fixed on the branch that merges first",
+		"services/cognitoidp/oauth_helpers_test.go":            "TEMPORARY: fixed on the branch that merges first",
+		"services/cognitoidp/saml_federation_test.go":          "TEMPORARY: fixed on the branch that merges first",
 		"services/sns/leak_main_test.go":                       "TestMain restricts dialing; httpclient clones inherit it",
 		"test/guards/http_transport_guard_test.go":             "fixture strings",
 		"test/guards/no_default_client_in_tests_guard_test.go": "fixture strings",
@@ -34,8 +42,64 @@ func stripLineComments(src string) string {
 	return strings.Join(lines, "\n")
 }
 
+// bareClientLiterals reports http.Client literals without a Transport field and new(http.Client).
+func bareClientLiterals(src string) []string {
+	if !clientMention.MatchString(src) {
+		return nil
+	}
+
+	f, err := parser.ParseFile(token.NewFileSet(), "", src, 0)
+	if err != nil {
+		return nil
+	}
+
+	isClient := func(e ast.Expr) bool {
+		sel, ok := e.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "Client" {
+			return false
+		}
+
+		id, isID := sel.X.(*ast.Ident)
+
+		return isID && id.Name == "http"
+	}
+
+	var found []string
+
+	ast.Inspect(f, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.CompositeLit:
+			if !isClient(x.Type) {
+				break
+			}
+
+			hasTransport := false
+
+			for _, el := range x.Elts {
+				if kv, ok := el.(*ast.KeyValueExpr); ok {
+					if k, isKey := kv.Key.(*ast.Ident); isKey && k.Name == "Transport" {
+						hasTransport = true
+					}
+				}
+			}
+
+			if !hasTransport {
+				found = append(found, "http.Client literal without Transport")
+			}
+		case *ast.CallExpr:
+			if id, ok := x.Fun.(*ast.Ident); ok && id.Name == "new" && len(x.Args) == 1 && isClient(x.Args[0]) {
+				found = append(found, "new(http.Client)")
+			}
+		}
+
+		return true
+	})
+
+	return found
+}
+
 func defaultClientTestUses(src string) []string {
-	return defaultTransportTestUse.FindAllString(stripLineComments(src), -1)
+	return append(defaultTransportTestUse.FindAllString(stripLineComments(src), -1), bareClientLiterals(src)...)
 }
 
 func TestDefaultClientTestUses(t *testing.T) {
@@ -50,6 +114,10 @@ func TestDefaultClientTestUses(t *testing.T) {
 		{name: "default_transport", src: "tr := http.DefaultTransport", want: 1},
 		{name: "get", src: "resp, err := http.Get(u)", want: 1},
 		{name: "post_form", src: "http.PostForm(u, v)", want: 1},
+		{name: "bare_literal", src: "package p\nvar c = &http.Client{Timeout: 1}", want: 1},
+		{name: "empty_literal", src: "package p\nvar c = http.Client{}", want: 1},
+		{name: "new_client", src: "package p\nvar c = new(http.Client)", want: 1},
+		{name: "literal_with_transport", src: "package p\nvar c = &http.Client{Transport: tr}", want: 0},
 		{name: "comment_only", src: "// http.Get(u) is banned", want: 0},
 		{name: "own_client", src: "resp, err := testclient.New(t).Get(u)", want: 0},
 		{name: "status_const", src: "http.StatusOK, http.MethodGet", want: 0},
@@ -66,7 +134,8 @@ func TestDefaultClientTestUses(t *testing.T) {
 
 // TestNoDefaultClientInTests keeps tests off http.DefaultTransport: httptest.Server.Close
 // closes its idle connections and breaks in-flight requests of parallel sibling tests.
-// Use srv.Client(), pkgs/testclient or pkgs/httpclient.
+// Use srv.Client(), testclient.New(t) (or testclient.New(t).Transport inside a custom http.Client)
+// or httpclient.New. Also bans http.Client literals without a Transport.
 func TestNoDefaultClientInTests(t *testing.T) {
 	t.Parallel()
 
@@ -121,5 +190,7 @@ func TestNoDefaultClientInTests(t *testing.T) {
 		}
 	}
 
-	assert.Empty(t, offenders, "use srv.Client(), testclient.New(t) or httpclient.New")
+	assert.Empty(t, offenders,
+		"use testclient.New(t), or &http.Client{Transport: testclient.New(t).Transport, ...}; "+
+			"srv.Client() for httptest servers")
 }

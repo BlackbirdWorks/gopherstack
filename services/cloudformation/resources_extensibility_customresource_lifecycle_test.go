@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 )
@@ -64,7 +65,7 @@ func TestResourceCreator_CustomResource_DeleteEvent(t *testing.T) {
 					"PhysicalResourceId": ev.PhysicalResourceID,
 				}
 				body, _ := json.Marshal(resp, jsonx.V1())
-				client := &http.Client{Timeout: 2 * time.Second}
+				client := &http.Client{Transport: testclient.New(t).Transport, Timeout: 2 * time.Second}
 				req, reqErr := http.NewRequestWithContext(
 					ctx,
 					http.MethodPut,
@@ -159,7 +160,7 @@ func TestResourceCreator_CustomResource_UpdateEvent(t *testing.T) {
 					"PhysicalResourceId": ev.PhysicalResourceID,
 				}
 				body, _ := json.Marshal(resp, jsonx.V1())
-				client := &http.Client{Timeout: 2 * time.Second}
+				client := &http.Client{Transport: testclient.New(t).Transport, Timeout: 2 * time.Second}
 				req, reqErr := http.NewRequestWithContext(
 					ctx,
 					http.MethodPut,
@@ -268,7 +269,7 @@ func TestStack_CustomResource_UpdateStack_SendsUpdateEvent(t *testing.T) {
 					"PhysicalResourceId": physID,
 				}
 				body, _ := json.Marshal(resp, jsonx.V1())
-				client := &http.Client{Timeout: 2 * time.Second}
+				client := &http.Client{Transport: testclient.New(t).Transport, Timeout: 2 * time.Second}
 				req, reqErr := http.NewRequestWithContext(
 					ctx,
 					http.MethodPut,

@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/lambdaweb"
 )
 
@@ -50,7 +51,8 @@ func newLoggedEnv(t *testing.T, o logOpts) (*dataEnv, *fakeLogs) {
 
 	return &dataEnv{
 		testEnv: env, launcher: l, domain: aws.ToString(created.Endpoint.DomainName),
-		rev1: aws.ToString(created.Revision.RevisionId), http: &http.Client{Timeout: 30 * time.Second},
+		rev1: aws.ToString(created.Revision.RevisionId),
+		http: &http.Client{Transport: testclient.New(t).Transport, Timeout: 30 * time.Second},
 	}, logs
 }
 

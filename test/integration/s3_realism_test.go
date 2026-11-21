@@ -9,6 +9,8 @@ import (
 
 	smithyhttp "github.com/aws/smithy-go/transport/http"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -189,7 +191,7 @@ func TestIntegration_S3_Realism_RequestIDs(t *testing.T) {
 	url := endpoint + "/" + bucket
 	t.Logf("Testing realism headers at: %s", url)
 
-	httpClient := &http.Client{Timeout: 10 * time.Second}
+	httpClient := &http.Client{Transport: testclient.New(t).Transport, Timeout: 10 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	require.NoError(t, err)
 

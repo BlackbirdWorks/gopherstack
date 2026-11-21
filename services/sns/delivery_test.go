@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/sns"
 )
 
@@ -121,7 +122,7 @@ func TestSNSHTTPDelivery_Robustness(t *testing.T) {
 			defer ts.Close()
 
 			b := sns.NewInMemoryBackend()
-			b.SetHTTPDeliveryClient(&http.Client{Timeout: 5 * time.Second})
+			b.SetHTTPDeliveryClient(&http.Client{Transport: testclient.New(t).Transport, Timeout: 5 * time.Second})
 			tp, err := b.CreateTopic("robustness-"+tt.name, nil)
 			require.NoError(t, err)
 

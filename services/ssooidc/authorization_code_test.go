@@ -11,6 +11,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ssooidc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 const (
@@ -24,8 +26,15 @@ func s256(v string) string {
 	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
-func noRedirectClient() *http.Client {
-	return &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+func noRedirectClient(t *testing.T) *http.Client {
+	t.Helper()
+
+	return &http.Client{
+		Transport: testclient.New(t).Transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 }
 
 func (f fixture) authorize(t *testing.T, q url.Values) *http.Response {
@@ -39,7 +48,7 @@ func (f fixture) authorize(t *testing.T, q url.Values) *http.Response {
 	)
 	require.NoError(t, err)
 
-	resp, err := noRedirectClient().Do(req)
+	resp, err := noRedirectClient(t).Do(req)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = resp.Body.Close() })
 

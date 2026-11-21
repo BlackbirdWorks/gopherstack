@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 )
 
 func TestMultipleServersStartupAndShutdown(t *testing.T) {
@@ -109,7 +111,8 @@ func startServerRetryingPort(t *testing.T, demo bool) (int, chan struct{}, chan 
 // exits (delivering to errChan), or the deadline elapses. Matching the per-attempt account ID proves
 // the responder is this attempt's server, not another test's server that grabbed the port first.
 func waitForInstance(port int, accountID string, errChan <-chan error, timeout, interval time.Duration) (bool, error) {
-	client := &http.Client{Timeout: 1 * time.Second}
+	client := httpclient.New(1 * time.Second)
+	defer client.CloseIdleConnections()
 	deadline := time.Now().Add(timeout)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

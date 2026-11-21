@@ -11,6 +11,8 @@ import (
 	lwsdk "github.com/aws/aws-sdk-go-v2/service/lambdaweb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 var (
@@ -148,7 +150,7 @@ func TestValidation_KeyDisabledAfterCreationFailsLaunch(t *testing.T) {
 
 	keys.err.Store(&errNoKey)
 
-	d := &dataEnv{testEnv: env, launcher: l, domain: aws.ToString(created.Endpoint.DomainName), http: &http.Client{}}
+	d := &dataEnv{testEnv: env, launcher: l, domain: aws.ToString(created.Endpoint.DomainName), http: testclient.New(t)}
 	resp := d.get(t)
 
 	assert.Equal(t, http.StatusBadGateway, resp.StatusCode)
