@@ -9,15 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 74 (74 ok) |
 | Feature families | 15 (15 ok) |
-| Known gaps | 2 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 2 |
 | Resource leaks | bugs found |
-
-### Known gaps
-
-- AMAZON_ELASTICSEARCH data sources resolve against services/opensearch domains only: services/elasticsearch has no document data plane to serve the request
-- Versioned DynamoDB data sources (ddb_versioned.go) reject a stale _version (optimistic concurrency) but do not run the resolver SyncConfig AUTOMERGE or LAMBDA conflict handlers, and do not support the customPartitionKey/populateIndexFields delta layouts or Sync basePartitionKey/deltaIndexName (rejected as unsupported)
 
 ### Structural gaps
 

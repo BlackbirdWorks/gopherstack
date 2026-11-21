@@ -9,13 +9,9 @@
 | --- | --- |
 | PARITY entries audited | 7 (7 ok) |
 | Feature families | 2 (2 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- BillingViewArn: format-checked only; no billing-view service exists in services/ to resolve it
 
 ## More
 

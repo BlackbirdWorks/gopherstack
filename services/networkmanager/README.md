@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 95 (92 ok, 3 partial) |
 | Feature families | 29 (27 ok, 2 partial) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- Change sets cover 13 of the 14 ChangeType values; SEGMENTS_CONFIGURATION is not emitted: the SDK and the Cloud WAN policy pages (cloudwan-policies-json) name the type but do not say which policy edits produce it, and segment add/modify/remove is already reported as CORE_NETWORK_SEGMENT
 
 ### Structural gaps
 

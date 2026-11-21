@@ -9,12 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 15 (10 ok, 5 partial) |
 | Feature families | 12 (2 ok, 10 partial) |
-| Known gaps | 1 |
+| Known gaps | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- Step entries carry only STEP_ASSIGN, STEP_STD_LIB_CALL, STEP_CONNECTOR_CALL, STEP_SUBWORKFLOW_CALL, STEP_SWITCH, STEP_FOR, STEP_PARALLEL_FOR, STEP_PARALLEL_BRANCH, STEP_TRY_RETRY_EXCEPT, STEP_RETURN, STEP_RAISE and STEP_GOTO; the condition, loop-iteration, branch-entry and try/retry/except sub-entry step types and iteration counters are not produced (pkgs/wfinterp/steplog.go).
 - Connectors exist for Pub/Sub, Secret Manager, Firestore, Cloud Storage, Cloud Tasks, Cloud Build and Workflow Executions (connectors.go connectors()); connectors and googleapis.com host rewriting for the other emulated services (BigQuery, Cloud Run, Cloud Functions, Compute, DNS, Redis, Spanner, SQL and the rest of the GCP emulators) are not implemented.
 
 ## More
