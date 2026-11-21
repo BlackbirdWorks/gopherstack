@@ -23,7 +23,12 @@ type JWK struct {
 
 // JWKS returns the JSON Web Key Set for this issuer.
 func (iss *Issuer) JWKS() JWKSResponse {
-	pub := &iss.privateKey.PublicKey
+	priv, err := iss.key()
+	if err != nil {
+		return JWKSResponse{Keys: []JWK{}}
+	}
+
+	pub := &priv.PublicKey
 	n := base64.RawURLEncoding.EncodeToString(pub.N.Bytes())
 	eBytes := big.NewInt(int64(pub.E)).Bytes()
 	e := base64.RawURLEncoding.EncodeToString(eBytes)

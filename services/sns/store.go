@@ -252,7 +252,7 @@ func (b *InMemoryBackend) SetHTTPDeliveryClient(c *http.Client) {
 // notification's Signature field is a valid RSA-SHA1 signature over the
 // canonical notification string.
 func (b *InMemoryBackend) SigningCertPEM() []byte {
-	return b.signer.certPEM
+	return b.signer.material().certPEM
 }
 
 // SetSigningCertBaseURL configures the URL embedded in the SigningCertURL field

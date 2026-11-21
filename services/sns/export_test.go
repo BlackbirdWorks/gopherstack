@@ -120,3 +120,6 @@ func AddOptedOutPhoneNumberForTest(b *InMemoryBackend, phoneNumber string) {
 	defer b.mu.Unlock()
 	b.optedOutPhoneNumbers[phoneNumber] = true
 }
+
+// SigningKeyGenerated reports whether the notification signing key has been generated.
+func (b *InMemoryBackend) SigningKeyGenerated() bool { return b.signer.generated.Load() }
