@@ -74,16 +74,35 @@ func (sc *timeScanner) digits(minN, maxN int) (int, bool) {
 	return v, err == nil
 }
 
-// name matches one of names (full, or the first three letters when abbrev) ignoring case; it returns its index.
+// foldPrefix returns the byte length of the prefix of s that equals prefix ignoring case, or -1. It measures
+// the original text: lower-casing can change a rune's byte length.
+func foldPrefix(s, prefix string) int {
+	end, n := 0, utf8.RuneCountInString(prefix)
+
+	for range n {
+		if end >= len(s) {
+			return -1
+		}
+
+		_, w := utf8.DecodeRuneInString(s[end:])
+		end += w
+	}
+
+	if strings.EqualFold(s[:end], prefix) {
+		return end
+	}
+
+	return -1
+}
+
+// name matches the longest of names at the cursor ignoring case; it returns its index.
 func (sc *timeScanner) name(names []string) (int, bool) {
-	rest := strings.ToLower(sc.s[sc.pos:])
+	rest := sc.s[sc.pos:]
 	best, bestLen := -1, 0
 
 	for i, nm := range names {
-		cand := strings.ToLower(nm)
-
-		if strings.HasPrefix(rest, cand) && len(cand) > bestLen {
-			best, bestLen = i, len(cand)
+		if n := foldPrefix(rest, nm); n > bestLen {
+			best, bestLen = i, n
 		}
 	}
 
@@ -219,14 +238,22 @@ func (sc *timeScanner) fraction(t fmtTok, pt *parsedTime) bool {
 }
 
 func (sc *timeScanner) meridiem(pt *parsedTime) bool {
-	rest := strings.ToLower(sc.s[sc.pos:])
-	am, pm := strings.ToLower(sc.loc.am), strings.ToLower(sc.loc.pm)
+	rest := sc.s[sc.pos:]
+	amLen, pmLen := -1, -1
+
+	if sc.loc.am != "" {
+		amLen = foldPrefix(rest, sc.loc.am)
+	}
+
+	if sc.loc.pm != "" {
+		pmLen = foldPrefix(rest, sc.loc.pm)
+	}
 
 	switch {
-	case am != "" && strings.HasPrefix(rest, am) && (pm == "" || len(am) >= len(pm) || !strings.HasPrefix(rest, pm)):
-		sc.pos += len(am)
-	case pm != "" && strings.HasPrefix(rest, pm):
-		sc.pos += len(pm)
+	case amLen >= 0 && amLen >= pmLen:
+		sc.pos += amLen
+	case pmLen >= 0:
+		sc.pos += pmLen
 		pt.pm = true
 	default:
 		return false

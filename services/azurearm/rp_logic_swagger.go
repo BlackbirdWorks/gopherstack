@@ -42,7 +42,7 @@ func (w *logicWorkflow) swaggerDocument(base string) map[string]any {
 	return map[string]any{
 		"swagger":  logicSwaggerVersion,
 		"info":     map[string]any{"title": w.Name, logicKVersion: w.Version},
-		"host":     host,
+		logicKHost: host,
 		"basePath": strings.TrimSuffix(logicDataPrefix, "/") + "/" + w.FlowID,
 		"schemes":  []any{scheme},
 		"paths":    paths,
@@ -65,24 +65,24 @@ func (w *logicWorkflow) swaggerOperation(trigger string) (string, string, map[st
 
 		for _, p := range relativePathParams(rel) {
 			params = append(params, map[string]any{
-				fieldName: p, "in": "path", "required": true, fieldType: "string",
+				fieldName: p, "in": logicKPath, "required": true, fieldType: "string",
 			})
 		}
 	}
 
 	for _, q := range []string{logicKAPIVersion, "sp", "sv", logicKSig} {
-		params = append(params, map[string]any{fieldName: q, "in": "query", "required": true, fieldType: "string"})
+		params = append(params, map[string]any{fieldName: q, "in": logicKQuery, "required": true, fieldType: "string"})
 	}
 
-	if schema, ok := objectOf(in[logicKSchema]); ok && method != "get" && method != "delete" {
-		params = append(params, map[string]any{fieldName: logicKBody, "in": logicKBody, "schema": schema})
+	if schema, ok := objectOf(in[logicKSchema]); ok && method != "get" && method != logicKDelete {
+		params = append(params, map[string]any{fieldName: logicKBody, "in": logicKBody, logicKSchema: schema})
 	}
 
 	return path, method, map[string]any{
-		"operationId": trigger,
-		"parameters":  params,
+		"operationId":    trigger,
+		logicKParameters: params,
 		"responses": map[string]any{
-			"default": map[string]any{"description": "The response of the workflow run."},
+			logicKDefault: map[string]any{logicKDescription: "The response of the workflow run."},
 		},
 	}
 }

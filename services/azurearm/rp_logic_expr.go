@@ -231,7 +231,7 @@ func (p *exprParser) parseIdent() (*logicExpr, error) {
 			return &logicExpr{kind: exprLit, lit: true}, nil
 		case logicLitFalse:
 			return &logicExpr{kind: exprLit, lit: false}, nil
-		case "null":
+		case logicKNull:
 			return &logicExpr{kind: exprLit, lit: nil}, nil
 		}
 

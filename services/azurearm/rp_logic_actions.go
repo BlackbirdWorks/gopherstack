@@ -187,7 +187,7 @@ func (rs *logicRunState) runResponse(env *logicEnv, name string, def map[string]
 
 	rs.live.resp <- logicResponse{status: int(status), headers: headers, body: in[logicKBody]}
 
-	out := map[string]any{"statusCode": status, logicKHeaders: mapStrAny(headers)}
+	out := map[string]any{logicKStatusCode: status, logicKHeaders: mapStrAny(headers)}
 	if b, has := in[logicKBody]; has {
 		out[logicKBody] = b
 	}
@@ -821,7 +821,7 @@ func (rs *logicRunState) parseJSONOp(env *logicEnv, raw map[string]any) (any, an
 		}
 	}
 
-	return map[string]any{logicKContent: content, "schema": raw["schema"]}, val, nil
+	return map[string]any{logicKContent: content, logicKSchema: raw["schema"]}, val, nil
 }
 
 func (rs *logicRunState) collectionOp(env *logicEnv, typ string, raw map[string]any) (any, any, error) {
@@ -843,7 +843,7 @@ func (rs *logicRunState) collectionOp(env *logicEnv, typ string, raw map[string]
 		res, serr := rs.mapItems(env, arr, func(e *logicEnv) (any, error) { return rs.eval(e, raw["select"]) })
 
 		return inputs, res, serr
-	case "query":
+	case logicKQuery:
 		inputs["where"] = raw["where"]
 		res, qerr := rs.filterItems(env, arr, raw["where"])
 

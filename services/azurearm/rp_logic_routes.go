@@ -141,7 +141,7 @@ func (h *Handler) handleLogic(c *echo.Context, segs []string) error {
 
 	r := c.Request()
 	q := logicReq{c: c, lp: lp, base: h.baseURLFor(r)}
-	lp.setBase(q.base)
+	lp.setBase(q.base, h.Port)
 
 	if isLogicLocationValidate(segs) {
 		q.ref = logicRef3{sub: segs[logicSubIdx], rg: segs[logicRGIdx], wf: segs[logicIdxLocWf]}
@@ -426,6 +426,14 @@ func (h *Handler) logicListWorkflows(q logicReq, kind logicListKind) error {
 }
 
 func (h *Handler) logicList(q logicReq, items func(w *logicWorkflow, lq logicQuery) ([]map[string]any, error)) error {
+	return h.logicListPaged(q, items, true)
+}
+
+// logicListPaged answers a list; the repetitions lists are unpaged in the armlogic SDK (no nextLink), so they
+// return every item.
+func (h *Handler) logicListPaged(
+	q logicReq, items func(w *logicWorkflow, lq logicQuery) ([]map[string]any, error), paged bool,
+) error {
 	lq, err := h.logicQuery(q)
 	if err != nil {
 		return h.writeAPIError(q.c, err)
@@ -435,6 +443,10 @@ func (h *Handler) logicList(q logicReq, items func(w *logicWorkflow, lq logicQue
 		all, ierr := items(w, lq)
 		if ierr != nil {
 			return nil, ierr
+		}
+
+		if !paged {
+			return pageOf{Data: all}, nil
 		}
 
 		return pageLogic(all, lq), nil

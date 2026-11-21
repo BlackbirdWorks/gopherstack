@@ -3,6 +3,15 @@ package azurearm
 // Property and keyword names shared across the Logic provider and engine.
 const (
 	logicKCode             = "code"
+	logicKStatusCode       = "statusCode"
+	logicKNull             = "null"
+	logicKHost             = "host"
+	logicKQuery            = "query"
+	logicKPath             = "path"
+	logicKDelete           = "delete"
+	logicKParameters       = "parameters"
+	logicKDefault          = "default"
+	logicKDescription      = "description"
 	logicKBody             = "body"
 	logicKOutputs          = "outputs"
 	logicKInputs           = "inputs"

@@ -1,6 +1,8 @@
 package azurearm
 
 import (
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -111,7 +113,7 @@ func (n *logicExpr) text() string {
 	case exprLit:
 		switch v := n.lit.(type) {
 		case nil:
-			return "null"
+			return logicKNull
 		case string:
 			return "'" + strings.ReplaceAll(v, "'", "''") + "'"
 		}
@@ -174,9 +176,13 @@ func (rs *logicRunState) evalTraced(env *logicEnv, name, root string, v any) (an
 		return out, err
 	}
 
+	secure := secureParamPattern(rs.def)
+
 	for _, r := range c.trace.roots {
-		if strings.HasPrefix(r.Path, "inputs.authentication") {
+		if secretTracePath(r.Path) {
 			stripTraceValues(&r.Node)
+		} else if secure != nil {
+			maskSecureTrace(&r.Node, secure)
 		}
 	}
 
@@ -185,7 +191,8 @@ func (rs *logicRunState) evalTraced(env *logicEnv, name, root string, v any) (an
 
 	if rec := env.local[name]; rec != nil {
 		room := max(logicMaxTraces-len(rec.Traces), 0)
-		rec.Traces = append(rec.Traces, c.trace.roots[:min(room, len(c.trace.roots))]...)
+		n := rs.budget.takeTraces(min(room, len(c.trace.roots)))
+		rec.Traces = append(rec.Traces, c.trace.roots[:n]...)
 	}
 
 	return out, err
@@ -237,6 +244,59 @@ func (h *Handler) logicExpressionTraces(q logicReq, rep string) error {
 	})
 
 	return h.logicReply(q, out, err)
+}
+
+// secretTracePath reports whether the expressions at path feed a credential: the authentication block or an
+// Authorization or Cookie header.
+func secretTracePath(path string) bool {
+	lp := strings.ToLower(path)
+
+	for _, pre := range []string{
+		"inputs.authentication", "inputs.cookie", "inputs.headers.authorization",
+		"inputs.headers.proxy-authorization", "inputs.headers.cookie",
+	} {
+		if strings.HasPrefix(lp, pre) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// secureParamPattern matches a parameters('name') reference to a secureString or secureObject parameter of the
+// definition; nil when it declares none.
+func secureParamPattern(def map[string]any) *regexp.Regexp {
+	defs, _ := objectOf(def["parameters"])
+
+	var names []string
+
+	for name, d := range defs {
+		dm, _ := objectOf(d)
+		if typ := strings.ToLower(stringOf(dm[fieldType])); typ == "securestring" || typ == "secureobject" {
+			names = append(names, regexp.QuoteMeta(name))
+		}
+	}
+
+	if len(names) == 0 {
+		return nil
+	}
+
+	slices.Sort(names)
+
+	return regexp.MustCompile(`(?i)\bparameters\(\s*'(?:` + strings.Join(names, "|") + `)'\s*\)`)
+}
+
+// maskSecureTrace drops the value of every expression that reads a secure parameter, and so of the ones around it.
+func maskSecureTrace(n *logicTraceNode, secure *regexp.Regexp) {
+	if secure.MatchString(n.Text) {
+		stripTraceValues(n)
+
+		return
+	}
+
+	for _, s := range n.Subs {
+		maskSecureTrace(s, secure)
+	}
 }
 
 func stripTraceValues(n *logicTraceNode) {

@@ -93,6 +93,7 @@ type logicRunState struct {
 	wfName  string
 
 	callbackURL string
+	budget      logicRunBudget
 }
 
 type logicEvalCtx struct {
@@ -393,7 +394,7 @@ func (rs *logicRunState) dispatch(env *logicEnv, name, typ string, def map[strin
 		return rs.runForeach(env, name, def)
 	case logicActUntil:
 		return rs.runUntil(env, name, def)
-	case "parsejson", "select", "query", "join", logicTypeTable:
+	case "parsejson", "select", logicKQuery, "join", logicTypeTable:
 		return rs.runDataOp(env, name, typ, def)
 	}
 

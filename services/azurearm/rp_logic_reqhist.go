@@ -9,6 +9,9 @@ import (
 const (
 	logicMaxRequests     = 100
 	logicMaxReqBodyStore = 256 << 10
+	logicMaxRunBodyBytes = 4 << 20
+	logicMaxRunRequests  = 2000
+	logicMaxRunTraces    = 1000
 	logicSegRequestHist  = "requestHistories"
 	logicReqBodyKind     = "ResponseBody"
 )
@@ -27,6 +30,41 @@ type logicRequestRec struct {
 	Status      int               `json:"status,omitempty"`
 	HasBody     bool              `json:"hasBody,omitempty"`
 	Responded   bool              `json:"responded,omitempty"`
+}
+
+// logicRunBudget caps what one run keeps of its outbound calls and expression traces, so a loop of thousands of
+// iterations cannot grow the run record without bound. Guarded by the provider lock.
+type logicRunBudget struct {
+	bodyBytes int64
+	requests  int
+	traces    int
+}
+
+func (b *logicRunBudget) takeRequest() bool {
+	if b.requests >= logicMaxRunRequests {
+		return false
+	}
+
+	b.requests++
+
+	return true
+}
+
+func (b *logicRunBudget) takeBody(n int64) bool {
+	if b.bodyBytes+n > logicMaxRunBodyBytes {
+		return false
+	}
+
+	b.bodyBytes += n
+
+	return true
+}
+
+func (b *logicRunBudget) takeTraces(n int) int {
+	n = min(n, max(logicMaxRunTraces-b.traces, 0))
+	b.traces += n
+
+	return n
 }
 
 func secretHeader(k string) bool {
@@ -88,17 +126,18 @@ func (rs *logicRunState) recordRequest(req *logicHTTPRequest, resp *logicHTTPRes
 
 		if resp.body != nil {
 			rq.BodySize = bodySize(resp.body)
-			if rq.BodySize <= logicMaxReqBodyStore {
-				rq.Body, rq.HasBody = resp.body, true
-			}
 		}
 	}
 
 	rs.p.mu.Lock("recordRequest")
 	defer rs.p.mu.Unlock()
 
-	if len(req.rec.Requests) >= logicMaxRequests {
+	if len(req.rec.Requests) >= logicMaxRequests || !rs.budget.takeRequest() {
 		return
+	}
+
+	if resp != nil && resp.body != nil && rq.BodySize <= logicMaxReqBodyStore && rs.budget.takeBody(rq.BodySize) {
+		rq.Body, rq.HasBody = resp.body, true
 	}
 
 	rq.Name = rs.p.newVersionID(start)
@@ -125,7 +164,7 @@ func (w *logicWorkflow) requestBody(a *logicActionRec, rq *logicRequestRec, rel,
 	props["request"] = req
 
 	if rq.Responded {
-		resp := map[string]any{"statusCode": int64(rq.Status)}
+		resp := map[string]any{logicKStatusCode: int64(rq.Status)}
 
 		if !a.Outputs.Hidden {
 			resp[logicKHeaders] = orEmptyHeaders(rq.RespHeaders)

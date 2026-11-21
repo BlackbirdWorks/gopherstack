@@ -286,7 +286,7 @@ type logicHTTPResponse struct {
 }
 
 func (r *logicHTTPResponse) outputs() map[string]any {
-	out := map[string]any{"statusCode": int64(r.status), logicKHeaders: r.headers}
+	out := map[string]any{logicKStatusCode: int64(r.status), logicKHeaders: r.headers}
 	if r.body != nil {
 		out[logicKBody] = r.body
 	}
@@ -450,7 +450,7 @@ func dropOmittedHeaders(h http.Header, method string) {
 
 func omittedHeader(lk, method string) bool {
 	switch lk {
-	case acaRuleAllow, "cookie", "expires", "host", "last-modified", "origin", "set-cookie", "transfer-encoding":
+	case acaRuleAllow, "cookie", "expires", logicKHost, "last-modified", "origin", "set-cookie", "transfer-encoding":
 		return true
 	case "content-disposition", "content-encoding", "content-type":
 		return method == http.MethodGet

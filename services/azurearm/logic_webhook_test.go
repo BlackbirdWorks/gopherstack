@@ -222,8 +222,9 @@ func TestLogicHTTPWebhookValidation(t *testing.T) {
 			_, err := s.factory.NewWorkflowsClient().CreateOrUpdate(t.Context(), logicRG, "badhook",
 				armlogic.Workflow{
 					Location: new("westus"),
-					Properties: &armlogic.WorkflowProperties{Definition: logicDef(
-						la{"hook": la{"type": "HttpWebhook", "inputs": tc.inputs}}, la{}),
+					Properties: &armlogic.WorkflowProperties{
+						Definition: logicDef(
+							la{"hook": la{"type": "HttpWebhook", "inputs": tc.inputs}}, la{}),
 					},
 				}, nil)
 			require.Error(t, err)

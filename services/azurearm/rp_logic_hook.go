@@ -6,7 +6,11 @@ import (
 	"encoding/json/v2"
 	"log/slog"
 	"maps"
+	"net"
 	"net/http"
+	"net/url"
+	"os"
+	"strconv"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
@@ -85,10 +89,57 @@ func hookFingerprint(def map[string]any) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func (p *LogicProvider) setBase(base string) {
+// setBase remembers the address callers reach the emulator on, for the callback URLs handed to webhook
+// subscribers. A Host header naming anything but this machine is ignored: any caller could otherwise steer the
+// signed callback to a host of its choice.
+func (p *LogicProvider) setBase(base string, port int) {
 	p.mu.Lock("setBase")
-	p.hookBase = base
-	p.mu.Unlock()
+	defer p.mu.Unlock()
+
+	if u, err := url.Parse(base); err == nil && localHostName(u.Hostname()) {
+		p.hookBase = base
+
+		return
+	}
+
+	if p.hookBase == "" {
+		p.hookBase = "https://" + net.JoinHostPort("localhost", strconv.Itoa(port))
+	}
+}
+
+// localHostName reports whether host names this machine: loopback, a local interface address, the hostname, or a
+// single-label name such as a compose service.
+func localHostName(host string) bool {
+	if host == "" {
+		return false
+	}
+
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback() || localInterfaceIP(ip)
+	}
+
+	if strings.EqualFold(host, "localhost") || !strings.Contains(host, ".") {
+		return true
+	}
+
+	own, err := os.Hostname()
+
+	return err == nil && strings.EqualFold(host, own)
+}
+
+func localInterfaceIP(ip net.IP) bool {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return false
+	}
+
+	for _, a := range addrs {
+		if n, ok := a.(*net.IPNet); ok && n.IP.Equal(ip) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (p *LogicProvider) queueHookLocked(j *logicHookJob) {
@@ -150,7 +201,7 @@ func (p *LogicProvider) syncWebhooksLocked(w *logicWorkflow) {
 // unsubscribeAllLocked queues the unsubscribe of every subscribed trigger of a workflow being removed.
 func (p *LogicProvider) unsubscribeAllLocked(w *logicWorkflow) {
 	for name, ts := range w.Triggers {
-		if ts.Hook != nil {
+		if ts.Hook != nil && !ts.HookPending {
 			p.queueHookLocked(p.hookJobLocked(w, name, false, ts.Hook))
 		}
 	}
@@ -227,11 +278,15 @@ func (p *LogicProvider) runHook(j *logicHookJob) error {
 func (p *LogicProvider) applyHookLocked(j *logicHookJob, err error) {
 	w, ok := p.wf[j.wfKey]
 	if !ok {
+		p.orphanUnsubscribeLocked(j, err)
+
 		return
 	}
 
 	ts, ok := w.Triggers[j.trigger]
 	if !ok {
+		p.orphanUnsubscribeLocked(j, err)
+
 		return
 	}
 
@@ -257,6 +312,18 @@ func (p *LogicProvider) applyHookLocked(j *logicHookJob, err error) {
 	if err == nil || !j.subscribe {
 		p.syncWebhooksLocked(w)
 	}
+}
+
+// orphanUnsubscribeLocked undoes a subscribe that succeeded after its workflow or trigger was removed.
+func (p *LogicProvider) orphanUnsubscribeLocked(j *logicHookJob, err error) {
+	if err != nil || !j.subscribe || len(j.unsub) == 0 {
+		return
+	}
+
+	p.queueHookLocked(&logicHookJob{
+		call: j.unsub, callback: j.callback, params: j.params, def: j.def, wfKey: j.wfKey, wfName: j.wfName,
+		trigger: j.trigger,
+	})
 }
 
 func hookVerb(subscribe bool) string {

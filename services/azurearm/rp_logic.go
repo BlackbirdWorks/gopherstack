@@ -347,7 +347,6 @@ func (p *LogicProvider) workflowLocked(id ResourceID) (*logicWorkflow, error) {
 func (p *LogicProvider) Delete(_ context.Context, id ResourceID) error {
 	p.mu.Lock("Delete")
 	w, err := p.workflowLocked(id)
-
 	if err != nil {
 		p.mu.Unlock()
 
@@ -446,6 +445,7 @@ func (p *LogicProvider) Reset() {
 	live := p.live
 	p.live = map[string]*logicLive{}
 	p.queue = map[string][]*logicQueued{}
+	p.hookQ = nil
 	p.mu.Unlock()
 
 	p.stopAllTimers()

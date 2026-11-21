@@ -510,7 +510,7 @@ func validateLogicExpressions(v any) error {
 		return checkLogicTemplate(t)
 	case map[string]any:
 		for k, x := range t {
-			if k == "schema" || k == logicKMetadata {
+			if k == logicKSchema || k == logicKMetadata {
 				continue
 			}
 

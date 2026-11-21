@@ -13,7 +13,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
-const logicTrigHTTP = logicSchemeHTTP
+const (
+	logicTrigHTTP      = logicSchemeHTTP
+	logicMaxRetryAfter = 24 * time.Hour
+)
 
 func isPollingTrigger(typ string) bool { return typ == logicTrigRecurrence || typ == logicTrigHTTP }
 
@@ -104,7 +107,7 @@ func (p *LogicProvider) pollOnce(plan logicPollPlan, trigger string) logicPollRe
 	req.async = false
 
 	if plan.pollURL != "" {
-		req.url = plan.pollURL
+		req = followPollURL(req, plan.pollURL)
 	}
 
 	resp, _, err := rs.doHTTP(req, pol, logicHTTPTimeout)
@@ -127,15 +130,39 @@ func (r *logicHTTPResponse) headerValue(name string) any {
 	return nil
 }
 
-func retryAfter(r *logicHTTPResponse) time.Duration {
-	raw, _ := r.headerValue("Retry-After").(string)
+// followPollURL points req at the Location of the previous poll. Another origin gets a bare GET with only the
+// workflow headers and no client certificate, so the credentials of the configured endpoint never leave it.
+func followPollURL(req *logicHTTPRequest, next string) *logicHTTPRequest {
+	if sameOrigin(req.url, next) {
+		req.url = next
 
-	n, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 32)
-	if err != nil || n < 0 {
+		return req
+	}
+
+	return &logicHTTPRequest{
+		method: http.MethodGet, url: next, header: pollHeaders(req, next), async: false,
+	}
+}
+
+// retryAfter reads Retry-After as delay-seconds or an HTTP-date, clamped to logicMaxRetryAfter.
+func retryAfter(r *logicHTTPResponse, now time.Time) time.Duration {
+	raw, _ := r.headerValue("Retry-After").(string)
+	raw = strings.TrimSpace(raw)
+
+	if n, err := strconv.ParseInt(raw, 10, 64); err == nil {
+		if n < 0 {
+			return 0
+		}
+
+		return min(time.Duration(min(n, int64(logicMaxRetryAfter/time.Second)))*time.Second, logicMaxRetryAfter)
+	}
+
+	at, err := http.ParseTime(raw)
+	if err != nil {
 		return 0
 	}
 
-	return time.Duration(n) * time.Second
+	return min(max(at.Sub(now), 0), logicMaxRetryAfter)
 }
 
 // firePoll runs one poll of an Http trigger outside the provider lock, then records its result under it.
@@ -194,7 +221,7 @@ func (p *LogicProvider) applyPollResultLocked(
 
 	p.recordSkippedTrigger(w, f, now, nil)
 
-	if d := retryAfter(res.resp); d > 0 {
+	if d := retryAfter(res.resp, now); d > 0 {
 		return now.Add(d)
 	}
 

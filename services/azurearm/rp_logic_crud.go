@@ -243,7 +243,7 @@ func (p *LogicProvider) reconcileTriggersLocked(w *logicWorkflow, now time.Time)
 
 	for name := range w.Triggers {
 		if _, ok := defs[name]; !ok {
-			if h := w.Triggers[name].Hook; h != nil {
+			if h := w.Triggers[name].Hook; h != nil && !w.Triggers[name].HookPending {
 				p.queueHookLocked(p.hookJobLocked(w, name, false, h))
 			}
 

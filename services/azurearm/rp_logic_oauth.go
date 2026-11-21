@@ -1,6 +1,7 @@
 package azurearm
 
 import (
+	"context"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -8,8 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-
-	"context"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
