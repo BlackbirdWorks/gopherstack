@@ -1,9 +1,9 @@
 package helm_test
 
 import (
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
-	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 
 	"bytes"
 	"context"
@@ -45,7 +45,10 @@ const (
 	nonRootUID    = 65532
 )
 
-var errNotReady = errors.New("not ready")
+var (
+	errNotReady = errors.New("not ready")
+	errFatal    = errors.New("fatal")
+)
 
 type k8sAPI struct {
 	client *http.Client
@@ -85,6 +88,10 @@ func until(ctx context.Context, what string, fn func() (bool, error)) error {
 		ok, err := fn()
 		if ok {
 			return nil
+		}
+
+		if errors.Is(err, errFatal) {
+			return fmt.Errorf("%s: %w", what, err)
 		}
 
 		last = err
@@ -325,8 +332,12 @@ func TestChart_InstallK3s(t *testing.T) {
 
 	require.NoError(t, api.podRunsNonRoot(ctx))
 
+	t.Cleanup(func() { api.dumpDiagnostics(t) })
+
 	base := "http://127.0.0.1:" + strconv.Itoa(inst.LBHost[0])
-	assertHealthy(ctx, t, base)
+	require.NoError(t, until(ctx, "service routable", func() (bool, error) {
+		return api.serviceRoutable(ctx, base)
+	}))
 
 	s3c := newS3(ctx, t, base)
 	bucket := "helm-" + uuid.NewString()[:8]
@@ -354,18 +365,172 @@ func TestChart_InstallK3s(t *testing.T) {
 	}))
 }
 
-func assertHealthy(ctx context.Context, t *testing.T, base string) {
-	t.Helper()
+// serviceRoutable is true once the Service has a ready endpoint and a health GET through the node port succeeds.
+// A restarted pod is fatal; connection errors mean the node port is not programmed yet.
+func (k *k8sAPI) serviceRoutable(ctx context.Context, base string) (bool, error) {
+	if err := k.noRestarts(ctx); err != nil {
+		return false, err
+	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/_gopherstack/health", nil)
-	require.NoError(t, err)
+	code, body, err := k.do(ctx, http.MethodGet,
+		"/apis/discovery.k8s.io/v1/namespaces/"+namespace+
+			"/endpointslices?labelSelector=kubernetes.io/service-name%3D"+releaseName+"-gopherstack")
+	if err != nil {
+		return false, err
+	}
 
-	resp, err := testclient.New(t).Do(req)
-	require.NoError(t, err)
+	if code != http.StatusOK {
+		return false, fmt.Errorf("%w: endpointslices returned %d", errNotReady, code)
+	}
+
+	var l struct {
+		Items []struct {
+			Endpoints []struct {
+				Conditions struct {
+					Ready *bool `json:"ready"`
+				} `json:"conditions"`
+			} `json:"endpoints"`
+		} `json:"items"`
+	}
+	if err = json.Unmarshal(body, &l, jsonx.V1()); err != nil {
+		return false, err
+	}
+
+	ready := false
+
+	for _, it := range l.Items {
+		for _, ep := range it.Endpoints {
+			ready = ready || (ep.Conditions.Ready != nil && *ep.Conditions.Ready)
+		}
+	}
+
+	if !ready {
+		return false, fmt.Errorf("%w: no ready endpoint", errNotReady)
+	}
+
+	return probeHealth(ctx, base)
+}
+
+func probeHealth(ctx context.Context, base string) (bool, error) {
+	rctx, cancel := context.WithTimeout(ctx, pollEvery*5)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(rctx, http.MethodGet, base+"/_gopherstack/health", nil)
+	if err != nil {
+		return false, err
+	}
+
+	tr := httpclient.NewTransport()
+	tr.DisableKeepAlives = true
+
+	c := &http.Client{Transport: tr}
+	defer c.CloseIdleConnections()
+
+	resp, err := c.Do(req)
+	if err != nil {
+		return false, err
+	}
 
 	defer func() { _ = resp.Body.Close() }()
 
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("%w: health returned %d", errNotReady, resp.StatusCode)
+	}
+
+	return true, nil
+}
+
+func (k *k8sAPI) listPods(ctx context.Context) ([]podDiag, error) {
+	code, body, err := k.do(ctx, http.MethodGet,
+		"/api/v1/namespaces/"+namespace+"/pods?labelSelector=app.kubernetes.io/instance%3D"+releaseName)
+	if err != nil {
+		return nil, err
+	}
+
+	if code != http.StatusOK {
+		return nil, fmt.Errorf("%w: list pods returned %d", errNotReady, code)
+	}
+
+	var l struct {
+		Items []podDiag `json:"items"`
+	}
+	if err = json.Unmarshal(body, &l, jsonx.V1()); err != nil {
+		return nil, err
+	}
+
+	return l.Items, nil
+}
+
+type containerDiag struct {
+	LastState struct {
+		Terminated *struct {
+			Reason   string `json:"reason"`
+			ExitCode int    `json:"exitCode"`
+		} `json:"terminated"`
+	} `json:"lastState"`
+	Name         string `json:"name"`
+	RestartCount int    `json:"restartCount"`
+}
+
+type podDiag struct {
+	Metadata struct {
+		Name string `json:"name"`
+	} `json:"metadata"`
+	Status struct {
+		ContainerStatuses []containerDiag `json:"containerStatuses"`
+	} `json:"status"`
+}
+
+// noRestarts fails fatally if any release container restarted since it first became ready.
+func (k *k8sAPI) noRestarts(ctx context.Context) error {
+	pods, err := k.listPods(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, p := range pods {
+		for _, cs := range p.Status.ContainerStatuses {
+			if cs.RestartCount != 0 {
+				return fmt.Errorf("%w: pod %s container %s restarted %d times", errFatal,
+					p.Metadata.Name, cs.Name, cs.RestartCount)
+			}
+		}
+	}
+
+	return nil
+}
+
+// dumpDiagnostics logs pod status, current and previous container logs and namespace events when the test failed.
+func (k *k8sAPI) dumpDiagnostics(t *testing.T) {
+	t.Helper()
+
+	if !t.Failed() {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), time.Minute)
+	defer cancel()
+
+	pods, err := k.listPods(ctx)
+	if err != nil {
+		t.Logf("diagnostics: list pods: %v", err)
+	}
+
+	for _, p := range pods {
+		for _, cs := range p.Status.ContainerStatuses {
+			t.Logf("pod %s container %s restarts=%d lastTerminated=%+v",
+				p.Metadata.Name, cs.Name, cs.RestartCount, cs.LastState.Terminated)
+		}
+
+		for _, prev := range []string{"false", "true"} {
+			code, body, lerr := k.do(ctx, http.MethodGet,
+				"/api/v1/namespaces/"+namespace+"/pods/"+p.Metadata.Name+"/log?previous="+prev)
+			t.Logf("pod %s logs previous=%s code=%d err=%v\n%s", p.Metadata.Name, prev, code, lerr, body)
+		}
+	}
+
+	code, body, err := k.do(ctx, http.MethodGet, "/api/v1/namespaces/"+namespace+"/events")
+	t.Logf("events code=%d err=%v\n%s", code, err, body)
 }
 
 func newS3(ctx context.Context, t *testing.T, endpoint string) *s3.Client {
