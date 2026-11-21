@@ -1,11 +1,14 @@
 package azurearm
 
 import (
+	"crypto/tls"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"net"
 	"net/http"
+	"path"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -39,50 +42,114 @@ var ErrAPIMDestinationNotPermitted = errors.New(
 	"azurearm: apim backend is outside loopback and external backends are not allowed",
 )
 
+type apimHit struct {
+	at time.Time
+	n  int
+}
+
 type apimLimiter struct {
 	mu  *lockmetrics.RWMutex
-	win map[string][]time.Time
+	win map[string][]apimHit
 }
 
 func newAPIMLimiter() *apimLimiter {
-	return &apimLimiter{mu: lockmetrics.New("azurearm.apim.limiter"), win: map[string][]time.Time{}}
+	return &apimLimiter{mu: lockmetrics.New("azurearm.apim.limiter"), win: map[string][]apimHit{}}
 }
 
 func (l *apimLimiter) reset() {
 	l.mu.Lock("reset")
-	l.win = map[string][]time.Time{}
+	l.win = map[string][]apimHit{}
 	l.mu.Unlock()
 }
 
-// take counts one call in a sliding window of period; it reports whether the call is allowed, the calls left and,
-// when denied, the time until the oldest counted call leaves the window.
-func (l *apimLimiter) take(key string, calls int, period time.Duration, now time.Time) (bool, int, time.Duration) {
-	l.mu.Lock("take")
-	defer l.mu.Unlock()
-
-	if len(l.win) > apimLimiterSweepAt {
-		for k, w := range l.win {
-			if len(w) == 0 || !now.Before(w[len(w)-1].Add(period)) {
-				delete(l.win, k)
-			}
-		}
+func (l *apimLimiter) sweep(period time.Duration, now time.Time) {
+	if len(l.win) <= apimLimiterSweepAt {
+		return
 	}
 
-	w := l.win[key]
-	for len(w) > 0 && !now.Before(w[0].Add(period)) {
+	for k, w := range l.win {
+		if len(w) == 0 || !now.Before(w[len(w)-1].at.Add(period)) {
+			delete(l.win, k)
+		}
+	}
+}
+
+func apimWindowCount(w []apimHit) int {
+	t := 0
+	for _, h := range w {
+		t += h.n
+	}
+
+	return t
+}
+
+// trim drops the hits that left the window and returns the live ones.
+func apimTrimWindow(w []apimHit, period time.Duration, now time.Time) []apimHit {
+	for len(w) > 0 && !now.Before(w[0].at.Add(period)) {
 		w = w[1:]
 	}
 
-	if len(w) >= calls {
-		l.win[key] = w
+	return w
+}
 
-		return false, 0, w[len(w)-calls].Add(period).Sub(now)
+// apimRetryAfter is the time until enough weight leaves the window for n more calls to fit.
+func apimRetryAfter(w []apimHit, calls, n int, period time.Duration, now time.Time) time.Duration {
+	over := apimWindowCount(w) + n - calls
+
+	for _, h := range w {
+		over -= h.n
+		if over <= 0 {
+			return h.at.Add(period).Sub(now)
+		}
 	}
 
-	w = append(w, now)
+	return period
+}
+
+// take counts n calls in a sliding window of period; it reports whether they are allowed, the calls left and,
+// when denied, the time until enough of the window has passed.
+func (l *apimLimiter) take(key string, calls, n int, period time.Duration, now time.Time) (bool, int, time.Duration) {
+	l.mu.Lock("take")
+	defer l.mu.Unlock()
+
+	l.sweep(period, now)
+
+	w := apimTrimWindow(l.win[key], period, now)
+	if apimWindowCount(w)+n > calls {
+		l.win[key] = w
+
+		return false, max(0, calls-apimWindowCount(w)), apimRetryAfter(w, calls, n, period, now)
+	}
+
+	w = append(w, apimHit{at: now, n: n})
 	l.win[key] = w
 
-	return true, calls - len(w), 0
+	return true, calls - apimWindowCount(w), 0
+}
+
+// peek reports whether one more call would be allowed without counting it.
+func (l *apimLimiter) peek(key string, calls int, period time.Duration, now time.Time) (bool, int, time.Duration) {
+	l.mu.Lock("peek")
+	defer l.mu.Unlock()
+
+	w := apimTrimWindow(l.win[key], period, now)
+	l.win[key] = w
+
+	if apimWindowCount(w) >= calls {
+		return false, 0, apimRetryAfter(w, calls, 1, period, now)
+	}
+
+	return true, calls - apimWindowCount(w), 0
+}
+
+// add counts n calls unconditionally.
+func (l *apimLimiter) add(key string, n int, period time.Duration, now time.Time) {
+	l.mu.Lock("add")
+	defer l.mu.Unlock()
+
+	l.sweep(period, now)
+
+	l.win[key] = append(apimTrimWindow(l.win[key], period, now), apimHit{at: now, n: n})
 }
 
 func (p *APIMProvider) newBackendClient() *http.Client {
@@ -109,6 +176,10 @@ func (p *APIMProvider) newBackendClient() *http.Client {
 		},
 	}).DialContext
 
+	if p.rootCAs != nil {
+		tr.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: p.rootCAs}
+	}
+
 	return &http.Client{
 		Transport:     tr,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
@@ -130,18 +201,30 @@ type gwBackend struct {
 
 // gwPlan is the immutable view of the service the gateway needs for one request.
 type gwPlan struct {
-	now      func() time.Time
-	api      map[string]any
-	op       map[string]any
-	named    map[string]string
-	backends map[string]gwBackend
-	params   map[string]string
-	service  string
-	subID    string
-	suffix   string
-	apiID    string
-	docs     [3]string
-	preflght bool
+	now         func() time.Time
+	api         map[string]any
+	op          map[string]any
+	named       map[string]string
+	backends    map[string]gwBackend
+	params      map[string]string
+	fragments   map[string]string
+	certs       map[string]gwCert
+	subStart    time.Time
+	service     string
+	svcKey      string
+	subID       string
+	ownerID     string
+	userID      string
+	productID   string
+	productName string
+	path        string
+	opID        string
+	suffix      string
+	apiID       string
+	subScope    string
+	docs        [4]string
+	groups      []string
+	preflght    bool
 }
 
 func gatewayTarget(r *http.Request) (string, string, bool) {
@@ -214,20 +297,33 @@ func (p *APIMProvider) resolveGateway(name, path string, r *http.Request) (*gwPl
 	}
 
 	api, suffix := s.matchAPI(path)
-	if api == nil || !apiAllowsScheme(api.Props, r.TLS != nil) {
+	want := acaScaleHTTP
+	if r.TLS != nil {
+		want = acaSchemeHTTPS
+	}
+
+	if apimIsWebSocket(r) {
+		want = apimWSScheme(r.TLS != nil)
+	}
+
+	if api == nil || !apiAllowsScheme(api.Props, want) {
 		return nil, &gwFail{status: http.StatusNotFound, msg: apimMsgNoOperation}
 	}
 
 	plan := &gwPlan{
-		now:      p.now,
-		service:  s.Name,
-		api:      api.Props,
-		apiID:    api.ID,
-		suffix:   suffix,
-		named:    s.namedMap(),
-		backends: s.backendMap(),
+		now:       p.now,
+		service:   s.Name,
+		svcKey:    apimKey(s.SubID, s.ResourceGrp, s.Name),
+		path:      path,
+		api:       api.Props,
+		apiID:     api.ID,
+		suffix:    suffix,
+		named:     s.namedMap(),
+		fragments: s.fragmentMap(),
+		certs:     s.certMap(),
+		backends:  s.backendMap(),
 	}
-	plan.docs[0], plan.docs[1] = s.policyDoc(""), s.policyDoc("apis/"+api.ID)
+	plan.docs[0], plan.docs[2] = s.policyDoc(""), s.policyDoc("apis/"+api.ID)
 
 	if r.Method == http.MethodOptions && r.Header.Get(apimCOriginX) != "" &&
 		r.Header.Get(apimCAccessControlRequestMethod) != "" {
@@ -242,12 +338,14 @@ func (p *APIMProvider) resolveGateway(name, path string, r *http.Request) (*gwPl
 		return nil, &gwFail{status: http.StatusNotFound, msg: apimMsgNoOperation}
 	}
 
-	plan.op, plan.params = op, params
-	plan.docs[2] = s.policyDoc("apis/" + api.ID + "/operations/" + opID)
+	plan.op, plan.params, plan.opID = op, params, opID
+	plan.docs[3] = s.policyDoc("apis/" + api.ID + "/operations/" + opID)
 
 	if fail := p.checkKey(s, api, plan, r); fail != nil {
 		return nil, fail
 	}
+
+	s.fillContext(plan)
 
 	return plan, nil
 }
@@ -294,12 +392,7 @@ func (s *apimService) backendMap() map[string]gwBackend {
 	return out
 }
 
-func apiAllowsScheme(props map[string]any, tls bool) bool {
-	want := acaScaleHTTP
-	if tls {
-		want = acaSchemeHTTPS
-	}
-
+func apiAllowsScheme(props map[string]any, want string) bool {
 	for _, v := range strList(props[apimCProtocols]) {
 		if strings.EqualFold(v, want) {
 			return true
@@ -318,6 +411,10 @@ func (s *apimService) matchAPI(path string) (*apimEntity, string) {
 	)
 
 	for _, e := range s.APIs {
+		if cur, has := e.Props[apimCurrent].(bool); has && !cur {
+			continue
+		}
+
 		ap := strings.ToLower(strOf(e.Props, apimCPath))
 		if len(norm) < len(ap) || !strings.EqualFold(norm[:len(ap)], ap) {
 			continue
@@ -420,6 +517,9 @@ func (p *APIMProvider) checkKey(s *apimService, api *apimEntity, plan *gwPlan, r
 	if key != "" {
 		if sub := s.activeSubscription(key, api.ID); sub != nil {
 			plan.subID = sub.ID
+			plan.subScope = strOf(sub.Props, acrPropScope)
+			plan.ownerID = path.Base(strOf(sub.Props, "ownerId"))
+			plan.subStart, _ = time.Parse(time.RFC3339, strOf(sub.Props, apimCStartDate))
 
 			return nil
 		}
@@ -493,4 +593,50 @@ func hostOnly(addr string) string {
 	}
 
 	return h
+}
+
+// fillContext resolves the product, groups and user the policy expressions and the product-scope policy see.
+func (s *apimService) fillContext(plan *gwPlan) {
+	if plan.ownerID == "." || plan.ownerID == "/" {
+		plan.ownerID = ""
+	}
+
+	plan.userID = plan.ownerID
+
+	ids := make([]string, 0, len(s.Products))
+	for _, e := range s.Products {
+		ids = append(ids, e.ID)
+	}
+
+	sort.Strings(ids)
+
+	base := strings.ToLower(s.armBase()) + "/products/"
+	scoped, isProduct := strings.CutPrefix(strings.ToLower(plan.subScope), base)
+
+	for _, id := range ids {
+		prod := s.Products[entKey("", id)]
+		subReq, _ := prod.Props[apimCSubscriptionRequired].(bool)
+		picked := (isProduct && strings.EqualFold(scoped, id)) || (plan.subID == "" && !subReq)
+
+		if !s.ProductAPIs[entKey(id, plan.apiID)] || !picked {
+			continue
+		}
+
+		plan.productID, plan.productName = id, strOf(prod.Props, apimCDisplayName)
+		plan.docs[1] = s.policyDoc("products/" + id)
+
+		break
+	}
+
+	if plan.ownerID == "" {
+		return
+	}
+
+	for _, g := range s.Generic[apimGroupsType] {
+		if s.Links[apimLinkKey(apimLinkGroupUser, g.ID, plan.ownerID)] {
+			plan.groups = append(plan.groups, g.ID)
+		}
+	}
+
+	sort.Strings(plan.groups)
 }

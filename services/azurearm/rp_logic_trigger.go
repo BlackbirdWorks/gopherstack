@@ -28,6 +28,7 @@ const (
 	contentTriggerSegs     = 5
 	contentDeepSegs        = 7
 	contentRepSegs         = 9
+	contentRequestRepSegs  = 11
 )
 
 func validCallbackKeyType(k string) bool {
@@ -252,7 +253,8 @@ func (p *LogicProvider) resolveInvoke(
 	}
 
 	def := w.triggerDef(trigger)
-	if _, has := w.Triggers[trigger]; !has || typeOf(def) != logicTrigRequest && typeOf(def) != logicTrigManual {
+	if _, has := w.Triggers[trigger]; !has || typeOf(def) != logicTrigRequest && typeOf(def) != logicTrigManual &&
+		typeOf(def) != logicTrigWebhook {
 		writeLogicData(rw, http.StatusNotFound, "TriggerNotFound", "The trigger '"+trigger+"' was not found.")
 
 		return logicInvokeTarget{}, false
@@ -514,18 +516,37 @@ func contentPath(flow string, segs []string) string {
 
 // lookupContent resolves a content path to its stored value; caller holds p.mu.
 func (w *logicWorkflow) lookupContent(segs []string) (logicContent, bool) {
+	switch segs[1] {
+	case logicSegRuns:
+		return w.lookupRunContent(segs)
+	case logicSegTriggers:
+		if len(segs) == contentDeepSegs {
+			return w.historyContent(segs[2], segs[4], segs[len(segs)-1])
+		}
+	}
+
+	return logicContent{}, false
+}
+
+func (w *logicWorkflow) lookupRunContent(segs []string) (logicContent, bool) {
 	kind := segs[len(segs)-1]
 
-	switch {
-	case segs[1] == logicSegRuns && len(segs) == contentTriggerSegs:
+	if len(segs) == contentTriggerSegs {
 		return w.runTriggerContent(segs[2], kind)
-	case segs[1] == logicSegRuns && len(segs) == contentDeepSegs && segs[3] == logicKActions:
+	}
+
+	if len(segs) < contentDeepSegs || segs[3] != logicKActions {
+		return logicContent{}, false
+	}
+
+	switch {
+	case len(segs) == contentDeepSegs:
 		return w.actionContent(segs[2], segs[4], kind)
-	case segs[1] == logicSegRuns && len(segs) == contentRepSegs && segs[3] == logicKActions &&
-		segs[5] == logicSegRepetitions:
+	case len(segs) == contentRepSegs && segs[5] == logicSegRepetitions:
 		return w.repetitionContent(segs[2], segs[4], segs[6], kind)
-	case segs[1] == logicSegTriggers && len(segs) == contentDeepSegs:
-		return w.historyContent(segs[2], segs[4], kind)
+	case len(segs) == contentRepSegs && segs[5] == logicSegRequestHist,
+		len(segs) == contentRequestRepSegs && segs[5] == logicSegRepetitions && segs[7] == logicSegRequestHist:
+		return w.requestContent(segs)
 	}
 
 	return logicContent{}, false

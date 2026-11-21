@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 65 (63 ok, 2 partial) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 5 |
+| Known gaps | 4 |
 | Structural gaps (can't be emulated) | 5 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -18,7 +18,6 @@
 
 - Docker runtime container definition: firelensConfiguration and awsfirelens log routing (a task using either fails with TaskFailedToStart instead of starting the log router) and resourceRequirements (GPU) are stored but not applied; ephemeralStorage is validated (21 to 200 GiB) and reported on the task but not enforced on disk.
 - Docker runtime: Task-level cpu/memory bound every container (a container without a hard memory limit gets the task memory as its ceiling, NanoCPUs is the task vCPUs) but Docker has no task cgroup, so the sum across containers is not enforced at run time (registration rejects sums above the task values). host and none network-mode containers cannot join the link-local credentials relay, and awsvpc tasks (pause container plus task network) are never adopted after an emulator restart. Managed EBS volumes: filesystemType is not applied (the Docker volume uses the local driver), volumeInitializationRate is echo only, and StartTask and ServiceRevision do not carry volumeConfigurations.
-- Docker runtime: PROVISIONING tasks in a restored snapshot are not resumed.
 - ECS Exec: sessions exist only on the docker and kubernetes runtimes with the SSM service enabled (otherwise TargetNotConnectedException); the command runs as `sh -c <command>` through docker exec or pods/exec, and the ssmmessages IAM checks are not applied. executeCommandConfiguration logging is delivered when the session ends (CloudWatch Logs stream `ecs-execute-command-<sessionId>`, S3 key `<prefix>/ecs-execute-command-<sessionId>.log`; naming from memory, unverified); KMS encryption is recorded, not performed (see External effects).
 - Kubernetes runtime (CONTAINER_RUNTIME=kubernetes, docs/kubernetes.md): one Pod per task. Refused with TaskFailedToStart: host-path/EFS/configuredAtLaunch/shared-docker volumes, networkMode host/none, pidMode/ipcMode host, privileged, devices, container restartPolicy, repositoryCredentials, FireLens, dependsOn COMPLETE/HEALTHY; ulimits/ephemeralStorage ignored; dependsOn START is not ordered; a never-ready health check stays UNKNOWN; no security-group enforcement; tasks are not adopted after a restart.
 

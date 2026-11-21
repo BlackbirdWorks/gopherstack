@@ -29,6 +29,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
+	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 )
 
 const (
@@ -61,6 +62,9 @@ type leakEnv struct {
 	// resetBounded clears the intentionally bounded event stores (CloudTrail
 	// keeps up to 100k events) so they do not mask real growth.
 	resetBounded func()
+	// drainDeleted finalises resources queued for async deletion so the
+	// snapshots never straddle a janitor pass.
+	drainDeleted func()
 	cfg          aws.Config
 }
 
@@ -101,7 +105,14 @@ func newLeakEnv(t *testing.T) *leakEnv {
 	ct, ok := byName["CloudTrail"].(*cloudtrailbackend.Handler)
 	require.True(t, ok)
 
-	return &leakEnv{cfg: cfg, resetBounded: ct.Reset}
+	ddb, ok := byName["DynamoDB"].(*ddbbackend.DynamoDBHandler)
+	require.True(t, ok)
+
+	return &leakEnv{
+		cfg:          cfg,
+		resetBounded: ct.Reset,
+		drainDeleted: func() { ddb.DrainDeletedTables(context.Background()) },
+	}
 }
 
 // leakOwnedSeries reports whether the series carries a label value naming a
@@ -122,6 +133,7 @@ func takeLeakSnapshot(t *testing.T, env *leakEnv) leakSnapshot {
 	t.Helper()
 
 	env.resetBounded()
+	env.drainDeleted()
 
 	for range 3 {
 		runtime.GC()
@@ -492,9 +504,8 @@ func TestLeakDynamoDB(t *testing.T) {
 	ctx := context.Background()
 
 	cases := []struct {
-		op     func(t *testing.T, c *sdkdynamodb.Client) func(i int)
-		name   string
-		settle bool
+		op   func(t *testing.T, c *sdkdynamodb.Client) func(i int)
+		name string
 	}{
 		{name: "item_crud", op: func(t *testing.T, c *sdkdynamodb.Client) func(int) {
 			t.Helper()
@@ -593,7 +604,7 @@ func TestLeakDynamoDB(t *testing.T) {
 				_, err = c.DeleteTable(ctx, &sdkdynamodb.DeleteTableInput{TableName: aws.String(name)})
 				require.NoError(t, err)
 			}
-		}, settle: true},
+		}},
 		{name: "transact_unique_token", op: func(t *testing.T, c *sdkdynamodb.Client) func(int) {
 			t.Helper()
 			leakDDBTable(t, c, "leak-tok", false)
@@ -673,8 +684,6 @@ func TestLeakDynamoDB(t *testing.T) {
 		//nolint:paralleltest // measures process-wide heap and goroutine counts
 		t.Run(tc.name, func(t *testing.T) {
 			env := newLeakEnv(t)
-			budget := budget
-			budget.settle = tc.settle
 			assertNoLeak(t, env, budget, tc.op(t, leakDDB(env)))
 		})
 	}

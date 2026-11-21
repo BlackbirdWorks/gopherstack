@@ -62,8 +62,7 @@ func TestViewsAndDDL(t *testing.T) {
 	require.Len(t, cm.Schema, 4)
 	assert.Equal(t, uint64(2), cm.NumRows)
 
-	_, err = env.client.Query("DROP TABLE ddl.copy").Run(ctx)
-	require.NoError(t, err)
+	env.exec(t, "DROP TABLE ddl.copy")
 
 	_, err = ds.Table("copy").Metadata(ctx)
 
@@ -72,8 +71,12 @@ func TestViewsAndDDL(t *testing.T) {
 	require.ErrorAs(t, err, &gerr)
 	assert.Equal(t, http.StatusNotFound, gerr.Code)
 
-	_, err = env.client.Query("CREATE TABLE ddl.base (a INT64)").Run(ctx)
+	dup, err := env.client.Query("CREATE TABLE ddl.base (a INT64)").Run(ctx)
 	require.NoError(t, err)
+
+	_, err = dup.Wait(ctx)
+	require.ErrorAs(t, err, &gerr)
+	assert.Equal(t, http.StatusConflict, gerr.Code)
 
 	it := ds.Table("v").Read(ctx)
 
@@ -205,8 +208,7 @@ func TestParquetRoundTrip(t *testing.T) {
 
 	ddl := "CREATE TABLE pq.src AS SELECT 1 AS id, 'a' AS s, 1.5 AS f, TRUE AS b, DATE '2024-01-02' AS d " +
 		"UNION ALL SELECT 2, NULL, 2.5, FALSE, DATE '2024-02-03'"
-	_, err := env.client.Query(ddl).Run(ctx)
-	require.NoError(t, err)
+	env.exec(t, ddl)
 
 	ext := bigquery.NewGCSReference("gs://bkt/p.parquet")
 	ext.DestinationFormat = bigquery.Parquet
@@ -238,8 +240,7 @@ func TestSnapshotRestore(t *testing.T) {
 	ctx := t.Context()
 	ds := env.dataset(t, "snap")
 
-	_, err := env.client.Query("CREATE TABLE snap.t AS SELECT 1 AS a, [1,2] AS arr, STRUCT('x' AS s) AS st").Run(ctx)
-	require.NoError(t, err)
+	env.exec(t, "CREATE TABLE snap.t AS SELECT 1 AS a, [1,2] AS arr, STRUCT('x' AS s) AS st")
 
 	data := env.backend.Snapshot(ctx)
 	require.NotEmpty(t, data)
@@ -249,7 +250,7 @@ func TestSnapshotRestore(t *testing.T) {
 
 	assert.Equal(t, env.rows(t, "SELECT * FROM snap.t"), other.rows(t, "SELECT * FROM snap.t"))
 
-	_, err = ds.Metadata(ctx)
+	_, err := ds.Metadata(ctx)
 	require.NoError(t, err)
 
 	other.backend.Reset()
@@ -489,8 +490,7 @@ func TestExtractDestinationURIRules(t *testing.T) {
 			ctx := t.Context()
 			ds := env.dataset(t, "ex")
 
-			_, err := env.client.Query("CREATE TABLE ex.src AS SELECT 1 AS id").Run(ctx)
-			require.NoError(t, err)
+			env.exec(t, "CREATE TABLE ex.src AS SELECT 1 AS id")
 
 			job, err := ds.Table("src").ExtractorTo(bigquery.NewGCSReference(tt.uri)).Run(ctx)
 			require.NoError(t, err)

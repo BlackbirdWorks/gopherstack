@@ -35,10 +35,27 @@ type gwState struct {
 	backend    *gwBackend
 	cors       *polNode
 	cancel     context.CancelFunc
+	vars       map[string]any
+	lastErr    *gwLastError
+	evalErr    error
+	cacheKey   *gwCacheKey
+	cur        *polNode
+	seenKeys   map[string]bool
+	client     *http.Client
+	t0         time.Time
 	rewrite    string
+	path       string
+	reqID      string
+	section    string
+	basicAuth  string
+	deferred   []func(written int64)
+	body       []byte
 	status     int
 	short      bool
 	noCopy     bool
+	errored    bool
+	cacheHit   bool
+	wrote      bool
 }
 
 func existsAction(m map[string][]string, key, action string, vals []string) {
@@ -105,17 +122,17 @@ func (g *gwState) parseDocs() ([]*polNode, error) {
 			return nil, err
 		}
 
+		if err = g.inlineFragments(n); err != nil {
+			return nil, err
+		}
+
 		docs = append(docs, n)
 	}
 
 	return docs, nil
 }
 
-func (g *gwState) sub(s string) string {
-	return apimNamedRefRE.ReplaceAllStringFunc(s, func(m string) string {
-		return g.plan.named[strings.ToLower(m[2:len(m)-2])]
-	})
-}
+func (g *gwState) sub(s string) string { return apimExprString(g.subVal(s)) }
 
 func (g *gwState) subAll(in []string) []string {
 	out := make([]string, len(in))
@@ -126,11 +143,7 @@ func (g *gwState) subAll(in []string) []string {
 	return out
 }
 
-func (g *gwState) fail(status int, msg string) {
-	body, _ := json.Marshal(map[string]any{apimCStatusCode: status, fieldMessage: msg}, jsonx.V1())
-	g.setResponse(status, http.Header{apimCContentType: {"application/json"}}, body)
-	g.short = true
-}
+func (g *gwState) fail(status int, msg string) { g.failR(status, "", msg) }
 
 func (g *gwState) setResponse(status int, h http.Header, body []byte) {
 	g.status, g.respHeader, g.respBody = status, h, io.NopCloser(bytes.NewReader(body))
@@ -165,39 +178,46 @@ func (g *gwState) run() {
 	g.extra = http.Header{}
 	g.header = g.r.Header.Clone()
 	g.query = g.r.URL.Query()
+	g.vars = map[string]any{}
+	g.seenKeys = map[string]bool{}
 
 	if su := strOf(g.plan.api, apimCServiceURL); su != "" {
 		g.target, _ = url.Parse(su)
 	}
 
-	for _, section := range []string{polInbound, polBackend} {
-		for _, n := range expandSection(docs, section) {
-			g.execRequest(n)
-
-			if g.short {
-				g.finish()
-
-				return
-			}
-		}
-	}
-
-	if g.respBody == nil {
-		g.setResponse(http.StatusOK, http.Header{}, nil)
-	}
-
-	for _, n := range expandSection(docs, polOutbound) {
-		g.execResponse(n)
-
-		if g.short {
-			break
-		}
-	}
-
+	g.pipeline(docs)
 	g.finish()
 }
 
+func (g *gwState) pipeline(docs []*polNode) {
+	for _, section := range []string{polInbound, polBackend, polOutbound} {
+		if section == polBackend && g.cacheHit {
+			continue
+		}
+
+		if section == polOutbound && g.respBody == nil {
+			g.setResponse(http.StatusOK, http.Header{}, nil)
+		}
+
+		g.execList(expandSection(docs, section), section, "")
+
+		if g.errored {
+			g.onError(docs)
+
+			return
+		}
+
+		if g.short {
+			return
+		}
+	}
+}
+
 func (g *gwState) finish() {
+	if g.wrote {
+		return
+	}
+
 	h := g.w.Header()
 
 	for _, src := range []http.Header{g.respHeader, g.extra} {
@@ -211,8 +231,14 @@ func (g *gwState) finish() {
 	g.applyCORS(h)
 	g.w.WriteHeader(g.status)
 
+	var written int64
+
 	if g.respBody != nil && g.r.Method != http.MethodHead {
-		_, _ = io.Copy(g.w, g.respBody)
+		written, _ = io.Copy(g.w, g.respBody)
+	}
+
+	for _, d := range g.deferred {
+		d(written)
 	}
 }
 
@@ -243,6 +269,27 @@ func (g *gwState) execRequest(n *polNode) {
 		}
 	case apimCForwardRequest:
 		g.forward(n)
+	default:
+		g.execRequestExt(n)
+	}
+}
+
+func (g *gwState) execRequestExt(n *polNode) {
+	switch n.Name {
+	case apimCRateLimitByKey:
+		g.rateLimitByKey(n)
+	case apimCQuota:
+		g.quota(n)
+	case apimCQuotaByKey:
+		g.quotaByKey(n)
+	case apimCValidateJWT:
+		g.validateJWT(n)
+	case apimCCacheLookup:
+		g.cacheLookup(n)
+	case apimCAuthBasic:
+		g.authBasic(n)
+	case apimCAuthCertificate:
+		g.authCert(n)
 	}
 }
 
@@ -267,6 +314,8 @@ func (g *gwState) execResponse(n *polNode) {
 		if g.cors == nil {
 			g.cors = n
 		}
+	case apimCCacheStore:
+		g.cacheStore(n)
 	}
 }
 
@@ -393,7 +442,7 @@ func (g *gwState) rateLimit(n *polNode) {
 
 	key := fmt.Sprintf("%s|%d:%d|%s", n.Scope, n.Line, n.Col, who)
 
-	ok, left, retry := g.p.limiter.take(key, calls, time.Duration(period)*time.Second, g.plan.now())
+	ok, left, retry := g.p.limiter.take(key, calls, 1, time.Duration(period)*time.Second, g.plan.now())
 
 	if h := n.Attrs["total-calls-header-name"]; h != "" {
 		g.extra.Set(h, strconv.Itoa(calls))
@@ -408,7 +457,7 @@ func (g *gwState) rateLimit(n *polNode) {
 	}
 
 	secs := strconv.Itoa(int(math.Ceil(retry.Seconds())))
-	g.fail(http.StatusTooManyRequests, apimMsgRateLimit)
+	g.failR(http.StatusTooManyRequests, "RateLimitExceeded", apimMsgRateLimit)
 	g.respHeader.Set(firstNonEmpty(n.Attrs["retry-after-header-name"], apimCRetryAfter), secs)
 }
 
@@ -439,8 +488,13 @@ func (g *gwState) buildURL() (*url.URL, error) {
 		return nil, errNoAPIMBackend
 	}
 
-	if g.target.Scheme != acaScaleHTTP && g.target.Scheme != acaSchemeHTTPS {
-		return nil, errAPIMWebSocket
+	scheme := apimHTTPScheme(g.target.Scheme)
+	if scheme != acaScaleHTTP && scheme != acaSchemeHTTPS {
+		return nil, errAPIMNotUpgrade
+	}
+
+	if scheme != g.target.Scheme && !apimIsWebSocket(g.r) {
+		return nil, errAPIMNotUpgrade
 	}
 
 	path, query := g.suffixPath(), g.query
@@ -460,6 +514,7 @@ func (g *gwState) buildURL() (*url.URL, error) {
 	}
 
 	u := *g.target
+	u.Scheme = scheme
 	u.Path = strings.TrimRight(g.target.Path, "/") + "/" + strings.TrimLeft(path, "/")
 	u.RawPath = ""
 
@@ -479,15 +534,18 @@ func fillTemplate(tpl string, params map[string]string) string {
 	})
 }
 
-var (
-	errNoAPIMBackend = errors.New("the API has no serviceUrl and no set-backend-service policy selected a backend")
-	errAPIMWebSocket = errors.New("WebSocket backends are not supported")
-)
+var errNoAPIMBackend = errors.New("the API has no serviceUrl and no set-backend-service policy selected a backend")
 
 func (g *gwState) forward(n *polNode) {
 	u, err := g.buildURL()
 	if err != nil {
 		g.fail(http.StatusInternalServerError, err.Error())
+
+		return
+	}
+
+	if apimIsWebSocket(g.r) {
+		g.proxyWebSocket(u)
 
 		return
 	}
@@ -501,7 +559,7 @@ func (g *gwState) forward(n *polNode) {
 		timeout = time.Duration(t) * time.Millisecond
 	}
 
-	body, err := io.ReadAll(g.r.Body)
+	body, err := g.bodyBytes()
 	if err != nil {
 		g.fail(http.StatusRequestEntityTooLarge, "The request body is too large.")
 
@@ -522,7 +580,11 @@ func (g *gwState) forward(n *polNode) {
 	req.Header.Set(apimHeaderXForward, hostOnly(g.r.RemoteAddr))
 	g.applyCredentials(req)
 
-	resp, err := g.p.client.Do(req) //nolint:bodyclose // closed in close()
+	if g.basicAuth != "" {
+		req.Header.Set(apimCAuthorizationX, g.basicAuth)
+	}
+
+	resp, err := g.httpClient().Do(req) //nolint:bodyclose // closed in close()
 	if err != nil {
 		g.upstreamError(err)
 
@@ -535,16 +597,23 @@ func (g *gwState) forward(n *polNode) {
 }
 
 func (g *gwState) upstreamError(err error) {
+	if errors.Is(err, context.DeadlineExceeded) {
+		g.failR(http.StatusBadGateway, "Timeout", "The backend did not respond within the configured timeout.")
+
+		return
+	}
+
 	if errors.Is(err, ErrAPIMDestinationNotPermitted) {
-		g.fail(
+		g.failR(
 			http.StatusBadGateway,
+			"BackendConnectionFailure",
 			"The backend host is outside loopback and external backends are not allowed (--azure-arm-apim-allow-external).",
 		)
 
 		return
 	}
 
-	g.fail(http.StatusBadGateway, "The backend request failed.")
+	g.failR(http.StatusBadGateway, "BackendConnectionFailure", "The backend request failed.")
 }
 
 func (g *gwState) applyCredentials(req *http.Request) {
@@ -574,7 +643,7 @@ func copyForwardHeaders(dst, src http.Header) {
 	for k, v := range src {
 		switch k {
 		case "Connection", "Keep-Alive", "Proxy-Authenticate", "Proxy-Authorization", "Proxy-Connection", "Te",
-			"Trailer", "Transfer-Encoding", "Upgrade", "Host", "Content-Length":
+			"Trailer", "Transfer-Encoding", "Upgrade", apxHost, "Content-Length":
 			continue
 		}
 

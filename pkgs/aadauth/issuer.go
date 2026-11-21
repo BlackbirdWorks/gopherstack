@@ -23,6 +23,8 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -52,26 +54,32 @@ const DefaultTokenExpirySeconds = 3599
 // which is acceptable because validation itself is opt-in and off by default
 // (AZURE.md section 10.5).
 type Issuer struct {
-	privateKey *rsa.PrivateKey
-	keyID      string
+	key       func() (*rsa.PrivateKey, error)
+	keyID     string
+	generated atomic.Bool
 }
 
-// NewIssuer generates a fresh RSA-2048 keypair and a random key ID.
+// NewIssuer returns an issuer with a random key ID; its RSA-2048 keypair is
+// generated on first use, so unused issuers cost no key generation.
 func NewIssuer() (*Issuer, error) {
-	privateKey, err := rsa.GenerateKey(rand.Reader, rsaKeyBits)
-	if err != nil {
-		return nil, fmt.Errorf("aadauth: generating RSA key: %w", err)
-	}
-
 	kidBytes := make([]byte, keyIDLen)
-	if _, err = rand.Read(kidBytes); err != nil {
+	if _, err := rand.Read(kidBytes); err != nil {
 		return nil, fmt.Errorf("aadauth: generating key ID: %w", err)
 	}
 
-	return &Issuer{
-		privateKey: privateKey,
-		keyID:      base64.RawURLEncoding.EncodeToString(kidBytes),
-	}, nil
+	iss := &Issuer{keyID: base64.RawURLEncoding.EncodeToString(kidBytes)}
+	iss.key = sync.OnceValues(func() (*rsa.PrivateKey, error) {
+		iss.generated.Store(true)
+
+		k, err := rsa.GenerateKey(rand.Reader, rsaKeyBits)
+		if err != nil {
+			return nil, fmt.Errorf("aadauth: generating RSA key: %w", err)
+		}
+
+		return k, nil
+	})
+
+	return iss, nil
 }
 
 // ClientCredentialsClaims are the AAD v2.0-shaped claims this package
@@ -125,10 +133,15 @@ func (iss *Issuer) IssueClientCredentialsToken(claims ClientCredentialsClaims, e
 		jwtClaims["scp"] = claims.Scope
 	}
 
+	priv, err := iss.key()
+	if err != nil {
+		return "", err
+	}
+
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwtClaims)
 	token.Header["kid"] = iss.keyID
 
-	signed, err := token.SignedString(iss.privateKey)
+	signed, err := token.SignedString(priv)
 	if err != nil {
 		return "", fmt.Errorf("aadauth: signing token: %w", err)
 	}
@@ -146,5 +159,10 @@ func (iss *Issuer) PublicKeyForKID(kid string) (*rsa.PublicKey, bool) {
 		return nil, false
 	}
 
-	return &iss.privateKey.PublicKey, true
+	priv, err := iss.key()
+	if err != nil {
+		return nil, false
+	}
+
+	return &priv.PublicKey, true
 }

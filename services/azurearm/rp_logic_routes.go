@@ -151,6 +151,10 @@ func (h *Handler) handleLogic(c *echo.Context, segs []string) error {
 	path, _ := parseLogicPath(segs)
 	q.ref, q.rest = path.ref, path.rest
 
+	if r.Method != http.MethodGet {
+		lp.noteBase(logicKey(q.ref.sub, q.ref.rg, q.ref.wf), q.base, h.Port)
+	}
+
 	if path.list != logicListNone {
 		if r.Method != http.MethodGet {
 			return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowed", "Method not allowed.")
@@ -182,26 +186,44 @@ func logicHandlers() map[string]logicHandlerFunc {
 		"POST:regenerateaccesskey": (*Handler).logicRegenerate,
 		"POST:listcallbackurl":     func(h *Handler, q logicReq) error { return h.logicCallback(q, "") },
 		"POST:validate":            (*Handler).logicValidate,
+		"POST:listswagger":         (*Handler).logicListSwagger,
 		"GET:versions":             (*Handler).logicListVersions,
 		"GET:versions/*":           (*Handler).logicGetVersion,
 		"POST:versions/*/triggers/*/listcallbackurl": func(h *Handler, q logicReq) error {
 			return h.logicCallback(q, q.rest[3])
 		},
-		"GET:triggers":                         (*Handler).logicListTriggers,
-		"GET:triggers/*":                       (*Handler).logicGetTrigger,
-		"POST:triggers/*/listcallbackurl":      func(h *Handler, q logicReq) error { return h.logicCallback(q, q.rest[1]) },
-		"POST:triggers/*/run":                  (*Handler).logicRunTrigger,
-		"POST:triggers/*/reset":                (*Handler).logicResetTrigger,
-		"POST:triggers/*/setstate":             (*Handler).logicSetTriggerState,
-		"GET:triggers/*/schemas/*":             (*Handler).logicTriggerSchema,
-		"GET:triggers/*/histories":             (*Handler).logicListHistories,
-		"GET:triggers/*/histories/*":           (*Handler).logicGetHistory,
-		"POST:triggers/*/histories/*/resubmit": (*Handler).logicResubmit,
-		"GET:runs":                             (*Handler).logicListRuns,
-		"GET:runs/*":                           (*Handler).logicGetRun,
-		"POST:runs/*/cancel":                   (*Handler).logicCancelRun,
-		"GET:runs/*/actions":                   (*Handler).logicListActions,
-		"GET:runs/*/actions/*":                 (*Handler).logicGetAction,
+		"GET:triggers":   (*Handler).logicListTriggers,
+		"GET:triggers/*": (*Handler).logicGetTrigger,
+		"POST:triggers/*/listcallbackurl": func(h *Handler, q logicReq) error {
+			return h.logicCallback(q, q.rest[1])
+		},
+		"POST:triggers/*/run":                     (*Handler).logicRunTrigger,
+		"POST:triggers/*/reset":                   (*Handler).logicResetTrigger,
+		"POST:triggers/*/setstate":                (*Handler).logicSetTriggerState,
+		"GET:triggers/*/schemas/*":                (*Handler).logicTriggerSchema,
+		"GET:triggers/*/histories":                (*Handler).logicListHistories,
+		"GET:triggers/*/histories/*":              (*Handler).logicGetHistory,
+		"POST:triggers/*/histories/*/resubmit":    (*Handler).logicResubmit,
+		"GET:runs":                                (*Handler).logicListRuns,
+		"GET:runs/*":                              (*Handler).logicGetRun,
+		"POST:runs/*/cancel":                      (*Handler).logicCancelRun,
+		"GET:runs/*/actions":                      (*Handler).logicListActions,
+		"GET:runs/*/actions/*":                    (*Handler).logicGetAction,
+		"GET:runs/*/operations/*":                 (*Handler).logicGetOperation,
+		"GET:runs/*/actions/*/requesthistories":   func(h *Handler, q logicReq) error { return h.logicListRequests(q, "") },
+		"GET:runs/*/actions/*/requesthistories/*": func(h *Handler, q logicReq) error { return h.logicGetRequest(q, "") },
+		"POST:runs/*/actions/*/listexpressiontraces": func(h *Handler, q logicReq) error {
+			return h.logicExpressionTraces(q, "")
+		},
+		"GET:runs/*/actions/*/repetitions/*/requesthistories": func(h *Handler, q logicReq) error {
+			return h.logicListRequests(q, q.rest[5])
+		},
+		"GET:runs/*/actions/*/repetitions/*/requesthistories/*": func(h *Handler, q logicReq) error {
+			return h.logicGetRequest(q, q.rest[5])
+		},
+		"POST:runs/*/actions/*/repetitions/*/listexpressiontraces": func(h *Handler, q logicReq) error {
+			return h.logicExpressionTraces(q, q.rest[5])
+		},
 		"GET:runs/*/actions/*/repetitions": func(h *Handler, q logicReq) error {
 			return h.logicListRepetitions(q, false)
 		},
@@ -407,6 +429,14 @@ func (h *Handler) logicListWorkflows(q logicReq, kind logicListKind) error {
 }
 
 func (h *Handler) logicList(q logicReq, items func(w *logicWorkflow, lq logicQuery) ([]map[string]any, error)) error {
+	return h.logicListPaged(q, items, true)
+}
+
+// logicListPaged answers a list; the repetitions lists are unpaged in the armlogic SDK (no nextLink), so they
+// return every item.
+func (h *Handler) logicListPaged(
+	q logicReq, items func(w *logicWorkflow, lq logicQuery) ([]map[string]any, error), paged bool,
+) error {
 	lq, err := h.logicQuery(q)
 	if err != nil {
 		return h.writeAPIError(q.c, err)
@@ -416,6 +446,10 @@ func (h *Handler) logicList(q logicReq, items func(w *logicWorkflow, lq logicQue
 		all, ierr := items(w, lq)
 		if ierr != nil {
 			return nil, ierr
+		}
+
+		if !paged {
+			return pageOf{Data: all}, nil
 		}
 
 		return pageLogic(all, lq), nil

@@ -3,6 +3,7 @@ package gcpspanner_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"github.com/stretchr/testify/assert"
@@ -75,7 +76,10 @@ func TestTableData_OverLimitDatabaseDoesNotStarveOthers(t *testing.T) {
 	}
 
 	fake, addr := newFakeEmulator(t)
-	e := newEnvWith(t, func(b *gcpspanner.InMemoryBackend) { b.UseEmulatorAt(addr, nil) })
+	e := newEnvWith(t, func(b *gcpspanner.InMemoryBackend) {
+		b.UseEmulatorAt(addr, nil)
+		b.SetDumpTimeout(time.Hour)
+	})
 	e.createInstance(t, "data")
 	e.createDB(t, "data")
 
@@ -108,4 +112,19 @@ func TestTableData_OversizedReadIsSchemaOnly(t *testing.T) {
 	src := startDataEnv(t, []fakeTable{{name: "Big", columns: []string{"v"}, rows: [][]*structpb.Value{{sv(big)}}}})
 	snap := src.handler.Snapshot(t.Context())
 	assert.Less(t, len(snap), 4096)
+}
+
+func TestTableData_ExhaustedDumpBudgetIsSchemaOnly(t *testing.T) {
+	t.Parallel()
+
+	fake, addr := newFakeEmulator(t)
+	e := newEnvWith(t, func(b *gcpspanner.InMemoryBackend) {
+		b.UseEmulatorAt(addr, nil)
+		b.SetDumpTimeout(time.Nanosecond)
+	})
+	e.createInstance(t, "data")
+	e.createDB(t, "data")
+	fake.seed(dataDB, fakeTable{name: "T1", columns: []string{"id"}, rows: [][]*structpb.Value{{sv("1")}}})
+
+	assert.NotContains(t, string(e.handler.Snapshot(t.Context())), `"name":"T1"`)
 }

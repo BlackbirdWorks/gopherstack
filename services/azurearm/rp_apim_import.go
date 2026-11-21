@@ -85,7 +85,7 @@ func parseAPISpec(format, value string) (*apimAPISpec, error) {
 	for _, path := range keys {
 		item := mapOf(paths[path])
 
-		for _, method := range []string{"get", "put", "post", apimCDelete, "options", "head", "patch", "trace"} {
+		for _, method := range []string{apimMethodGet, "put", "post", apimCDelete, "options", "head", "patch", "trace"} {
 			op := mapOf(item[method])
 			if op == nil {
 				continue
@@ -162,7 +162,7 @@ func buildImportedOp(method, path string, op map[string]any, used map[string]boo
 	params := make([]any, 0, len(names))
 
 	for _, name := range names {
-		params = append(params, map[string]any{fieldName: name, "required": true, fieldType: "string"})
+		params = append(params, map[string]any{fieldName: name, apimCRequired: true, fieldType: apxString})
 	}
 
 	props[apimCTemplateParameters] = params

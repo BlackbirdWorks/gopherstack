@@ -551,8 +551,8 @@ func TestAPIMPolicy_ReferenceRules(t *testing.T) {
 		{
 			name: "statement in on-error", scope: "/apis/echo",
 			doc: "<policies><inbound><base /></inbound><backend><base /></backend><outbound><base /></outbound>" +
-				`<on-error><set-header name="x"><value>y</value></set-header></on-error></policies>`,
-			wantErr: "on-error",
+				`<on-error><rate-limit calls="1" renewal-period="1" /></on-error></policies>`,
+			wantErr: "not allowed in the on-error",
 		},
 		{
 			name: "cors without origins", scope: "/apis/echo",

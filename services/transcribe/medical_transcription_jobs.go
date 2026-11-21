@@ -188,6 +188,8 @@ func (b *InMemoryBackend) DeleteMedicalTranscriptionJob(jobName string) error {
 	b.mu.Lock("DeleteMedicalTranscriptionJob")
 	defer b.mu.Unlock()
 
+	b.cancelRunLocked(kindMedical, jobName)
+
 	if !b.medicalTranscriptionJobs.Delete(jobName) {
 		return fmt.Errorf("%w: medical transcription job %s not found", ErrNotFound, jobName)
 	}

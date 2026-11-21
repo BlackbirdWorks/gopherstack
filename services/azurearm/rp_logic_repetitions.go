@@ -119,7 +119,7 @@ func (w *logicWorkflow) repetitionsOf(r *logicRunRec, action string, scope bool)
 }
 
 func (h *Handler) logicListRepetitions(q logicReq, scope bool) error {
-	return h.logicList(q, func(w *logicWorkflow, lq logicQuery) ([]map[string]any, error) {
+	return h.logicListPaged(q, func(w *logicWorkflow, lq logicQuery) ([]map[string]any, error) {
 		r, ok := findRun(w, q.rest[1])
 		if !ok {
 			return nil, ErrLogicRunNotFound
@@ -140,7 +140,7 @@ func (h *Handler) logicListRepetitions(q logicReq, scope bool) error {
 		}
 
 		return out, nil
-	})
+	}, false)
 }
 
 func (h *Handler) logicGetRepetition(q logicReq, scope bool) error {

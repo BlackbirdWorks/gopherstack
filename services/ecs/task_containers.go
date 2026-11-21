@@ -174,6 +174,48 @@ const (
 	ipPrivateClass = 10
 )
 
+// freeIPOctets picks random last octets whose 10.0.x.y address is not in inUse. It falls back to a
+// linear scan so a nearly full /16 still terminates.
+func freeIPOctets(inUse map[string]bool) (int, int) {
+	const randomTries = 32
+
+	for range randomTries {
+		b := uuid.New()
+		if !inUse[fmt.Sprintf("%d.0.%d.%d", ipPrivateClass, b[0], b[1])] {
+			return int(b[0]), int(b[1])
+		}
+	}
+
+	for x := range ipOctetMod {
+		for y := range ipOctetMod {
+			if !inUse[fmt.Sprintf("%d.0.%d.%d", ipPrivateClass, x, y)] {
+				return x, y
+			}
+		}
+	}
+
+	b := uuid.New()
+
+	return int(b[0]), int(b[1])
+}
+
+// liveTaskIPsLocked returns the private IPv4s held by the cluster's non-STOPPED tasks. Caller holds b.mu.
+func (b *InMemoryBackend) liveTaskIPsLocked(clusterArn string) map[string]bool {
+	out := make(map[string]bool)
+
+	for _, t := range b.tasks.All() {
+		if t.ClusterArn != clusterArn || t.LastStatus == statusStopped {
+			continue
+		}
+
+		if ip, ok := privateIPFromAttachments(t.Attachments); ok {
+			out[ip] = true
+		}
+	}
+
+	return out
+}
+
 // safeLastN returns the last n bytes of s, padding by repetition if shorter.
 func safeLastN(s string, n int) string {
 	if len(s) >= n {
@@ -189,9 +231,8 @@ func safeLastN(s string, n int) string {
 }
 
 // newFargateTaskAttachment builds a simulated Fargate ENI attachment for a task ARN.
-// Each task gets a unique ENI ID, MAC address, and private IP derived from a random UUID
-// so that callers can distinguish attachments across tasks.
-func newFargateTaskAttachment(taskArn, requestedSubnet string) TaskAttachment {
+// Each task gets a unique ENI ID and MAC address; its private IP is random and absent from inUse.
+func newFargateTaskAttachment(taskArn, requestedSubnet string, inUse map[string]bool) TaskAttachment {
 	id := uuid.NewString()
 
 	// Derive a stable but unique 12-hex-char "MAC" from the first 12 chars of the UUID
@@ -202,10 +243,6 @@ func newFargateTaskAttachment(taskArn, requestedSubnet string) TaskAttachment {
 		macRaw[6:8], macRaw[8:10], macRaw[10:12],
 	)
 
-	// Derive a unique /16 private IP: 10.x.y.z where x.y come from the last two
-	// bytes of the attachment UUID (gives 65536 distinct IPs before collision).
-	ipSuffix := id[len(id)-9:] // last 9 chars of UUID: "xxxxxxxx-" → no, use raw hex
-	_ = ipSuffix
 	eniShort := id[:8] // 8-char prefix as eni ID suffix
 	eniID := "eni-" + eniShort
 
@@ -216,11 +253,10 @@ func newFargateTaskAttachment(taskArn, requestedSubnet string) TaskAttachment {
 		subnetID = requestedSubnet
 	}
 
-	// Build a unique private IP from the attachment UUID bytes.
-	octet3 := int(id[0]) % ipOctetMod
-	octet4 := int(id[1]) % ipOctetMod
+	octet3, octet4 := freeIPOctets(inUse)
 	privateIP := fmt.Sprintf("%d.0.%d.%d", ipPrivateClass, octet3, octet4)
 	privateDNS := fmt.Sprintf("ip-%d-0-%d-%d.ec2.internal", ipPrivateClass, octet3, octet4)
+	inUse[privateIP] = true
 
 	return TaskAttachment{
 		ID:     safeLastN(taskArn, eniIDLen),

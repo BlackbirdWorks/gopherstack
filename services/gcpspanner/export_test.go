@@ -48,6 +48,14 @@ func (b *InMemoryBackend) SetClock(now func() time.Time) {
 	b.now = now
 }
 
+// SetDumpTimeout replaces the wall-clock budget of one table-data dump.
+func (b *InMemoryBackend) SetDumpTimeout(d time.Duration) {
+	b.mu.Lock("SetDumpTimeout")
+	defer b.mu.Unlock()
+
+	b.dumpTimeout = d
+}
+
 // EmulatorRunning reports whether a data plane connection is open.
 func (b *InMemoryBackend) EmulatorRunning() bool { return b.emu.current() != nil }
 

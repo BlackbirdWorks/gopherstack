@@ -369,7 +369,7 @@ func logicXML(a []any) (any, error) {
 func logicTypeName(v any) string {
 	switch v.(type) {
 	case nil:
-		return "null"
+		return logicKNull
 	case []any:
 		return "an array"
 	case bool:

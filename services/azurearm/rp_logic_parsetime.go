@@ -1,6 +1,7 @@
 package azurearm
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -38,7 +39,7 @@ func tokenizeNetFormat(f string) []fmtTok {
 		case 'y', 'M', 'd', 'H', 'h', 'm', 's', 'f', 'F', 't', 'K', 'z':
 			toks = append(toks, fmtTok{kind: c, n: n})
 		default:
-			toks = append(toks, fmtTok{kind: 'L', lit: strings.Repeat(string(c), n)})
+			toks = append(toks, fmtTok{kind: 'L', lit: strings.Repeat(string([]byte{c}), n)})
 		}
 
 		i += n
@@ -53,8 +54,8 @@ type parsedTime struct {
 }
 
 type timeScanner struct {
-	loc logicLocale
 	s   string
+	loc logicLocale
 	pos int
 }
 
@@ -73,19 +74,35 @@ func (sc *timeScanner) digits(minN, maxN int) (int, bool) {
 	return v, err == nil
 }
 
-// name matches one of names (full, or the first three letters when abbrev) ignoring case; it returns its index.
-func (sc *timeScanner) name(names []string, abbrev bool) (int, bool) {
-	rest := strings.ToLower(sc.s[sc.pos:])
+// foldPrefix returns the byte length of the prefix of s that equals prefix ignoring case, or -1. It measures
+// the original text: lower-casing can change a rune's byte length.
+func foldPrefix(s, prefix string) int {
+	end, n := 0, utf8.RuneCountInString(prefix)
+
+	for range n {
+		if end >= len(s) {
+			return -1
+		}
+
+		_, w := utf8.DecodeRuneInString(s[end:])
+		end += w
+	}
+
+	if strings.EqualFold(s[:end], prefix) {
+		return end
+	}
+
+	return -1
+}
+
+// name matches the longest of names at the cursor ignoring case; it returns its index.
+func (sc *timeScanner) name(names []string) (int, bool) {
+	rest := sc.s[sc.pos:]
 	best, bestLen := -1, 0
 
 	for i, nm := range names {
-		cand := strings.ToLower(nm)
-		if abbrev {
-			cand = string([]rune(cand)[:widthThree])
-		}
-
-		if strings.HasPrefix(rest, cand) && len(cand) > bestLen {
-			best, bestLen = i, len(cand)
+		if n := foldPrefix(rest, nm); n > bestLen {
+			best, bestLen = i, n
 		}
 	}
 
@@ -155,7 +172,7 @@ func (sc *timeScanner) year(n int, pt *parsedTime) bool {
 
 func (sc *timeScanner) month(n int, pt *parsedTime) bool {
 	if n >= widthThree {
-		i, ok := sc.name(sc.loc.months[:], n == widthThree)
+		i, ok := sc.name(sc.loc.monthNames(n == widthThree))
 		pt.month = i + 1
 
 		return ok
@@ -169,7 +186,7 @@ func (sc *timeScanner) month(n int, pt *parsedTime) bool {
 
 func (sc *timeScanner) day(n int, pt *parsedTime) bool {
 	if n >= widthThree {
-		_, ok := sc.name(sc.loc.days[:], n == widthThree)
+		_, ok := sc.name(sc.loc.dayNames(n == widthThree))
 
 		return ok
 	}
@@ -221,13 +238,22 @@ func (sc *timeScanner) fraction(t fmtTok, pt *parsedTime) bool {
 }
 
 func (sc *timeScanner) meridiem(pt *parsedTime) bool {
-	rest := strings.ToUpper(sc.s[sc.pos:])
+	rest := sc.s[sc.pos:]
+	amLen, pmLen := -1, -1
+
+	if sc.loc.am != "" {
+		amLen = foldPrefix(rest, sc.loc.am)
+	}
+
+	if sc.loc.pm != "" {
+		pmLen = foldPrefix(rest, sc.loc.pm)
+	}
 
 	switch {
-	case strings.HasPrefix(rest, "AM"):
-		sc.pos += widthTwo
-	case strings.HasPrefix(rest, "PM"):
-		sc.pos += widthTwo
+	case amLen >= 0 && amLen >= pmLen:
+		sc.pos += amLen
+	case pmLen >= 0:
+		sc.pos += pmLen
 		pt.pm = true
 	default:
 		return false
@@ -336,7 +362,7 @@ func parseLocaleDefault(s string, loc logicLocale, key string) (logicTS, bool) {
 		}
 	}
 
-	for _, base := range logicLocaleFormats[key] {
+	for _, base := range append(slices.Clone(logicLocaleFormats[key]), loc.parse...) {
 		for _, suf := range logicTimeSuffixes {
 			if ts, ok := parseNetFormat(s, base+suf, loc); ok {
 				return ts, true
@@ -389,7 +415,7 @@ func parseWithFormat(s, format string, loc logicLocale) (logicTS, bool) {
 		return ts, err == nil
 	}
 
-	if f, std := logicStandardFormats[format]; std {
+	if f, std := loc.standardFormat(format); std {
 		format = f
 	} else if len(format) == 1 {
 		return logicTS{}, false

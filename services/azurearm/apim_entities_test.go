@@ -575,7 +575,7 @@ func TestAPIMSubscription_SecretsAndKeys(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, 3, n)
+	assert.Equal(t, 4, n)
 }
 
 func TestAPIMNamedValue_SecretWriteOnly(t *testing.T) {

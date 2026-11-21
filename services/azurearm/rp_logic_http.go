@@ -3,6 +3,7 @@ package azurearm
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json/v2"
 	"errors"
@@ -87,7 +88,7 @@ func parseRetryPolicy(in map[string]any) (logicRetryPolicy, error) {
 }
 
 func (rs *logicRunState) runHTTP(env *logicEnv, name string, def map[string]any) logicOutcome {
-	in, err := rs.evalInputs(env, def)
+	in, err := rs.evalInputs(env, name, def)
 	if err != nil {
 		return exprFailure(name, err)
 	}
@@ -113,12 +114,18 @@ func (rs *logicRunState) runHTTP(env *logicEnv, name string, def map[string]any)
 	req, err := rs.buildHTTPRequest(in, def)
 	if err != nil {
 		code := logicCodeInvalidTmpl
-		if errors.Is(err, errLogicTokenRequest) {
+
+		switch {
+		case errors.Is(err, errLogicTokenRequest):
 			code = logicCodeActionFailed
+		case errors.Is(err, errLogicClientCert):
+			code = logicCodeBadRequest
 		}
 
 		return failOutcome(code, err.Error())
 	}
+
+	req.rec = rs.currentRec(env, name)
 
 	resp, history, err := rs.doHTTP(req, policy, timeout)
 	out := logicOutcome{inputs: httpInputs(in), hasIn: true}
@@ -186,7 +193,7 @@ func setRequestHeaders(h http.Header, in map[string]any, method string) {
 func (rs *logicRunState) buildHTTPRequest(in, def map[string]any) (*logicHTTPRequest, error) {
 	method := strings.ToUpper(stringOf(in["method"]))
 	switch method {
-	case "GET", "PUT", "POST", "PATCH", "DELETE", "HEAD":
+	case http.MethodGet, http.MethodPut, http.MethodPost, http.MethodPatch, http.MethodDelete, http.MethodHead:
 	default:
 		return nil, inputErr("the HTTP method '%s' is not valid", stringOf(in["method"]))
 	}
@@ -224,7 +231,10 @@ func (rs *logicRunState) buildHTTPRequest(in, def map[string]any) (*logicHTTPReq
 
 	if !strings.EqualFold(stringOf(def["operationOptions"]), "SuppressWorkflowHeaders") {
 		req.header.Set("X-Ms-Workflow-Name", rs.wfName)
-		req.header.Set("X-Ms-Workflow-Run-Id", rs.run.Name)
+
+		if rs.run.Name != "" {
+			req.header.Set("X-Ms-Workflow-Run-Id", rs.run.Name)
+		}
 	}
 
 	return req, nil
@@ -239,6 +249,13 @@ func (rs *logicRunState) applyHTTPAuth(req *logicHTTPRequest, auth map[string]an
 		}
 
 		req.header.Set("Authorization", tok)
+	case "clientcertificate":
+		pfx, err := loadLogicPFX(auth)
+		if err != nil {
+			return err
+		}
+
+		req.cert = &pfx.tls
 	case "basic":
 		cred := stringOf(auth["username"]) + ":" + stringOf(auth["password"])
 		req.header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(cred)))
@@ -253,6 +270,8 @@ func (rs *logicRunState) applyHTTPAuth(req *logicHTTPRequest, auth map[string]an
 }
 
 type logicHTTPRequest struct {
+	cert   *tls.Certificate
+	rec    *logicActionRec
 	body   any
 	header http.Header
 	method string
@@ -267,7 +286,7 @@ type logicHTTPResponse struct {
 }
 
 func (r *logicHTTPResponse) outputs() map[string]any {
-	out := map[string]any{"statusCode": int64(r.status), logicKHeaders: r.headers}
+	out := map[string]any{logicKStatusCode: int64(r.status), logicKHeaders: r.headers}
 	if r.body != nil {
 		out[logicKBody] = r.body
 	}
@@ -289,7 +308,7 @@ func (rs *logicRunState) doHTTP(req *logicHTTPRequest, pol logicRetryPolicy, tim
 
 	for attempt := 0; ; attempt++ {
 		started := rs.clock()
-		resp, err := rs.p.sendHTTP(ctx, req)
+		resp, err := rs.send(ctx, req)
 		retryable := err != nil && ctx.Err() == nil || resp != nil && retryableStatus(resp.status)
 
 		if !retryable || attempt >= pol.count {
@@ -372,7 +391,14 @@ func (p *LogicProvider) sendHTTP(ctx context.Context, r *logicHTTPRequest) (*log
 
 	req.Header = r.header.Clone()
 
-	resp, err := p.http.Do(req)
+	client := p.http.Load()
+
+	if r.cert != nil {
+		client = p.certClient(r.cert)
+		defer client.CloseIdleConnections()
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -424,7 +450,7 @@ func dropOmittedHeaders(h http.Header, method string) {
 
 func omittedHeader(lk, method string) bool {
 	switch lk {
-	case acaRuleAllow, "cookie", "expires", "host", "last-modified", "origin", "set-cookie", "transfer-encoding":
+	case acaRuleAllow, "cookie", "expires", logicKHost, "last-modified", "origin", "set-cookie", "transfer-encoding":
 		return true
 	case "content-disposition", "content-encoding", "content-type":
 		return method == http.MethodGet
@@ -453,9 +479,12 @@ func (rs *logicRunState) pollAsync(ctx context.Context, req *logicHTTPRequest, r
 			return nil, context.Cause(ctx)
 		}
 
-		poll := &logicHTTPRequest{method: http.MethodGet, url: loc, header: pollHeaders(req, loc)}
+		poll := &logicHTTPRequest{method: http.MethodGet, url: loc, header: pollHeaders(req, loc), rec: req.rec}
+		if sameOrigin(req.url, loc) {
+			poll.cert = req.cert
+		}
 
-		next, err := rs.p.sendHTTP(ctx, poll)
+		next, err := rs.send(ctx, poll)
 		if err != nil {
 			return nil, err
 		}

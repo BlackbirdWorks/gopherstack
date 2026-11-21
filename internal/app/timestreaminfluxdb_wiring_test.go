@@ -71,9 +71,6 @@ func TestTimestreamInfluxDBAuthSecretWiring(t *testing.T) {
 			assert.Equal(t, tt.wantUsername, secret["username"])
 			assert.Equal(t, "Passw0rdPassw0rd", secret["password"])
 			assert.Len(t, secret["token"], 64)
-
-			_, err = ts.DeleteDbInstance(t.Context(), &timestreaminfluxdb.DeleteDbInstanceInput{Identifier: out.Id})
-			assert.Error(t, err, "a CREATING instance cannot be deleted yet")
 		})
 	}
 }

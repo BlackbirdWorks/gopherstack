@@ -93,7 +93,40 @@ func (h *Handler) logicTriggerWrite(q logicReq, f func(w *logicWorkflow, name st
 }
 
 func (h *Handler) logicRunTrigger(q logicReq) error {
-	return h.logicTriggerWrite(q, q.lp.runTriggerLocked)
+	var wfKey, poll string
+
+	_, err := q.lp.write(q.ref, func(w *logicWorkflow) (any, error) {
+		name, ok := matchTriggerName(w, q.rest[1])
+		if !ok {
+			return nil, ErrLogicTriggerNotFound
+		}
+
+		if w.triggerType(name) != logicTrigHTTP {
+			return nil, q.lp.runTriggerLocked(w, name)
+		}
+
+		if w.State != logicStateEnabled || w.Triggers[name].State != logicStateEnabled {
+			return nil, logicBadRequest(
+				"WorkflowDisabled",
+				"The workflow '%s' or trigger '%s' is disabled.",
+				w.Name,
+				name,
+			)
+		}
+
+		wfKey, poll = w.key(), name
+
+		return nil, nil //nolint:nilnil // void result
+	})
+	if err != nil {
+		return h.writeAPIError(q.c, err)
+	}
+
+	if poll != "" {
+		q.lp.firePoll(wfKey, poll, q.lp.currentClock().Now().UTC(), true)
+	}
+
+	return q.c.NoContent(http.StatusOK)
 }
 
 func (h *Handler) logicResetTrigger(q logicReq) error {
@@ -199,10 +232,25 @@ func (h *Handler) logicGetRun(q logicReq) error {
 }
 
 func (h *Handler) logicCancelRun(q logicReq) error {
-	live, err := q.lp.write(q.ref, func(w *logicWorkflow) (any, error) { return q.lp.cancelRunLocked(w, q.rest[1]) })
+	var location string
+
+	live, err := q.lp.write(q.ref, func(w *logicWorkflow) (any, error) {
+		l, cerr := q.lp.cancelRunLocked(w, q.rest[1])
+		if cerr != nil {
+			return nil, cerr
+		}
+
+		if r, ok := findRun(w, q.rest[1]); ok {
+			location = w.operationLocation(q.base, r.Name, q.lp.recordOperationLocked(w, r.Name, "Cancel"))
+		}
+
+		return l, nil
+	})
 	if err != nil {
 		return h.writeAPIError(q.c, err)
 	}
+
+	q.c.Response().Header().Set("Location", location)
 
 	if l, ok := live.(*logicLive); ok && l != nil {
 		logicCancelRun(l)
@@ -259,6 +307,8 @@ func (h *Handler) logicGetAction(q logicReq) error {
 // logicResubmit starts a new run from a trigger history entry's recorded inputs and outputs
 // (armlogic v1.2.0 WorkflowTriggerHistoriesClient.Resubmit answers 202).
 func (h *Handler) logicResubmit(q logicReq) error {
+	var location string
+
 	_, err := q.lp.write(q.ref, func(w *logicWorkflow) (any, error) {
 		name, ok := matchTriggerName(w, q.rest[1])
 		if !ok {
@@ -274,12 +324,21 @@ func (h *Handler) logicResubmit(q logicReq) error {
 				return nil, logicBadRequest("InvalidRequest", "The trigger history '%s' did not fire a run.", hist.Name)
 			}
 
-			_, err := q.lp.startRunLocked(w, logicFire{
+			started, err := q.lp.startRunLocked(w, logicFire{
 				trigger: name, scheduled: q.lp.clock.Now().UTC(), outputs: hist.Outputs.Value,
 				inputs: hist.Inputs.Value, hasInputs: hist.Inputs.Set,
 			})
+			if err != nil {
+				return nil, err
+			}
 
-			return nil, err
+			location = w.operationLocation(
+				q.base,
+				started.runName,
+				q.lp.recordOperationLocked(w, started.runName, "Resubmit"),
+			)
+
+			return nil, nil //nolint:nilnil // void result
 		}
 
 		return nil, ErrLogicHistoryNotFound
@@ -287,6 +346,8 @@ func (h *Handler) logicResubmit(q logicReq) error {
 	if err != nil {
 		return h.writeAPIError(q.c, err)
 	}
+
+	q.c.Response().Header().Set("Location", location)
 
 	return q.c.NoContent(http.StatusAccepted)
 }

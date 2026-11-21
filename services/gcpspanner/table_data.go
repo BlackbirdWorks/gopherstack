@@ -78,6 +78,7 @@ func (b *InMemoryBackend) collectData(ctx context.Context) map[string]dbDataSnap
 	dialects := map[string]bool{}
 
 	b.mu.RLock("collectData")
+	timeout := b.dumpTimeout
 	for _, r := range b.instances {
 		for id, d := range r.dbs {
 			dialects[databaseName(r.pb.GetName(), id)] = databaseIsPostgres(d.pb)
@@ -92,7 +93,7 @@ func (b *InMemoryBackend) collectData(ctx context.Context) map[string]dbDataSnap
 
 	slices.Sort(names)
 
-	ctx, cancel := context.WithTimeout(ctx, dumpBudget)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	out := map[string]dbDataSnap{}

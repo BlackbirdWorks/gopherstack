@@ -67,6 +67,8 @@ type taskWork struct {
 	waiting bool
 	// failed tasks were stopped during creation and never reach the runtime.
 	failed bool
+	// restored tasks come from a snapshot taken mid-launch; driveLaunch adopts or rewinds them first.
+	restored bool
 }
 
 // RunTask starts one or more tasks on the given cluster. A per-task
@@ -330,6 +332,8 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 
 	var failures []Failure
 
+	inUse := b.liveTaskIPsLocked(clusterArn)
+
 	for range count {
 		task := newTaskEntryLocked(b.region, b.accountID, clusterName, clusterArn, launchType, resolvedTags, td, input)
 
@@ -340,7 +344,7 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 
 		if launchType == launchTypeFargate || td.NetworkMode == networkModeAwsvpc {
 			subnet := firstRequestedSubnet(input.NetworkConfiguration)
-			task.Attachments = []TaskAttachment{newFargateTaskAttachment(task.TaskArn, subnet)}
+			task.Attachments = []TaskAttachment{newFargateTaskAttachment(task.TaskArn, subnet, inUse)}
 		}
 
 		if launchType != launchTypeFargate {

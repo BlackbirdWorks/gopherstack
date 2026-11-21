@@ -191,6 +191,8 @@ func (b *InMemoryBackend) DeleteTranscriptionJob(jobName string) error {
 	b.mu.Lock("DeleteTranscriptionJob")
 	defer b.mu.Unlock()
 
+	b.cancelRunLocked(kindTranscription, jobName)
+
 	if !b.jobs.Delete(jobName) {
 		return fmt.Errorf("%w: job %s not found", ErrNotFound, jobName)
 	}

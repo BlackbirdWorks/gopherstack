@@ -118,9 +118,9 @@ func workflowFuncs() map[string]wfFunc {
 
 			return out[logicKBody], nil
 		}},
-		"trigger":    {n: 0, f: func(c *logicEvalCtx, _ []any) (any, error) { return c.rs.trigger, nil }},
-		"variables":  {n: 1, f: wfVariables},
-		"parameters": {n: 1, f: wfParameters},
+		"trigger":        {n: 0, f: func(c *logicEvalCtx, _ []any) (any, error) { return c.rs.trigger, nil }},
+		"variables":      {n: 1, f: wfVariables},
+		logicKParameters: {n: 1, f: wfParameters},
 		"items": {n: 1, f: func(c *logicEvalCtx, a []any) (any, error) {
 			f, ok := c.frame(logicString(a[0]))
 			if !ok {
@@ -311,6 +311,10 @@ func wfIterationIndexes(c *logicEvalCtx, a []any) (any, error) {
 }
 
 func wfListCallbackURL(c *logicEvalCtx, _ []any) (any, error) {
+	if c.rs.callbackURL != "" {
+		return c.rs.callbackURL, nil
+	}
+
 	return nil, exprErr(
 		"listCallbackUrl() is only valid in HttpWebhook and ApiConnectionWebhook triggers and actions, "+
 			"and workflow '%s' is not evaluating one", c.rs.wfName,

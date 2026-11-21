@@ -625,10 +625,15 @@ type ArchivedMessage struct {
 // in-flight deliveries that read the URL (e.g. a late server-address rewire
 // racing a publish already in progress).
 type notificationSigner struct {
-	privateKey   *rsa.PrivateKey
+	material     func() signingMaterial
 	certURLValue string
-	certPEM      []byte
 	mu           sync.RWMutex
+	generated    atomic.Bool
+}
+
+type signingMaterial struct {
+	privateKey *rsa.PrivateKey
+	certPEM    []byte
 }
 
 // InMemoryBackend implements StorageBackend using an in-memory concurrency-safe store.

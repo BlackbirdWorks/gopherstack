@@ -21,7 +21,12 @@ func (iss *Issuer) Parse(tokenString string) (jwt.MapClaims, error) {
 			return nil, fmt.Errorf("%w: unexpected signing method", ErrInvalidToken)
 		}
 
-		return &iss.privateKey.PublicKey, nil
+		priv, err := iss.key()
+		if err != nil {
+			return nil, err
+		}
+
+		return &priv.PublicKey, nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidToken, err)

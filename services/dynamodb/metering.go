@@ -96,6 +96,27 @@ func (db *InMemoryDB) pruneCapacityCounters(dead []capacityKey) {
 	db.meterCounters.Store(&next)
 }
 
+// pruneDeadCapacityCounters drops counters whose table no longer exists, so
+// deleted tables do not wait for the next usage collection to be released.
+func (db *InMemoryDB) pruneDeadCapacityCounters() {
+	m := db.meterCounters.Load()
+	if m == nil {
+		return
+	}
+
+	var dead []capacityKey
+
+	for k := range *m {
+		if db.getTableInRegionRLocked(k.region, k.table, "pruneDeadCapacityCounters") == nil {
+			dead = append(dead, k)
+		}
+	}
+
+	if len(dead) > 0 {
+		db.pruneCapacityCounters(dead)
+	}
+}
+
 // DrainCapacityUsage returns and clears the request units consumed by on-demand tables.
 func (db *InMemoryDB) DrainCapacityUsage() []CapacityUsage {
 	m := db.meterCounters.Load()

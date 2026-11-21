@@ -232,6 +232,7 @@ type InMemoryDB struct {
 	backups              *store.Table[Backup]
 	iteratorStore        *ShardIteratorStore
 	mu                   *lockmetrics.RWMutex
+	cleanMu              *lockmetrics.RWMutex
 	meterMu              *lockmetrics.RWMutex
 	meterCounters        atomic.Pointer[map[capacityKey]*capacityCounter]
 	deletingTables       *store.Table[Table]
@@ -394,6 +395,7 @@ func NewInMemoryDB() *InMemoryDB {
 		defaultRegion:        config.DefaultRegion,
 		accountID:            config.DefaultAccountID,
 		mu:                   lockmetrics.New("ddb"),
+		cleanMu:              lockmetrics.New("ddb-cleaner"),
 		meterMu:              lockmetrics.New("ddb-meter"),
 		throttler:            NewThrottler(false),
 		txn:                  newTxnState(),

@@ -102,7 +102,7 @@ func canonicalTemplate(tpl string) string {
 	return apimTemplateRE.ReplaceAllString(path, "{}")
 }
 
-func normAPI(s *apimService, _, id string, in map[string]any, _ *apimEntity) (map[string]any, error) {
+func normAPI(s *apimService, _, id string, in map[string]any, prev *apimEntity) (map[string]any, error) {
 	out := cloneAnyMap(in)
 
 	var imported []apimImportedOp
@@ -130,15 +130,21 @@ func normAPI(s *apimService, _, id string, in map[string]any, _ *apimEntity) (ma
 
 	out["isOnline"] = true
 
-	cur, err := optBool(out, "isCurrent", true)
+	rev, isRev, err := apiRevisionOf(id)
 	if err != nil {
 		return nil, err
 	}
 
-	out["isCurrent"] = cur
+	out[apimRevision], out[apimCurrent] = rev, !isRev
+	stamp := apimNow(s).UTC().Format(time.RFC3339)
+	out[apimRevCreated], out[apimRevUpdated] = stamp, stamp
 
-	if _, has := out["apiRevision"]; !has {
-		out["apiRevision"] = "1"
+	if prev != nil {
+		out[apimCurrent], out[apimRevCreated] = prev.Props[apimCurrent], prev.Props[apimRevCreated]
+	}
+
+	if isRev && s.APIs[entKey("", apiBaseID(id))] == nil {
+		return nil, apimInvalid("The revision '%s' needs the existing API '%s'.", id, apiBaseID(id))
 	}
 
 	if len(imported) > 0 {
@@ -172,7 +178,8 @@ func apiFields(s *apimService, id string, in, out map[string]any) error {
 	out[apimCPath] = path
 
 	for _, other := range s.APIs {
-		if !strings.EqualFold(other.ID, id) && strings.EqualFold(strOf(other.Props, apimCPath), path) {
+		if !strings.EqualFold(apiBaseID(other.ID), apiBaseID(id)) &&
+			strings.EqualFold(strOf(other.Props, apimCPath), path) {
 			return apimInvalid("The API path %q is already used by another API.", path)
 		}
 	}
@@ -269,6 +276,14 @@ func delAPI(s *apimService, _, id string, _ url.Values) error {
 
 	delete(s.Policies, entKey("apis/"+lid, apimPolicyID))
 
+	for _, typ := range []string{apimAPIDiagType, apimAPISchemasType, apimAPIReleasesType} {
+		for k, e := range s.Generic[typ] {
+			if strings.EqualFold(e.Parent, id) {
+				delete(s.Generic[typ], k)
+			}
+		}
+	}
+
 	for k := range s.ProductAPIs {
 		if strings.HasSuffix(k, "/"+lid) {
 			delete(s.ProductAPIs, k)
@@ -329,7 +344,7 @@ func opParams(in map[string]any, tpl string) ([]any, error) {
 
 	for _, name := range inTpl {
 		if !declared[name] {
-			params = append(params, map[string]any{fieldName: name, "required": true, fieldType: "string"})
+			params = append(params, map[string]any{fieldName: name, apimCRequired: true, fieldType: apxString})
 		}
 	}
 
@@ -450,6 +465,8 @@ func delProduct(s *apimService, _, id string, q url.Values) error {
 	for _, k := range subs {
 		delete(s.Subs, k)
 	}
+
+	delete(s.Policies, entKey("products/"+id, apimPolicyID))
 
 	prefix := strings.ToLower(id) + "/"
 	for k := range s.ProductAPIs {

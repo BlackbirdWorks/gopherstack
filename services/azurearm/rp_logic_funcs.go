@@ -52,7 +52,7 @@ func eagerLogic(name string, minArgs, maxArgs int, f func(a []any) (any, error))
 	}
 }
 
-func (c *logicEvalCtx) eval(n *logicExpr) (any, error) {
+func (c *logicEvalCtx) evalNode(n *logicExpr) (any, error) {
 	switch n.kind {
 	case exprLit:
 		return n.lit, nil

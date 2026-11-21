@@ -714,7 +714,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [ECR](services/ecr/README.md) | A | 58 | 2 structural gaps; 2 deferred |
-| [ECS](services/ecs/README.md) | A | 65 | 5 gaps; 5 structural gaps |
+| [ECS](services/ecs/README.md) | A | 65 | 4 gaps; 5 structural gaps |
 | [EKS](services/eks/README.md) | A | 71 | 5 structural gaps; 1 deferred |
 
 ### Storage
@@ -899,7 +899,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [SageMaker](services/sagemaker/README.md) | A | 70 | 19 structural gaps |
 | [SageMaker Runtime](services/sagemakerruntime/README.md) | A | 3 | 1 structural gap |
 | [Textract](services/textract/README.md) | A | 25 | 2 structural gaps; 1 deferred |
-| [Transcribe](services/transcribe/README.md) | A | 44 | 5 gaps; 2 structural gaps |
+| [Transcribe](services/transcribe/README.md) | A | 44 | 6 gaps; 2 structural gaps |
 | [Translate](services/translate/README.md) | A | 19 | 2 structural gaps |
 
 ### Media

@@ -231,7 +231,7 @@ func (p *exprParser) parseIdent() (*logicExpr, error) {
 			return &logicExpr{kind: exprLit, lit: true}, nil
 		case logicLitFalse:
 			return &logicExpr{kind: exprLit, lit: false}, nil
-		case "null":
+		case logicKNull:
 			return &logicExpr{kind: exprLit, lit: nil}, nil
 		}
 
@@ -435,12 +435,17 @@ func matchingBrace(s string, open int) int {
 func evalLogicValue(v any, c *logicEvalCtx) (any, error) {
 	switch t := v.(type) {
 	case string:
-		return evalLogicTemplate(t, c)
+		return evalTracedTemplate(t, c)
 	case map[string]any:
 		out := make(map[string]any, len(t))
 
 		for k, x := range t {
+			c.pushPath(k)
+
 			r, err := evalLogicValue(x, c)
+
+			c.popPath()
+
 			if err != nil {
 				return nil, err
 			}
@@ -453,7 +458,12 @@ func evalLogicValue(v any, c *logicEvalCtx) (any, error) {
 		out := make([]any, len(t))
 
 		for i, x := range t {
+			c.pushPath(indexSeg(i))
+
 			r, err := evalLogicValue(x, c)
+
+			c.popPath()
+
 			if err != nil {
 				return nil, err
 			}
@@ -465,4 +475,17 @@ func evalLogicValue(v any, c *logicEvalCtx) (any, error) {
 	}
 
 	return normLogic(v), nil
+}
+
+func evalTracedTemplate(s string, c *logicEvalCtx) (any, error) {
+	if c.trace == nil || !strings.Contains(s, "@") {
+		return evalLogicTemplate(s, c)
+	}
+
+	c.trace.beginRoot()
+
+	v, err := evalLogicTemplate(s, c)
+	c.trace.endRoot(s, v, err)
+
+	return v, err
 }

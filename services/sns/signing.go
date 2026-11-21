@@ -14,6 +14,7 @@ import (
 	"math/big"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -33,15 +34,25 @@ func (s *notificationSigner) setCertURL(u string) {
 	s.certURLValue = u
 }
 
-// newNotificationSigner generates a fresh RSA-2048 key pair and a self-signed
-// x.509 certificate. The returned signer is valid for the lifetime of the
-// backend instance. region is used to construct the default certURL so the
-// embedded SigningCertURL reflects the correct AWS region.
+// newNotificationSigner returns a signer whose RSA-2048 key and self-signed
+// certificate are generated on first use, so backends that never sign pay
+// nothing at construction.
 func newNotificationSigner(region string) *notificationSigner {
+	s := &notificationSigner{
+		certURLValue: fmt.Sprintf("https://sns.%s.amazonaws.com/SimpleNotificationService.pem", region),
+	}
+	s.material = sync.OnceValue(func() signingMaterial {
+		s.generated.Store(true)
+
+		return generateSigningMaterial()
+	})
+
+	return s
+}
+
+func generateSigningMaterial() signingMaterial {
 	key, err := rsa.GenerateKey(rand.Reader, rsaKeyBits)
 	if err != nil {
-		// Key generation failure is unrecoverable; panic with a clear message
-		// rather than silently falling back to mock signatures.
 		panic("sns: failed to generate RSA key for notification signing: " + err.Error())
 	}
 
@@ -62,15 +73,9 @@ func newNotificationSigner(region string) *notificationSigner {
 		panic("sns: failed to create self-signed cert: " + err.Error())
 	}
 
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-
-	return &notificationSigner{
+	return signingMaterial{
 		privateKey: key,
-		certPEM:    certPEM,
-		// certURLValue is set later via SetSigningCertBaseURL when the server address is known.
-		// The initial value uses the backend region so URLs are correct before
-		// SetSigningCertBaseURL is called (e.g. in non-HTTP test scenarios).
-		certURLValue: fmt.Sprintf("https://sns.%s.amazonaws.com/SimpleNotificationService.pem", region),
+		certPEM:    pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER}),
 	}
 }
 
@@ -80,7 +85,7 @@ func (s *notificationSigner) sign(canonical string) string {
 	// Digital signature over a public notification envelope, not password
 	// hashing. See signSHA1 below for why inline codeql markers are not used.
 	h := sha256.Sum256([]byte(canonical))
-	sig, err := rsa.SignPKCS1v15(rand.Reader, s.privateKey, crypto.SHA256, h[:])
+	sig, err := rsa.SignPKCS1v15(rand.Reader, s.material().privateKey, crypto.SHA256, h[:])
 	if err != nil {
 		return "SIGN-ERROR"
 	}
@@ -103,7 +108,7 @@ func (s *notificationSigner) signSHA1(canonical string) string {
 	// one here expecting it to work -- dismiss via the API or UI instead.
 	//nolint:gosec // G401: AWS SNS SignatureVersion=1 spec requires SHA-1, not a password hash.
 	h := sha1.Sum([]byte(canonical))
-	sig, err := rsa.SignPKCS1v15(rand.Reader, s.privateKey, crypto.SHA1, h[:])
+	sig, err := rsa.SignPKCS1v15(rand.Reader, s.material().privateKey, crypto.SHA1, h[:])
 	if err != nil {
 		return "SIGN-ERROR"
 	}

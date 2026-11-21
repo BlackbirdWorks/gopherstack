@@ -59,7 +59,7 @@ var (
 		"policyfragments": fieldsOf("name", "description", "value"),
 	}
 	apimOperationFields = map[string]apimFilterField{
-		fieldName: {}, apimFieldDisplay: {}, "method": {}, apimFieldDesc: {}, "urltemplate": {},
+		fieldName: {}, apimFieldDisplay: {}, apimCMethod: {}, apimFieldDesc: {}, "urltemplate": {},
 	}
 )
 

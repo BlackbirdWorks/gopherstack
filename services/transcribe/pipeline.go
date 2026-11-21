@@ -2,7 +2,7 @@ package transcribe
 
 import (
 	"context"
-	"encoding/binary"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -116,60 +116,93 @@ func inspectMedia(ctx context.Context, deps pipelineDeps, spec jobSpec) ([]byte,
 	return data, format, outcome{}
 }
 
-// checkWAV applies the header-derived checks; ok is false when the outcome is a failure.
-func checkWAV(data []byte, spec jobSpec) (wavInfo, outcome, bool) {
-	info, err := parseWAV(data)
+// openSource decodes the container header and applies the header-derived checks. Without a
+// recognizer only a malformed WAV or a header that contradicts the job fails; an encoding the
+// decoders cannot open leaves src nil and the job completes as it did before decoding existed.
+func openSource(format string, data []byte, spec jobSpec, recognizing bool) (audioSource, outcome) {
+	src, err := openAudio(format, data)
 	if err != nil {
-		return info, failf("%s", failUnsupportedFormat), false
+		if recognizing {
+			return nil, failf("%s", failUnsupportedFormat)
+		}
+
+		return nil, legacyWAVCheck(format, data, spec)
 	}
 
-	if info.channels > dualChannel {
-		return info, failf("%s", failChannels), false
+	if src.channels() > dualChannel {
+		return nil, failf("%s", failChannels)
 	}
 
-	if spec.SampleRate != 0 && info.sampleRate != 0 && int(spec.SampleRate) != info.sampleRate {
-		return info, failf("%s", failSampleRate), false
+	if spec.SampleRate != 0 && src.rate() != 0 && int(spec.SampleRate) != src.rate() {
+		return nil, failf("%s", failSampleRate)
 	}
 
-	return info, outcome{}, true
+	return src, outcome{}
 }
 
-// recognize runs the engine over the WAV channels the job needs.
-func recognize(ctx context.Context, deps pipelineDeps, spec jobSpec, info wavInfo, format string) ([][]Word, outcome) {
+// legacyWAVCheck applies the WAV header checks that predate decoding to a file the decoders rejected.
+func legacyWAVCheck(format string, data []byte, spec jobSpec) outcome {
+	if format != mediaWAV {
+		return outcome{}
+	}
+
+	info, err := parseWAV(data)
+
+	switch {
+	case err != nil:
+		return failf("%s", failUnsupportedFormat)
+	case info.channels > dualChannel:
+		return failf("%s", failChannels)
+	case spec.SampleRate != 0 && info.sampleRate != 0 && int(spec.SampleRate) != info.sampleRate:
+		return failf("%s", failSampleRate)
+	}
+
+	return outcome{}
+}
+
+// recognize decodes the media and runs the engine over the channels the job needs.
+func recognize(
+	ctx context.Context, deps pipelineDeps, spec jobSpec, src audioSource, format string,
+) ([][]Word, int, outcome) {
 	eng := deps.engine
 	if !eng.SupportsLanguage(spec.Language) {
-		return nil, failf("Language %s is not supported by the emulator speech engine.", spec.Language)
+		return nil, 0, failf("Language %s is not supported by the emulator speech engine.", spec.Language)
 	}
 
 	switch {
 	case spec.ShowSpeakers:
-		return nil, failf("Speaker partitioning is not supported by the emulator speech engine.")
+		return nil, 0, failf("Speaker partitioning is not supported by the emulator speech engine.")
 	case spec.Redaction:
-		return nil, failf("Content redaction is not supported by the emulator speech engine.")
+		return nil, 0, failf("Content redaction is not supported by the emulator speech engine.")
 	case spec.PHI:
-		return nil, failf("Content identification is not supported by the emulator speech engine.")
-	case format != mediaWAV || !info.isPCM16():
-		return nil, failf("The emulator speech engine can only transcribe 16-bit PCM WAV media; %s is not supported.",
-			formatLabel(format))
+		return nil, 0, failf("Content identification is not supported by the emulator speech engine.")
+	case src == nil:
+		return nil, 0, failf("The emulator speech engine cannot decode %s.", formatLabel(format))
 	}
 
-	streams := info.channelPCM()
-	if !spec.IdentifyChannels && spec.Kind != kindCallAnalytics {
-		streams = [][]byte{downmix(streams)}
+	mono := !spec.IdentifyChannels && spec.Kind != kindCallAnalytics
+
+	audio, err := decodeAudio(ctx, src, mono, maxAudioSeconds)
+	if errors.Is(err, errAudioLength) {
+		return nil, 0, failf("%s", failFileSize)
 	}
 
-	out := make([][]Word, 0, len(streams))
+	if err != nil {
+		return nil, 0, failf("%s", failUnsupportedFormat)
+	}
 
-	for _, pcm := range streams {
-		words, err := eng.Recognize(ctx, spec.Language, info.sampleRate, pcm)
-		if err != nil {
-			return nil, failf("The emulator speech engine failed: %v", err)
+	out := make([][]Word, 0, len(audio.channels))
+
+	for _, pcm := range audio.channels {
+		words, recErr := eng.Recognize(ctx, spec.Language, engineSampleRate, pcm)
+		if recErr != nil {
+			return nil, 0, failf("The emulator speech engine failed: %v", recErr)
 		}
 
 		out = append(out, words)
 	}
 
-	return out, outcome{}
+	return out, audio.millis, outcome{}
 }
 
 func formatLabel(f string) string {
@@ -180,26 +213,6 @@ func formatLabel(f string) string {
 	return f + " media"
 }
 
-// downmix averages 16-bit channels into one stream.
-func downmix(streams [][]byte) []byte {
-	if len(streams) == 1 {
-		return streams[0]
-	}
-
-	out := make([]byte, len(streams[0]))
-
-	for i := 0; i+1 < len(out); i += 2 {
-		sum := 0
-		for _, s := range streams {
-			sum += int(int16(binary.LittleEndian.Uint16(s[i:]))) //nolint:gosec // 16-bit sample reinterpretation
-		}
-
-		binary.LittleEndian.PutUint16(out[i:], uint16(int16(sum/len(streams)))) //nolint:gosec // average fits int16
-	}
-
-	return out
-}
-
 // runPipeline reads and validates the media, recognises speech when an engine is installed and renders the documents.
 func runPipeline(ctx context.Context, deps pipelineDeps, spec jobSpec) outcome {
 	data, format, bad := inspectMedia(ctx, deps, spec)
@@ -208,24 +221,33 @@ func runPipeline(ctx context.Context, deps pipelineDeps, spec jobSpec) outcome {
 	}
 
 	var (
-		info     wavInfo
+		src      audioSource
 		channels [][]Word
 		duration int
 	)
 
-	if format == mediaWAV {
-		var ok bool
-		if info, bad, ok = checkWAV(data, spec); !ok {
+	recognizing := deps.engine != nil && deps.reader != nil
+
+	if decodable(format) {
+		if src, bad = openSource(format, data, spec, recognizing); bad.failure != "" {
 			return bad
 		}
 
-		duration = info.durationMillis()
+		if src != nil {
+			if n := src.frames(); n >= 0 {
+				duration = int(n * millisPerSecond / int64(src.rate()))
+			}
+		}
 	}
 
-	if deps.engine != nil && deps.reader != nil {
-		if channels, bad = recognize(ctx, deps, spec, info, format); bad.failure != "" {
+	if recognizing {
+		var decoded int
+
+		if channels, decoded, bad = recognize(ctx, deps, spec, src, format); bad.failure != "" {
 			return bad
 		}
+
+		duration = max(duration, decoded)
 
 		channels = applyVocabularyFilter(channels, spec.filterSet(ctx, deps), spec.FilterMethod)
 	}
@@ -414,6 +436,12 @@ func (b *InMemoryBackend) settleLocked(v jobView) {
 	}
 
 	b.finishLocked(v, runPipeline(context.Background(), b.deps(), v.spec))
+}
+
+func (b *InMemoryBackend) cancelRunLocked(kind jobKind, name string) {
+	if cancel, ok := b.inflight[runKey(kind, name)]; ok {
+		cancel()
+	}
 }
 
 func (b *InMemoryBackend) launchRunLocked(v jobView) {

@@ -187,6 +187,9 @@ func (j *Janitor) SweepOnce(ctx context.Context) {
 func (j *Janitor) runTableCleaner(ctx context.Context) {
 	db := j.Backend
 
+	db.cleanMu.Lock("DDBTableCleaner")
+	defer db.cleanMu.Unlock()
+
 	// Snapshot the tables to clean up and remove them from deletingTables under the
 	// global lock. The slow work (timer cancellation, mutex close) is done outside the
 	// lock so that concurrent DescribeTable / PutItem / Query calls are not stalled
@@ -200,6 +203,10 @@ func (j *Janitor) runTableCleaner(ctx context.Context) {
 			table.Tags.Close()
 		}
 		table.mu.Close()
+	}
+
+	if len(tablesToClose) > 0 {
+		db.pruneDeadCapacityCounters()
 	}
 
 	telemetry.RecordWorkerQueueDepth("dynamodb", "TableCleaner", depth)

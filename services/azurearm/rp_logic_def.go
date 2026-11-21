@@ -158,6 +158,10 @@ func validateLogicTrigger(name string, t any) error {
 	switch typ {
 	case logicTrigRecurrence:
 		return validateLogicRecurrence(name, m)
+	case logicTrigHTTP:
+		return validateLogicHTTPTrigger(name, m)
+	case logicTrigWebhook:
+		return validateLogicWebhookTrigger(name, m)
 	case logicTrigRequest, logicTrigManual:
 		return validateLogicRequestTrigger(name, m)
 	}
@@ -506,7 +510,7 @@ func validateLogicExpressions(v any) error {
 		return checkLogicTemplate(t)
 	case map[string]any:
 		for k, x := range t {
-			if k == "schema" || k == logicKMetadata {
+			if k == logicKSchema || k == logicKMetadata {
 				continue
 			}
 

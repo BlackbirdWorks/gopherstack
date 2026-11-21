@@ -2,6 +2,7 @@ package azurearm
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
@@ -137,6 +138,14 @@ type APIMProvider struct {
 	svcs          map[string]*apimService
 	ops           map[string]*apimOp
 	limiter       *apimLimiter
+	quotas        *apimQuotaStore
+	cache         *apimCache
+	jwks          *apimJWKS
+	bg            *apimBG
+	certClients   *apimCertClients
+	rootCAs       *x509.CertPool
+	oneWay        chan struct{}
+	wsSlots       chan struct{}
 	client        *http.Client
 	fastActivate  time.Duration
 	classicActive time.Duration
@@ -146,8 +155,20 @@ type APIMProvider struct {
 // NewAPIMProvider creates an APIMProvider.
 func NewAPIMProvider() *APIMProvider {
 	p := &APIMProvider{
-		now: time.Now, mu: lockmetrics.New("azurearm.apim"), svcs: map[string]*apimService{}, ops: map[string]*apimOp{},
-		limiter: newAPIMLimiter(), fastActivate: apimActivateFast, classicActive: apimActivateClassic,
+		now:           time.Now,
+		mu:            lockmetrics.New("azurearm.apim"),
+		svcs:          map[string]*apimService{},
+		ops:           map[string]*apimOp{},
+		limiter:       newAPIMLimiter(),
+		quotas:        newAPIMQuotaStore(),
+		cache:         newAPIMCache(),
+		jwks:          newAPIMJWKS(),
+		bg:            newAPIMBG(),
+		certClients:   newAPIMCertClients(),
+		oneWay:        make(chan struct{}, apimMaxOneWay),
+		wsSlots:       make(chan struct{}, apimWSMaxSessions),
+		fastActivate:  apimActivateFast,
+		classicActive: apimActivateClassic,
 	}
 	p.client = p.newBackendClient()
 
@@ -610,6 +631,10 @@ func (p *APIMProvider) writeService(
 	next.applyEnvelope(body)
 	next.bump()
 
+	if prev == nil {
+		seedAPIMBuiltins(next, now)
+	}
+
 	switch {
 	case prev == nil:
 		next.Transition, next.ReadyAt = apimStateActivating, now.Add(p.activation(next.SKU))
@@ -703,11 +728,16 @@ func (p *APIMProvider) ListKeys(context.Context, ResourceID) (map[string]any, er
 
 // Reset implements ResourceProvider.
 func (p *APIMProvider) Reset() {
+	p.bg.stop(false)
 	p.mu.Lock(apimCReset)
 	p.svcs = map[string]*apimService{}
 	p.ops = map[string]*apimOp{}
 	p.mu.Unlock()
 	p.limiter.reset()
+	p.quotas.reset()
+	p.cache.reset()
+	p.jwks.reset()
+	p.certClients.reset()
 }
 
 // DeleteResourcesInGroup implements ResourceProvider.

@@ -239,14 +239,22 @@ func (p *LogicProvider) fireRecurrence(wfKey, trigger string, scheduled time.Tim
 		return
 	}
 
+	if w.triggerType(trigger) == logicTrigHTTP {
+		p.wg.Go(func() { p.firePoll(wfKey, trigger, scheduled, false) })
+
+		return
+	}
+
 	_, _ = p.startRunLocked(w, logicFire{trigger: trigger, scheduled: scheduled, outputs: map[string]any{}})
 	p.armTriggerLocked(w, trigger, scheduled)
 }
 
 func (p *LogicProvider) armWorkflowLocked(w *logicWorkflow) {
+	p.syncWebhooksLocked(w)
+
 	defs, _ := objectOf(w.Definition[logicSegTriggers])
 	for name, t := range defs {
-		if typeOf(t) == logicTrigRecurrence {
+		if isPollingTrigger(typeOf(t)) {
 			p.armTriggerLocked(w, name, p.clock.Now().Add(-time.Nanosecond))
 		}
 	}
@@ -254,6 +262,11 @@ func (p *LogicProvider) armWorkflowLocked(w *logicWorkflow) {
 
 // armTriggerLocked schedules the first occurrence strictly after the given instant.
 func (p *LogicProvider) armTriggerLocked(w *logicWorkflow, name string, after time.Time) {
+	p.armTriggerAtLocked(w, name, after, time.Time{})
+}
+
+// armTriggerAtLocked is armTriggerLocked with a floor: the next occurrence is not earlier than notBefore.
+func (p *LogicProvider) armTriggerAtLocked(w *logicWorkflow, name string, after, notBefore time.Time) {
 	key := w.key() + "|" + name
 
 	if old, ok := p.timers[key]; ok {
@@ -276,6 +289,12 @@ func (p *LogicProvider) armTriggerLocked(w *logicWorkflow, name string, after ti
 		return
 	}
 
+	if next.Before(notBefore) {
+		if r := parseLogicRecurrence(def, ts.Anchor); r.end.IsZero() || !notBefore.After(r.end) {
+			next = notBefore
+		}
+	}
+
 	ts.Next = &next
 	wfKey := w.key()
 
@@ -284,7 +303,7 @@ func (p *LogicProvider) armTriggerLocked(w *logicWorkflow, name string, after ti
 
 // ResetTrigger re-anchors a recurrence trigger at the current time.
 func (p *LogicProvider) resetTriggerLocked(w *logicWorkflow, name string) error {
-	if w.triggerType(name) != logicTrigRecurrence {
+	if !isPollingTrigger(w.triggerType(name)) {
 		return logicBadRequest(
 			"InvalidTriggerType",
 			"The trigger '%s' is not a polling or recurrence trigger and cannot be reset.",
@@ -293,7 +312,7 @@ func (p *LogicProvider) resetTriggerLocked(w *logicWorkflow, name string) error 
 	}
 
 	ts := w.Triggers[name]
-	ts.Anchor, ts.Last = p.clock.Now().UTC(), nil
+	ts.Anchor, ts.Last, ts.PollURL = p.clock.Now().UTC(), nil, ""
 	p.armTriggerLocked(w, name, p.clock.Now().Add(-time.Nanosecond))
 
 	return nil

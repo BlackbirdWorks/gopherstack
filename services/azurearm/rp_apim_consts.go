@@ -1,6 +1,8 @@
 package azurearm
 
 const (
+	apimCRequired                      = "required"
+	apimMethodGet                      = "get"
 	apimCAPI                           = "API"
 	apimCAccessControlRequestMethod    = "Access-Control-Request-Method"
 	apimOpenAPI2                       = "2.0"

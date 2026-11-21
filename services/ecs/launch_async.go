@@ -65,6 +65,17 @@ func (b *InMemoryBackend) launchAsync(w taskWork, clusterName string) {
 		lt.tasks = make(map[string]*Task)
 	}
 
+	if old, busy := lt.tasks[w.task.TaskArn]; busy {
+		if old == w.task {
+			b.mu.Unlock()
+			cancel()
+
+			return
+		}
+
+		lt.cancels[w.task.TaskArn]()
+	}
+
 	if lt.n == 0 {
 		lt.idle = make(chan struct{})
 	}
@@ -75,20 +86,23 @@ func (b *InMemoryBackend) launchAsync(w taskWork, clusterName string) {
 	b.mu.Unlock()
 
 	go func() {
-		defer b.finishLaunch(w.task.TaskArn)
+		defer b.finishLaunch(w.task)
 		defer cancel()
 
 		b.driveLaunch(ctx, w, clusterName)
 	}()
 }
 
-func (b *InMemoryBackend) finishLaunch(taskArn string) {
+func (b *InMemoryBackend) finishLaunch(task *Task) {
 	b.mu.Lock("finishLaunch")
 	defer b.mu.Unlock()
 
 	lt := &b.launches
-	delete(lt.cancels, taskArn)
-	delete(lt.tasks, taskArn)
+	if lt.tasks[task.TaskArn] == task {
+		delete(lt.cancels, task.TaskArn)
+		delete(lt.tasks, task.TaskArn)
+	}
+
 	lt.n--
 
 	if lt.n == 0 {
@@ -176,15 +190,17 @@ func (b *InMemoryBackend) isLiveTaskLocked(task *Task) bool {
 func (b *InMemoryBackend) driveLaunch(ctx context.Context, w taskWork, clusterName string) {
 	task := w.task
 
+	if w.restored && !b.prepareRestoredLaunch(ctx, w, clusterName) {
+		return
+	}
+
 	if !b.stepLaunch(ctx, task, statusProvisioning, statusPending, nil) {
 		b.settleCancelled(ctx, task, clusterName)
 
 		return
 	}
 
-	b.mu.Lock("driveLaunch-runtime")
-	_, task.runtimeHealth = b.runner.(containerHealthRunner)
-	b.mu.Unlock()
+	b.setRuntimeHealth(task)
 
 	activated := b.stepLaunch(ctx, task, statusPending, statusActivating, func(now time.Time) {
 		task.PullStartedAt = &now
@@ -203,6 +219,13 @@ func (b *InMemoryBackend) driveLaunch(ctx context.Context, w taskWork, clusterNa
 	}
 
 	b.completeLaunch(ctx, w, clusterName, runErr)
+}
+
+func (b *InMemoryBackend) setRuntimeHealth(task *Task) {
+	b.mu.Lock("setRuntimeHealth")
+	defer b.mu.Unlock()
+
+	_, task.runtimeHealth = b.runner.(containerHealthRunner)
 }
 
 func (b *InMemoryBackend) completeLaunch(ctx context.Context, w taskWork, clusterName string, runErr error) {

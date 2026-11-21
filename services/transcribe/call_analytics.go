@@ -395,6 +395,8 @@ func (b *InMemoryBackend) DeleteCallAnalyticsJob(jobName string) error {
 	b.mu.Lock("DeleteCallAnalyticsJob")
 	defer b.mu.Unlock()
 
+	b.cancelRunLocked(kindCallAnalytics, jobName)
+
 	if !b.callAnalyticsJobs.Delete(jobName) {
 		return fmt.Errorf("%w: call analytics job %s not found", ErrNotFound, jobName)
 	}

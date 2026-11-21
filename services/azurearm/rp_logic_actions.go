@@ -24,7 +24,7 @@ const (
 )
 
 func (rs *logicRunState) runCompose(env *logicEnv, name string, def map[string]any) logicOutcome {
-	v, err := rs.eval(env, def["inputs"])
+	v, err := rs.evalTraced(env, name, logicKInputs, def["inputs"])
 	if err != nil {
 		return exprFailure(name, err)
 	}
@@ -33,7 +33,7 @@ func (rs *logicRunState) runCompose(env *logicEnv, name string, def map[string]a
 }
 
 func (rs *logicRunState) runWait(env *logicEnv, name string, def map[string]any) logicOutcome {
-	in, err := rs.evalInputs(env, def)
+	in, err := rs.evalInputs(env, name, def)
 	if err != nil {
 		return exprFailure(name, err)
 	}
@@ -52,8 +52,8 @@ func (rs *logicRunState) runWait(env *logicEnv, name string, def map[string]any)
 	return out
 }
 
-func (rs *logicRunState) evalInputs(env *logicEnv, def map[string]any) (map[string]any, error) {
-	v, err := rs.eval(env, def["inputs"])
+func (rs *logicRunState) evalInputs(env *logicEnv, name string, def map[string]any) (map[string]any, error) {
+	v, err := rs.evalTraced(env, name, logicKInputs, def["inputs"])
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +114,7 @@ func logicUnitDuration(unit string, n int64) (time.Duration, error) {
 }
 
 func (rs *logicRunState) runTerminate(env *logicEnv, name string, def map[string]any) logicOutcome {
-	in, err := rs.evalInputs(env, def)
+	in, err := rs.evalInputs(env, name, def)
 	if err != nil {
 		return exprFailure(name, err)
 	}
@@ -148,7 +148,7 @@ func (rs *logicRunState) runTerminate(env *logicEnv, name string, def map[string
 }
 
 func (rs *logicRunState) runResponse(env *logicEnv, name string, def map[string]any) logicOutcome {
-	in, err := rs.evalInputs(env, def)
+	in, err := rs.evalInputs(env, name, def)
 	if err != nil {
 		return exprFailure(name, err)
 	}
@@ -187,7 +187,7 @@ func (rs *logicRunState) runResponse(env *logicEnv, name string, def map[string]
 
 	rs.live.resp <- logicResponse{status: int(status), headers: headers, body: in[logicKBody]}
 
-	out := map[string]any{"statusCode": status, logicKHeaders: mapStrAny(headers)}
+	out := map[string]any{logicKStatusCode: status, logicKHeaders: mapStrAny(headers)}
 	if b, has := in[logicKBody]; has {
 		out[logicKBody] = b
 	}
@@ -643,7 +643,7 @@ func logicZero(typ string) any {
 }
 
 func (rs *logicRunState) runVariable(env *logicEnv, name, typ string, def map[string]any) logicOutcome {
-	in, err := rs.evalInputs(env, def)
+	in, err := rs.evalInputs(env, name, def)
 	if err != nil {
 		return exprFailure(name, err)
 	}
@@ -821,7 +821,7 @@ func (rs *logicRunState) parseJSONOp(env *logicEnv, raw map[string]any) (any, an
 		}
 	}
 
-	return map[string]any{logicKContent: content, "schema": raw["schema"]}, val, nil
+	return map[string]any{logicKContent: content, logicKSchema: raw["schema"]}, val, nil
 }
 
 func (rs *logicRunState) collectionOp(env *logicEnv, typ string, raw map[string]any) (any, any, error) {
@@ -843,7 +843,7 @@ func (rs *logicRunState) collectionOp(env *logicEnv, typ string, raw map[string]
 		res, serr := rs.mapItems(env, arr, func(e *logicEnv) (any, error) { return rs.eval(e, raw["select"]) })
 
 		return inputs, res, serr
-	case "query":
+	case logicKQuery:
 		inputs["where"] = raw["where"]
 		res, qerr := rs.filterItems(env, arr, raw["where"])
 
