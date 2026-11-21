@@ -25,10 +25,10 @@ func allowedWeakHashFiles() map[string]string {
 		"services/neptune/sparql/funcs_hash.go": "SPARQL 1.1 MD5()/SHA1() builtin functions",
 		// Entra identifies certificates by SHA-1 thumbprint (JWS x5t, RFC 7515 4.1.7; keyCredential.customKeyIdentifier); an
 		// identifier match, never a credential.
-		"services/azuregraph/certauth.go": "Entra x5t / customKeyIdentifier SHA-1 certificate thumbprint parity",
-		"services/azurearm/rp_logic_cert.go": "Logic Http action client assertion x5t SHA-1 certificate thumbprint (RFC 7515)",
+		"services/azuregraph/certauth.go":    "Entra x5t / customKeyIdentifier SHA-1 certificate thumbprint parity",
+		"services/azurearm/rp_logic_cert.go": "Logic client assertion x5t SHA-1 certificate thumbprint (RFC 7515)",
+		"services/azurearm/rp_apim_mgmt.go":  "API Management certificate SHA-1 thumbprint",
 		// Azure Blob Content-MD5 headers are the base64 MD5 of the body; integrity checksum, never a credential.
-		"services/azurearm/rp_apim_mgmt.go": "API Management certificate thumbprint is the SHA-1 fingerprint of the certificate",
 		"services/azureblob/handler_cond.go": "Azure Blob Content-MD5 header parity",
 		// Identity Platform TOTP second factors are RFC 6238 HMAC-SHA1 (the API reports hashingAlgorithm SHA1); a one-time
 		// code derivation, not password storage.
