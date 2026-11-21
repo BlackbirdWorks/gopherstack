@@ -502,7 +502,12 @@ func (b *InMemoryBackend) loadRows(
 		return nil, nil, &jobError{Reason: litInvalid, Message: err.Error()}
 	}
 
-	*fields = mergePartitionFields(*fields, parts)
+	merged := mergePartitionFields(*fields, parts)
+	if err = bqsql.NormalizeSchema(merged); err != nil {
+		return nil, nil, &jobError{Reason: litInvalid, Message: "Invalid hive partition column: " + err.Error()}
+	}
+
+	*fields = merged
 	rows := [][]any{}
 
 	for _, input := range in {
@@ -535,7 +540,7 @@ func (b *InMemoryBackend) reconcileAppend(
 		return fields, rows, nil
 	}
 
-	merged, jerr := mergeLoadSchema(lc, t.Schema, fields)
+	merged, changed, jerr := mergeLoadSchema(lc, t.Schema, fields)
 	if jerr != nil {
 		return nil, nil, jerr
 	}
@@ -558,7 +563,7 @@ func (b *InMemoryBackend) reconcileAppend(
 		out[i] = row
 	}
 
-	if len(merged) != len(t.Schema) || !slices.Equal(modes(merged), modes(t.Schema)) {
+	if changed {
 		t.record(nowMs())
 
 		for i, r := range t.Rows {
@@ -571,45 +576,22 @@ func (b *InMemoryBackend) reconcileAppend(
 	return merged, out, nil
 }
 
-func modes(fs []bqsql.Field) []string {
-	out := make([]string, len(fs))
-	for i, f := range fs {
-		out[i] = f.Mode
-	}
-
-	return out
-}
-
-func mergeLoadSchema(lc loadConfig, existing, loaded []bqsql.Field) ([]bqsql.Field, *jobError) {
+func mergeLoadSchema(lc loadConfig, existing, loaded []bqsql.Field) ([]bqsql.Field, bool, *jobError) {
 	ref := lc.Dest.ProjectID + ":" + lc.Dest.DatasetID + "." + lc.Dest.TableID
-	m := schemaMerger{lc: lc, ref: ref, merged: slices.Clone(existing), seen: map[string]bool{}}
+	m := schemaMerger{lc: lc, ref: ref}
 
-	for _, p := range loaded {
-		if jerr := m.add(p); jerr != nil {
-			return nil, jerr
-		}
+	merged, jerr := m.mergeFields(existing, loaded, "")
+	if jerr != nil {
+		return nil, false, jerr
 	}
 
-	for _, e := range existing {
-		if e.Mode != bqsql.ModeRequired || m.seen[strs.Fold(e.Name)] {
-			continue
-		}
-
-		if !slices.Contains(lc.SchemaOpts, optRelaxField) {
-			return nil, m.mismatch("Field %s is missing in new schema", e.Name)
-		}
-
-		m.merged[m.index(e.Name)].Mode = bqsql.ModeNullable
-	}
-
-	return m.merged, nil
+	return merged, m.changed, nil
 }
 
 type schemaMerger struct {
-	seen   map[string]bool
-	ref    string
-	merged []bqsql.Field
-	lc     loadConfig
+	ref     string
+	lc      loadConfig
+	changed bool
 }
 
 func (m *schemaMerger) mismatch(format string, a ...any) *jobError {
@@ -619,43 +601,91 @@ func (m *schemaMerger) mismatch(format string, a ...any) *jobError {
 	}
 }
 
-func (m *schemaMerger) index(name string) int {
-	return slices.IndexFunc(m.merged, func(f bqsql.Field) bool { return strs.Equal(f.Name, name) })
+func indexOfField(fs []bqsql.Field, name string) int {
+	return slices.IndexFunc(fs, func(f bqsql.Field) bool { return strs.Equal(f.Name, name) })
 }
 
-func (m *schemaMerger) add(p bqsql.Field) *jobError {
-	m.seen[strs.Fold(p.Name)] = true
+// mergeFields matches loaded to existing by case-insensitive name, recursing into RECORD fields; existing is not
+// modified.
+func (m *schemaMerger) mergeFields(existing, loaded []bqsql.Field, path string) ([]bqsql.Field, *jobError) {
+	merged := slices.Clone(existing)
+	seen := make(map[string]bool, len(loaded))
 
-	i := m.index(p.Name)
-	if i < 0 {
-		return m.addField(p)
-	}
+	for _, p := range loaded {
+		seen[strs.Fold(p.Name)] = true
 
-	if !strs.Equal(m.merged[i].Type, p.Type) {
-		return m.mismatch("Field %s has changed type from %s to %s", p.Name, m.merged[i].Type, p.Type)
-	}
+		i := indexOfField(merged, p.Name)
+		if i < 0 {
+			if jerr := m.addField(path, p); jerr != nil {
+				return nil, jerr
+			}
 
-	if m.merged[i].Mode == bqsql.ModeRequired && p.Mode != bqsql.ModeRequired {
-		if !slices.Contains(m.lc.SchemaOpts, optRelaxField) {
-			return m.mismatch("Field %s has changed mode from REQUIRED to NULLABLE", p.Name)
+			merged = append(merged, p)
+
+			continue
 		}
 
-		m.merged[i].Mode = bqsql.ModeNullable
+		if jerr := m.mergeField(&merged[i], p, path+p.Name); jerr != nil {
+			return nil, jerr
+		}
 	}
+
+	for i, e := range merged {
+		if e.Mode != bqsql.ModeRequired || seen[strs.Fold(e.Name)] || i >= len(existing) {
+			continue
+		}
+
+		if !slices.Contains(m.lc.SchemaOpts, optRelaxField) {
+			return nil, m.mismatch("Field %s%s is missing in new schema", path, e.Name)
+		}
+
+		merged[i].Mode, m.changed = bqsql.ModeNullable, true
+	}
+
+	return merged, nil
+}
+
+func (m *schemaMerger) mergeField(cur *bqsql.Field, p bqsql.Field, name string) *jobError {
+	if !strs.Equal(cur.Type, p.Type) {
+		return m.mismatch("Field %s has changed type from %s to %s", name, cur.Type, p.Type)
+	}
+
+	if cur.Mode != p.Mode {
+		if cur.Mode != bqsql.ModeRequired || p.Mode != bqsql.ModeNullable {
+			return m.mismatch("Field %s has changed mode from %s to %s", name, cur.Mode, p.Mode)
+		}
+
+		if !slices.Contains(m.lc.SchemaOpts, optRelaxField) {
+			return m.mismatch("Field %s has changed mode from REQUIRED to NULLABLE", name)
+		}
+
+		cur.Mode, m.changed = bqsql.ModeNullable, true
+	}
+
+	if len(p.Fields) == 0 && len(cur.Fields) == 0 {
+		return nil
+	}
+
+	sub, jerr := m.mergeFields(cur.Fields, p.Fields, name+".")
+	if jerr != nil {
+		return jerr
+	}
+
+	cur.Fields = sub
 
 	return nil
 }
 
-func (m *schemaMerger) addField(p bqsql.Field) *jobError {
+func (m *schemaMerger) addField(path string, p bqsql.Field) *jobError {
 	if !slices.Contains(m.lc.SchemaOpts, optAddField) {
-		return m.mismatch("Cannot add fields (field: %s)", p.Name)
+		return m.mismatch("Cannot add fields (field: %s%s)", path, p.Name)
 	}
 
 	if p.Mode == bqsql.ModeRequired {
-		return m.mismatch("Cannot add required fields (field: %s)", p.Name)
+		return m.mismatch("Cannot add required fields (field: %s%s)", path, p.Name)
 	}
 
-	m.merged = append(m.merged, p)
+	m.changed = true
 
 	return nil
 }

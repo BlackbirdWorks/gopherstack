@@ -46,6 +46,8 @@ func TestCastFormat(t *testing.T) {
 			"AT TIME ZONE 'Asia/Kolkata')", [][]any{{"1.5911658E9"}}},
 		{"parse fraction", "SELECT CAST('01:02:03.25' AS TIME FORMAT 'HH24:MI:SS.FF2')", [][]any{{"01:02:03.25"}}},
 		{"parse second of day", "SELECT CAST('03723' AS TIME FORMAT 'SSSSS')", [][]any{{"01:02:03"}}},
+		{"date ignores zone", "SELECT CAST('2018-06-15' AS DATE FORMAT 'YYYY-MM-DD' AT TIME ZONE 'Asia/Kolkata')",
+			[][]any{{"2018-06-15"}}},
 		{"safe cast bad", "SELECT SAFE_CAST('nope' AS DATE FORMAT 'YYYY-MM-DD')", [][]any{{nil}}},
 		{"null in", "SELECT CAST(CAST(NULL AS DATE) AS STRING FORMAT 'YYYY')", [][]any{{nil}}},
 	})
@@ -67,6 +69,10 @@ func TestCastFormatErrors(t *testing.T) {
 		{"ddd with month", "SELECT CAST('2018 034 01' AS DATE FORMAT 'YYYY DDD MM')", "DDD"},
 		{"bad input", "SELECT CAST('2018-13-02' AS DATE FORMAT 'YYYY-MM-DD')", "Invalid"},
 		{"trailing text", "SELECT CAST('2018-01-02x' AS DATE FORMAT 'YYYY-MM-DD')", "trailing"},
+		{"day zero", "SELECT CAST('2018-01-00' AS DATE FORMAT 'YYYY-MM-DD')", "Invalid"},
+		{"year zero", "SELECT CAST('0000-01-01' AS DATE FORMAT 'YYYY-MM-DD')", "Invalid"},
+		{"offset hour range", "SELECT CAST('2018-01-01 +99' AS TIMESTAMP FORMAT 'YYYY-MM-DD TZH')", "Invalid"},
+		{"offset minute range", "SELECT CAST('2018-01-01 +01:75' AS TIMESTAMP FORMAT 'YYYY-MM-DD TZH:TZM')", "Invalid"},
 		{"numeric unsupported", "SELECT CAST(1 AS STRING FORMAT '9')", "STRING and DATE"},
 	}
 

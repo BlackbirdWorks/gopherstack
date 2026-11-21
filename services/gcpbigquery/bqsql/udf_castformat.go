@@ -31,23 +31,24 @@ const (
 const meridianDots = "A.M."
 
 const (
-	fmtMaxModel    = 256
-	fmtMaxDigits   = 9
-	fmtYearDigits  = 4
-	fmtSecsPerDay  = 86400
-	fmtDayWidth    = 9
-	fmtThousand    = 1000
-	fmtHundred     = 100
-	fmtMinutes     = 60
-	fmtHalfDay     = 12
-	fmtDayOfYear   = 3
-	fmtSecOfDayLen = 5
-	fmtMonthAbbr   = 3
-	fmtTwo         = 2
-	fmtMonths      = 12
-	fmtSecsPerHour = 3600
-	fmtMaxDay      = 31
-	fmtMaxHour     = 24
+	fmtMaxModel      = 256
+	fmtMaxDigits     = 9
+	fmtYearDigits    = 4
+	fmtSecsPerDay    = 86400
+	fmtDayWidth      = 9
+	fmtThousand      = 1000
+	fmtHundred       = 100
+	fmtMinutes       = 60
+	fmtHalfDay       = 12
+	fmtDayOfYear     = 3
+	fmtSecOfDayLen   = 5
+	fmtMonthAbbr     = 3
+	fmtTwo           = 2
+	fmtMonths        = 12
+	fmtSecsPerHour   = 3600
+	fmtMaxDay        = 31
+	fmtMaxHour       = 24
+	fmtMaxOffsetHour = 14
 )
 
 type fmtTok struct {
@@ -415,11 +416,11 @@ func validateParseModel(toks []fmtTok, k Kind) error {
 }
 
 type fmtParsed struct {
-	year, month, day, hour, min, sec, nanos int
-	yearSet, monthSet, pm, hh12, zoneSet    bool
-	tzSign                                  int
-	tzh, tzm                                int
-	secOfDay                                int
+	year, month, day, hour, min, sec, nanos      int
+	yearSet, monthSet, daySet, pm, hh12, zoneSet bool
+	tzSign                                       int
+	tzh, tzm                                     int
+	secOfDay                                     int
 }
 
 func (p *fmtParsed) time(k Kind, loc *time.Location, now time.Time) time.Time {
@@ -493,6 +494,10 @@ func parseWithModel(s, model string, k Kind, loc *time.Location, now time.Time) 
 	return out, nil
 }
 
+func (p *fmtParsed) zoneInRange() bool {
+	return !p.zoneSet || p.tzh <= fmtMaxOffsetHour && p.tzm < fmtMinutes
+}
+
 // inRange rejects fields that time.Date would silently roll over.
 func (p *fmtParsed) inRange(k Kind, out time.Time) bool {
 	if p.month > fmtMonths || p.day > fmtMaxDay || p.hour > fmtMaxHour || p.min >= fmtMinutes ||
@@ -500,11 +505,19 @@ func (p *fmtParsed) inRange(k Kind, out time.Time) bool {
 		return false
 	}
 
+	if !p.zoneInRange() {
+		return false
+	}
+
 	if k == KindTime {
 		return true
 	}
 
-	return (p.day == 0 || out.Day() == p.day) && (!p.monthSet || int(out.Month()) == p.month)
+	if p.yearSet && p.year < 1 {
+		return false
+	}
+
+	return (!p.daySet || out.Day() == p.day) && (!p.monthSet || int(out.Month()) == p.month)
 }
 
 func takeDigits(s string, pos, n int) (int, int, error) {
@@ -565,6 +578,7 @@ func parseToken(p *fmtParsed, s string, pos int, tok fmtTok, delimited bool) (in
 		pos, err = parseMonthName(p, s, pos, tok.elem == elMON)
 	case "DD":
 		p.day, pos, err = takeDigits(s, pos, fmtTwo)
+		p.daySet = true
 	default:
 		pos, err = parseTimeToken(p, s, pos, tok)
 	}
@@ -771,6 +785,10 @@ func udfCastFormat(a []driver.Value) (driver.Value, error) {
 
 		return formatWithModel(t, sk, model)
 	case sk == KindString && isTemporalKind(tk):
+		if tk != KindTimestamp {
+			loc = time.UTC
+		}
+
 		t, perr := parseWithModel(toStr(a[0]), model, tk, loc, time.Now().UTC())
 		if perr != nil {
 			return nil, perr

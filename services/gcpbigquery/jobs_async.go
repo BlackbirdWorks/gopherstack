@@ -70,6 +70,10 @@ func (b *InMemoryBackend) waitFor(d time.Duration, run *jobRun) {
 func (b *InMemoryBackend) startJob(
 	ctx context.Context, job *Job, kind string, cfg map[string]any, media []byte,
 ) error {
+	if b.baseCtx.Err() != nil {
+		return newErr(http.StatusServiceUnavailable, "backendError", "The BigQuery emulator is shutting down")
+	}
+
 	if b.runs.Len() >= maxActiveJobs {
 		return newErr(http.StatusTooManyRequests, "rateLimitExceeded", "Exceeded rate limits: too many concurrent jobs")
 	}
@@ -152,7 +156,7 @@ func (b *InMemoryBackend) runLocked(
 	b.mu.Lock("jobRun")
 	defer b.mu.Unlock()
 
-	if ctx.Err() != nil || run.cancelled.Load() {
+	if b.jobs[jobKey(job.Project, job.ID)] != job || ctx.Err() != nil || run.cancelled.Load() {
 		return &outcome{Err: stoppedError(ctx, run)}, nil
 	}
 

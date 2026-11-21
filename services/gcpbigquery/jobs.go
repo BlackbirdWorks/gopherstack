@@ -531,7 +531,9 @@ func (b *InMemoryBackend) prepareQuery(
 	defer b.mu.Unlock()
 
 	if prev := b.jobByRequestID(project, reqID); prev != nil {
-		return nil, nil, queryResponse(prev, req), nil
+		run, _ := b.runs.Get(jobKey(project, prev.ID))
+
+		return run, prev, nil, nil
 	}
 
 	loc, _ := req[litLocation].(string)
