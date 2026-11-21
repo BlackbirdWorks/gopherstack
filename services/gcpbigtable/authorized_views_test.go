@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"cloud.google.com/go/bigtable"
+	"cloud.google.com/go/bigtable/admin/apiv2/adminpb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -86,6 +87,8 @@ func TestAuthorizedViewErrors(t *testing.T) {
 	}
 }
 
+const viewName = "projects/" + project + "/instances/" + instance + "/tables/t/authorizedViews/v"
+
 func TestAuthorizedViewLifecycle(t *testing.T) {
 	t.Parallel()
 
@@ -95,10 +98,14 @@ func TestAuthorizedViewLifecycle(t *testing.T) {
 	info, err := e.ac.AuthorizedViewInfo(ctx, "t", "v")
 	require.NoError(t, err)
 
-	sv, ok := info.AuthorizedView.(*bigtable.SubsetViewInfo)
-	require.True(t, ok)
-	assert.Equal(t, [][]byte{[]byte("pub#")}, sv.RowPrefixes)
+	assert.Nil(t, info.AuthorizedView, "an unspecified view is BASIC: no subset_view")
 	assert.Equal(t, bigtable.Protected, info.DeletionProtection)
+
+	full, err := adminpb.NewBigtableTableAdminClient(e.conn).GetAuthorizedView(ctx, &adminpb.GetAuthorizedViewRequest{
+		Name: viewName, View: adminpb.AuthorizedView_FULL,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, [][]byte{[]byte("pub#")}, full.GetSubsetView().GetRowPrefixes())
 
 	names, err := e.ac.AuthorizedViews(ctx, "t")
 	require.NoError(t, err)
@@ -113,7 +120,12 @@ func TestAuthorizedViewLifecycle(t *testing.T) {
 	info, err = e.ac.AuthorizedViewInfo(ctx, "t", "v")
 	require.NoError(t, err)
 	assert.Equal(t, bigtable.Unprotected, info.DeletionProtection)
-	assert.NotNil(t, info.AuthorizedView, "subset_view is untouched by a deletion_protection-only update")
+
+	full, err = adminpb.NewBigtableTableAdminClient(e.conn).GetAuthorizedView(ctx, &adminpb.GetAuthorizedViewRequest{
+		Name: viewName, View: adminpb.AuthorizedView_FULL,
+	})
+	require.NoError(t, err)
+	assert.NotNil(t, full.GetSubsetView(), "subset_view is untouched by a deletion_protection-only update")
 
 	require.NoError(t, e.ac.DeleteAuthorizedView(ctx, "t", "v"))
 
@@ -170,6 +182,8 @@ func TestAuthorizedViewData(t *testing.T) {
 		{"priv#2", "cf1", "a2", codes.PermissionDenied},
 		{"pub#2", "cf1", "b2", codes.PermissionDenied},
 		{"pub#2", "cf2", "a2", codes.PermissionDenied},
+		{"pub#2", "nofam", "a2", codes.PermissionDenied},
+		{"priv#2", "nofam", "a2", codes.PermissionDenied},
 	}
 
 	for _, tt := range applyTests {

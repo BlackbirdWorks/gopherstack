@@ -123,6 +123,10 @@ func (b *InMemoryBackend) ReadRows(req *btpb.ReadRowsRequest) (*ReadResult, erro
 		return nil, err
 	}
 
+	if req.GetMaterializedViewName() != "" {
+		return nil, errUnimplemented("Reading a materialized view needs the GoogleSQL engine, not implemented.")
+	}
+
 	b.mu.Lock("ReadRows")
 	defer b.mu.Unlock()
 
@@ -170,6 +174,10 @@ func (b *InMemoryBackend) ReadRows(req *btpb.ReadRowsRequest) (*ReadResult, erro
 
 // SampleRowKeys returns approximate split points with the cumulative size of the rows before each.
 func (b *InMemoryBackend) SampleRowKeys(req *btpb.SampleRowKeysRequest) ([]*btpb.SampleRowKeysResponse, error) {
+	if req.GetMaterializedViewName() != "" {
+		return nil, errUnimplemented("Reading a materialized view needs the GoogleSQL engine, not implemented.")
+	}
+
 	b.mu.Lock("SampleRowKeys")
 	defer b.mu.Unlock()
 

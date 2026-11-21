@@ -465,6 +465,7 @@ func (b *InMemoryBackend) DeleteInstance(name string) (*emptypb.Empty, error) {
 	}
 
 	delete(b.instances, name)
+	b.wakeStreams()
 
 	return &emptypb.Empty{}, nil
 }

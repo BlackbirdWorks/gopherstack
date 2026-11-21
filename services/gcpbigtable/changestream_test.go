@@ -337,3 +337,43 @@ func TestChangeStreamPersistence(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, "a1", string(got[0].GetRowKey()))
 }
+
+func TestReadChangeStreamEndsWhenStateIsRemoved(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		remove func(t *testing.T, e *env)
+		name   string
+	}{
+		{func(t *testing.T, e *env) {
+			t.Helper()
+			require.NoError(t, e.ac.DeleteTable(t.Context(), "t"))
+		}, "table deleted"},
+		{func(_ *testing.T, e *env) { e.handler.Backend.Reset() }, "backend reset"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e, tbl, dc := streamEnv(t)
+			put(t, tbl, seedCell{"r", "cf", "q", "v", 1000})
+
+			s, err := dc.ReadChangeStream(t.Context(), &btpb.ReadChangeStreamRequest{
+				TableName: tableRes, Partition: wholeTable(),
+				StartFrom:         &btpb.ReadChangeStreamRequest_StartTime{StartTime: timestamppb.New(csNow())},
+				HeartbeatDuration: durationpb.New(time.Hour),
+			})
+			require.NoError(t, err)
+
+			first, err := s.Recv()
+			require.NoError(t, err)
+			require.NotNil(t, first.GetDataChange())
+
+			tt.remove(t, e)
+
+			_, err = s.Recv()
+			assert.Equal(t, codes.NotFound, code(err))
+		})
+	}
+}

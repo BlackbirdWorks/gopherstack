@@ -49,6 +49,11 @@ func (b *InMemoryBackend) recordChange(t *tableRec, key string, muts []*btpb.Mut
 
 	t.changes = t.changes[drop:]
 
+	b.wakeStreams()
+}
+
+// wakeStreams makes every open change stream re-read state; the caller holds the write lock.
+func (b *InMemoryBackend) wakeStreams() {
 	close(b.notify)
 	b.notify = make(chan struct{})
 }
@@ -88,7 +93,7 @@ func partitionOf(sp *btpb.StreamPartition) (partitionRange, error) {
 	switch e := rr.GetEndKey().(type) {
 	case nil:
 	case *btpb.RowRange_EndKeyOpen:
-		p.end, p.open = string(e.EndKeyOpen), true
+		p.end, p.open = string(e.EndKeyOpen), len(e.EndKeyOpen) > 0
 	default:
 		return partitionRange{}, errInvalid("partition.row_range must use end_key_open.")
 	}

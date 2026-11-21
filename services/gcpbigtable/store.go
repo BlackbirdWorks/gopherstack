@@ -131,6 +131,7 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	b.instances = make(map[string]*instRec)
 	b.seq = 0
+	b.wakeStreams()
 	b.mu.Unlock()
 
 	b.ops.Reset()

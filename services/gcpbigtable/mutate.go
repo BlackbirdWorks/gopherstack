@@ -257,11 +257,11 @@ func (b *InMemoryBackend) MutateRow(req *btpb.MutateRowRequest) (*btpb.MutateRow
 		return nil, err
 	}
 
-	if err = t.validateMutations(req.GetMutations()); err != nil {
+	if err = scope.check(req.GetRowKey(), req.GetMutations()); err != nil {
 		return nil, err
 	}
 
-	if err = scope.check(req.GetRowKey(), req.GetMutations()); err != nil {
+	if err = t.validateMutations(req.GetMutations()); err != nil {
 		return nil, err
 	}
 
@@ -295,9 +295,9 @@ func (b *InMemoryBackend) MutateRows(req *btpb.MutateRowsRequest) ([]*btpb.Mutat
 
 		if verr := validateRowKey(e.GetRowKey()); verr != nil {
 			st = status.Convert(verr)
-		} else if verr = t.validateMutations(e.GetMutations()); verr != nil {
-			st = status.Convert(verr)
 		} else if verr = scope.check(e.GetRowKey(), e.GetMutations()); verr != nil {
+			st = status.Convert(verr)
+		} else if verr = t.validateMutations(e.GetMutations()); verr != nil {
 			st = status.Convert(verr)
 		} else {
 			b.applyMutations(t, string(e.GetRowKey()), e.GetMutations())
@@ -334,15 +334,23 @@ func (b *InMemoryBackend) CheckAndMutateRow(
 		return nil, err
 	}
 
-	for _, muts := range [][]*btpb.Mutation{req.GetTrueMutations(), req.GetFalseMutations()} {
-		if len(muts) > 0 {
-			if err = t.validateMutations(muts); err != nil {
-				return nil, err
-			}
+	if err = scope.check(req.GetRowKey(), nil); err != nil {
+		return nil, err
+	}
 
-			if err = scope.check(req.GetRowKey(), muts); err != nil {
-				return nil, err
-			}
+	for _, muts := range [][]*btpb.Mutation{req.GetTrueMutations(), req.GetFalseMutations()} {
+		if err = scope.check(req.GetRowKey(), muts); err != nil {
+			return nil, err
+		}
+	}
+
+	for _, muts := range [][]*btpb.Mutation{req.GetTrueMutations(), req.GetFalseMutations()} {
+		if len(muts) == 0 {
+			continue
+		}
+
+		if err = t.validateMutations(muts); err != nil {
+			return nil, err
 		}
 	}
 

@@ -120,7 +120,7 @@ func (b *InMemoryBackend) CreateAuthorizedView(
 	}, clone(pb))
 }
 
-// GetAuthorizedView returns a view; BASIC omits the subset, FULL (the default) includes it.
+// GetAuthorizedView returns a view; BASIC (the default) omits the subset, FULL includes it.
 func (b *InMemoryBackend) GetAuthorizedView(in *adminpb.GetAuthorizedViewRequest) (*adminpb.AuthorizedView, error) {
 	b.mu.RLock("GetAuthorizedView")
 	defer b.mu.RUnlock()
@@ -130,7 +130,7 @@ func (b *InMemoryBackend) GetAuthorizedView(in *adminpb.GetAuthorizedViewRequest
 		return nil, err
 	}
 
-	return viewView(v.pb, in.GetView(), adminpb.AuthorizedView_FULL), nil
+	return viewView(v.pb, in.GetView(), adminpb.AuthorizedView_BASIC), nil
 }
 
 // ListAuthorizedViews lists the views of a table (NAME_ONLY by default).

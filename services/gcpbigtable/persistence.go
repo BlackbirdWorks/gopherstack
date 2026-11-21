@@ -460,6 +460,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.mu.Lock("Restore")
 	b.instances, b.seq = recs, snap.Seq
+	b.wakeStreams()
 	b.mu.Unlock()
 
 	return nil

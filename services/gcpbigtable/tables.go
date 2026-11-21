@@ -268,6 +268,7 @@ func (b *InMemoryBackend) DeleteTable(name string) (*emptypb.Empty, error) {
 
 	b.retainDeletedLocked(rec, id, t)
 	delete(rec.tables, id)
+	b.wakeStreams()
 	delete(rec.tokens, name)
 
 	return &emptypb.Empty{}, nil

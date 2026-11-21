@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"cloud.google.com/go/bigtable"
+	btpb "cloud.google.com/go/bigtable/apiv2/bigtablepb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -154,4 +155,42 @@ func TestInstanceViewsPersistence(t *testing.T) {
 	mv, err := dst.iac.MaterializedViewInfo(t.Context(), instance, "mv")
 	require.NoError(t, err)
 	assert.Equal(t, "SELECT 2", mv.Query)
+}
+
+func TestMaterializedViewReadsAreUnimplemented(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	dc := btpb.NewBigtableClient(e.conn)
+	mv := "projects/" + project + "/instances/" + instance + "/materializedViews/mv"
+
+	tests := []struct {
+		run  func() error
+		name string
+	}{
+		{name: "read rows", run: func() error {
+			s, err := dc.ReadRows(t.Context(), &btpb.ReadRowsRequest{MaterializedViewName: mv})
+			require.NoError(t, err)
+
+			_, err = s.Recv()
+
+			return err
+		}},
+		{name: "sample row keys", run: func() error {
+			s, err := dc.SampleRowKeys(t.Context(), &btpb.SampleRowKeysRequest{MaterializedViewName: mv})
+			require.NoError(t, err)
+
+			_, err = s.Recv()
+
+			return err
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, codes.Unimplemented, code(tt.run()))
+		})
+	}
 }
