@@ -9,10 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 74 (74 ok) |
 | Feature families | 15 (15 ok) |
-| Known gaps | none |
+| Known gaps | 2 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 2 |
 | Resource leaks | bugs found |
+
+### Known gaps
+
+- StartDataSourceIntrospection/GetDataSourceIntrospection complete SUCCESS with an empty models list: the table and column content of an RDS Data API data source is not introspected from services/rdsdata.
+- The delta table ds_sk joins the item key attribute values in name order because the DynamoDB backend interface exposes no key schema, so the hash/range order of a composite key is not preserved (uniqueness holds).
 
 ### Structural gaps
 
