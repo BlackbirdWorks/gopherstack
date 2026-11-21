@@ -1,9 +1,11 @@
 package azurearm
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -76,6 +78,30 @@ func (c *wsConn) Close() error {
 	return c.ReadWriteCloser.Close()
 }
 
+// wsHijackWriter closes the client connection when ctx ends: ReverseProxy only closes the backend leg, so a
+// half-closed backend would otherwise leave the session blocked on a silent client.
+type wsHijackWriter struct {
+	http.ResponseWriter
+
+	ctx context.Context //nolint:containedctx // scoped to one hijacked session
+}
+
+func (w wsHijackWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func (w wsHijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	conn, brw, err := http.NewResponseController(w.ResponseWriter).Hijack()
+	if err != nil {
+		return nil, nil, err //nolint:wrapcheck // ReverseProxy matches http.ErrNotSupported
+	}
+
+	go func() {
+		<-w.ctx.Done()
+		_ = conn.Close()
+	}()
+
+	return conn, brw, nil
+}
+
 // proxyWebSocket passes a WebSocket handshake, with the policies already applied to it, to the backend and then
 // copies frames both ways until either side closes.
 func (g *gwState) proxyWebSocket(u *url.URL) {
@@ -120,7 +146,7 @@ func (g *gwState) proxyWebSocket(u *url.URL) {
 		ErrorHandler: func(_ http.ResponseWriter, _ *http.Request, err error) { g.upstreamError(err) },
 	}
 
-	rp.ServeHTTP(g.w, g.r.WithContext(ctx))
+	rp.ServeHTTP(wsHijackWriter{ResponseWriter: g.w, ctx: ctx}, g.r.WithContext(ctx))
 
 	if !g.errored {
 		g.wrote = true

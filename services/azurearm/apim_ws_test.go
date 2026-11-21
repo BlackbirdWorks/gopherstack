@@ -2,6 +2,8 @@ package azurearm_test
 
 import (
 	"crypto/tls"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -170,6 +172,7 @@ func TestAPIMGateway_WebSocket(t *testing.T) {
 		require.NoError(t, err)
 
 		defer resp.Body.Close()
+		defer c.Close()
 
 		<-be.seen
 		<-be.paths
@@ -202,4 +205,89 @@ func TestAPIMGateway_WebSocketProtocols(t *testing.T) {
 	_, resp, err := e.wsDial(t, "/wsonly", nil)
 	require.Error(t, err)
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode, "the API does not offer wss")
+}
+
+func newHalfCloseWSBackend(t *testing.T) *httptest.Server {
+	t.Helper()
+
+	up := websocket.Upgrader{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := up.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+
+		defer c.Close()
+
+		if tc, ok := c.UnderlyingConn().(*net.TCPConn); ok {
+			_ = tc.CloseWrite()
+		}
+
+		for {
+			if _, _, rerr := c.ReadMessage(); rerr != nil {
+				return
+			}
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	return srv
+}
+
+func TestAPIMGateway_WebSocketTeardown(t *testing.T) {
+	t.Parallel()
+
+	secret := map[string]string{"X-Token": "secret"}
+
+	tests := []struct {
+		stop     func(*gwEnv)
+		name     string
+		halfOpen bool
+	}{
+		{name: "close", stop: func(e *gwEnv) { e.prov.Close() }},
+		{name: "reset", stop: func(e *gwEnv) { e.prov.Reset() }},
+		{name: "close with half-closed backend", stop: func(e *gwEnv) { e.prov.Close() }, halfOpen: true},
+		{name: "reset with half-closed backend", stop: func(e *gwEnv) { e.prov.Reset() }, halfOpen: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var e *gwEnv
+
+			if tt.halfOpen {
+				e = newGWEnv(t)
+				srv := newHalfCloseWSBackend(t)
+				e.wsAPI(t, "ws", `"https","wss"`, "ws"+strings.TrimPrefix(srv.URL, "http"))
+			} else {
+				e, _ = newWSEnv(t)
+			}
+
+			c, resp, err := e.wsDial(t, "/ws", secret)
+			require.NoError(t, err)
+
+			defer resp.Body.Close()
+			defer c.Close()
+
+			if !tt.halfOpen {
+				require.NoError(t, c.WriteMessage(websocket.TextMessage, []byte("hello")))
+
+				_, _, err = c.ReadMessage()
+				require.NoError(t, err)
+			}
+
+			start := time.Now()
+			tt.stop(e)
+			assert.Less(t, time.Since(start), 5*time.Second, "teardown ended the session, not its wait bound")
+
+			require.NoError(t, c.SetReadDeadline(time.Now().Add(5*time.Second)))
+
+			_, _, err = c.ReadMessage()
+			require.Error(t, err)
+
+			var ne net.Error
+			assert.False(t, errors.As(err, &ne) && ne.Timeout(), "the gateway must end the client side: %v", err)
+		})
+	}
 }
