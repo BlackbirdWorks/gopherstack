@@ -25,6 +25,7 @@ import (
 const (
 	v1Projects      = "/v1/projects"
 	v1Organizations = "/v1/organizations"
+	v1ProjectOps    = "/v1/operations/cp."
 	maxBody         = 1 << 20
 	v1Page          = 500
 	decimalBase     = 10
@@ -95,6 +96,10 @@ func matchV1(r *http.Request) bool {
 	p := r.URL.Path
 	if strings.Contains(p, "/services") {
 		return false
+	}
+
+	if r.Method == http.MethodGet && strings.HasPrefix(p, v1ProjectOps) {
+		return true
 	}
 
 	return p == v1Liens || strings.HasPrefix(p, v1Liens+"/") || p == v1Projects ||
@@ -211,6 +216,14 @@ var v1Route = regexp.MustCompile(`^(projects|organizations)(?:/([^/:]+))?(/billi
 func (h v1Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == v1Liens || strings.HasPrefix(r.URL.Path, v1Liens+"/") {
 		if err := h.liens(w, r); err != nil {
+			writeV1Error(w, err)
+		}
+
+		return
+	}
+
+	if strings.HasPrefix(r.URL.Path, v1ProjectOps) {
+		if err := h.projectOperation(w, strings.TrimPrefix(r.URL.Path, "/v1/")); err != nil {
 			writeV1Error(w, err)
 		}
 
@@ -338,13 +351,27 @@ func (h v1Handler) createProject(w http.ResponseWriter, r *http.Request) error {
 
 const v1ProjectTypeURL = "type.googleapis.com/google.cloudresourcemanager.v1.Project"
 
+func (h v1Handler) projectOperation(w http.ResponseWriter, name string) error {
+	op, ok := h.b.lro.Lookup(name)
+	if !ok {
+		return status.Errorf(codes.NotFound, "operation %q not found", name)
+	}
+
+	return writeV1ProjectOperation(w, op)
+}
+
 // writeV1ProjectOperation answers a v1 create with the v1 Project in the Operation response.
 func writeV1ProjectOperation(w http.ResponseWriter, op *longrunningpb.Operation) error {
+	resp := op.GetResponse()
+	if resp == nil {
+		writeV1Proto(w, op)
+
+		return nil
+	}
+
 	p := &resourcemanagerpb.Project{}
-	if resp := op.GetResponse(); resp != nil {
-		if err := resp.UnmarshalTo(p); err != nil {
-			return errInvalid("decode project: %v", err)
-		}
+	if err := resp.UnmarshalTo(p); err != nil {
+		return errInvalid("decode project: %v", err)
 	}
 
 	shell, ok := proto.Clone(op).(*longrunningpb.Operation)

@@ -3,8 +3,13 @@ package connect_test
 import (
 	"bytes"
 	"log/slog"
+	"net/http"
+	"strings"
+	"sync"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sdk "github.com/aws/aws-sdk-go-v2/service/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -60,6 +65,85 @@ func TestAttachedFileApprovalLogsWouldScan(t *testing.T) {
 			assert.Equal(t, "APPROVED", out.FileStatus)
 			assert.Contains(t, buf.String(), "would scan attached file for viruses")
 			assert.Contains(t, buf.String(), out.FileID)
+		})
+	}
+}
+
+type lockedBuf struct {
+	buf bytes.Buffer
+	mu  sync.Mutex
+}
+
+func (l *lockedBuf) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return l.buf.Write(p)
+}
+
+func (l *lockedBuf) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return l.buf.String()
+}
+
+func TestCompleteAttachedFileUploadLogsWouldScan(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		s3      bool
+		upload  bool
+		wantLog bool
+	}{
+		{name: "local approved", upload: true, wantLog: true},
+		{name: "local not uploaded"},
+		{name: "s3 approved", s3: true, upload: true, wantLog: true},
+		{name: "s3 not uploaded", s3: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			logs := &lockedBuf{}
+			e := newContactEnvOn(t, newLoggedFixture(t, logs))
+			store := newFakeAttachmentStore()
+
+			if tt.s3 {
+				e.f.backend.SetResolvers(store)
+			}
+
+			resource := e.contactARN(t, e.task(t))
+			start := e.startUpload(t, resource, "a.txt", int64(len(attachedText)))
+
+			if tt.upload && tt.s3 {
+				c := store.last()
+				require.NoError(t, store.PutObject(t.Context(), c.bucket, c.key, []byte(attachedText)))
+			}
+
+			if tt.upload && !tt.s3 {
+				url := aws.ToString(start.UploadUrlMetadata.Url)
+				status, _, _ := httpDo(t, http.MethodPut, url, []byte(attachedText))
+				require.Equal(t, http.StatusOK, status)
+			}
+
+			_, err := e.f.client.CompleteAttachedFileUpload(t.Context(), &sdk.CompleteAttachedFileUploadInput{
+				InstanceId: aws.String(e.inst), FileId: start.FileId, AssociatedResourceArn: aws.String(resource),
+			})
+
+			out := logs.String()
+			if !tt.wantLog {
+				require.Error(t, err)
+				assert.NotContains(t, out, "would scan")
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, 1, strings.Count(out, "would scan attached file for viruses"))
+			assert.Contains(t, out, aws.ToString(start.FileId))
 		})
 	}
 }

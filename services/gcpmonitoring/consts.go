@@ -18,6 +18,8 @@ const (
 const (
 	typeGCEInstance      = "gce_instance"
 	typeK8sContainer     = "k8s_container"
+	typeIstioCanonical   = "istio_canonical_service"
+	labelMeshUID         = "mesh_uid"
 	typeCloudRunRevision = "cloud_run_revision"
 	labelResponseCode    = "response_code"
 	scopeMetricLabels    = "metric.labels"

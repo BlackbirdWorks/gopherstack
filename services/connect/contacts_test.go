@@ -23,7 +23,12 @@ type contactEnv struct {
 func newContactEnv(t *testing.T) *contactEnv {
 	t.Helper()
 
-	f := newFixture(t)
+	return newContactEnvOn(t, newFixture(t))
+}
+
+func newContactEnvOn(t *testing.T, f *fixture) *contactEnv {
+	t.Helper()
+
 	inst := f.newInstance(t, "contacts")
 	queue, _, profile := f.defaultQueue(t, inst)
 

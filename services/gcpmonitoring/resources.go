@@ -72,6 +72,8 @@ var resourceCatalog = []resourceDef{
 		[]string{labelProject, labelLocation, "namespace", "node_id"}},
 	{"generic_task", "Generic Task", "A generic task.",
 		[]string{labelProject, labelLocation, "namespace", "job", "task_id"}},
+	{typeIstioCanonical, "Istio Canonical Service", "An Istio canonical service.",
+		[]string{labelProject, labelLocation, labelMeshUID, "namespace_name", "canonical_service_name"}},
 	{typeUptimeURL, "Uptime Check URL", "A URL checked by an uptime check.", []string{labelProject, labelHost}},
 	{"project", "Project", "A Google Cloud project.", []string{labelProject}},
 }

@@ -72,4 +72,4 @@ accounts:sendVerificationCode and accounts:signInWithPhoneNumber follow docs.clo
 - Client limitation: Admin SDKs in production mode fetch signing keys from googleapis.com and cannot be redirected; only FIREBASE_AUTH_EMULATOR_HOST mode verifies tokens.
 - reCAPTCHA Enterprise assessments are not made: a present token satisfies an ENFORCE state and nothing is scored.
 
-- API keys: a client call must carry a key, and any key is accepted; one other than the emulator's own placeholder is logged as "would check the API key restrictions (referrer, IP, app and API target)" because the API Keys service that holds the restrictions is not run.
+- API keys: a client call must carry a key, and any key is accepted; one other than the emulator's own placeholder is logged once per handler as "would check the API key restrictions (referrer, IP, app and API target)" because the API Keys service that holds the restrictions is not run.

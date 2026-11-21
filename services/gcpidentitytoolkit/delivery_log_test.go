@@ -45,6 +45,21 @@ func TestUndeliverableMessagesAreLogged(t *testing.T) {
 	}
 }
 
+func TestAPIKeyRestrictionNoticeIsLoggedOnce(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+
+	for range 3 {
+		r := e.do(t, "POST", "/v1/projects/"+e.project+"/accounts:signUp?key=AIzaSecretKeyValue", "", map[string]any{})
+		require.Equal(t, 200, r.status, r.body)
+	}
+
+	out := e.logs.String()
+	assert.Equal(t, 1, strings.Count(out, "would check the API key restrictions"))
+	assert.NotContains(t, out, "AIzaSecretKeyValue")
+}
+
 func TestAPIKeyRestrictionsAreLogged(t *testing.T) {
 	t.Parallel()
 

@@ -1,7 +1,15 @@
 package gcpresourcemanager_test
 
 import (
+	"encoding/json/v2"
+	"net/http"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	crm "google.golang.org/api/cloudresourcemanager/v1"
+	"google.golang.org/api/googleapi"
+	"google.golang.org/api/option"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcprest/resttest"
 )
@@ -228,4 +236,54 @@ func TestServiceUsageRESTIsNotShadowedByV1(t *testing.T) {
 			Contains: []string{`"state":"DISABLED"`},
 		},
 	})
+}
+
+func TestV1ProjectOperationRead(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		opName func(created string) string
+		name   string
+		code   int
+	}{
+		{func(c string) string { return c }, "created", 0},
+		{func(string) string { return "operations/cp.0" }, "missing", http.StatusNotFound},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t)
+			svc, err := crm.NewService(
+				t.Context(), option.WithEndpoint("http://"+e.addr), option.WithoutAuthentication(),
+			)
+			require.NoError(t, err)
+
+			newProj := &crm.Project{ProjectId: "v1-op-proj", Name: "Op project"}
+			created, err := svc.Projects.Create(newProj).Context(t.Context()).Do()
+			require.NoError(t, err)
+
+			op, err := svc.Operations.Get(tt.opName(created.Name)).Context(t.Context()).Do()
+			if tt.code != 0 {
+				var gerr *googleapi.Error
+
+				require.ErrorAs(t, err, &gerr)
+				assert.Equal(t, tt.code, gerr.Code)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.True(t, op.Done)
+
+			var p crm.Project
+
+			require.NoError(t, json.Unmarshal(op.Response, &p))
+			assert.Equal(t, "v1-op-proj", p.ProjectId)
+			assert.Equal(t, "ACTIVE", p.LifecycleState)
+			assert.NotZero(t, p.ProjectNumber)
+			assert.Equal(t, created.Name, op.Name)
+		})
+	}
 }
