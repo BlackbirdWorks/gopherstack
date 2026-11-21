@@ -73,7 +73,7 @@ func apimKinds() []apimKind {
 
 func apiKind() apimKind {
 	return apimKind{
-		typ: apimCApis, norm: normAPI, del: delAPI,
+		typ: apimCApis, norm: normAPI, del: delAPI, view: dropSecrets(apimRevCreated, apimRevUpdated),
 		store: func(s *apimService) map[string]*apimEntity { return s.APIs },
 	}
 }
@@ -94,7 +94,7 @@ func productKind() apimKind {
 
 func subKind() apimKind {
 	return apimKind{
-		typ: sbSubscriptionsType, norm: normSubscription, view: viewSubscription,
+		typ: sbSubscriptionsType, norm: normSubscription, view: viewSubscription, del: delBuiltinSub,
 		store: func(s *apimService) map[string]*apimEntity { return s.Subs },
 	}
 }
@@ -198,15 +198,7 @@ func (p *APIMProvider) route(s *apimService, req apimReq) (apimResp, error) {
 	case apimCPolicies:
 		return p.scoped(s, req, policyKind(apimCPolicies), "", 0)
 	case apimCProducts:
-		if len(r) >= apimProductAPIsLen && strings.EqualFold(r[2], apimCApis) {
-			return p.productAPIs(s, req)
-		}
-
-		if len(r) >= apimLinkMinSegs && strings.EqualFold(r[2], apimGroupsType) {
-			return p.linked(s, req, apimProductGroupLink())
-		}
-
-		return p.collection(s, req, productKind(), "", 0)
+		return p.routeProduct(s, req)
 	case sbSubscriptionsType:
 		return p.collection(s, req, subKind(), "", 0)
 	case "namedvalues":
@@ -243,8 +235,14 @@ func (p *APIMProvider) routeAPI(s *apimService, req apimReq) (apimResp, error) {
 		)
 	case strings.EqualFold(r[2], nsOperations):
 		return p.collection(s, req, opKind(), r[1], apimAPIChildIdx)
+	case strings.EqualFold(r[2], "revisions") && len(r) == apimAPIChildLen:
+		return p.apiRevisionList(s, req)
 	case strings.EqualFold(r[2], apimCPolicies):
 		return p.scoped(s, req, policyKind("apis/policies"), "apis/"+r[1], apimAPIChildIdx)
+	}
+
+	if k, ok := apiChildKind(r[2]); ok {
+		return p.collection(s, req, k, r[1], apimAPIChildIdx)
 	}
 
 	return p.collection(s, req, apiKind(), "", 0)
@@ -312,6 +310,12 @@ func (p *APIMProvider) scoped(s *apimService, req apimReq, k apimKind, scope str
 }
 
 func (p *APIMProvider) policyScopeExists(s *apimService, r []string) error {
+	if len(r) >= 2 && strings.EqualFold(r[0], apimCProducts) {
+		if _, ok := s.Products[entKey("", r[1])]; !ok {
+			return apimNotFound(apimScopeProduct)
+		}
+	}
+
 	if len(r) >= 2 && strings.EqualFold(r[0], apimCApis) {
 		if _, ok := s.APIs[entKey("", r[1])]; !ok {
 			return apimNotFound(apimCAPI)
@@ -599,4 +603,33 @@ func withProp(props map[string]any, k string, v any) map[string]any {
 	out[k] = v
 
 	return out
+}
+
+func (p *APIMProvider) routeProduct(s *apimService, req apimReq) (apimResp, error) {
+	r := req.Rest
+
+	switch {
+	case len(r) >= apimProductAPIsLen && strings.EqualFold(r[2], apimCApis):
+		return p.productAPIs(s, req)
+	case len(r) >= apimLinkMinSegs && strings.EqualFold(r[2], apimGroupsType):
+		return p.linked(s, req, apimProductGroupLink())
+	case len(r) >= apimLinkMinSegs && strings.EqualFold(r[2], apimCPolicies):
+		return p.scoped(s, req, policyKind("products/policies"), "products/"+r[1], apimProductPolicyIdx)
+	}
+
+	return p.collection(s, req, productKind(), "", 0)
+}
+
+// apiChildKind maps the collection segment under an API to its entity kind.
+func apiChildKind(seg string) (apimKind, bool) {
+	switch strings.ToLower(seg) {
+	case apimDiagnosticsType:
+		return apimMgmtKind(apimAPIDiagType), true
+	case "schemas":
+		return apimMgmtKind(apimAPISchemasType), true
+	case "releases":
+		return apimMgmtKind(apimAPIReleasesType), true
+	}
+
+	return apimKind{}, false
 }

@@ -50,8 +50,8 @@ func TestAPIMPolicy_Validation(t *testing.T) {
 		{name: "two roots", doc: "<policies /><policies />", wantErr: "single root"},
 		{name: "unknown section", doc: "<policies><sideways /></policies>", wantErr: "'sideways'"},
 		{
-			name: "unsupported policy", doc: policyDoc(`<validate-jwt header-name="Authorization" />`, "", ""),
-			wantErr: "Error in element 'validate-jwt' on line 1",
+			name: "unsupported policy", doc: policyDoc(`<json-to-xml apply="always" />`, "", ""),
+			wantErr: "Error in element 'json-to-xml' on line 1",
 		},
 		{
 			name:    "unsupported nested",
@@ -75,9 +75,13 @@ func TestAPIMPolicy_Validation(t *testing.T) {
 			wantErr: "exists-action",
 		},
 		{
-			name:    "expression attribute",
-			doc:     policyDoc(`<set-header name="a"><value>@(context.Request.Url)</value></set-header>`, "", ""),
-			wantErr: "expressions",
+			name: "expression attribute",
+			doc: policyDoc(
+				`<set-header name="a"><value>@(context.Request.Body.As<string>())</value></set-header>`,
+				"",
+				"",
+			),
+			wantErr: "context.Request.Body",
 		},
 		{name: "rate zero", doc: policyDoc(`<rate-limit calls="0" renewal-period="10" />`, "", ""), wantErr: "'calls'"},
 		{

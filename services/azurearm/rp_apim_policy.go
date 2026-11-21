@@ -99,7 +99,7 @@ func (pp *polParser) start(d *xml.Decoder, t xml.StartElement) error {
 }
 
 func parsePolicy(doc, scope string) (*polNode, error) {
-	d := xml.NewDecoder(strings.NewReader(doc))
+	d := xml.NewDecoder(strings.NewReader(apimEscapeExpressions(doc)))
 	pp := &polParser{scope: scope}
 
 	for {
@@ -156,7 +156,7 @@ func polSpecOf(name string) (polSpec, bool) {
 	case apimCSetQueryParameter:
 		return polSpec{
 			attrs: []string{fieldName, apimCExistsAction}, required: []string{fieldName}, kids: []string{fieldValue},
-			sections: []string{polInbound, polBackend, polOnError},
+			sections: []string{polInbound, polBackend},
 		}, true
 	case "rewrite-uri":
 		return polSpec{
@@ -165,12 +165,13 @@ func polSpecOf(name string) (polSpec, bool) {
 		}, true
 	case apimCReturnResponse:
 		return polSpec{
-			attrs: []string{"response-variable-name"}, kids: []string{apimCSetStatus, apimCSetHeader, apimCSetBody},
+			attrs: []string{apimCRespVar}, kids: []string{apimCSetStatus, apimCSetHeader, apimCSetBody},
 			sections: allSections(),
 		}, true
 	case apimCMockResponse:
 		return polSpec{
-			attrs: []string{apimCStatusCodeX, "content-type"}, sections: []string{polInbound, polOutbound},
+			attrs:    []string{apimCStatusCodeX, "content-type"},
+			sections: []string{polInbound, polOutbound, polOnError},
 		}, true
 	case apimCRateLimit:
 		return polSpec{
@@ -210,7 +211,7 @@ func polSpecOf(name string) (polSpec, bool) {
 		}, true
 	}
 
-	return polSpec{}, false
+	return extPolSpec(name)
 }
 
 func polNestedSpec(name string) (polSpec, bool) {
@@ -237,7 +238,7 @@ func polNestedSpec(name string) (polSpec, bool) {
 		return polSpec{kids: []string{apimCHeader}}, true
 	}
 
-	return polSpec{}, false
+	return extNestedSpec(name)
 }
 
 // validatePolicy checks a policy document against the supported subset and the service's named values and
@@ -285,19 +286,72 @@ func validateStatement(s *apimService, n *polNode, section string) error {
 		return polErr(n, "The policy element is not supported by this API Management gateway.")
 	}
 
-	if !slices.Contains(spec.sections, section) {
+	if section != apimSectionAny && !slices.Contains(spec.sections, section) {
 		return polErr(n, "The policy element is not allowed in the %s section.", section)
-	}
-
-	if section == polOnError && n.Name != polBase {
-		return polErr(n, "Policies in the on-error section are not executed by this API Management gateway.")
 	}
 
 	if n.Name == apimCRateLimit && n.Scope == "svc|" {
 		return polErr(n, "The rate-limit policy can be used at the product, API and operation scopes only.")
 	}
 
+	if n.Name == apimCChoose {
+		return validateChoose(s, n, section)
+	}
+
 	return validateElement(s, n, spec)
+}
+
+func validateChoose(s *apimService, n *polNode, section string) error {
+	if err := validateAttrs(s, n, polSpec{}); err != nil {
+		return err
+	}
+
+	whens := 0
+
+	for i, k := range n.Kids {
+		switch {
+		case k.Name == apimCWhen && whens == i:
+			whens++
+		case k.Name == apimCOtherwise && i == len(n.Kids)-1 && whens > 0:
+		default:
+			return polErr(k, "The choose policy takes when elements followed by at most one otherwise element.")
+		}
+
+		if err := validateChooseBranch(s, k, section); err != nil {
+			return err
+		}
+	}
+
+	if whens == 0 {
+		return polErr(n, "The choose policy needs at least one when element.")
+	}
+
+	return nil
+}
+
+func validateChooseBranch(s *apimService, k *polNode, section string) error {
+	ks, _ := polNestedSpec(k.Name)
+	if err := validateAttrs(s, k, ks); err != nil {
+		return err
+	}
+
+	if c, has := k.Attrs[apimCCondition]; has {
+		if _, expr, _ := apimIsExprText(c); !expr && c != cmpTrue && c != apimCFalse {
+			return polErr(k, "The condition must be a boolean expression or constant.")
+		}
+	}
+
+	for _, st := range k.Kids {
+		if st.Name == polBase {
+			return polErr(st, "The base element is not allowed inside choose.")
+		}
+
+		if err := validateStatement(s, st, section); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func validateElement(s *apimService, n *polNode, spec polSpec) error {
@@ -329,7 +383,7 @@ func validateElement(s *apimService, n *polNode, spec polSpec) error {
 
 func validateAttrs(s *apimService, n *polNode, spec polSpec) error {
 	for name, v := range n.Attrs {
-		if !slices.Contains(spec.attrs, name) {
+		if !slices.Contains(spec.attrs, name) && name != apimCID {
 			return polErr(n, "The attribute '%s' is not supported.", name)
 		}
 
@@ -356,8 +410,14 @@ func validateText(s *apimService, n *polNode) error {
 }
 
 func checkPolicyText(s *apimService, n *polNode, v string) error {
-	if t := strings.TrimSpace(v); strings.HasPrefix(t, "@(") || strings.HasPrefix(t, "@{") {
-		return polErr(n, "Policy expressions are not supported.")
+	if body, expr, multi := apimIsExprText(v); expr {
+		if _, err := apimParseExpr(body); err != nil {
+			return polErr(n, "The policy expression is not supported by this API Management gateway: %v.", err)
+		}
+
+		return nil
+	} else if multi {
+		return polErr(n, "Multi-statement policy expressions (@{...}) are not supported.")
 	}
 
 	for _, m := range apimNamedRefRE.FindAllStringSubmatch(v, -1) {
@@ -419,7 +479,7 @@ func validateSemantics(s *apimService, n *polNode) error {
 		return validateBackendTarget(s, n)
 	}
 
-	return nil
+	return validateExt(s, n)
 }
 
 func validateCheckHeader(n *polNode) error {
@@ -484,11 +544,11 @@ func validateBackendTarget(s *apimService, n *polNode) error {
 func normPolicy(s *apimService, parent, _ string, in map[string]any, _ *apimEntity) (map[string]any, error) {
 	format := strOf(in, apimCFormat)
 	if format == "" {
-		format = "xml"
+		format = apimFormatXML
 	}
 
 	switch format {
-	case "xml", apimCRawxml:
+	case apimFormatXML, apimCRawxml:
 	case "xml-link", "rawxml-link":
 		return nil, apimInvalid("Policies cannot be imported from a link; supply the document inline.")
 	default:

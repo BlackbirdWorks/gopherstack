@@ -50,6 +50,20 @@ func apimGenericKinds() []apimKind {
 		}}
 	}
 
+	kinds := apimGenericKindList(mk)
+	for i := range kinds {
+		if kinds[i].typ == apimGroupsType {
+			kinds[i].del = delSystemGroup
+		}
+	}
+
+	return append(kinds, apimMgmtKinds()...)
+}
+
+func apimGenericKindList(
+	mk func(string, func(*apimService, string, string, map[string]any, *apimEntity) (map[string]any, error),
+		func(map[string]any) map[string]any) apimKind,
+) []apimKind {
 	return []apimKind{
 		mk(apimTagsType, normTag, nil), mk(apimGroupsType, normGroup, nil),
 		mk(apimLoggersType, normLogger, viewLogger), mk(apimCachesType, normCache, nil),
@@ -123,11 +137,11 @@ func normGroup(_ *apimService, _, _ string, in map[string]any, prev *apimEntity)
 		out[fieldType] = prev.Props[fieldType]
 	case typ == "":
 		out[fieldType] = apimGroupCustom
-	case typ != apimGroupCustom && typ != "external":
+	case typ != apimGroupCustom && typ != apimCExternal:
 		return nil, apimInvalid("The group type '%s' is not valid; allowed values are custom and external.", typ)
 	}
 
-	if strOf(out, "externalId") != "" && strOf(out, fieldType) != "external" {
+	if strOf(out, "externalId") != "" && strOf(out, fieldType) != apimCExternal {
 		return nil, apimInvalid("The externalId applies to external groups only.")
 	}
 
@@ -349,7 +363,7 @@ func normVersionSet(_ *apimService, _, _ string, in map[string]any, _ *apimEntit
 	return out, nil
 }
 
-func normFragment(_ *apimService, _, _ string, in map[string]any, _ *apimEntity) (map[string]any, error) {
+func normFragment(s *apimService, _, _ string, in map[string]any, _ *apimEntity) (map[string]any, error) {
 	out := cloneAnyMap(in)
 
 	format := strOf(out, apimCFormat)
@@ -368,6 +382,10 @@ func normFragment(_ *apimService, _, _ string, in map[string]any, _ *apimEntity)
 
 	if err = wellFormedXML(doc); err != nil {
 		return nil, apimInvalid("The policy fragment is not well-formed XML: %v.", err)
+	}
+
+	if err = validateFragment(s, doc); err != nil {
+		return nil, err
 	}
 
 	out[apimCFormat] = format
