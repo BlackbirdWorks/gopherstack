@@ -282,7 +282,7 @@ func TestQuery_TimeSeriesFunctions(t *testing.T) {
 			"[2022-06-17 00:00:00.000000000, 2022-06-17 00:00:15.000000000, 2022-06-17 00:00:30.000000000]",
 			"array(TIMESTAMP)",
 		},
-		{"sequence integers", `SELECT sequence(1, 5, 2)`, "[1, 3, 5]", "array(BIGINT)"},
+		{"sequence integers", `SELECT sequence(1, 5, 2)`, "[1, 3, 5]", "array(INTEGER)"},
 		{
 			"filter timeseries",
 			`WITH v AS (SELECT ` + series + ` AS cpu ` + fromT + `) SELECT filter(cpu, x -> x.value > 15.0) FROM v`,

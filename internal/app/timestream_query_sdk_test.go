@@ -573,3 +573,70 @@ func TestTimestreamQuery_SDK_ScheduledQueryWritesTarget(t *testing.T) {
 	assert.EqualValues(t, 2, desc.ScheduledQuery.LastRunSummary.ExecutionStats.RecordsIngested)
 	assert.EqualValues(t, 2, desc.ScheduledQuery.LastRunSummary.ExecutionStats.QueryResultRows)
 }
+
+func TestTimestreamQuery_SDK_InsightsUsePartitionKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		key     twtypes.PartitionKey
+		name    string
+		query   string
+		note    string
+		wantKey []string
+		wantCov float64
+	}{
+		{
+			name:    "dimension key",
+			key:     twtypes.PartitionKey{Type: twtypes.PartitionKeyTypeDimension, Name: aws.String("host")},
+			query:   "SELECT * FROM pkdb.m WHERE host = 'h1'",
+			wantKey: []string{"host"}, wantCov: 0.5, note: "constrained",
+		},
+		{
+			name:    "measure key",
+			key:     twtypes.PartitionKey{Type: twtypes.PartitionKeyTypeMeasure},
+			query:   "SELECT * FROM pkdb.m WHERE measure_name = 'cpu'",
+			wantKey: []string{"measure_name"}, wantCov: 1, note: "all measures are cpu",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			t0 := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
+			env := newTimestreamEnv(t, t0)
+
+			_, err := env.write.CreateDatabase(
+				t.Context(),
+				&twsdk.CreateDatabaseInput{DatabaseName: aws.String("pkdb")},
+			)
+			require.NoError(t, err)
+
+			_, err = env.write.CreateTable(t.Context(), &twsdk.CreateTableInput{
+				DatabaseName: aws.String("pkdb"), TableName: aws.String("m"),
+				Schema: &twtypes.Schema{CompositePartitionKey: []twtypes.PartitionKey{tc.key}},
+			})
+			require.NoError(t, err)
+
+			_, err = env.write.WriteRecords(t.Context(), &twsdk.WriteRecordsInput{
+				DatabaseName: aws.String("pkdb"), TableName: aws.String("m"),
+				Records: []twtypes.Record{
+					single("cpu", "1", twtypes.MeasureValueTypeDouble, t0.Add(-time.Minute), dim("host", "h1")),
+					single("cpu", "2", twtypes.MeasureValueTypeDouble, t0.Add(-time.Minute), dim("host", "h2")),
+				},
+			})
+			require.NoError(t, err)
+
+			out, err := env.query.Query(t.Context(), &tqsdk.QueryInput{
+				QueryString:   aws.String(tc.query),
+				QueryInsights: &tqtypes.QueryInsights{Mode: tqtypes.QueryInsightsModeEnabledWithRateControl},
+			})
+			require.NoError(t, err)
+			require.NotNil(t, out.QueryInsightsResponse.QuerySpatialCoverage)
+
+			cov := out.QueryInsightsResponse.QuerySpatialCoverage.Max
+			assert.Equal(t, tc.wantKey, cov.PartitionKey)
+			assert.InDelta(t, tc.wantCov, cov.Value, 0.001, tc.note)
+		})
+	}
+}

@@ -24,6 +24,7 @@ var (
 	reBin          = regexp.MustCompile(`(?i)\bbin\(`)
 	reNow          = regexp.MustCompile(`(?i)\bnow\(\s*\)|\bcurrent_timestamp\b(\s*\(\s*\))?|\blocaltimestamp\b`)
 	reDate         = regexp.MustCompile(`(?i)\bcurrent_date\b`)
+	reTimeOfDay    = regexp.MustCompile(`(?i)\bcurrent_time\b(\s*\(\s*\))?|\blocaltime\b(\s*\(\s*\))?`)
 	reTimezone     = regexp.MustCompile(`(?i)\bcurrent_timezone\(\s*\)`)
 )
 
@@ -94,18 +95,19 @@ func rewriteTimestream(q string, now time.Time, vars map[string]string) string {
 
 	nowLit := "'" + formatTS(now) + "'"
 	dateLit := "'" + now.UTC().Format("2006-01-02") + "'"
+	timeLit := "'" + now.UTC().Format("15:04:05.000000000") + "'"
 
 	var b strings.Builder
 
 	for len(q) > 0 {
 		i := strings.IndexAny(q, `'"`)
 		if i < 0 {
-			b.WriteString(rewriteCode(q, nowLit, dateLit, vars))
+			b.WriteString(rewriteCode(q, nowLit, dateLit, timeLit, vars))
 
 			break
 		}
 
-		b.WriteString(rewriteCode(q[:i], nowLit, dateLit, vars))
+		b.WriteString(rewriteCode(q[:i], nowLit, dateLit, timeLit, vars))
 
 		end := closingQuote(q, i)
 		b.WriteString(q[i:end])
@@ -136,7 +138,7 @@ func closingQuote(q string, i int) int {
 	return len(q)
 }
 
-func rewriteCode(seg, nowLit, dateLit string, vars map[string]string) string {
+func rewriteCode(seg, nowLit, dateLit, timeLit string, vars map[string]string) string {
 	for name, v := range vars {
 		seg = strings.ReplaceAll(seg, name, "'"+v+"'")
 	}
@@ -161,6 +163,7 @@ func rewriteCode(seg, nowLit, dateLit string, vars map[string]string) string {
 	seg = reBin.ReplaceAllString(seg, "ts_bin(")
 	seg = reNow.ReplaceAllString(seg, nowLit)
 	seg = reDate.ReplaceAllString(seg, dateLit)
+	seg = reTimeOfDay.ReplaceAllString(seg, timeLit)
 	seg = reTimezone.ReplaceAllString(seg, "'UTC'")
 
 	return seg

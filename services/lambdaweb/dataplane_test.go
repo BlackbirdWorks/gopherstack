@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/lambdaweb"
 )
 
@@ -159,7 +160,8 @@ func newDataEnv(t *testing.T) *dataEnv {
 
 	return &dataEnv{
 		testEnv: env, launcher: l, domain: aws.ToString(created.Endpoint.DomainName),
-		rev1: aws.ToString(created.Revision.RevisionId), http: &http.Client{Timeout: 30 * time.Second},
+		rev1: aws.ToString(created.Revision.RevisionId),
+		http: &http.Client{Transport: testclient.New(t).Transport, Timeout: 30 * time.Second},
 	}
 }
 
@@ -292,7 +294,10 @@ func TestDataPlane_EndpointStates(t *testing.T) {
 
 	created := env.createFunction(t, "app")
 	domain := aws.ToString(created.Endpoint.DomainName)
-	d := &dataEnv{testEnv: env, launcher: l, domain: domain, http: &http.Client{Timeout: 30 * time.Second}}
+	d := &dataEnv{
+		testEnv: env, launcher: l, domain: domain,
+		http: &http.Client{Transport: testclient.New(t).Transport, Timeout: 30 * time.Second},
+	}
 
 	resp := d.get(t)
 	assert.Equal(t, http.StatusConflict, resp.StatusCode, "a Pending endpoint is not served")
@@ -375,7 +380,7 @@ func TestDataPlane_LatestRevisionFollowsNewest(t *testing.T) {
 		testEnv:  env,
 		launcher: l,
 		domain:   aws.ToString(ep.DomainName),
-		http:     &http.Client{Timeout: 30 * time.Second},
+		http:     &http.Client{Transport: testclient.New(t).Transport, Timeout: 30 * time.Second},
 	}
 	newest := aws.ToString(env.createRevision(t).RevisionId)
 
@@ -448,7 +453,7 @@ func TestDataPlane_MaxEnvironmentsCapacity(t *testing.T) {
 		testEnv:  env,
 		launcher: l,
 		domain:   aws.ToString(created.Endpoint.DomainName),
-		http:     &http.Client{Timeout: 30 * time.Second},
+		http:     &http.Client{Transport: testclient.New(t).Transport, Timeout: 30 * time.Second},
 	}
 
 	var wg sync.WaitGroup
@@ -557,7 +562,7 @@ func TestDataPlane_StubEngine(t *testing.T) {
 	d := &dataEnv{
 		testEnv: env,
 		domain:  aws.ToString(created.Endpoint.DomainName),
-		http:    &http.Client{Timeout: 30 * time.Second},
+		http:    &http.Client{Transport: testclient.New(t).Transport, Timeout: 30 * time.Second},
 	}
 
 	resp := d.get(t)
@@ -586,7 +591,7 @@ func TestDataPlane_RequestTimeout(t *testing.T) {
 		testEnv:  env,
 		launcher: l,
 		domain:   aws.ToString(created.Endpoint.DomainName),
-		http:     &http.Client{Timeout: 30 * time.Second},
+		http:     &http.Client{Transport: testclient.New(t).Transport, Timeout: 30 * time.Second},
 	}
 
 	resp := d.get(t)
@@ -625,7 +630,7 @@ func newIamEnv(t *testing.T) (*dataEnv, string) {
 
 	d := &dataEnv{
 		testEnv: env, launcher: l, domain: aws.ToString(created.Endpoint.DomainName),
-		http: &http.Client{Timeout: 30 * time.Second},
+		http: &http.Client{Transport: testclient.New(t).Transport, Timeout: 30 * time.Second},
 	}
 
 	return d, aws.ToString(created.Revision.RevisionId)

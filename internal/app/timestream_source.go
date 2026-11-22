@@ -24,8 +24,9 @@ type timestreamRecordSource struct {
 }
 
 var (
-	_ timestreamquerybackend.RecordSource = (*timestreamRecordSource)(nil)
-	_ timestreamquerybackend.SchemaSource = (*timestreamRecordSource)(nil)
+	_ timestreamquerybackend.RecordSource       = (*timestreamRecordSource)(nil)
+	_ timestreamquerybackend.SchemaSource       = (*timestreamRecordSource)(nil)
+	_ timestreamquerybackend.PartitionKeySource = (*timestreamRecordSource)(nil)
 )
 
 func newTimestreamRecordSource(h *timestreamwritebackend.Handler) *timestreamRecordSource {
@@ -67,6 +68,29 @@ func (s *timestreamRecordSource) TableShapes(region, database, table string) []t
 	}
 
 	return out
+}
+
+// TablePartitionKeys returns the table's customer-defined partition key: dimension names, or measure_name for a
+// measure key, in schema order.
+func (s *timestreamRecordSource) TablePartitionKeys(region, database, table string) []string {
+	tbl, err := s.handler.BackendFor(region).DescribeTable(database, table)
+	if err != nil || tbl.Schema == nil {
+		return nil
+	}
+
+	keys := make([]string, 0, len(tbl.Schema.CompositePartitionKey))
+
+	for _, pk := range tbl.Schema.CompositePartitionKey {
+		if pk.Type == timestreamwritebackend.PartitionKeyTypeMeasure {
+			keys = append(keys, "measure_name")
+
+			continue
+		}
+
+		keys = append(keys, pk.Name)
+	}
+
+	return keys
 }
 
 func (s *timestreamRecordSource) ListDatabases(region string) []string {

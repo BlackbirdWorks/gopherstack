@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"math/big"
 	"strconv"
 	"strings"
 	"time"
@@ -21,7 +20,6 @@ const (
 	DateLayout        = "2006-01-02"
 	DatetimeLayout    = "2006-01-02T15:04:05.000000"
 	TimeLayout        = "15:04:05.000000"
-	numericScale      = 9
 	microsPerSecond   = 1e6
 	nanosPerMicroUnit = 1e3
 	nanosPerSecondF   = 1e9
@@ -102,6 +100,10 @@ func parseSingle(f Field, v any, o ParseOptions) (any, error) {
 	k, _ := KindOf(f.Type)
 
 	s, err := scalarStored(k, v)
+	if err == nil && isDec(scalar(k)) {
+		s, err = constrainStored(f, k, s)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("field %s: %w", f.Name, err)
 	}
@@ -153,7 +155,7 @@ func scalarStored(k Kind, v any) (string, error) {
 	case KindBytes:
 		return storedBytes(v)
 	case KindNumeric, KindBigNumeric:
-		return storedNumeric(v)
+		return storedDecimal(k, v)
 	case KindTimestamp, KindDate, KindTime, KindDatetime:
 		return storedTemporal(k, v)
 	case KindJSON:
@@ -329,23 +331,36 @@ func storedBytes(v any) (string, error) {
 	}
 }
 
-func storedNumeric(v any) (string, error) {
-	s, ok := numberText(v)
-	if !ok {
-		return "", valueErr("cannot use %T as NUMERIC", v)
+func constrainStored(f Field, k Kind, s string) (string, error) {
+	p, sc := f.decimalParams()
+	if p == 0 {
+		return s, nil
 	}
 
-	r, ok := new(big.Rat).SetString(s)
-	if !ok {
-		return "", valueErr("invalid NUMERIC value %q", s)
+	d, err := ParseDecimal(k, s)
+	if err == nil {
+		d, err = d.Constrain(p, sc)
 	}
 
-	return trimDecimal(r.FloatString(numericScale)), nil
+	if err != nil {
+		return "", valueErr("value %s does not fit %s(%d, %d)", s, k.RESTName(), p, sc)
+	}
+
+	return d.String(), nil
 }
 
-// FormatNumeric renders f as a NUMERIC with scale 9 and no trailing zeros.
-func FormatNumeric(f float64) string {
-	return trimDecimal(strconv.FormatFloat(f, 'f', numericScale, bitSize))
+func storedDecimal(k Kind, v any) (string, error) {
+	s, ok := numberText(v)
+	if !ok {
+		return "", valueErr("cannot use %T as %s", v, k.RESTName())
+	}
+
+	d, err := ParseDecimal(k, s)
+	if err != nil {
+		return "", valueErr("invalid %s value %q", k.RESTName(), clip(s))
+	}
+
+	return d.String(), nil
 }
 
 func trimDecimal(s string) string {
@@ -691,4 +706,73 @@ func storedInterval(v any) (string, error) {
 	}
 
 	return iv.String(), nil
+}
+
+// NormalizeRows rewrites the NUMERIC and BIGNUMERIC cells of stored rows into the canonical decimal string,
+// leaving any cell that does not parse as it was.
+func NormalizeRows(fields []Field, rows [][]any) {
+	if !fieldsHaveDecimal(fields) {
+		return
+	}
+
+	for _, row := range rows {
+		for i := range min(len(row), len(fields)) {
+			row[i] = normalizeCell(fields[i], row[i])
+		}
+	}
+}
+
+func fieldsHaveDecimal(fields []Field) bool {
+	for _, f := range fields {
+		k, _ := KindOf(f.Type)
+		if isDec(scalar(k)) || k == KindStruct && fieldsHaveDecimal(f.Fields) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func normalizeCell(f Field, v any) any {
+	if v == nil {
+		return nil
+	}
+
+	if strings.EqualFold(f.Mode, ModeRepeated) {
+		arr, ok := v.([]any)
+		if !ok {
+			return v
+		}
+
+		elem := f
+		elem.Mode = ModeNullable
+
+		for i := range arr {
+			arr[i] = normalizeCell(elem, arr[i])
+		}
+
+		return arr
+	}
+
+	k, _ := KindOf(f.Type)
+
+	switch {
+	case k == KindStruct:
+		rec, ok := v.([]any)
+		if !ok {
+			return v
+		}
+
+		for i := range min(len(rec), len(f.Fields)) {
+			rec[i] = normalizeCell(f.Fields[i], rec[i])
+		}
+
+		return rec
+	case isDec(scalar(k)):
+		if s, err := storedDecimal(k, v); err == nil {
+			return s
+		}
+	}
+
+	return v
 }

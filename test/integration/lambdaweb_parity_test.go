@@ -17,6 +17,8 @@ import (
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 func lambdaWebSuffix() string { return strconv.FormatInt(time.Now().UnixNano(), 36) }
@@ -205,7 +207,7 @@ func TestIntegration_LambdaWeb_Lifecycle(t *testing.T) {
 
 		req.Host = host
 
-		resp, doErr := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+		resp, doErr := (&http.Client{Transport: testclient.New(t).Transport, Timeout: 10 * time.Second}).Do(req)
 		require.NoError(t, doErr)
 		_ = resp.Body.Close()
 

@@ -197,13 +197,38 @@ type clientTokenEntry struct {
 
 // QueryInsightsResponse holds the insights payload returned alongside query results.
 type QueryInsightsResponse struct {
-	OutputRows           int64   `json:"OutputRows"`
-	OutputBytes          int64   `json:"OutputBytes"`
-	UnloadPartitionCount int64   `json:"UnloadPartitionCount,omitempty"`
-	UnloadWrittenRows    int64   `json:"UnloadWrittenRows,omitempty"`
-	UnloadWrittenBytes   int64   `json:"UnloadWrittenBytes,omitempty"`
-	QuerySpatialCoverage float64 `json:"QuerySpatialCoverage,omitempty"`
-	QueryTableCount      int64   `json:"QueryTableCount"`
+	TemporalRange        *QueryTemporalRange   `json:"temporal_range,omitempty"`
+	SpatialCoverage      *QuerySpatialCoverage `json:"spatial_coverage,omitempty"`
+	OutputRows           int64                 `json:"OutputRows"`
+	OutputBytes          int64                 `json:"OutputBytes"`
+	UnloadPartitionCount int64                 `json:"UnloadPartitionCount,omitempty"`
+	UnloadWrittenRows    int64                 `json:"UnloadWrittenRows,omitempty"`
+	UnloadWrittenBytes   int64                 `json:"UnloadWrittenBytes,omitempty"`
+	QuerySpatialCoverage float64               `json:"QuerySpatialCoverage,omitempty"`
+	QueryTableCount      int64                 `json:"QueryTableCount"`
+}
+
+// QueryTemporalRange mirrors types.QueryTemporalRange.
+type QueryTemporalRange struct {
+	Max *QueryTemporalRangeMax `json:"Max,omitempty"`
+}
+
+// QueryTemporalRangeMax mirrors types.QueryTemporalRangeMax; Value is the scanned time range in nanoseconds.
+type QueryTemporalRangeMax struct {
+	TableArn string `json:"TableArn"`
+	Value    int64  `json:"Value"`
+}
+
+// QuerySpatialCoverage mirrors types.QuerySpatialCoverage.
+type QuerySpatialCoverage struct {
+	Max *QuerySpatialCoverageMax `json:"Max,omitempty"`
+}
+
+// QuerySpatialCoverageMax mirrors types.QuerySpatialCoverageMax; Value is the fraction of partitions scanned.
+type QuerySpatialCoverageMax struct {
+	TableArn     string   `json:"TableArn"`
+	PartitionKey []string `json:"PartitionKey"`
+	Value        float64  `json:"Value"`
 }
 
 // ProvisionedCapacity holds the response-side provisioned-TCU configuration
@@ -277,9 +302,11 @@ type ExecutionStats struct {
 
 // ScheduledQueryInsightsResponse mirrors types.ScheduledQueryInsightsResponse.
 type ScheduledQueryInsightsResponse struct {
-	OutputRows      int64 `json:"OutputRows"`
-	OutputBytes     int64 `json:"OutputBytes"`
-	QueryTableCount int64 `json:"QueryTableCount"`
+	QuerySpatialCoverage *QuerySpatialCoverage `json:"QuerySpatialCoverage,omitempty"`
+	QueryTemporalRange   *QueryTemporalRange   `json:"QueryTemporalRange,omitempty"`
+	OutputRows           int64                 `json:"OutputRows"`
+	OutputBytes          int64                 `json:"OutputBytes"`
+	QueryTableCount      int64                 `json:"QueryTableCount"`
 }
 
 // ErrorReportLocation holds the S3 error report location for a scheduled query run.

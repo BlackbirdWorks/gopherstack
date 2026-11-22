@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/signin"
 )
 
@@ -135,7 +136,10 @@ func TestAuthorizeEndpointIssuesCode(t *testing.T) {
 	t.Parallel()
 
 	f := newFixture(t)
-	hc := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	hc := &http.Client{
+		Transport:     testclient.New(t).Transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
 	q := "?client_id=" + testClient + "&redirect_uri=http://127.0.0.1:8080/callback&state=xyz" +
 		"&code_challenge_method=S256&code_challenge=" + challenge()
 
@@ -216,6 +220,7 @@ func TestAuthorizeRedirectTargets(t *testing.T) {
 
 			f := newFixture(t)
 			hc := &http.Client{
+				Transport:     testclient.New(t).Transport,
 				CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 			}
 			q := "?client_id=" + testClient + "&redirect_uri=" + url.QueryEscape(tt.redirect) +

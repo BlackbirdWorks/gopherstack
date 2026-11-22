@@ -12,7 +12,7 @@ var reCallHead = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
 
 func isBooleanKeyword(w string) bool {
 	switch w {
-	case "AND", "OR", "NOT", "IS", "LIKE", "BETWEEN", "IN", "EXISTS",
+	case opAnd, "OR", opNot, "IS", "LIKE", "BETWEEN", "IN", "EXISTS",
 		"=", "<>", "!=", "<", ">", "<=", ">=":
 		return true
 	}
@@ -271,7 +271,7 @@ func isBooleanExpr(expr string) bool {
 	}
 
 	if len(toks) == 1 {
-		return toks[0] == "TRUE" || toks[0] == "FALSE" || toks[0] == "NOT" || toks[0] == "EXISTS"
+		return toks[0] == "TRUE" || toks[0] == "FALSE" || toks[0] == opNot || toks[0] == "EXISTS"
 	}
 
 	return slices.ContainsFunc(toks, isBooleanKeyword)
@@ -348,7 +348,7 @@ func applyBooleanTypes(rs *resultSet, query string) {
 	plan := typedColumnPlan(query, names, isBooleanExpr)
 
 	for i, isBool := range plan {
-		if !isBool || (rs.cols[i].Type.ScalarType != ScalarTypeBigint && len(rs.rows) != 0) {
+		if !isBool || rs.isStatic(i) || (rs.cols[i].Type.ScalarType != ScalarTypeBigint && len(rs.rows) != 0) {
 			continue
 		}
 
@@ -385,7 +385,7 @@ func applyIntervalTypes(rs *resultSet, query string) {
 	}
 
 	for i, isInterval := range typedColumnPlan(query, names, isIntervalExpr) {
-		if isInterval {
+		if isInterval && !rs.isStatic(i) {
 			rs.cols[i].Type.ScalarType = ScalarTypeIntervalDayToSecond
 		}
 	}

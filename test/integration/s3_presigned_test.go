@@ -98,7 +98,7 @@ func TestIntegration_S3_PresignedURLs(t *testing.T) {
 					bytes.NewReader(content))
 				require.NoError(t, err)
 
-				httpClient := &http.Client{}
+				httpClient := testclient.New(t)
 				resp, err := httpClient.Do(req)
 				require.NoError(t, err)
 				defer resp.Body.Close()

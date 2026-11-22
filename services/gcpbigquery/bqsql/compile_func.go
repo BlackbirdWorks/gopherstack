@@ -82,6 +82,7 @@ func functionTable() map[string]*fnDef {
 	addArrayFuncs(t)
 	addAggFuncs(t)
 	addMiscFuncs(t)
+	addDecimalFuncs(t)
 
 	return t
 }
@@ -99,7 +100,7 @@ func addMathFuncs(t map[string]*fnDef) {
 	t["SIGN"] = def("sign", 1, 1, firstArgType)
 	t["CEIL"], t["CEILING"] = def("ceil", 1, 1, floatish), def("ceil", 1, 1, floatish)
 	t["FLOOR"] = def("floor", 1, 1, floatish)
-	t["ROUND"] = def("round", 1, arityTwo, floatish)
+	t["ROUND"] = def("round", 1, arityThree, floatish)
 	t["TRUNC"] = def("trunc", 1, arityTwo, floatish)
 	t["POW"], t["POWER"] = def(
 		"pow",
@@ -255,6 +256,16 @@ func addMiscFuncs(t map[string]*fnDef) {
 			return nil, err
 		}
 
+		if hasDec(a) {
+			if err = decMix(a...); err != nil {
+				return nil, err
+			}
+
+			_, u := unifyAll(a)
+
+			return &gx{sql: "NULLIF(" + u[0].sql + ", " + u[1].sql + ")", typ: u[0].typ}, nil
+		}
+
 		return &gx{sql: "NULLIF(" + a[0].sql + ", " + coerceLiteral(a[1], a[0].typ).sql + ")", typ: a[0].typ}, nil
 	})
 	addNetFuncs(t)
@@ -341,6 +352,11 @@ func (c *compiler) call(n *node, sc *scope) (*gx, error) {
 		args[i] = g
 	}
 
+	args, done, err := decCallArgs(d.udf, n.safe, args)
+	if done != nil || err != nil {
+		return done, err
+	}
+
 	name := "bq_" + d.udf
 	if n.safe {
 		name = "bq_safe_" + d.udf
@@ -382,9 +398,15 @@ func genIf(c *compiler, n *node, sc *scope) (*gx, error) {
 		return nil, err
 	}
 
+	if err = decMix(a[1:]...); err != nil {
+		return nil, err
+	}
+
+	typ, res := unifyAll(a[1:])
+
 	return &gx{
-		sql: "(CASE WHEN " + a[0].sql + " THEN " + a[1].sql + " ELSE " + a[2].sql + " END)",
-		typ: commonType(a[1].typ, a[2].typ),
+		sql: "(CASE WHEN " + a[0].sql + " THEN " + res[0].sql + " ELSE " + res[1].sql + " END)",
+		typ: typ,
 	}, nil
 }
 
@@ -393,6 +415,12 @@ func genCoalesce(c *compiler, n *node, sc *scope) (*gx, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	if err = decMix(a...); err != nil {
+		return nil, err
+	}
+
+	typ, a := unifyAll(a)
 
 	parts := make([]string, len(a))
 	for i, g := range a {
@@ -403,7 +431,7 @@ func genCoalesce(c *compiler, n *node, sc *scope) (*gx, error) {
 		return a[0], nil
 	}
 
-	return &gx{sql: "COALESCE(" + strings.Join(parts, ", ") + ")", typ: commonOf(a)}, nil
+	return &gx{sql: "COALESCE(" + strings.Join(parts, ", ") + ")", typ: typ}, nil
 }
 
 func genToJSONString(c *compiler, n *node, sc *scope) (*gx, error) {
@@ -416,13 +444,19 @@ func genToJSONString(c *compiler, n *node, sc *scope) (*gx, error) {
 
 	switch x.typ.Kind {
 	case KindStruct, KindArray:
+		if containsDec(x.typ) {
+			return &gx{sql: "CAST(" + decimalJSON(x, false) + " AS TEXT)", typ: scalar(KindString)}, nil
+		}
+
 		return &gx{sql: "CAST(json(" + x.sql + ") AS TEXT)", typ: scalar(KindString)}, nil
 	case KindBool:
 		return &gx{
 			sql: "(CASE WHEN " + x.sql + " IS NULL THEN 'null' WHEN " + x.sql + " THEN 'true' ELSE 'false' END)",
 			typ: scalar(KindString),
 		}, nil
-	case KindInt, KindFloat, KindNumeric, KindBigNumeric:
+	case KindNumeric, KindBigNumeric:
+		return &gx{sql: decCall("json", x.sql), typ: scalar(KindString)}, nil
+	case KindInt, KindFloat:
 		return &gx{sql: "COALESCE(CAST(" + x.sql + " AS TEXT), 'null')", typ: scalar(KindString)}, nil
 	case KindJSON:
 		return &gx{sql: x.sql, typ: scalar(KindString)}, nil
@@ -508,8 +542,6 @@ func genDateArray(k Kind) func(c *compiler, n *node, sc *scope) (*gx, error) {
 func addAggFuncs(t map[string]*fnDef) {
 	t["COUNT"] = custom(1, 1, aggGen("count", fixed(KindInt), false))
 	t["COUNTIF"] = custom(1, 1, genCountIf)
-	t["SUM"] = custom(1, 1, aggGen("sum", sumType, false))
-	t["AVG"] = custom(1, 1, aggGen("avg", avgType, false))
 	t["MIN"] = custom(1, 1, aggGen("min", firstArgType, false))
 	t["MAX"] = custom(1, 1, aggGen("max", firstArgType, false))
 	t["ANY_VALUE"] = custom(1, 1, aggGen("min", firstArgType, false))
@@ -520,13 +552,6 @@ func addAggFuncs(t map[string]*fnDef) {
 	t["ARRAY_AGG"] = custom(1, 1, genArrayAgg)
 	t["APPROX_QUANTILES"] = custom(arityTwo, arityTwo, genApproxQuantiles)
 	t["APPROX_TOP_COUNT"] = custom(arityTwo, arityTwo, genApproxTopCount)
-
-	for name, udf := range map[string]string{
-		"STDDEV": "stddev_samp", "STDDEV_SAMP": "stddev_samp", "STDDEV_POP": "stddev_pop", "VARIANCE": "var_samp",
-		"VAR_SAMP": "var_samp", "VAR_POP": "var_pop",
-	} {
-		t[name] = custom(1, 1, aggGen("bq_"+udf, fixed(KindFloat), false))
-	}
 
 	for name, ret := range map[string]func([]*gx) Type{
 		"ROW_NUMBER": fixed(KindInt), "RANK": fixed(KindInt), "DENSE_RANK": fixed(KindInt), "NTILE": fixed(KindInt),
@@ -628,6 +653,10 @@ func (c *compiler) overSQL(w *windowSpec, sc *scope) (string, error) {
 				return "", err
 			}
 
+			if isDec(g.typ) && rangeOffsetFrame(w.frame) {
+				return "", unsupported("RANGE window frame offsets over a NUMERIC or BIGNUMERIC ORDER BY key")
+			}
+
 			list[i] = g.sql
 			if o.desc {
 				list[i] += litDesc
@@ -668,6 +697,11 @@ func aggGen(fname string, ret func([]*gx) Type, distinct bool) func(c *compiler,
 
 			gs = append(gs, g)
 			args = append(args, g.sql)
+		}
+
+		if (fname == "lag" || fname == "lead") && len(gs) == arityThree && isDec(gs[0].typ) {
+			gs[2] = toType(gs[2], gs[0].typ)
+			args[2] = gs[2].sql
 		}
 
 		sql, err := c.aggSQL(n, sc, fname, args, "")

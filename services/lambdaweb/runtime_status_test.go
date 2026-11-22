@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/lambdaweb"
 )
 
@@ -101,7 +102,7 @@ func TestDataPlane_EnvironmentFailureStatus(t *testing.T) {
 
 			d := &dataEnv{
 				testEnv: env, domain: aws.ToString(created.Endpoint.DomainName),
-				http: &http.Client{Timeout: 30 * time.Second},
+				http: &http.Client{Transport: testclient.New(t).Transport, Timeout: 30 * time.Second},
 			}
 
 			resp := d.get(t)

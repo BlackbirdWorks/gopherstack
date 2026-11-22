@@ -54,7 +54,7 @@ func (b *InMemoryBackend) execute(
 func (b *InMemoryBackend) executeStatement(
 	ctx context.Context, query string, vars map[string]string, queryID string,
 ) (*resultSet, error) {
-	query = strings.TrimSpace(strings.TrimRight(strings.TrimSpace(query), ";"))
+	query = strings.TrimSpace(strings.TrimRight(strings.TrimSpace(stripSQLComments(query)), ";"))
 	region := getRegion(ctx, b.defaultRegion)
 
 	switch firstWord(query) {
@@ -76,12 +76,14 @@ func (b *InMemoryBackend) executeStatement(
 		return nil, err
 	}
 
-	translated, err := translateTimestream(rewriteTimestream(query, now, vars), tables)
+	ann := annotateQuery(query, tables, now, vars)
+
+	translated, err := translateTimestream(rewriteTimestream(ann.query, now, vars), tables)
 	if err != nil {
 		return nil, err
 	}
 
-	rs, err := runTranslated(ctx, translated, tables)
+	rs, err := runTranslated(ctx, translated, tables, ann)
 	if err != nil {
 		return nil, err
 	}
@@ -90,6 +92,7 @@ func (b *InMemoryBackend) executeStatement(
 	applyIntervalTypes(rs, query)
 	rs.scanned = scanned
 	rs.tables = len(tables)
+	rs.scans = b.scanInsights(region, ann.scans, tables, now, src)
 
 	return rs, nil
 }
@@ -104,9 +107,11 @@ func firstWord(q string) string {
 }
 
 type tableData struct {
-	sqlName string
-	schema  tableSchema
-	records []SourceRecord
+	sqlName  string
+	database string
+	table    string
+	schema   tableSchema
+	records  []SourceRecord
 }
 
 type loadedSet map[string]*tableData
@@ -143,9 +148,11 @@ func loadSourceTables(
 		}
 
 		set[key] = &tableData{
-			sqlName: engineTablePrefix + strconv.Itoa(len(set)),
-			schema:  deriveSchema(withShapes(src, region, ref, recs)),
-			records: recs,
+			sqlName:  engineTablePrefix + strconv.Itoa(len(set)),
+			database: ref.database,
+			table:    ref.table,
+			schema:   deriveSchema(withShapes(src, region, ref, recs)),
+			records:  recs,
 		}
 	}
 
@@ -201,7 +208,7 @@ func translate(q string, set loadedSet) (string, error) {
 	return out, nil
 }
 
-func runTranslated(ctx context.Context, q string, set loadedSet) (*resultSet, error) {
+func runTranslated(ctx context.Context, q string, set loadedSet, ann annotation) (*resultSet, error) {
 	registerTimestreamFuncs()
 
 	db, err := athena.OpenEngineDB()
@@ -247,7 +254,7 @@ func runTranslated(ctx context.Context, q string, set loadedSet) (*resultSet, er
 	}
 	defer func() { _ = rows.Close() }()
 
-	rs, err := readRows(rows)
+	rs, err := readRows(rows, ann.columnTypes(columnCount(rows)))
 	if err != nil {
 		return nil, mapEngineError(err)
 	}
@@ -315,4 +322,13 @@ func mapEngineError(err error) error {
 	}
 
 	return validationf("line 1:1: %s", reSQLiteTag.ReplaceAllString(msg, ""))
+}
+
+func columnCount(rows *sql.Rows) int {
+	names, err := rows.Columns()
+	if err != nil {
+		return -1
+	}
+
+	return len(names)
 }

@@ -16,6 +16,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/lambdaweb"
 )
 
@@ -83,7 +84,7 @@ func TestDockerEngine_ServesRealApp(t *testing.T) {
 
 	d := &dataEnv{
 		testEnv: env, domain: aws.ToString(created.Endpoint.DomainName),
-		http: &http.Client{Timeout: 2 * time.Minute},
+		http: &http.Client{Transport: testclient.New(t).Transport, Timeout: 2 * time.Minute},
 	}
 
 	resp := d.do(t, http.MethodGet, d.domain, "/ping", nil)
@@ -144,7 +145,7 @@ func TestDockerEngine_ScalesOutAndToZero(t *testing.T) {
 
 	d := &dataEnv{
 		testEnv: env, domain: aws.ToString(created.Endpoint.DomainName),
-		http: &http.Client{Timeout: 2 * time.Minute},
+		http: &http.Client{Transport: testclient.New(t).Transport, Timeout: 2 * time.Minute},
 	}
 
 	hosts := make(chan string, 2)

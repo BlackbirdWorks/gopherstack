@@ -39,10 +39,9 @@ families:
   route_matching: {status: ok, note: "X-Amz-Target prefix Timestream_20181101., Content-Type application/x-amz-json-1.0 (awsjson1.0) verified against serializers.go (awsAwsjson10_*). DescribeEndpoints wired for SDK endpoint-discovery (fetchOpQueryDiscoverEndpoint calls DescribeEndpoints first)."}
 gaps: []
 items_still_open:
-  - "Query engine typeof: the engine is SQLite, so typeof returns SQLite storage names (integer/text/real/null) rather than the Timestream names listed in supported-data-types.html (bigint, double, varchar, boolean, timestamp, date, time, interval, unknown); values carry no static type at the UDF boundary (ts_funcs.go), so a correct typeof needs the static type inference the engine lacks"
-  - "Time-series lambdas: filter/reduce lambdas are recognised only when the body reads the element as p.value/p.time, so a lambda over a timeseries that never reads the element falls through to the stock engine"
-  - "Query engine: result ColumnInfo types for non-boolean expressions are inferred from values (BIGINT/DOUBLE/VARCHAR/TIMESTAMP) and an empty result reports VARCHAR for computed non-boolean columns. Boolean typing (ts_boolean.go) is syntactic: a CASE/CAST wrapping booleans, or a boolean function outside the known list, still reports its engine type. Plain column references keep their declared type."
-  - "QueryInsightsResponse (Query and ExecuteScheduledQuery runs) carries OutputRows, OutputBytes and QueryTableCount but not QueryTemporalRange or QuerySpatialCoverage: both need time-predicate and partition-key pruning analysis the engine does not do (the dormant QuerySpatialCoverage float field in models.go is never set, so it cannot reach the wire; the SDK shape is a struct). ENABLED_WITH_RATE_CONTROL does not apply the 1 QPS rate limit, and an unknown QueryInsights.Mode is ignored rather than rejected. OutputBytes sums scalar value lengths only"
+  - "Static type inference (ts_infer.go) types every select-list expression before execution, but a query using a construct it cannot parse or type keeps the older value-based column typing (and syntactic boolean/interval typing, ts_boolean.go) for the affected columns: positional ? and named @parameters (PrepareQuery), AT TIME ZONE, TABLESAMPLE, recursive CTEs, transform() over a timeseries (the engine has no implementation), and any function without a return-type rule (SQLite built-ins outside the Timestream function list); an empty result of such a column still reports VARCHAR"
+  - "Unverified against the service: integer literals are typed INTEGER when they fit 32 bits else BIGINT (supported-data-types.html lists int and bigint but not which a literal gets; the SDK ScalarType enum has INTEGER, appended after UNKNOWN, so the service does emit it for something, and no recorded real response in the repo or the documentation shows a literal's ColumnInfo), and typeof() prints array(T), row(name T, ...) and timeseries(T) for nested types where the page gives only the notations array[T,...], row(T,...) and timeseries[row(timestamp, T,...)]"
+  - "Integer overflow is not an error: a 32-bit INTEGER result that overflows is widened to BIGINT and a 64-bit overflow (SQLite promotes it to a float) is reported as DOUBLE, where the service fails the query; CAST(double AS bigint) truncates (SQLite) rather than rounding, and TRY_CAST of an unparsable string yields 0 rather than NULL"
 
 structural_gaps:
   - "CreateScheduledQuery KmsKeyId is stored and echoed, but there is no at-rest encryption layer to apply it to."
@@ -92,6 +91,31 @@ queries in hours: 1; queries that take longer will timeout"); SQL support (no EX
 - Boolean expressions (comparisons, AND/OR/NOT, IS [NOT] NULL, LIKE, BETWEEN, IN, EXISTS, TRUE/FALSE, contains/regexp_like/... ) report
   ColumnInfo BOOLEAN and ScalarValue "true"/"false" (ts_boolean.go; aliases of boolean expressions propagate through CTEs/subqueries).
 - Query timeout defaults to 1 hour (the earlier "60 s" note was wrong); `SetQueryTimeout` overrides it; expiry returns QueryExecutionException (HTTP 400).
+
+## Static types and QueryInsights
+
+Sources: supported-data-types.html (types), using-query-insights.html and optimize-query-using-query-insights.html (insights examples,
+1 QPS note), aws-sdk-go-v2/service/timestreamquery@v1.44.3 (ScalarType, QueryInsightsResponse, QueryTemporalRange, QuerySpatialCoverage).
+
+- ts_sqllex.go/ts_sqlparse.go/ts_sqlexpr.go parse the statement (comments skipped everywhere, including inside lambdas; bounded depth and token
+  count); ts_infer.go types every expression with the engine's coercions; ts_infer_funcs.go holds the return-type rules, and a test fails when a
+  function registered with the engine has no rule. ColumnInfo (Query and PrepareQuery), Datum rendering (ts_render.go: arrays, rows, timeseries,
+  DATE, TIME, intervals), typeof() and the timeseries filter/reduce recognition all read the inferred types. timestamp - timestamp becomes
+  an INTERVAL DAY TO SECOND via ts_tsdiff.
+- Lambdas over a TIMESERIES-typed argument are recognised by that type, so bodies that never read the element work.
+- QueryInsights is returned only for ENABLED_WITH_RATE_CONTROL (absent or DISABLED returns none), an unknown Mode is a ValidationException, and
+  a second enabled Query within one second on the same region gets ThrottlingException (backend clock). Scheduled-query runs carry the same
+  QueryTemporalRange/QuerySpatialCoverage; they are not rate limited. OutputBytes counts array, row and timeseries values.
+
+## Emulator choices where the vendor is silent
+
+- Time bounds come from comparisons, BETWEEN and AND of constants built from now(), ago(), bin(), literals and interval arithmetic; a side the
+  WHERE clause leaves open is the table's earliest queryable record (lower) or the query clock (upper), because the pages give only the
+  365-day example without saying how an open side is measured. A table with no queryable records and an open lower side reports 0.
+- Spatial coverage is the share of distinct partition-key tuples (measure_name, or the customer-defined key) of the queryable records that the
+  equality / IN / OR-of-equality predicates on the key admit; no key predicate is 1.0, a predicate on an empty table is 0.0.
+- The ThrottlingException message text is not specified.
+- Queries the engine runs are not rejected for operand type mismatches (for example varchar = bigint); the pages give no message or rule to copy.
 
 ## Notes
 

@@ -1,6 +1,8 @@
 package bqsql
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -1071,17 +1073,67 @@ func (p *parser) typeSpec() (Type, error) {
 		return Type{}, syntaxErr(p.toks[p.i-1].pos, "unknown type %q", name)
 	}
 
-	if p.acceptPunct("(") {
-		for !p.acceptPunct(")") {
-			if p.peek().kind == tkEOF {
-				return Type{}, p.unexpected("expected )")
-			}
+	t := scalar(k)
 
-			p.i++
+	if p.acceptPunct("(") {
+		nums, perr := p.typeParams()
+		if perr != nil {
+			return Type{}, perr
+		}
+
+		if isDec(t) {
+			if perr = decimalParams(&t, nums); perr != nil {
+				return Type{}, syntaxErr(p.toks[p.i-1].pos, "%v", perr)
+			}
 		}
 	}
 
-	return scalar(k), nil
+	return t, nil
+}
+
+const (
+	maxTypeParam    = 255
+	maxDecimalParam = 2
+)
+
+// typeParams consumes the parenthesised parameters of a type up to the closing parenthesis.
+func (p *parser) typeParams() ([]int, error) {
+	var nums []int
+
+	for !p.acceptPunct(")") {
+		tok := p.peek()
+		if tok.kind == tkEOF {
+			return nil, p.unexpected("expected )")
+		}
+
+		if n, err := strconv.Atoi(tok.text); err == nil && n >= 0 && n <= maxTypeParam {
+			nums = append(nums, n)
+		}
+
+		p.i++
+	}
+
+	return nums, nil
+}
+
+// decimalParams records NUMERIC(P[, S]) or BIGNUMERIC(P[, S]) on t after validating the ranges.
+func decimalParams(t *Type, nums []int) error {
+	if len(nums) == 0 || len(nums) > maxDecimalParam {
+		return fmt.Errorf("%w: %s takes (precision[, scale])", ErrDecimal, t.Kind.RESTName())
+	}
+
+	p, s := nums[0], 0
+	if len(nums) == maxDecimalParam {
+		s = nums[1]
+	}
+
+	if err := checkDecimalParams(t.Kind, p, s); err != nil {
+		return err
+	}
+
+	t.Prec, t.Scale = p, s
+
+	return nil
 }
 
 func (p *parser) arrayType() (Type, error) {

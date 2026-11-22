@@ -53,6 +53,7 @@ func registerUDFs() {
 		addIntervalUDFs(defs)
 		addSearchUDFs(defs)
 		addCastUDFs(defs)
+		addDecimalUDFs(defs)
 
 		for name, d := range defs {
 			register("bq_"+name, d, d.fn)
@@ -60,6 +61,8 @@ func registerUDFs() {
 		}
 
 		registerAggregates()
+		registerDecimalAggregates()
+		registerDecimalMoments()
 	})
 }
 

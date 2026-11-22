@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/services/gcpbigquery/bqsql"
 )
 
 // snapshotVersion must be bumped when a change to Dataset, Table or Job would make an older snapshot unsafe to decode.
@@ -107,6 +108,12 @@ func normalizeDataset(d *Dataset) {
 
 		if t.Rows == nil {
 			t.Rows = [][]any{}
+		}
+
+		bqsql.NormalizeRows(t.Schema, t.Rows)
+
+		for i := range t.History {
+			bqsql.NormalizeRows(t.History[i].Schema, t.History[i].Rows)
 		}
 	}
 }

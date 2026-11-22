@@ -782,6 +782,9 @@ func genSearch(c *compiler, n *node, sc *scope) (*gx, error) {
 		sqls[1] = quoteStr(tagString)
 	case KindStruct, KindArray:
 		sqls[0], sqls[1] = "CAST(json("+data.sql+") AS TEXT)", quoteStr(tagJSON)
+		if containsDec(data.typ) {
+			sqls[0] = "CAST(" + decimalJSON(data, true) + " AS TEXT)"
+		}
 	case KindJSON:
 		sqls[1] = quoteStr(tagJSONType)
 	case KindUnknown, KindInt, KindFloat, KindBool, KindBytes, KindTimestamp, KindDate, KindTime, KindDatetime,

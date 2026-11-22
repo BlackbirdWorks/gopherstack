@@ -11,6 +11,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/lambdaweb/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 type scaleOpts struct {
@@ -44,7 +46,8 @@ func newScaledEnv(t *testing.T, o scaleOpts) (*dataEnv, *fakeLauncher) {
 
 	d := &dataEnv{
 		testEnv: env, launcher: l, domain: aws.ToString(created.Endpoint.DomainName),
-		rev1: aws.ToString(created.Revision.RevisionId), http: &http.Client{Timeout: 30 * time.Second},
+		rev1: aws.ToString(created.Revision.RevisionId),
+		http: &http.Client{Transport: testclient.New(t).Transport, Timeout: 30 * time.Second},
 	}
 
 	return d, l

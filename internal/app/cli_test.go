@@ -3141,7 +3141,7 @@ func TestLocalstackCompatibilityEndpoints(t *testing.T) {
 
 	waitForServerReady(t, port)
 
-	client := &http.Client{Timeout: 2 * time.Second}
+	client := &http.Client{Transport: testclient.New(t).Transport, Timeout: 2 * time.Second}
 
 	tests := []struct {
 		validate func(t *testing.T, body map[string]any)

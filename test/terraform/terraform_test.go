@@ -3903,6 +3903,7 @@ func TestTerraform_APIGatewayManagementAPI(t *testing.T) {
 				createReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 				createClient := &http.Client{
+					Transport: testclient.New(t).Transport,
 					CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 						return http.ErrUseLastResponse
 					},
@@ -4090,6 +4091,7 @@ func TestTerraform_AppConfigData(t *testing.T) {
 				setReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 				setClient := &http.Client{
+					Transport: testclient.New(t).Transport,
 					CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 						return http.ErrUseLastResponse
 					},

@@ -19,6 +19,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	lambdapkg "github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -152,7 +153,7 @@ func TestLambdaFunctionURL_HTTPEndpoint(t *testing.T) {
 	// The URL listener is running; an HTTP request should be handled
 	// (may fail with invocation error since Docker isn't available,
 	// but the listener itself should respond).
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := &http.Client{Transport: testclient.New(t).Transport, Timeout: 5 * time.Second}
 	req, err := http.NewRequestWithContext(
 		t.Context(),
 		http.MethodGet,

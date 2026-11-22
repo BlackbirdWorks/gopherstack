@@ -343,3 +343,28 @@ func TestPersistence_RestoreInvalidJSON(t *testing.T) {
 		})
 	}
 }
+
+func TestInMemoryBackend_SnapshotRestoreKeepsInsights(t *testing.T) {
+	t.Parallel()
+
+	b := NewInMemoryBackend("000000000000", "us-east-1")
+	b.queries.Put(&QueryResult{
+		QueryID: "q1",
+		Insights: QueryInsightsResponse{
+			OutputRows:    2,
+			TemporalRange: &QueryTemporalRange{Max: &QueryTemporalRangeMax{TableArn: "arn", Value: 42}},
+			SpatialCoverage: &QuerySpatialCoverage{
+				Max: &QuerySpatialCoverageMax{TableArn: "arn", PartitionKey: []string{"host"}, Value: 0.5},
+			},
+		},
+	})
+
+	restored := NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, restored.Restore(t.Context(), b.Snapshot(t.Context())))
+
+	got, ok := restored.queries.Get("q1")
+	require.True(t, ok)
+	assert.Equal(t, int64(42), got.Insights.TemporalRange.Max.Value)
+	assert.InDelta(t, 0.5, got.Insights.SpatialCoverage.Max.Value, 1e-9)
+	assert.Equal(t, []string{"host"}, got.Insights.SpatialCoverage.Max.PartitionKey)
+}

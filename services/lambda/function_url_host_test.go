@@ -22,6 +22,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -55,7 +56,7 @@ func runFakeRuntime(t *testing.T, port int, response string, events chan<- []byt
 	go func() {
 		defer close(done)
 
-		client := &http.Client{Timeout: 0}
+		client := &http.Client{Transport: testclient.New(t).Transport, Timeout: 0}
 
 		for t.Context().Err() == nil {
 			req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, base+"next", nil)

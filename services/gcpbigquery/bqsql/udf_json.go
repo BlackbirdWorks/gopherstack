@@ -226,7 +226,7 @@ func udfFormat(a []driver.Value) (driver.Value, error) {
 			return nil, errBQ("Too few arguments to FORMAT")
 		}
 
-		out, err := formatOne(spec, flags, args[0])
+		out, err := formatArg(spec, flags, args[0])
 		if err != nil {
 			return nil, err
 		}
@@ -237,6 +237,14 @@ func udfFormat(a []driver.Value) (driver.Value, error) {
 	}
 
 	return sb.String(), nil
+}
+
+func formatArg(spec byte, flags string, v driver.Value) (string, error) {
+	if da, ok := v.(decFormatArg); ok {
+		return formatDecimal(spec, flags, da)
+	}
+
+	return formatOne(spec, flags, v)
 }
 
 func formatOne(spec byte, flags string, v driver.Value) (string, error) {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/azurefunctions"
 )
 
@@ -34,7 +35,7 @@ func newEnv(t *testing.T, withRuntime bool) *env {
 		azurefunctions.Settings{Domain: testDomain, Port: azurefunctions.DefaultPort, StartupTimeout: 20 * time.Second},
 	)
 
-	e := &env{backend: b, client: &http.Client{Timeout: 30 * time.Second}}
+	e := &env{backend: b, client: &http.Client{Transport: testclient.New(t).Transport, Timeout: 30 * time.Second}}
 
 	if withRuntime {
 		e.rt = newFakeRuntime()

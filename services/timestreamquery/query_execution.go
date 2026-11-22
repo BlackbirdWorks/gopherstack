@@ -18,6 +18,7 @@ import (
 const (
 	queryProgressComplete = 100.0
 	insightsModeEnabled   = "ENABLED_WITH_RATE_CONTROL"
+	insightsModeDisabled  = "DISABLED"
 )
 
 // maxRetainedQueries bounds the queries map so a long-running instance cannot
@@ -32,7 +33,7 @@ const maxRetainedQueries = 10000
 // ctx is accepted for interface consistency; query results are not region-isolated.
 func (b *InMemoryBackend) QueryWithOptions(ctx context.Context, opts QueryOptions) (*QueryPage, error) {
 	// Validate MaxRows.
-	maxRows, err := validateMaxRows(opts.MaxRows)
+	maxRows, err := validateQueryOptions(opts)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +57,7 @@ func (b *InMemoryBackend) QueryWithOptions(ctx context.Context, opts QueryOption
 		return nil, err
 	}
 
-	if err = b.checkTableRefs(ctx, opts.QueryString); err != nil {
+	if err = b.checkTableRefs(ctx, stripSQLComments(opts.QueryString)); err != nil {
 		return nil, err
 	}
 
@@ -64,6 +65,12 @@ func (b *InMemoryBackend) QueryWithOptions(ctx context.Context, opts QueryOption
 		if page, replayed, rerr := b.replayClientToken(opts, maxRows); rerr != nil || replayed {
 			return page, rerr
 		}
+	}
+
+	region := getRegion(ctx, b.defaultRegion)
+
+	if err = b.admitInsights(region, opts.InsightsMode); err != nil {
+		return nil, err
 	}
 
 	queryID := newQueryID()
@@ -80,7 +87,7 @@ func (b *InMemoryBackend) QueryWithOptions(ctx context.Context, opts QueryOption
 		QueryStatus: status,
 		Rows:        rs.rows,
 		Columns:     rs.cols,
-		Insights:    buildQueryInsightsResponse(rs),
+		Insights:    b.buildQueryInsightsResponse(region, rs),
 	}
 
 	b.mu.Lock("QueryWithOptions")
@@ -98,7 +105,7 @@ func (b *InMemoryBackend) QueryWithOptions(ctx context.Context, opts QueryOption
 	}
 
 	var insights *QueryInsightsResponse
-	if opts.InsightsMode != "DISABLED" {
+	if opts.InsightsMode == insightsModeEnabled {
 		ins := result.Insights
 		insights = &ins
 	}
@@ -226,6 +233,9 @@ func (b *InMemoryBackend) PrepareQuery(
 	}
 
 	cols, params := inferColumnsFromSQL(queryString)
+	if static, ok := b.staticColumns(ctx, queryString); ok {
+		cols = static
+	}
 
 	return &PrepareQueryResult{
 		QueryString: queryString,
@@ -287,13 +297,88 @@ func statusFor(rs *resultSet) QueryStatusDetail {
 }
 
 // buildQueryInsightsResponse builds the insights payload for a completed query.
-func buildQueryInsightsResponse(rs *resultSet) QueryInsightsResponse {
-	return QueryInsightsResponse{
-		OutputRows:  int64(len(rs.rows)),
-		OutputBytes: rs.outBytes(),
-
+func (b *InMemoryBackend) buildQueryInsightsResponse(region string, rs *resultSet) QueryInsightsResponse {
+	resp := QueryInsightsResponse{
+		OutputRows:      int64(len(rs.rows)),
+		OutputBytes:     rs.outBytes(),
 		QueryTableCount: int64(rs.tables),
 	}
+
+	var temporal, spatial *tableScanInsight
+
+	for i := range rs.scans {
+		s := &rs.scans[i]
+		if temporal == nil || s.rangeNs > temporal.rangeNs {
+			temporal = s
+		}
+
+		if spatial == nil || s.coverage > spatial.coverage {
+			spatial = s
+		}
+	}
+
+	if temporal != nil {
+		resp.TemporalRange = &QueryTemporalRange{
+			Max: &QueryTemporalRangeMax{TableArn: b.tableARN(region, *temporal), Value: temporal.rangeNs},
+		}
+	}
+
+	if spatial != nil {
+		resp.SpatialCoverage = &QuerySpatialCoverage{
+			Max: &QuerySpatialCoverageMax{
+				TableArn: b.tableARN(region, *spatial), PartitionKey: spatial.keys, Value: spatial.coverage,
+			},
+		}
+	}
+
+	return resp
+}
+
+func validateQueryOptions(opts QueryOptions) (int, error) {
+	if err := validateInsightsMode("queryInsights.mode", opts.InsightsMode); err != nil {
+		return 0, err
+	}
+
+	return validateMaxRows(opts.MaxRows)
+}
+
+// validateInsightsMode rejects a QueryInsights.Mode outside the documented enum.
+func validateInsightsMode(field, mode string) error {
+	switch mode {
+	case "", insightsModeEnabled, insightsModeDisabled:
+		return nil
+	}
+
+	return validationf(
+		"1 validation error detected: Value '%s' at '%s' failed to satisfy constraint: "+
+			"Member must satisfy enum value set: [%s, %s]",
+		mode, field, insightsModeEnabled, insightsModeDisabled)
+}
+
+// admitInsights applies the documented 1 query per second limit to queries run with insights enabled.
+func (b *InMemoryBackend) admitInsights(region, mode string) error {
+	if mode != insightsModeEnabled {
+		return nil
+	}
+
+	now := b.clock()
+
+	b.mu.Lock("admitInsights")
+	defer b.mu.Unlock()
+
+	for r, last := range b.insightsLast {
+		if now.Sub(last) >= time.Second {
+			delete(b.insightsLast, r)
+		}
+	}
+
+	if last, ok := b.insightsLast[region]; ok && now.Sub(last) < time.Second {
+		return fmt.Errorf("%w: query insights is limited to 1 query per second", ErrThrottling)
+	}
+
+	b.insightsLast[region] = now
+
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -757,4 +842,36 @@ func inferScalarType(expr string) string {
 	default:
 		return ScalarTypeVarchar
 	}
+}
+
+// staticColumns types the query's result columns from the referenced tables' schemas; ok is false when any column
+// type cannot be inferred statically.
+func (b *InMemoryBackend) staticColumns(ctx context.Context, queryString string) ([]ColumnInfo, bool) {
+	if b.recordSource() == nil {
+		return nil, false
+	}
+
+	q := strings.TrimSpace(strings.TrimRight(strings.TrimSpace(stripSQLComments(queryString)), ";"))
+
+	tables, _, err := loadSourceTables(getRegion(ctx, b.defaultRegion), b.recordSource(), q, b.clock())
+	if err != nil {
+		return nil, false
+	}
+
+	ann := annotateQuery(q, tables, b.clock(), nil)
+	if !ann.ok || len(ann.cols) == 0 {
+		return nil, false
+	}
+
+	cols := make([]ColumnInfo, len(ann.cols))
+
+	for i, c := range ann.cols {
+		if !c.typ.known() {
+			return nil, false
+		}
+
+		cols[i] = c.typ.columnInfo(columnName(c.name, i))
+	}
+
+	return cols, true
 }
