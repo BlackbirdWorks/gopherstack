@@ -92,22 +92,30 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every SWF domain ARN that currently has at least one tag
-// applied via TagResource.
+// TaggedResources lists every SWF domain that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every SWF domain, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
-	out := make([]TaggedEntry, 0, len(b.tags))
+	domains := b.domains.All()
+	out := make([]TaggedEntry, 0, len(domains))
 
-	for resourceARN, tags := range b.tags {
-		if len(tags) == 0 {
+	for _, d := range domains {
+		tags := b.tags[d.Arn]
+		if taggedOnly && len(tags) == 0 {
 			continue
 		}
 
-		result := make(map[string]string, len(tags))
-		maps.Copy(result, tags)
-		out = append(out, TaggedEntry{ARN: resourceARN, Tags: result})
+		out = append(out, TaggedEntry{ARN: d.Arn, Tags: maps.Clone(tags)})
 	}
 
 	return out

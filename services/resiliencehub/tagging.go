@@ -86,38 +86,51 @@ func (b *InMemoryBackend) ListTagsForResource(resourceArn string) (map[string]st
 	return t.Clone(), nil
 }
 
-// TaggedResources returns every tagged App, ResiliencyPolicy,
-// AppAssessment, and RecommendationTemplate, for the
-// resourcegroupstaggingapi integration.
+// TaggedResources lists every app, policy, assessment and template that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every app, policy, assessment and template, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	var out []TaggedEntry
 
 	for _, a := range b.apps.Snapshot() {
-		if a.Tags != nil && a.Tags.Len() > 0 {
-			out = append(out, TaggedEntry{ARN: a.ARN, Tags: a.Tags.Clone()})
-		}
+		out = appendEntry(out, a.ARN, a.Tags, taggedOnly)
 	}
 
 	for _, p := range b.policies.Snapshot() {
-		if p.Tags != nil && p.Tags.Len() > 0 {
-			out = append(out, TaggedEntry{ARN: p.ARN, Tags: p.Tags.Clone()})
-		}
+		out = appendEntry(out, p.ARN, p.Tags, taggedOnly)
 	}
 
 	for _, asmt := range b.assessments.Snapshot() {
-		if asmt.Tags != nil && asmt.Tags.Len() > 0 {
-			out = append(out, TaggedEntry{ARN: asmt.ARN, Tags: asmt.Tags.Clone()})
-		}
+		out = appendEntry(out, asmt.ARN, asmt.Tags, taggedOnly)
 	}
 
 	for _, t := range b.templates.Snapshot() {
-		if t.Tags != nil && t.Tags.Len() > 0 {
-			out = append(out, TaggedEntry{ARN: t.ARN, Tags: t.Tags.Clone()})
-		}
+		out = appendEntry(out, t.ARN, t.Tags, taggedOnly)
 	}
 
 	return out
+}
+
+func appendEntry(out []TaggedEntry, arn string, t *tags.Tags, taggedOnly bool) []TaggedEntry {
+	empty := t == nil || t.Len() == 0
+	if taggedOnly && empty {
+		return out
+	}
+
+	entry := TaggedEntry{ARN: arn}
+	if !empty {
+		entry.Tags = t.Clone()
+	}
+
+	return append(out, entry)
 }

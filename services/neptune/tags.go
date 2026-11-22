@@ -224,16 +224,27 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every Neptune resource ARN, across all regions,
-// that currently has at least one tag.
+// TaggedResources lists every tag-store ARN of every region that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+// InventoryResources lists every cluster, instance, subnet group, parameter group, snapshot, endpoint, global
+// cluster and event subscription plus every tagged ARN of the tag store.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	var out []TaggedEntry
 
+	seen := make(map[string]struct{})
+
 	for _, regionTags := range b.tags {
-		for arnStr, tagList := range regionTags {
+		for key, tagList := range regionTags {
 			if len(tagList) == 0 {
 				continue
 			}
@@ -243,8 +254,66 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 				kv[t.Key] = t.Value
 			}
 
-			out = append(out, TaggedEntry{ARN: arnStr, Tags: kv})
+			seen[key] = struct{}{}
+			out = append(out, TaggedEntry{ARN: key, Tags: kv})
 		}
+	}
+
+	if withUntagged {
+		for _, key := range b.resourceARNsLocked() {
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				out = append(out, TaggedEntry{ARN: key})
+			}
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsLocked() []string {
+	out := make(
+		[]string,
+		0,
+		b.clusterEndpoints.Len()+b.instances.Len()+b.subnetGroups.Len()+b.clusterParameterGroups.Len()+
+			b.clusterSnapshots.Len()+b.parameterGroups.Len()+b.eventSubscriptions.Len()+b.globalClusters.Len()+
+			b.clusters.Len(),
+	)
+
+	for _, v := range b.clusterEndpoints.All() {
+		out = append(out, v.DBClusterEndpointArn)
+	}
+
+	for _, v := range b.instances.All() {
+		out = append(out, v.DBInstanceArn)
+	}
+
+	for _, v := range b.subnetGroups.All() {
+		out = append(out, v.DBSubnetGroupArn)
+	}
+
+	for _, v := range b.clusterParameterGroups.All() {
+		out = append(out, v.DBClusterParameterGroupArn)
+	}
+
+	for _, v := range b.clusterSnapshots.All() {
+		out = append(out, v.DBClusterSnapshotArn)
+	}
+
+	for _, v := range b.parameterGroups.All() {
+		out = append(out, v.DBParameterGroupArn)
+	}
+
+	for _, v := range b.eventSubscriptions.All() {
+		out = append(out, v.EventSubscriptionArn)
+	}
+
+	for _, v := range b.globalClusters.All() {
+		out = append(out, v.GlobalClusterArn)
+	}
+
+	for _, v := range b.clusters.All() {
+		out = append(out, v.DBClusterArn)
 	}
 
 	return out

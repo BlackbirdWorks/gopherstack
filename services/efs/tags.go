@@ -171,31 +171,42 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// appendEFSTaggedEntry appends a TaggedEntry for arn/t to entries when t
-// holds at least one tag.
-func appendEFSTaggedEntry(entries []TaggedEntry, arn string, t *tags.Tags) []TaggedEntry {
-	if t == nil || t.Len() == 0 {
+func appendEFSTaggedEntry(entries []TaggedEntry, arn string, t *tags.Tags, taggedOnly bool) []TaggedEntry {
+	empty := t == nil || t.Len() == 0
+	if taggedOnly && empty {
 		return entries
 	}
 
-	return append(entries, TaggedEntry{ARN: arn, Tags: t.Clone()})
+	entry := TaggedEntry{ARN: arn}
+	if !empty {
+		entry.Tags = t.Clone()
+	}
+
+	return append(entries, entry)
 }
 
-// TaggedResources returns every EFS resource ARN that currently has at
-// least one tag, across every taggable EFS resource kind (file systems,
-// access points).
+// TaggedResources lists every file system and access point that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every file system and access point, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	var out []TaggedEntry
 
 	for _, fs := range b.fileSystems.All() {
-		out = appendEFSTaggedEntry(out, fs.FileSystemArn, fs.Tags)
+		out = appendEFSTaggedEntry(out, fs.FileSystemArn, fs.Tags, taggedOnly)
 	}
 
 	for _, ap := range b.accessPoints.All() {
-		out = appendEFSTaggedEntry(out, ap.AccessPointArn, ap.Tags)
+		out = appendEFSTaggedEntry(out, ap.AccessPointArn, ap.Tags, taggedOnly)
 	}
 
 	return out

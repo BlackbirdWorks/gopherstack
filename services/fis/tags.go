@@ -110,33 +110,37 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every FIS resource ARN (safety lever, experiment templates,
-// experiments) that currently has at least one tag applied via TagResource.
+// TaggedResources lists every safety lever, experiment template and experiment that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every safety lever, experiment template and experiment, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	var out []TaggedEntry
 
-	if b.safetyLever != nil && len(b.safetyLever.Tags) > 0 {
+	if b.safetyLever != nil && (!taggedOnly || len(b.safetyLever.Tags) > 0) {
 		out = append(out, TaggedEntry{ARN: b.safetyLever.Arn, Tags: copyStringMap(b.safetyLever.Tags)})
 	}
 
-	b.templates.Range(func(tpl *ExperimentTemplate) bool {
-		if len(tpl.Tags) > 0 {
-			out = append(out, TaggedEntry{ARN: tpl.Arn, Tags: copyStringMap(tpl.Tags)})
+	for _, v := range b.templates.All() {
+		if !taggedOnly || len(v.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: v.Arn, Tags: copyStringMap(v.Tags)})
 		}
+	}
 
-		return true
-	})
-
-	b.experiments.Range(func(exp *Experiment) bool {
-		if len(exp.Tags) > 0 {
-			out = append(out, TaggedEntry{ARN: exp.Arn, Tags: copyStringMap(exp.Tags)})
+	for _, v := range b.experiments.All() {
+		if !taggedOnly || len(v.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: v.Arn, Tags: copyStringMap(v.Tags)})
 		}
-
-		return true
-	})
+	}
 
 	return out
 }

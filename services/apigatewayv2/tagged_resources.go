@@ -16,15 +16,25 @@ func (b *InMemoryBackend) taggingARN(path string) string {
 	return arn.Build("apigateway", b.region, "", "/"+path)
 }
 
-// TaggedResources returns every tagged API, stage, VPC link, domain name, portal and portal product.
+// TaggedResources lists every API, stage, VPC link, domain name, portal and portal product that carries at least
+// one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every API, stage, VPC link, domain name, portal and portal product, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	var out []TaggedEntry
 
 	add := func(tags map[string]string, path string) {
-		if len(tags) > 0 {
+		if !taggedOnly || len(tags) > 0 {
 			out = append(out, TaggedEntry{ARN: b.taggingARN(path), Tags: maps.Clone(tags)})
 		}
 	}

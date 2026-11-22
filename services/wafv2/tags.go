@@ -118,43 +118,50 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every WAFv2 resource ARN that currently has at
-// least one tag, across every taggable WAFv2 resource kind (web ACLs, IP
-// sets, regex pattern sets, rule groups).
+// TaggedResources lists every WAFv2 resource that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every WAFv2 resource, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	var out []TaggedEntry
 
 	for _, w := range b.webACLs.All() {
-		out = appendWAFv2TaggedEntry(out, w.ARN, w.Tags)
+		out = appendWAFv2TaggedEntry(out, w.ARN, w.Tags, taggedOnly)
 	}
 
 	for _, s := range b.ipSets.All() {
-		out = appendWAFv2TaggedEntry(out, s.ARN, s.Tags)
+		out = appendWAFv2TaggedEntry(out, s.ARN, s.Tags, taggedOnly)
 	}
 
 	for _, r := range b.regexPatternSets.All() {
-		out = appendWAFv2TaggedEntry(out, r.ARN, r.Tags)
+		out = appendWAFv2TaggedEntry(out, r.ARN, r.Tags, taggedOnly)
 	}
 
 	for _, g := range b.ruleGroups.All() {
-		out = appendWAFv2TaggedEntry(out, g.ARN, g.Tags)
+		out = appendWAFv2TaggedEntry(out, g.ARN, g.Tags, taggedOnly)
 	}
 
 	return out
 }
 
-// appendWAFv2TaggedEntry appends a TaggedEntry for arn/tagMap to entries
-// when tagMap holds at least one tag.
-func appendWAFv2TaggedEntry(entries []TaggedEntry, arn string, tagMap map[string]string) []TaggedEntry {
-	if len(tagMap) == 0 {
+func appendWAFv2TaggedEntry(
+	entries []TaggedEntry,
+	arn string,
+	tagMap map[string]string,
+	taggedOnly bool,
+) []TaggedEntry {
+	if taggedOnly && len(tagMap) == 0 {
 		return entries
 	}
 
-	out := make(map[string]string, len(tagMap))
-	maps.Copy(out, tagMap)
-
-	return append(entries, TaggedEntry{ARN: arn, Tags: out})
+	return append(entries, TaggedEntry{ARN: arn, Tags: maps.Clone(tagMap)})
 }

@@ -68,14 +68,17 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every Application Auto Scaling scalable target ARN
-// that currently has at least one tag applied via TagResource. Scheduled
-// actions and scaling policies build their own ARNs (see
-// scheduled_actions.go, scaling_policies.go) but TagResource never accepts
-// them -- only scalable targets are taggable in this backend, matching the
-// real API's TagResource, which documents ResourceARN as "the Amazon
-// Resource Name (ARN) of the scalable target".
+// TaggedResources lists every scalable target that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every scalable target, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
@@ -83,11 +86,9 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 	out := make([]TaggedEntry, 0, len(all))
 
 	for _, t := range all {
-		if len(t.Tags) == 0 {
-			continue
+		if !taggedOnly || len(t.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: t.ARN, Tags: maps.Clone(t.Tags)})
 		}
-
-		out = append(out, TaggedEntry{ARN: t.ARN, Tags: maps.Clone(t.Tags)})
 	}
 
 	return out

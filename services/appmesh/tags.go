@@ -80,20 +80,79 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every App Mesh resource ARN that currently has at
-// least one tag applied via TagResource.
+// TaggedResources lists every tag-store ARN that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+// InventoryResources lists every mesh, virtual node, router, route, service, gateway and gateway route plus
+// every tagged ARN of the tag store.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, len(b.tags))
+	seen := make(map[string]struct{}, len(b.tags))
 
-	for resourceArn, tags := range b.tags {
-		if len(tags) == 0 {
+	for key, t := range b.tags {
+		if len(t) == 0 {
 			continue
 		}
 
-		out = append(out, TaggedEntry{ARN: resourceArn, Tags: maps.Clone(tags)})
+		seen[key] = struct{}{}
+		out = append(out, TaggedEntry{ARN: key, Tags: maps.Clone(t)})
+	}
+
+	if withUntagged {
+		for _, key := range b.resourceARNsLocked() {
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				out = append(out, TaggedEntry{ARN: key})
+			}
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsLocked() []string {
+	out := make(
+		[]string,
+		0,
+		b.meshes.Len()+b.virtualNodes.Len()+b.virtualRouters.Len()+b.routes.Len()+b.virtualSvcs.Len()+
+			b.virtualGWs.Len()+b.gatewayRoutes.Len(),
+	)
+
+	for _, m := range b.meshes.All() {
+		out = append(out, m.Meta.Arn)
+	}
+
+	for _, v := range b.virtualNodes.All() {
+		out = append(out, v.Meta.Arn)
+	}
+
+	for _, v := range b.virtualRouters.All() {
+		out = append(out, v.Meta.Arn)
+	}
+
+	for _, r := range b.routes.All() {
+		out = append(out, r.Meta.Arn)
+	}
+
+	for _, v := range b.virtualSvcs.All() {
+		out = append(out, v.Meta.Arn)
+	}
+
+	for _, v := range b.virtualGWs.All() {
+		out = append(out, v.Meta.Arn)
+	}
+
+	for _, g := range b.gatewayRoutes.All() {
+		out = append(out, g.Meta.Arn)
 	}
 
 	return out

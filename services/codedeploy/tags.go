@@ -143,9 +143,17 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every CodeDeploy application and deployment group
-// ARN that currently has at least one tag applied via TagResource.
+// TaggedResources lists every application and deployment group that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every application and deployment group, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
@@ -154,20 +162,16 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 	out := make([]TaggedEntry, 0, len(apps)+len(dgs))
 
 	for _, app := range apps {
-		if app.Tags.Len() == 0 {
-			continue
+		if !taggedOnly || app.Tags.Len() > 0 {
+			out = append(out, TaggedEntry{ARN: b.ApplicationARN(app.ApplicationName), Tags: app.Tags.Clone()})
 		}
-
-		out = append(out, TaggedEntry{ARN: b.ApplicationARN(app.ApplicationName), Tags: app.Tags.Clone()})
 	}
 
 	for _, dg := range dgs {
-		if dg.Tags.Len() == 0 {
-			continue
+		if !taggedOnly || dg.Tags.Len() > 0 {
+			arn := b.DeploymentGroupARN(dg.ApplicationName, dg.DeploymentGroupName)
+			out = append(out, TaggedEntry{ARN: arn, Tags: dg.Tags.Clone()})
 		}
-
-		arn := b.DeploymentGroupARN(dg.ApplicationName, dg.DeploymentGroupName)
-		out = append(out, TaggedEntry{ARN: arn, Tags: dg.Tags.Clone()})
 	}
 
 	return out

@@ -3,7 +3,7 @@ service: resourceexplorer2
 sdk_module: aws-sdk-go-v2/service/resourceexplorer2@v1.33.4
 last_audit_commit: e1a1dfbea
 last_audit_date: 2026-10-18
-overall: B            # 29 of 32 SDK operations are backed by real state and verified through the SDK client; the three service-view and streaming-access operations are not implemented and untagged resources are indexed for only a subset of services.
+overall: B            # 29 of 32 SDK operations are backed by real state and verified through the SDK client; the three service-view and streaming-access operations are not implemented.
 ops:
   AssociateDefaultView: {wire: ok, errors: ok, state: ok, persist: ok}
   BatchGetView: {wire: ok, errors: ok, state: ok, persist: ok, note: "1-20 ARNs; unknown ARNs come back in Errors"}
@@ -37,12 +37,12 @@ ops:
 families:
   Index: {status: ok, note: "State is a lazy deadline (Transition until SettleAt) evaluated on read; no goroutines. Default lifecycle delay is 0, settable through Backend.SetLifecycleDelay."}
   View: {status: ok, note: "Views belong to one Region and account; a view ARN from another Region or account is ResourceNotFoundException."}
-  Search: {status: ok, note: "Resources come from every provider of the Resource Groups Tagging API aggregation (uncached AllResources, internal/app/resourceexplorer_wiring.go), the tagging inventory providers (untagged resources of AMP, AppIntegrations, CloudHSM v2, CodeGuru Reviewer, RUM and Timestream for InfluxDB) plus EC2 instances, VPCs, subnets, security groups and volumes; an AGGREGATOR index searches every Region that has an index."}
+  Search: {status: ok, note: "Resources come from every provider of the Resource Groups Tagging API aggregation (uncached AllResources, internal/app/resourceexplorer_wiring.go), the inventory provider every wired service registers next to its tagged listing (InventoryResources, so untagged resources are searchable) plus EC2 instances, VPCs, subnets, security groups and volumes, IAM, CloudFormation stacks and the load balancers; an AGGREGATOR index searches every Region that has an index."}
   Setup: {status: ok, note: "CreateResourceExplorerSetup/DeleteResourceExplorerSetup run through the same index and view code as the individual operations."}
   Tags: {status: ok, note: "Tags on indexes and views only."}
 gaps: []
 items_still_open:
-  - "Search: untagged resources appear for S3, DynamoDB, Lambda, SQS, SNS, KMS and Secrets Manager (their tagging providers list every resource), for ECS clusters and services, RDS instances and clusters, CloudWatch Logs groups, IAM roles, users, groups and policies, CloudFormation stacks, ELBv2 load balancers and target groups and Classic load balancers (internal/app/resourceexplorer_inventory.go), for AMP, AppIntegrations, CloudHSM v2, CodeGuru Reviewer, RUM, Timestream for InfluxDB and the EC2 kinds; each other service wired into the tagging aggregation (about 90, each with its own TaggedResources that keeps only tagged entries, e.g. services/rum/tags.go TaggedResources/InventoryResources pair) still needs its own inventory source"
+  - "Search: untagged Timestream Query scheduled queries do not appear (only tagged ones surface, through the Timestream Write tag store); services/timestreamquery needs its own InventoryResources source wired like services/timestreamwrite"
 structural_gaps:
   - "Indexing is instantaneous and always complete: there is no crawler, so LastReportedAt is the query time and replication lag between Regions cannot occur."
 deferred: []
@@ -50,6 +50,8 @@ leaks: {status: clean, note: "leak_main_test.go runs goleak over the package; st
 ---
 
 ## Notes
+
+Every service wired into the tagging aggregation exposes `InventoryResources` beside `TaggedResources`, both built from one enumeration; only S3, DynamoDB, SQS, SNS, Lambda, KMS and Secrets Manager need none because their tagging providers already list every resource. `TestTaggedListingsHaveInventory` and `TestTaggingWiringRegistersInventory` fail when a wired service lacks the inventory source.
 
 Protocol is REST-JSON (`pkgs/restroute`): every operation is a POST to `/<OperationName>` except the tag operations on `/tags/{resourceArn}`. Timestamps are ISO8601 `date-time` strings because the schemas carry an explicit `timestampFormat`, unlike the JSON-protocol services. Requests are matched by the `resource-explorer-2` SigV4 signing name or the SDK user-agent marker.
 

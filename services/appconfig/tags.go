@@ -195,22 +195,89 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every AppConfig resource ARN (applications,
-// environments, configuration profiles, deployment strategies, deployments,
-// extensions, extension associations, experiment definitions) that
-// currently has at least one tag applied via TagResource.
+// TaggedResources lists every tag-store ARN that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+// InventoryResources lists every application, environment, configuration profile, deployment strategy,
+// extension, extension association, experiment definition, deployment and experiment run plus every tagged
+// ARN of the tag store.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, len(b.tags))
+	seen := make(map[string]struct{}, len(b.tags))
 
 	for arn, t := range b.tags {
 		if len(t) == 0 {
 			continue
 		}
 
+		seen[arn] = struct{}{}
 		out = append(out, TaggedEntry{ARN: arn, Tags: maps.Clone(t)})
+	}
+
+	if withUntagged {
+		for _, arn := range b.resourceARNsLocked() {
+			if _, ok := seen[arn]; !ok {
+				seen[arn] = struct{}{}
+				out = append(out, TaggedEntry{ARN: arn})
+			}
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsLocked() []string {
+	out := make(
+		[]string,
+		0,
+		b.applications.Len()+b.environments.Len()+b.configProfiles.Len()+b.deploymentStrategies.Len()+
+			b.extensions.Len()+b.extensionAssociations.Len()+b.experimentDefinitions.Len()+b.deployments.Len()+
+			b.experimentRuns.Len(),
+	)
+
+	for _, a := range b.applications.All() {
+		out = append(out, b.appconfigARN("application/"+a.ID))
+	}
+
+	for _, e := range b.environments.All() {
+		out = append(out, b.appconfigARN("application/"+e.ApplicationID+"/environment/"+e.ID))
+	}
+
+	for _, p := range b.configProfiles.All() {
+		out = append(out, b.appconfigARN("application/"+p.ApplicationID+"/configurationprofile/"+p.ID))
+	}
+
+	for _, s := range b.deploymentStrategies.All() {
+		out = append(out, b.appconfigARN("deploymentstrategy/"+s.ID))
+	}
+
+	for _, e := range b.extensions.All() {
+		out = append(out, e.Arn)
+	}
+
+	for _, a := range b.extensionAssociations.All() {
+		out = append(out, a.Arn)
+	}
+
+	for _, d := range b.experimentDefinitions.All() {
+		out = append(out, b.experimentDefinitionARN(d.ApplicationID, d.ID))
+	}
+
+	for _, d := range b.deployments.All() {
+		out = append(out, b.deploymentArn(d.ApplicationID, d.EnvironmentID, d.DeploymentNumber))
+	}
+
+	for _, r := range b.experimentRuns.All() {
+		out = append(out, b.experimentRunARN(r.ApplicationID, r.ExperimentDefinitionID, r.Run))
 	}
 
 	return out

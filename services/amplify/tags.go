@@ -106,24 +106,41 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every tagged app and branch.
+// TaggedResources lists every app and branch that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every app and branch, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	var out []TaggedEntry
 
 	for _, a := range b.apps.All() {
-		if a.Tags != nil && a.Tags.Len() > 0 {
-			out = append(out, TaggedEntry{ARN: a.ARN, Tags: a.Tags.Clone()})
+		if entry, ok := newEntry(a.ARN, a.Tags, taggedOnly); ok {
+			out = append(out, entry)
 		}
 	}
 
 	for _, br := range b.branches.All() {
-		if br.Tags != nil && br.Tags.Len() > 0 {
-			out = append(out, TaggedEntry{ARN: br.BranchARN, Tags: br.Tags.Clone()})
+		if entry, ok := newEntry(br.BranchARN, br.Tags, taggedOnly); ok {
+			out = append(out, entry)
 		}
 	}
 
 	return out
+}
+
+func newEntry(arn string, t *tags.Tags, taggedOnly bool) (TaggedEntry, bool) {
+	if t == nil || t.Len() == 0 {
+		return TaggedEntry{ARN: arn}, !taggedOnly
+	}
+
+	return TaggedEntry{ARN: arn, Tags: t.Clone()}, true
 }

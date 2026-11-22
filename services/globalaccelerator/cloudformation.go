@@ -294,27 +294,34 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every tagged standard and custom routing accelerator and attachment.
+// TaggedResources lists every standard and custom routing accelerator and attachment that carries at least
+// one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every standard and custom routing accelerator and attachment, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	var out []TaggedEntry
 
-	b.accelerators.Range(func(a *Accelerator) bool {
-		if len(a.Tags) > 0 {
-			out = append(out, TaggedEntry{ARN: a.ARN, Tags: cloneTags(a.Tags)})
+	for _, v := range b.accelerators.All() {
+		if !taggedOnly || len(v.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: v.ARN, Tags: cloneTags(v.Tags)})
 		}
+	}
 
-		return true
-	})
-	b.attachments.Range(func(a *Attachment) bool {
-		if len(a.Tags) > 0 {
-			out = append(out, TaggedEntry{ARN: a.ARN, Tags: cloneTags(a.Tags)})
+	for _, v := range b.attachments.All() {
+		if !taggedOnly || len(v.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: v.ARN, Tags: cloneTags(v.Tags)})
 		}
-
-		return true
-	})
+	}
 
 	return out
 }

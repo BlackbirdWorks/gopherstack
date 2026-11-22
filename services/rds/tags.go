@@ -69,26 +69,136 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every RDS resource ARN that currently has at
-// least one tag.
+// TaggedResources lists every tag-store ARN that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+// InventoryResources lists every instance, cluster, snapshot, subnet group, parameter group, option group,
+// event subscription, global cluster, security group, proxy and endpoint plus every tagged ARN of the tag
+// store.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, len(b.tags))
+	seen := make(map[string]struct{}, len(b.tags))
 
-	for arn, tagList := range b.tags {
-		if len(tagList) == 0 {
+	for key, t := range b.tags {
+		if len(t) == 0 {
 			continue
 		}
 
-		kv := make(map[string]string, len(tagList))
-		for _, t := range tagList {
-			kv[t.Key] = t.Value
-		}
+		seen[key] = struct{}{}
+		out = append(out, TaggedEntry{ARN: key, Tags: tagListToMap(t)})
+	}
 
-		out = append(out, TaggedEntry{ARN: arn, Tags: kv})
+	if withUntagged {
+		for _, key := range b.resourceARNsLocked() {
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				out = append(out, TaggedEntry{ARN: key})
+			}
+		}
 	}
 
 	return out
+}
+
+func (b *InMemoryBackend) resourceARNsLocked() []string {
+	out := b.resourceARNsPart1Locked()
+	out = append(out, b.resourceARNsPart2Locked()...)
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsPart1Locked() []string {
+	out := make(
+		[]string,
+		0,
+		b.instances.Len()+b.clusters.Len()+b.snapshots.Len()+b.clusterSnapshots.Len()+b.subnetGroups.Len()+
+			b.parameterGroups.Len()+b.clusterParameterGroups.Len()+b.optionGroups.Len(),
+	)
+
+	for _, v := range b.instances.All() {
+		out = append(out, v.DBInstanceArn)
+	}
+
+	for _, v := range b.clusters.All() {
+		out = append(out, v.DBClusterArn)
+	}
+
+	for _, v := range b.snapshots.All() {
+		out = append(out, v.DBSnapshotArn)
+	}
+
+	for _, v := range b.clusterSnapshots.All() {
+		out = append(out, v.DBClusterSnapshotArn)
+	}
+
+	for _, v := range b.subnetGroups.All() {
+		out = append(out, v.DBSubnetGroupArn)
+	}
+
+	for _, v := range b.parameterGroups.All() {
+		out = append(out, v.DBParameterGroupArn)
+	}
+
+	for _, v := range b.clusterParameterGroups.All() {
+		out = append(out, v.DBParameterGroupArn)
+	}
+
+	for _, v := range b.optionGroups.All() {
+		out = append(out, v.OptionGroupArn)
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsPart2Locked() []string {
+	out := make(
+		[]string,
+		0,
+		b.eventSubscriptions.Len()+b.globalClusters.Len()+b.dbSecurityGroups.Len()+b.proxies.Len()+
+			b.proxyEndpoints.Len()+b.clusterEndpoints.Len(),
+	)
+
+	for _, v := range b.eventSubscriptions.All() {
+		out = append(out, v.EventSubscriptionArn)
+	}
+
+	for _, v := range b.globalClusters.All() {
+		out = append(out, v.GlobalClusterArn)
+	}
+
+	for _, v := range b.dbSecurityGroups.All() {
+		out = append(out, v.DBSecurityGroupArn)
+	}
+
+	for _, v := range b.proxies.All() {
+		out = append(out, v.DBProxyARN)
+	}
+
+	for _, v := range b.proxyEndpoints.All() {
+		out = append(out, v.DBProxyEndpointARN)
+	}
+
+	for _, v := range b.clusterEndpoints.All() {
+		out = append(out, v.DBClusterEndpointArn)
+	}
+
+	return out
+}
+
+func tagListToMap(tags []Tag) map[string]string {
+	m := make(map[string]string, len(tags))
+	for _, t := range tags {
+		m[t.Key] = t.Value
+	}
+
+	return m
 }

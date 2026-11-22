@@ -479,43 +479,37 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// appendTaggedResources walks every region's store.Table for one SageMaker resource
-// kind, appending a TaggedEntry for every value that carries at least one tag. field
-// extracts that kind's own ARN field and Tags field (every kind the tagLookups above
-// reach stores both directly on the value already -- see e.g. Model.ModelARN/
-// Model.Tags -- so no ARN-index lookup is needed here, unlike the by-ARN lookup those
-// functions perform).
 func appendTaggedResources[V any](
 	out []TaggedEntry,
 	byRegion map[string]*store.Table[V],
 	field func(*V) (resourceARN string, resourceTags map[string]string),
+	taggedOnly bool,
 ) []TaggedEntry {
 	for _, table := range byRegion {
 		for _, v := range table.All() {
 			resourceARN, tagMap := field(v)
-			if len(tagMap) == 0 {
+			if taggedOnly && len(tagMap) == 0 {
 				continue
 			}
 
-			cp := make(map[string]string, len(tagMap))
-			maps.Copy(cp, tagMap)
-			out = append(out, TaggedEntry{ARN: resourceARN, Tags: cp})
+			out = append(out, TaggedEntry{ARN: resourceARN, Tags: maps.Clone(tagMap)})
 		}
 	}
 
 	return out
 }
 
-// TaggedResources returns every SageMaker resource ARN, across every region and every
-// resource kind the tagLookups above support (models, endpoint configs, endpoints,
-// training jobs, notebook instances, hyperparameter tuning jobs, actions, algorithms,
-// clusters, contexts, model packages, model package groups, artifacts, processing
-// jobs, transform jobs, domains, feature groups, pipelines, experiments, trials,
-// trial components, work teams, and workforces), that currently has at least one tag.
-// Resource kinds not reachable through AddTags/DeleteTags/ListTags (e.g. projects,
-// monitoring schedules) are intentionally excluded: they are not taggable through
-// this backend's own tagging API either.
+// TaggedResources lists every SageMaker resource that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every SageMaker resource, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
@@ -523,73 +517,73 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 
 	out = appendTaggedResources(out, b.models, func(v *Model) (string, map[string]string) {
 		return v.ModelARN, v.Tags
-	})
+	}, taggedOnly)
 	out = appendTaggedResources(out, b.endpointConfigs, func(v *EndpointConfig) (string, map[string]string) {
 		return v.EndpointConfigARN, v.Tags
-	})
+	}, taggedOnly)
 	out = appendTaggedResources(out, b.endpoints, func(v *Endpoint) (string, map[string]string) {
 		return v.EndpointArn, v.Tags
-	})
+	}, taggedOnly)
 	out = appendTaggedResources(out, b.trainingJobs, func(v *TrainingJob) (string, map[string]string) {
 		return v.TrainingJobArn, v.Tags
-	})
+	}, taggedOnly)
 	out = appendTaggedResources(out, b.notebooks, func(v *NotebookInstance) (string, map[string]string) {
 		return v.NotebookInstanceArn, v.Tags
-	})
+	}, taggedOnly)
 	out = appendTaggedResources(out, b.hpTuningJobs, func(v *HyperParameterTuningJob) (string, map[string]string) {
 		return v.HyperParameterTuningJobArn, v.Tags
-	})
+	}, taggedOnly)
 	out = appendTaggedResources(out, b.actions, func(v *Action) (string, map[string]string) {
 		return v.ActionArn, v.Tags
-	})
+	}, taggedOnly)
 	out = appendTaggedResources(out, b.algorithms, func(v *Algorithm) (string, map[string]string) {
 		return v.AlgorithmArn, v.Tags
-	})
+	}, taggedOnly)
 	out = appendTaggedResources(out, b.clusters, func(v *Cluster) (string, map[string]string) {
 		return v.ClusterArn, v.Tags
-	})
+	}, taggedOnly)
 	out = appendTaggedResources(out, b.contexts, func(v *Context) (string, map[string]string) {
 		return v.ContextArn, v.Tags
-	})
+	}, taggedOnly)
 	out = appendTaggedResources(out, b.modelPackages, func(v *ModelPackage) (string, map[string]string) {
 		return v.ModelPackageArn, v.Tags
-	})
+	}, taggedOnly)
 	out = appendTaggedResources(out, b.modelPackageGroups, func(v *ModelPackageGroup) (string, map[string]string) {
 		return v.ModelPackageGroupArn, v.Tags
-	})
+	}, taggedOnly)
 	out = appendTaggedResources(out, b.artifacts, func(v *Artifact) (string, map[string]string) {
 		return v.ArtifactArn, v.Tags
-	})
+	}, taggedOnly)
 	out = appendTaggedResources(out, b.processingJobs, func(v *ProcessingJob) (string, map[string]string) {
 		return v.ProcessingJobArn, v.Tags
-	})
+	}, taggedOnly)
 	out = appendTaggedResources(out, b.transformJobs, func(v *TransformJob) (string, map[string]string) {
 		return v.TransformJobArn, v.Tags
-	})
+	}, taggedOnly)
 	out = appendTaggedResources(out, b.domains, func(v *Domain) (string, map[string]string) {
 		return v.DomainArn, v.Tags
-	})
+	}, taggedOnly)
 	out = appendTaggedResources(out, b.featureGroups, func(v *FeatureGroup) (string, map[string]string) {
 		return v.FeatureGroupArn, v.Tags
-	})
+	}, taggedOnly)
 	out = appendTaggedResources(out, b.pipelines, func(v *Pipeline) (string, map[string]string) {
 		return v.PipelineArn, v.Tags
-	})
+	}, taggedOnly)
 	out = appendTaggedResources(out, b.experiments, func(v *Experiment) (string, map[string]string) {
 		return v.ExperimentArn, v.Tags
-	})
+	}, taggedOnly)
 	out = appendTaggedResources(out, b.trials, func(v *Trial) (string, map[string]string) {
 		return v.TrialArn, v.Tags
-	})
+	}, taggedOnly)
 	out = appendTaggedResources(out, b.trialComponents, func(v *TrialComponent) (string, map[string]string) {
 		return v.TrialComponentArn, v.Tags
-	})
+	}, taggedOnly)
 	out = appendTaggedResources(out, b.workteams, func(v *Workteam) (string, map[string]string) {
 		return v.WorkteamArn, v.Tags
-	})
+	}, taggedOnly)
 	out = appendTaggedResources(out, b.workforces, func(v *Workforce) (string, map[string]string) {
 		return v.WorkforceArn, v.Tags
-	})
+	}, taggedOnly)
 
 	return out
 }

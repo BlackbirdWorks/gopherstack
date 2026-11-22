@@ -139,22 +139,53 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every MediaPackage resource ARN (channels and origin
-// endpoints) that currently has at least one tag applied via TagResource.
+// TaggedResources lists every tag-store ARN that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+// InventoryResources lists every channel and origin endpoint plus every tagged ARN of the tag store.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, len(b.tags))
+	seen := make(map[string]struct{}, len(b.tags))
 
-	for resourceARN, tags := range b.tags {
-		if len(tags) == 0 {
+	for key, t := range b.tags {
+		if len(t) == 0 {
 			continue
 		}
 
-		result := make(map[string]string, len(tags))
-		maps.Copy(result, tags)
-		out = append(out, TaggedEntry{ARN: resourceARN, Tags: result})
+		seen[key] = struct{}{}
+		out = append(out, TaggedEntry{ARN: key, Tags: maps.Clone(t)})
+	}
+
+	if withUntagged {
+		for _, key := range b.resourceARNsLocked() {
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				out = append(out, TaggedEntry{ARN: key})
+			}
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsLocked() []string {
+	out := make([]string, 0, b.channels.Len()+b.originEndpoints.Len())
+
+	for _, c := range b.channels.All() {
+		out = append(out, c.ARN)
+	}
+
+	for _, e := range b.originEndpoints.All() {
+		out = append(out, e.ARN)
 	}
 
 	return out

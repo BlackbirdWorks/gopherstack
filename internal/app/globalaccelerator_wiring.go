@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -126,16 +127,8 @@ func wireTaggingGlobalAccelerator(bk rgtapibackend.StorageBackend, reg service.R
 	wireTaggingARNResources(
 		bk, "globalaccelerator",
 		func(arn string) string { return resourceTypeFromARN(arn, "globalaccelerator") },
-		func() []taggedARNEntry {
-			items := h.Backend.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-
-			for _, it := range items {
-				out = append(out, taggedARNEntry{ARN: it.ARN, Tags: it.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(h.Backend.TaggedResources()) },
+		func(context.Context) []taggedARNEntry { return taggedEntries(h.Backend.InventoryResources()) },
 		h.Backend.TagResource,
 		h.Backend.UntagResource,
 	)

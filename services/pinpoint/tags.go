@@ -71,12 +71,17 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every Pinpoint resource ARN that currently has at
-// least one tag. Export/import jobs build ARNs (export_import_jobs.go) but
-// are never entered into arnIndex -- they don't implement tagHolder -- so
-// they never appear here, matching the real API's TagResource, which only
-// documents app, campaign, journey, segment, and template ARNs.
+// TaggedResources lists every app, campaign, journey, segment and template that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every app, campaign, journey, segment and template, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
@@ -84,7 +89,7 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 
 	for resourceARN, res := range b.arnIndex {
 		tags := res.getTags()
-		if len(tags) == 0 {
+		if taggedOnly && len(tags) == 0 {
 			continue
 		}
 

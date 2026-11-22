@@ -56,19 +56,25 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every DLM policy ARN that currently has at least one tag
-// applied via TagResource.
+// TaggedResources lists every DLM policy that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every DLM policy, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	var out []TaggedEntry
 
 	b.policies.Range(func(p *storedPolicy) bool {
-		if len(p.Tags) > 0 {
-			result := make(map[string]string, len(p.Tags))
-			maps.Copy(result, p.Tags)
-			out = append(out, TaggedEntry{ARN: p.PolicyArn, Tags: result})
+		if !taggedOnly || len(p.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: p.PolicyArn, Tags: maps.Clone(p.Tags)})
 		}
 
 		return true

@@ -286,9 +286,19 @@ type TaggedEntry struct {
 // same reason (domain_names.go).
 const apigwTaggingARNRegion = "us-east-1"
 
-// TaggedResources returns every taggable API Gateway resource that carries at
-// least one tag, across all seven kinds resolveTaggableARN accepts.
+// TaggedResources lists every REST API, stage, API key, domain name, usage plan, VPC link and client
+// certificate that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every REST API, stage, API key, domain name, usage plan, VPC link and client
+// certificate, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
@@ -297,44 +307,48 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 			b.usagePlans.Len()+b.vpcLinks.Len()+b.clientCertificates.Len())
 
 	for _, api := range b.restApis.All() {
-		out = appendTaggedEntry(out, api.Tags, apigwRestAPIArn(api.ID))
+		out = appendTaggedEntry(out, api.Tags, apigwRestAPIArn(api.ID), taggedOnly)
 	}
 
 	for _, stage := range b.stages.All() {
-		out = appendTaggedEntry(out, stage.Tags, apigwStageArn(stage.RestAPIID, stage.StageName))
+		out = appendTaggedEntry(out, stage.Tags, apigwStageArn(stage.RestAPIID, stage.StageName), taggedOnly)
 	}
 
 	for _, k := range b.apiKeys.All() {
-		out = appendTaggedEntry(out, k.Tags, apigwResourceArn(apiGWSegAPIKeys, k.ID))
+		out = appendTaggedEntry(out, k.Tags, apigwResourceArn(apiGWSegAPIKeys, k.ID), taggedOnly)
 	}
 
 	for _, dn := range b.domainNames.All() {
-		out = appendTaggedEntry(out, dn.Tags, apigwResourceArn(apiGWSegDomainNames, dn.DomainNameValue))
+		out = appendTaggedEntry(out, dn.Tags, apigwResourceArn(apiGWSegDomainNames, dn.DomainNameValue), taggedOnly)
 	}
 
 	for _, p := range b.usagePlans.All() {
-		out = appendTaggedEntry(out, p.Tags, apigwResourceArn(apiGWSegUsagePlans, p.ID))
+		out = appendTaggedEntry(out, p.Tags, apigwResourceArn(apiGWSegUsagePlans, p.ID), taggedOnly)
 	}
 
 	for _, l := range b.vpcLinks.All() {
-		out = appendTaggedEntry(out, l.Tags, apigwResourceArn(apiGWSegVpcLinks, l.ID))
+		out = appendTaggedEntry(out, l.Tags, apigwResourceArn(apiGWSegVpcLinks, l.ID), taggedOnly)
 	}
 
 	for _, c := range b.clientCertificates.All() {
-		out = appendTaggedEntry(out, c.Tags, apigwResourceArn(apiGWSegClientCerts, c.ClientCertificateID))
+		out = appendTaggedEntry(out, c.Tags, apigwResourceArn(apiGWSegClientCerts, c.ClientCertificateID), taggedOnly)
 	}
 
 	return out
 }
 
-// appendTaggedEntry appends a TaggedEntry for arn to out, skipping resources
-// with no tags (a nil *tags.Tags or an empty one).
-func appendTaggedEntry(out []TaggedEntry, t *tags.Tags, arn string) []TaggedEntry {
-	if t == nil || t.Len() == 0 {
+func appendTaggedEntry(out []TaggedEntry, t *tags.Tags, arn string, taggedOnly bool) []TaggedEntry {
+	empty := t == nil || t.Len() == 0
+	if taggedOnly && empty {
 		return out
 	}
 
-	return append(out, TaggedEntry{ARN: arn, Tags: t.Clone()})
+	entry := TaggedEntry{ARN: arn}
+	if !empty {
+		entry.Tags = t.Clone()
+	}
+
+	return append(out, entry)
 }
 
 func apigwResourceArn(kind, id string) string {

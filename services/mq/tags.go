@@ -180,22 +180,53 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every MQ resource ARN that currently has at least
-// one tag.
+// TaggedResources lists every tag-store ARN that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+// InventoryResources lists every broker and configuration plus every tagged ARN of the tag store.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, len(b.tags))
+	seen := make(map[string]struct{}, len(b.tags))
 
-	for resourceARN, tagMap := range b.tags {
-		if len(tagMap) == 0 {
+	for key, t := range b.tags {
+		if len(t) == 0 {
 			continue
 		}
 
-		cp := make(map[string]string, len(tagMap))
-		maps.Copy(cp, tagMap)
-		out = append(out, TaggedEntry{ARN: resourceARN, Tags: cp})
+		seen[key] = struct{}{}
+		out = append(out, TaggedEntry{ARN: key, Tags: maps.Clone(t)})
+	}
+
+	if withUntagged {
+		for _, key := range b.resourceARNsLocked() {
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				out = append(out, TaggedEntry{ARN: key})
+			}
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsLocked() []string {
+	out := make([]string, 0, b.brokers.Len()+b.configurations.Len())
+
+	for _, v := range b.brokers.All() {
+		out = append(out, v.BrokerArn)
+	}
+
+	for _, v := range b.configurations.All() {
+		out = append(out, v.Arn)
 	}
 
 	return out

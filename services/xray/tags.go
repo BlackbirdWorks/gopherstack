@@ -109,20 +109,53 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every X-Ray group or sampling rule ARN that
-// currently has at least one tag applied via TagResource.
+// TaggedResources lists every tag-store ARN that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+// InventoryResources lists every group and sampling rule plus every tagged ARN of the tag store.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, len(b.resourceTags))
+	seen := make(map[string]struct{}, len(b.resourceTags))
 
-	for resourceARN, tags := range b.resourceTags {
-		if len(tags) == 0 {
+	for key, t := range b.resourceTags {
+		if len(t) == 0 {
 			continue
 		}
 
-		out = append(out, TaggedEntry{ARN: resourceARN, Tags: maps.Clone(tags)})
+		seen[key] = struct{}{}
+		out = append(out, TaggedEntry{ARN: key, Tags: maps.Clone(t)})
+	}
+
+	if withUntagged {
+		for _, key := range b.resourceARNsLocked() {
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				out = append(out, TaggedEntry{ARN: key})
+			}
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsLocked() []string {
+	out := make([]string, 0, b.groups.Len()+b.samplingRules.Len())
+
+	for _, g := range b.groups.All() {
+		out = append(out, g.GroupARN)
+	}
+
+	for _, r := range b.samplingRules.All() {
+		out = append(out, r.RuleARN)
 	}
 
 	return out

@@ -15,55 +15,66 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// appendBackupTaggedEntry appends a TaggedEntry for arn/t to entries when t
-// holds at least one tag.
-func appendBackupTaggedEntry(entries []TaggedEntry, arn string, t *tags.Tags) []TaggedEntry {
-	if t == nil || t.Len() == 0 {
+func appendBackupTaggedEntry(entries []TaggedEntry, arn string, t *tags.Tags, taggedOnly bool) []TaggedEntry {
+	empty := t == nil || t.Len() == 0
+	if taggedOnly && empty {
 		return entries
 	}
 
-	return append(entries, TaggedEntry{ARN: arn, Tags: t.Clone()})
+	entry := TaggedEntry{ARN: arn}
+	if !empty {
+		entry.Tags = t.Clone()
+	}
+
+	return append(entries, entry)
 }
 
-// TaggedResources returns every Backup resource ARN that currently has at
-// least one tag, across every taggable Backup resource kind (backup vaults,
-// backup plans, frameworks, report plans).
+// TaggedResources lists every Backup resource that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every Backup resource, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	var out []TaggedEntry
 
 	for _, v := range b.vaults.All() {
-		out = appendBackupTaggedEntry(out, v.BackupVaultArn, v.Tags)
+		out = appendBackupTaggedEntry(out, v.BackupVaultArn, v.Tags, taggedOnly)
 	}
 
 	for _, p := range b.plans.All() {
-		out = appendBackupTaggedEntry(out, p.BackupPlanArn, p.Tags)
+		out = appendBackupTaggedEntry(out, p.BackupPlanArn, p.Tags, taggedOnly)
 	}
 
 	for _, f := range b.frameworks.All() {
-		out = appendBackupTaggedEntry(out, f.FrameworkArn, f.Tags)
+		out = appendBackupTaggedEntry(out, f.FrameworkArn, f.Tags, taggedOnly)
 	}
 
 	for _, rp := range b.reportPlans.All() {
-		out = appendBackupTaggedEntry(out, rp.ReportPlanArn, rp.Tags)
+		out = appendBackupTaggedEntry(out, rp.ReportPlanArn, rp.Tags, taggedOnly)
 	}
 
 	for _, rav := range b.restoreAccessVaults.All() {
-		out = appendBackupTaggedEntry(out, rav.RestoreAccessBackupVaultArn, rav.Tags)
+		out = appendBackupTaggedEntry(out, rav.RestoreAccessBackupVaultArn, rav.Tags, taggedOnly)
 	}
 
 	for _, bap := range b.backupAccessPoints.All() {
-		out = appendBackupTaggedEntry(out, bap.AccessPointArn, bap.Tags)
+		out = appendBackupTaggedEntry(out, bap.AccessPointArn, bap.Tags, taggedOnly)
 	}
 
 	for _, rtp := range b.restoreTestingPlans.All() {
-		out = appendBackupTaggedEntry(out, rtp.RestoreTestingPlanArn, rtp.Tags)
+		out = appendBackupTaggedEntry(out, rtp.RestoreTestingPlanArn, rtp.Tags, taggedOnly)
 	}
 
 	for _, rp := range b.recoveryPoints.All() {
-		if len(rp.Tags) > 0 {
+		if !taggedOnly || len(rp.Tags) > 0 {
 			out = append(out, TaggedEntry{ARN: rp.RecoveryPointArn, Tags: maps.Clone(rp.Tags)})
 		}
 	}

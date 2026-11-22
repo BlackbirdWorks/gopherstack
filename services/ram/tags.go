@@ -68,10 +68,17 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every resource share ARN that currently has at
-// least one tag. Real RAM's TagResource only tags resource shares (not
-// permissions or invitations), matching this backend's TagResource gate.
+// TaggedResources lists every live resource share that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every live resource share, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
@@ -79,13 +86,11 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 	out := make([]TaggedEntry, 0, len(shares))
 
 	for _, rs := range shares {
-		if rs.Status == statusDeleted || len(rs.Tags) == 0 {
+		if rs.Status == statusDeleted || (taggedOnly && len(rs.Tags) == 0) {
 			continue
 		}
 
-		cp := make(map[string]string, len(rs.Tags))
-		maps.Copy(cp, rs.Tags)
-		out = append(out, TaggedEntry{ARN: rs.ARN, Tags: cp})
+		out = append(out, TaggedEntry{ARN: rs.ARN, Tags: maps.Clone(rs.Tags)})
 	}
 
 	return out

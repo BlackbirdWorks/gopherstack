@@ -125,46 +125,55 @@ func (b *InMemoryBackend) DescribeTags(resourceArns []string) []resourceTagWire 
 	return out
 }
 
-// appendIfTagged appends a TaggedEntry for (arn, t) to out iff t carries at
-// least one tag -- the shared single-branch building block
-// TaggedResources uses once per taggable resource kind, so that function
-// itself stays a flat sequence of calls rather than five copies of the same
-// nil/Len check (keeping its cyclomatic complexity down).
-func appendIfTagged(out []TaggedEntry, arn string, t *tags.Tags) []TaggedEntry {
-	if t == nil || t.Len() == 0 {
+func appendIfTagged(out []TaggedEntry, arn string, t *tags.Tags, taggedOnly bool) []TaggedEntry {
+	empty := t == nil || t.Len() == 0
+	if taggedOnly && empty {
 		return out
 	}
 
-	return append(out, TaggedEntry{ARN: arn, Tags: t.Clone()})
+	entry := TaggedEntry{ARN: arn}
+	if !empty {
+		entry.Tags = t.Clone()
+	}
+
+	return append(out, entry)
 }
 
-// TaggedResources returns every tagged Connection/Lag/Interconnect/
-// VirtualInterface/DirectConnectGateway, for the resourcegroupstaggingapi
-// integration.
+// TaggedResources lists every connection, LAG, interconnect, virtual interface and gateway that carries at
+// least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every connection, LAG, interconnect, virtual interface and gateway, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	var out []TaggedEntry
 
 	for _, c := range b.connections.Snapshot() {
-		out = appendIfTagged(out, b.ConnectionARN(c.ConnectionID), c.Tags)
+		out = appendIfTagged(out, b.ConnectionARN(c.ConnectionID), c.Tags, taggedOnly)
 	}
 
 	for _, l := range b.lags.Snapshot() {
-		out = appendIfTagged(out, b.LagARN(l.LagID), l.Tags)
+		out = appendIfTagged(out, b.LagARN(l.LagID), l.Tags, taggedOnly)
 	}
 
 	for _, ic := range b.interconnects.Snapshot() {
-		out = appendIfTagged(out, b.InterconnectARN(ic.InterconnectID), ic.Tags)
+		out = appendIfTagged(out, b.InterconnectARN(ic.InterconnectID), ic.Tags, taggedOnly)
 	}
 
 	for _, v := range b.virtualInterfaces.Snapshot() {
-		out = appendIfTagged(out, b.VifARN(v.VirtualInterfaceID), v.Tags)
+		out = appendIfTagged(out, b.VifARN(v.VirtualInterfaceID), v.Tags, taggedOnly)
 	}
 
 	for _, g := range b.ownGateways() {
-		out = appendIfTagged(out, b.GatewayARN(g.DirectConnectGatewayID), g.Tags)
+		out = appendIfTagged(out, b.GatewayARN(g.DirectConnectGatewayID), g.Tags, taggedOnly)
 	}
 
 	return out

@@ -56,22 +56,117 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every VPC Lattice resource ARN that currently has
-// at least one tag applied via TagResource.
+// TaggedResources lists every tag-store ARN that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+// InventoryResources lists every service network, association, service, listener, rule, target group,
+// resource configuration, resource gateway, access log subscription and domain verification plus every tagged
+// ARN of the tag store.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, len(b.tags))
+	seen := make(map[string]struct{}, len(b.tags))
 
-	for arn, tags := range b.tags {
-		if len(tags) == 0 {
+	for key, t := range b.tags {
+		if len(t) == 0 {
 			continue
 		}
 
-		cp := make(map[string]string, len(tags))
-		maps.Copy(cp, tags)
-		out = append(out, TaggedEntry{ARN: arn, Tags: cp})
+		seen[key] = struct{}{}
+		out = append(out, TaggedEntry{ARN: key, Tags: copyTags(t)})
+	}
+
+	if withUntagged {
+		for _, key := range b.resourceARNsLocked() {
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				out = append(out, TaggedEntry{ARN: key})
+			}
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsLocked() []string {
+	out := b.resourceARNsPart1Locked()
+	out = append(out, b.resourceARNsPart2Locked()...)
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsPart1Locked() []string {
+	out := make(
+		[]string,
+		0,
+		b.serviceNetworks.Len()+b.snras.Len()+b.snsas.Len()+b.snvas.Len()+b.services.Len()+b.listeners.Len()+
+			b.rules.Len()+b.targetGroups.Len(),
+	)
+
+	for _, v := range b.serviceNetworks.All() {
+		out = append(out, v.ARN)
+	}
+
+	for _, v := range b.snras.All() {
+		out = append(out, v.ARN)
+	}
+
+	for _, v := range b.snsas.All() {
+		out = append(out, v.ARN)
+	}
+
+	for _, v := range b.snvas.All() {
+		out = append(out, v.ARN)
+	}
+
+	for _, v := range b.services.All() {
+		out = append(out, v.ARN)
+	}
+
+	for _, v := range b.listeners.All() {
+		out = append(out, v.ARN)
+	}
+
+	for _, v := range b.rules.All() {
+		out = append(out, v.ARN)
+	}
+
+	for _, v := range b.targetGroups.All() {
+		out = append(out, v.ARN)
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsPart2Locked() []string {
+	out := make(
+		[]string,
+		0,
+		b.resourceConfigurations.Len()+b.resourceGateways.Len()+b.alss.Len()+b.domainVerifications.Len(),
+	)
+
+	for _, v := range b.resourceConfigurations.All() {
+		out = append(out, v.ARN)
+	}
+
+	for _, v := range b.resourceGateways.All() {
+		out = append(out, v.ARN)
+	}
+
+	for _, v := range b.alss.All() {
+		out = append(out, v.ARN)
+	}
+
+	for _, v := range b.domainVerifications.All() {
+		out = append(out, v.ARN)
 	}
 
 	return out

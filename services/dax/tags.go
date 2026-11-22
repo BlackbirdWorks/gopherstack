@@ -163,22 +163,40 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every DAX cluster ARN that currently has at least
-// one tag applied via TagResource.
+// TaggedResources lists every tag-store ARN that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+// InventoryResources lists every cluster plus every tagged ARN of the tag store.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 	b.mu.Lock("TaggedResources")
 	defer b.mu.Unlock()
 
 	b.sweepClusterTransitionsLocked(time.Now())
 
 	out := make([]TaggedEntry, 0, len(b.tags))
+	seen := make(map[string]struct{}, len(b.tags))
 
-	for arnStr, t := range b.tags {
+	for key, t := range b.tags {
 		if len(t) == 0 {
 			continue
 		}
 
-		out = append(out, TaggedEntry{ARN: arnStr, Tags: maps.Clone(t)})
+		seen[key] = struct{}{}
+		out = append(out, TaggedEntry{ARN: key, Tags: maps.Clone(t)})
+	}
+
+	if withUntagged {
+		for _, c := range b.clusters.All() {
+			if _, ok := seen[c.ClusterArn]; !ok {
+				out = append(out, TaggedEntry{ARN: c.ClusterArn})
+			}
+		}
 	}
 
 	return out

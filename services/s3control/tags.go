@@ -1,6 +1,10 @@
 package s3control
 
-import "maps"
+import (
+	"maps"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+)
 
 // ---- Resource Tags ----
 
@@ -56,24 +60,79 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every s3control resource with at least one tag,
-// keyed by ARN. Only covers the resource kinds taggable through the generic
-// TagResource/UntagResource/ListTagsForResource ops (access points, Object
-// Lambda access points, multi-region access points, access grants) --
-// batch job tags and Storage Lens configuration tags live in separate stores
-// behind their own real, dedicated AWS ops (Put/Get/DeleteJobTagging,
-// Put/GetStorageLensConfigurationTagging), not this generic surface.
+// TaggedResources lists every tag-store ARN that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+// InventoryResources lists every access point, Object Lambda access point, multi-region access point, access
+// grant, location, instance and Storage Lens group plus every tagged ARN of the tag store.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, len(b.resourceTags))
-	for resourceARN, tags := range b.resourceTags {
-		if resourceARN == "" || len(tags) == 0 {
+	seen := make(map[string]struct{}, len(b.resourceTags))
+
+	for key, t := range b.resourceTags {
+		if key == "" || len(t) == 0 {
 			continue
 		}
 
-		out = append(out, TaggedEntry{ARN: resourceARN, Tags: maps.Clone(tags)})
+		seen[key] = struct{}{}
+		out = append(out, TaggedEntry{ARN: key, Tags: maps.Clone(t)})
+	}
+
+	if withUntagged {
+		for _, key := range b.resourceARNsLocked() {
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				out = append(out, TaggedEntry{ARN: key})
+			}
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsLocked() []string {
+	out := make(
+		[]string,
+		0,
+		b.accessPoints.Len()+b.objectLambdaAccessPoints.Len()+b.mraps.Len()+b.accessGrants.Len()+
+			b.accessGrantsLocations.Len()+b.accessGrantsInstances.Len()+b.storageLensGroups.Len(),
+	)
+
+	for _, v := range b.accessPoints.All() {
+		out = append(out, v.AccessPointArn)
+	}
+
+	for _, v := range b.objectLambdaAccessPoints.All() {
+		out = append(out, v.ObjectLambdaAccessPointArn)
+	}
+
+	for _, v := range b.mraps.All() {
+		out = append(out, arn.Build("s3", "", v.AccountID, "accesspoint/"+v.Alias))
+	}
+
+	for _, v := range b.accessGrants.All() {
+		out = append(out, v.AccessGrantArn)
+	}
+
+	for _, v := range b.accessGrantsLocations.All() {
+		out = append(out, v.AccessGrantsLocationArn)
+	}
+
+	for _, v := range b.accessGrantsInstances.All() {
+		out = append(out, v.AccessGrantsInstanceArn)
+	}
+
+	for _, v := range b.storageLensGroups.All() {
+		out = append(out, v.StorageLensGroupArn)
 	}
 
 	return out

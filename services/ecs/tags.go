@@ -173,27 +173,79 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every ECS resource ARN that currently has at least one
-// tag applied via TagResource, spanning every ECS resource kind that shares the
-// flat resourceTags side map (clusters, services, task definitions, container
-// instances, task sets, capacity providers, and more).
+// TaggedResources lists every tag-store ARN that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+// InventoryResources lists every cluster, service, task definition, task, container instance, task set and
+// capacity provider plus every tagged ARN of the tag store.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, len(b.resourceTags))
+	seen := make(map[string]struct{}, len(b.resourceTags))
 
-	for arn, tagList := range b.resourceTags {
-		if len(tagList) == 0 {
+	for key, t := range b.resourceTags {
+		if len(t) == 0 {
 			continue
 		}
 
-		tagMap := make(map[string]string, len(tagList))
-		for _, t := range tagList {
-			tagMap[t.Key] = t.Value
-		}
+		seen[key] = struct{}{}
+		out = append(out, TaggedEntry{ARN: key, Tags: tagListToMap(t)})
+	}
 
-		out = append(out, TaggedEntry{ARN: arn, Tags: tagMap})
+	if withUntagged {
+		for _, key := range b.resourceARNsLocked() {
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				out = append(out, TaggedEntry{ARN: key})
+			}
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsLocked() []string {
+	out := make(
+		[]string,
+		0,
+		b.clusters.Len()+b.services.Len()+b.taskDefByArn.Len()+b.tasks.Len()+b.containerInstances.Len()+
+			b.taskSets.Len()+b.capacityProviders.Len(),
+	)
+
+	for _, v := range b.clusters.All() {
+		out = append(out, v.ClusterArn)
+	}
+
+	for _, v := range b.services.All() {
+		out = append(out, v.ServiceArn)
+	}
+
+	for _, v := range b.taskDefByArn.All() {
+		out = append(out, v.TaskDefinitionArn)
+	}
+
+	for _, v := range b.tasks.All() {
+		out = append(out, v.TaskArn)
+	}
+
+	for _, v := range b.containerInstances.All() {
+		out = append(out, v.ContainerInstanceArn)
+	}
+
+	for _, v := range b.taskSets.All() {
+		out = append(out, v.TaskSetArn)
+	}
+
+	for _, v := range b.capacityProviders.All() {
+		out = append(out, v.CapacityProviderArn)
 	}
 
 	return out
@@ -218,4 +270,13 @@ func (b *InMemoryBackend) ListTagsForResource(resourceArn string) ([]Tag, error)
 	copy(out, tags)
 
 	return out, nil
+}
+
+func tagListToMap(tags []Tag) map[string]string {
+	m := make(map[string]string, len(tags))
+	for _, t := range tags {
+		m[t.Key] = t.Value
+	}
+
+	return m
 }

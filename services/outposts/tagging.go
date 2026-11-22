@@ -86,25 +86,43 @@ func (b *InMemoryBackend) ListTagsForResource(resourceArn string) (map[string]st
 	return t.Clone(), nil
 }
 
-// TaggedResources returns every tagged Outpost and Site, for the
-// resourcegroupstaggingapi integration.
+// TaggedResources lists every outpost and site that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every outpost and site, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	var out []TaggedEntry
 
 	for _, o := range b.outposts.Snapshot() {
-		if o.Tags != nil && o.Tags.Len() > 0 {
-			out = append(out, TaggedEntry{ARN: o.ARN, Tags: o.Tags.Clone()})
-		}
+		out = appendEntry(out, o.ARN, o.Tags, taggedOnly)
 	}
 
 	for _, s := range b.sites.Snapshot() {
-		if s.Tags != nil && s.Tags.Len() > 0 {
-			out = append(out, TaggedEntry{ARN: s.ARN, Tags: s.Tags.Clone()})
-		}
+		out = appendEntry(out, s.ARN, s.Tags, taggedOnly)
 	}
 
 	return out
+}
+
+func appendEntry(out []TaggedEntry, arn string, t *tags.Tags, taggedOnly bool) []TaggedEntry {
+	empty := t == nil || t.Len() == 0
+	if taggedOnly && empty {
+		return out
+	}
+
+	entry := TaggedEntry{ARN: arn}
+	if !empty {
+		entry.Tags = t.Clone()
+	}
+
+	return append(out, entry)
 }

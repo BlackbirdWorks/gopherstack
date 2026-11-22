@@ -191,9 +191,17 @@ func (b *InMemoryBackend) taggableARNs() []string {
 	return arns
 }
 
-// TaggedResources returns every CloudFront resource ARN that currently has
-// at least one tag.
+// TaggedResources lists every CloudFront resource that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every CloudFront resource, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
@@ -201,13 +209,11 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 
 	for _, arn := range b.taggableARNs() {
 		tagsPtr, ok := b.taggableTags(arn)
-		if !ok || len(*tagsPtr) == 0 {
+		if !ok || (taggedOnly && len(*tagsPtr) == 0) {
 			continue
 		}
 
-		cp := make(map[string]string, len(*tagsPtr))
-		maps.Copy(cp, *tagsPtr)
-		out = append(out, TaggedEntry{ARN: arn, Tags: cp})
+		out = append(out, TaggedEntry{ARN: arn, Tags: maps.Clone(*tagsPtr)})
 	}
 
 	return out

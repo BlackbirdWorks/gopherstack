@@ -109,37 +109,39 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every CodeConnections resource ARN (connections, hosts,
-// repository links) that currently has at least one tag applied via TagResource.
+// TaggedResources lists every connection, host and repository link that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every connection, host and repository link, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	var out []TaggedEntry
 
-	b.connections.Range(func(conn *Connection) bool {
-		if len(conn.Tags) > 0 {
-			out = append(out, TaggedEntry{ARN: conn.ConnectionArn, Tags: cloneCodeConnTags(conn.Tags)})
+	for _, v := range b.connections.All() {
+		if !taggedOnly || len(v.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: v.ConnectionArn, Tags: cloneCodeConnTags(v.Tags)})
 		}
+	}
 
-		return true
-	})
-
-	b.hosts.Range(func(host *Host) bool {
-		if len(host.Tags) > 0 {
-			out = append(out, TaggedEntry{ARN: host.HostArn, Tags: cloneCodeConnTags(host.Tags)})
+	for _, v := range b.hosts.All() {
+		if !taggedOnly || len(v.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: v.HostArn, Tags: cloneCodeConnTags(v.Tags)})
 		}
+	}
 
-		return true
-	})
-
-	b.repositoryLinks.Range(func(link *RepositoryLink) bool {
-		if len(link.Tags) > 0 {
-			out = append(out, TaggedEntry{ARN: link.RepositoryLinkArn, Tags: cloneCodeConnTags(link.Tags)})
+	for _, v := range b.repositoryLinks.All() {
+		if !taggedOnly || len(v.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: v.RepositoryLinkArn, Tags: cloneCodeConnTags(v.Tags)})
 		}
-
-		return true
-	})
+	}
 
 	return out
 }

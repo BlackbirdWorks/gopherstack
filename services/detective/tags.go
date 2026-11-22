@@ -78,20 +78,49 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every Detective graph ARN that currently has at
-// least one tag applied via TagResource.
+// TaggedResources lists every tag-store ARN that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+// InventoryResources lists every graph plus every tagged ARN of the tag store.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, len(b.tags))
+	seen := make(map[string]struct{}, len(b.tags))
 
 	for arn, t := range b.tags {
 		if len(t) == 0 {
 			continue
 		}
 
+		seen[arn] = struct{}{}
 		out = append(out, TaggedEntry{ARN: arn, Tags: maps.Clone(t)})
+	}
+
+	if withUntagged {
+		for _, arn := range b.resourceARNsLocked() {
+			if _, ok := seen[arn]; !ok {
+				seen[arn] = struct{}{}
+				out = append(out, TaggedEntry{ARN: arn})
+			}
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsLocked() []string {
+	out := make([]string, 0, b.graphs.Len())
+
+	for _, g := range b.graphs.All() {
+		out = append(out, g.Arn)
 	}
 
 	return out

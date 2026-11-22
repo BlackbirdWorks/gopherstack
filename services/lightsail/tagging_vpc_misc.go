@@ -314,31 +314,43 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// appendTaggedOf appends a TaggedEntry for every item in items whose tags
-// (via tagsOf) are non-empty -- factored out so TaggedResources itself is
-// one call per table rather than one for-loop-plus-if per table.
 func appendTaggedOf[T any](
 	out []TaggedEntry,
 	items []*T,
 	arnOf func(*T) string,
 	tagsOf func(*T) *tags.Tags,
+	taggedOnly bool,
 ) []TaggedEntry {
 	for _, v := range items {
 		t := tagsOf(v)
-		if t == nil || t.Len() == 0 {
+		empty := t == nil || t.Len() == 0
+
+		if taggedOnly && empty {
 			continue
 		}
 
-		out = append(out, TaggedEntry{ARN: arnOf(v), Tags: t.Clone()})
+		entry := TaggedEntry{ARN: arnOf(v)}
+		if !empty {
+			entry.Tags = t.Clone()
+		}
+
+		out = append(out, entry)
 	}
 
 	return out
 }
 
-// TaggedResources returns every taggable resource's current ARN and tags,
-// across all 16 taggable kinds (of the 20 ResourceType values --
-// tagsNotSupportedKinds' 4 excluded, see its doc comment).
+// TaggedResources lists every Lightsail resource that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every Lightsail resource, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
@@ -349,79 +361,102 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 		b.instances.All(),
 		func(v *Instance) string { return v.Arn },
 		func(v *Instance) *tags.Tags { return v.Tags },
+		taggedOnly,
 	)
 	out = appendTaggedOf(
 		out,
 		b.disks.All(),
 		func(v *Disk) string { return v.Arn },
 		func(v *Disk) *tags.Tags { return v.Tags },
+		taggedOnly,
 	)
 	out = appendTaggedOf(
 		out,
 		b.keyPairs.All(),
 		func(v *KeyPair) string { return v.Arn },
 		func(v *KeyPair) *tags.Tags { return v.Tags },
+		taggedOnly,
 	)
 	out = appendTaggedOf(
 		out, b.instanceSnapshots.All(), func(v *InstanceSnapshot) string { return v.Arn },
 		func(v *InstanceSnapshot) *tags.Tags { return v.Tags },
+		taggedOnly,
 	)
 	out = appendTaggedOf(
 		out, b.diskSnapshots.All(), func(v *DiskSnapshot) string { return v.Arn },
 		func(v *DiskSnapshot) *tags.Tags { return v.Tags },
+		taggedOnly,
 	)
 	out = appendTaggedOf(
 		out, b.loadBalancers.All(), func(v *LoadBalancer) string { return v.Arn },
 		func(v *LoadBalancer) *tags.Tags { return v.Tags },
+		taggedOnly,
 	)
 	out = appendTaggedOf(
 		out, b.lbTLSCertificates.All(), func(v *LoadBalancerTLSCertificate) string { return v.Arn },
 		func(v *LoadBalancerTLSCertificate) *tags.Tags { return v.Tags },
+		taggedOnly,
 	)
 	out = appendTaggedOf(
 		out, b.databases.All(), func(v *RelationalDatabase) string { return v.Arn },
 		func(v *RelationalDatabase) *tags.Tags { return v.Tags },
+		taggedOnly,
 	)
 	out = appendTaggedOf(
 		out, b.dbSnapshots.All(), func(v *RelationalDatabaseSnapshot) string { return v.Arn },
 		func(v *RelationalDatabaseSnapshot) *tags.Tags { return v.Tags },
+		taggedOnly,
 	)
 	out = appendTaggedOf(
 		out, b.containerServices.All(), func(v *ContainerService) string { return v.Arn },
 		func(v *ContainerService) *tags.Tags { return v.Tags },
+		taggedOnly,
 	)
+
+	out = b.appendMiscEntries(out, taggedOnly)
+
+	sort.Slice(out, func(i, j int) bool { return out[i].ARN < out[j].ARN })
+
+	return out
+}
+
+func (b *InMemoryBackend) appendMiscEntries(out []TaggedEntry, taggedOnly bool) []TaggedEntry {
 	out = appendTaggedOf(
 		out,
 		b.buckets.All(),
 		func(v *Bucket) string { return v.Arn },
 		func(v *Bucket) *tags.Tags { return v.Tags },
+		taggedOnly,
 	)
 	out = appendTaggedOf(
 		out, b.distributions.All(), func(v *Distribution) string { return v.Arn },
 		func(v *Distribution) *tags.Tags { return v.Tags },
+		taggedOnly,
 	)
 	out = appendTaggedOf(
 		out,
 		b.domains.All(),
 		func(v *Domain) string { return v.Arn },
 		func(v *Domain) *tags.Tags { return v.Tags },
+		taggedOnly,
 	)
 	out = appendTaggedOf(
 		out, b.certificates.All(), func(v *Certificate) string { return v.Arn },
 		func(v *Certificate) *tags.Tags { return v.Tags },
+		taggedOnly,
 	)
 	out = appendTaggedOf(
 		out,
 		b.alarms.All(),
 		func(v *Alarm) string { return v.Arn },
 		func(v *Alarm) *tags.Tags { return v.Tags },
+		taggedOnly,
 	)
 	out = appendTaggedOf(
 		out, b.contactMethods.All(), func(v *ContactMethod) string { return v.Arn },
 		func(v *ContactMethod) *tags.Tags { return v.Tags },
+		taggedOnly,
 	)
-
-	sort.Slice(out, func(i, j int) bool { return out[i].ARN < out[j].ARN })
 
 	return out
 }

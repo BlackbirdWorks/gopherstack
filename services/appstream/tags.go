@@ -65,22 +65,79 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every AppStream resource ARN that currently has at
-// least one tag applied via TagResource.
+// TaggedResources lists every tag-store ARN that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+// InventoryResources lists every fleet, stack, application, app block, app block builder, image builder and
+// image plus every tagged ARN of the tag store.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, len(b.tags))
+	seen := make(map[string]struct{}, len(b.tags))
 
-	for arn, tags := range b.tags {
-		if len(tags) == 0 {
+	for key, t := range b.tags {
+		if len(t) == 0 {
 			continue
 		}
 
-		cp := make(map[string]string, len(tags))
-		maps.Copy(cp, tags)
-		out = append(out, TaggedEntry{ARN: arn, Tags: cp})
+		seen[key] = struct{}{}
+		out = append(out, TaggedEntry{ARN: key, Tags: maps.Clone(t)})
+	}
+
+	if withUntagged {
+		for _, key := range b.resourceARNsLocked() {
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				out = append(out, TaggedEntry{ARN: key})
+			}
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsLocked() []string {
+	out := make(
+		[]string,
+		0,
+		b.fleets.Len()+b.stacks.Len()+b.applications.Len()+b.appBlocks.Len()+b.appBlockBuilders.Len()+
+			b.imageBuilders.Len()+b.images.Len(),
+	)
+
+	for _, f := range b.fleets.All() {
+		out = append(out, f.Arn)
+	}
+
+	for _, s := range b.stacks.All() {
+		out = append(out, s.Arn)
+	}
+
+	for _, a := range b.applications.All() {
+		out = append(out, a.Arn)
+	}
+
+	for _, a := range b.appBlocks.All() {
+		out = append(out, a.Arn)
+	}
+
+	for _, a := range b.appBlockBuilders.All() {
+		out = append(out, a.Arn)
+	}
+
+	for _, i := range b.imageBuilders.All() {
+		out = append(out, i.Arn)
+	}
+
+	for _, i := range b.images.All() {
+		out = append(out, i.Arn)
 	}
 
 	return out

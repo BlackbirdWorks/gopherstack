@@ -60,14 +60,17 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every application and job run that carries at
-// least one tag, keyed by ARN. Sessions are excluded: real EMR Serverless
-// only supports applications and job runs as TagResource/ListTagsForResource
-// targets (botocore 1.43.56, emr-serverless/2021-07-13/service-2.json.gz,
-// TagResourceRequest.resourceArn: "the supported resources are Amazon EMR
-// Serverless applications and job runs"), unlike findTagsByARN above which is
-// more permissive for the backend's own direct tag calls.
+// TaggedResources lists every application and job run that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every application and job run, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	apps := b.applications.All()
 	jobRuns := b.jobRuns.All()
@@ -76,19 +79,15 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 	out := make([]TaggedEntry, 0, len(apps)+len(jobRuns))
 
 	for _, app := range apps {
-		if len(app.Tags) == 0 {
-			continue
+		if !taggedOnly || len(app.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: app.Arn, Tags: maps.Clone(app.Tags)})
 		}
-
-		out = append(out, TaggedEntry{ARN: app.Arn, Tags: maps.Clone(app.Tags)})
 	}
 
 	for _, jr := range jobRuns {
-		if len(jr.Tags) == 0 {
-			continue
+		if !taggedOnly || len(jr.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: jr.Arn, Tags: maps.Clone(jr.Tags)})
 		}
-
-		out = append(out, TaggedEntry{ARN: jr.Arn, Tags: maps.Clone(jr.Tags)})
 	}
 
 	return out

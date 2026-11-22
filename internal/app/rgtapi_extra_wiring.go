@@ -104,6 +104,9 @@ func wireTaggingIoTAnalytics(bk rgtapibackend.StorageBackend, reg service.Regist
 		list: func(b *iotanalyticsbackend.InMemoryBackend) []taggedARNEntry {
 			return taggedEntries(b.TaggedResources())
 		},
+		inventory: func(b *iotanalyticsbackend.InMemoryBackend) []taggedARNEntry {
+			return taggedEntries(b.InventoryResources())
+		},
 		tag: func(b *iotanalyticsbackend.InMemoryBackend, _ context.Context, arn string, tags map[string]string) error {
 			return b.TagResource(arn, mapToTagSlice(tags, func(k, v string) iotanalyticsbackend.TagDTO {
 				return iotanalyticsbackend.TagDTO{Key: k, Value: v}
@@ -125,6 +128,10 @@ func wireTaggingDataBrew(bk rgtapibackend.StorageBackend, reg service.Registerab
 	if !ok {
 		return
 	}
+
+	registerInventory(bk, func(ctx context.Context) []databrewbackend.TaggedEntry {
+		return dbBk.InventoryResources(requestRegion(ctx, dbBk.Region()))
+	}, arnResourceType("databrew"))
 
 	registerTaggingService(
 		bk,
@@ -153,6 +160,10 @@ func wireTaggingKafka(bk rgtapibackend.StorageBackend, reg service.Registerable)
 		return
 	}
 
+	registerInventory(bk, func(ctx context.Context) []kafkabackend.TaggedEntry {
+		return kBk.InventoryResources(requestRegion(ctx, kBk.Region()))
+	}, arnResourceType("kafka"))
+
 	registerTaggingService(
 		bk,
 		func(ctx context.Context) []rgtapibackend.TaggedResource {
@@ -175,6 +186,10 @@ func wireTaggingTextract(bk rgtapibackend.StorageBackend, reg service.Registerab
 	if !ok {
 		return
 	}
+
+	registerInventory(bk, func(ctx context.Context) []textractbackend.TaggedEntry {
+		return tBk.InventoryResources(requestRegion(ctx, tBk.Region()))
+	}, arnResourceType("textract"))
 
 	registerTaggingService(
 		bk,
@@ -220,6 +235,14 @@ func wireTaggingAPIGatewayV2(bk rgtapibackend.StorageBackend, reg service.Regist
 		}
 
 		return toTaggedResources(b.TaggedResources(), apigatewayResourceType)
+	})
+	registerInventoryProvider(bk, func(ctx context.Context) []rgtapibackend.TaggedResource {
+		b := backendFor(ctx, "")
+		if b == nil {
+			return nil
+		}
+
+		return toTaggedResources(b.InventoryResources(), apigatewayResourceType)
 	})
 	bk.RegisterARNTagger(func(ctx context.Context, arn string, tags map[string]string) (bool, error) {
 		b := backendFor(ctx, arn)
@@ -410,6 +433,7 @@ func wireTaggingConnect(bk rgtapibackend.StorageBackend, reg service.Registerabl
 	}
 
 	b := h.Backend
+	registerInventory(bk, b.InventoryResources, connectResourceType)
 
 	registerTaggingService(
 		bk,
@@ -426,14 +450,27 @@ type inventoryRegistrar interface {
 	RegisterInventoryProvider(p rgtapibackend.ResourceProvider)
 }
 
+// registerInventoryProvider hands p to the tagging backend as a source of every resource, tagged or not.
+func registerInventoryProvider(bk rgtapibackend.StorageBackend, p rgtapibackend.ResourceProvider) {
+	if r, ok := bk.(inventoryRegistrar); ok {
+		r.RegisterInventoryProvider(p)
+	}
+}
+
 // registerInventory exposes a service's untagged resources to Resource Explorer through the tagging backend.
 func registerInventory[T ~struct {
 	Tags map[string]string
 	ARN  string
 }](bk rgtapibackend.StorageBackend, list func(context.Context) []T, resourceTypeOf func(string) string) {
-	if r, ok := bk.(inventoryRegistrar); ok {
-		r.RegisterInventoryProvider(func(ctx context.Context) []rgtapibackend.TaggedResource {
-			return toTaggedResources(list(ctx), resourceTypeOf)
-		})
-	}
+	registerInventoryProvider(bk, func(ctx context.Context) []rgtapibackend.TaggedResource {
+		return toTaggedResources(list(ctx), resourceTypeOf)
+	})
+}
+
+// registerInventoryFn is registerInventory for a listing that needs no context.
+func registerInventoryFn[T ~struct {
+	Tags map[string]string
+	ARN  string
+}](bk rgtapibackend.StorageBackend, list func() []T, resourceTypeOf func(string) string) {
+	registerInventory(bk, func(context.Context) []T { return list() }, resourceTypeOf)
 }
