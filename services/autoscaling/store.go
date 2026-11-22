@@ -5,6 +5,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -70,6 +72,7 @@ const (
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
+	quotaGate               *quotalimit.Gate
 	ec2Launcher             EC2Launcher
 	instanceTypeResolver    InstanceTypeResolver
 	elbv2Registrar          ELBv2TargetRegistrar
@@ -97,6 +100,7 @@ type InMemoryBackend struct {
 	deletedActivities       []ScalingActivity
 	launchTimers            []*time.Timer
 	nextHookSeq             int64
+	refreshDelay            time.Duration
 	launchDelay             atomic.Int64
 }
 
@@ -109,6 +113,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		accountID:           accountID,
+		quotaGate:           &quotalimit.Gate{},
 		region:              region,
 		activities:          make(map[string][]ScalingActivity),
 		instanceRefreshes:   make(map[string][]*InstanceRefresh),

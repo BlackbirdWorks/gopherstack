@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
@@ -378,6 +380,7 @@ type InMemoryBackend struct {
 	apiDestLimiters sync.Map
 	region          string
 	accountID       string
+	quotaGate       quotalimit.Gate
 	eventLog        []EventLogEntry
 	wg              sync.WaitGroup
 	shutdownTimeout time.Duration

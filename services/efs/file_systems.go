@@ -185,6 +185,8 @@ func (b *InMemoryBackend) CreateFileSystem(
 		return nil, err
 	}
 
+	limit := b.fileSystemLimit(region)
+
 	b.mu.Lock("CreateFileSystem")
 	defer b.mu.Unlock()
 
@@ -195,8 +197,8 @@ func (b *InMemoryBackend) CreateFileSystem(
 		return cp, idemErr
 	}
 
-	if len(b.fileSystemsByRegion.Get(region)) >= b.limits.fileSystemsPerAccount {
-		return nil, fileSystemLimitExceededErr(b.limits.fileSystemsPerAccount)
+	if maxFS := b.fileSystemCap(limit); len(b.fileSystemsByRegion.Get(region)) >= maxFS {
+		return nil, fileSystemLimitExceededErr(maxFS)
 	}
 
 	id := awsid.New("fs-")

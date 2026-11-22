@@ -3,6 +3,7 @@ package timestreamquery
 import (
 	"database/sql/driver"
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -71,4 +72,151 @@ func udfParseDuration(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 	n, _ := strconv.ParseFloat(m[1], 64)
 
 	return formatInterval(int64(n * float64(unitNanos(m[2])))), nil
+}
+
+// intervalNanos reads an interval day to second held as nanoseconds, "d hh:mm:ss.nnnnnnnnn" text or an interval blob.
+func intervalNanos(v driver.Value) (int64, bool) {
+	switch x := v.(type) {
+	case int64:
+		return x, true
+	case string:
+		return parseIntervalText(x)
+	case []byte:
+		if kind, n, isIv := decodeIntervalBlob(x); isIv {
+			return n * msToNs, kind == 'D'
+		}
+
+		return parseIntervalText(string(x))
+	}
+
+	return 0, false
+}
+
+func intervalPair(args []driver.Value) (int64, int64, bool, error) {
+	if args[0] == nil || args[1] == nil {
+		return 0, 0, true, nil
+	}
+
+	a, okA := intervalNanos(args[0])
+	b, okB := intervalNanos(args[1])
+
+	if !okA || !okB {
+		return 0, 0, false, errOperandType
+	}
+
+	return a, b, false, nil
+}
+
+func udfIntervalAdd(sign int64) scalarImpl {
+	return func(_ *fnCtx, args []driver.Value) (driver.Value, error) {
+		a, b, isNull, err := intervalPair(args)
+		if err != nil || isNull {
+			return nil, err
+		}
+
+		if sign < 0 {
+			if r, ok := subExact(a, b); ok {
+				return r, nil
+			}
+
+			return nil, evalError(fmt.Sprintf("interval day to second subtraction overflow: %d - %d", a, b))
+		}
+
+		if r, ok := addExact(a, b); ok {
+			return r, nil
+		}
+
+		return nil, evalError(fmt.Sprintf("interval day to second addition overflow: %d + %d", a, b))
+	}
+}
+
+func udfIntervalNegate(_ *fnCtx, args []driver.Value) (driver.Value, error) {
+	if args[0] == nil {
+		return nil, nil //nolint:nilnil // SQL NULL
+	}
+
+	if b, isBlob := args[0].([]byte); isBlob {
+		if kind, months, isIv := decodeIntervalBlob(b); isIv && kind == 'Y' {
+			if months == math.MinInt64 {
+				return nil, evalError("interval year to month negation overflow")
+			}
+
+			return encodeIntervalBlob(kind, -months), nil
+		}
+	}
+
+	n, ok := intervalNanos(args[0])
+	if !ok {
+		return nil, errOperandType
+	}
+
+	if n == math.MinInt64 {
+		return nil, evalError("interval day to second negation overflow")
+	}
+
+	return -n, nil
+}
+
+// udfIntervalScale is interval * factor (divide=false) or interval / factor, rounded to a whole nanosecond.
+func udfIntervalScale(divide, factorFirst bool) scalarImpl {
+	return func(_ *fnCtx, args []driver.Value) (driver.Value, error) {
+		if args[0] == nil || args[1] == nil {
+			return nil, nil
+		}
+
+		ivArg, factorArg := args[0], args[1]
+		if factorFirst {
+			ivArg, factorArg = factorArg, ivArg
+		}
+
+		n, okN := intervalNanos(ivArg)
+		f, okF := toFloat64(factorArg)
+
+		if !okN || !okF || math.IsNaN(f) {
+			return nil, errOperandType
+		}
+
+		if divide && f == 0 {
+			return nil, evalError("Division by zero")
+		}
+
+		r := float64(n) * f
+		if divide {
+			r = float64(n) / f
+		}
+
+		if math.IsInf(r, 0) || math.Abs(r) >= twoPow63 {
+			return nil, evalError("interval day to second out of range")
+		}
+
+		return int64(math.Round(r)), nil
+	}
+}
+
+// udfTimestampShift is timestamp + interval (sign 1), timestamp - interval (sign -1), or interval + timestamp.
+func udfTimestampShift(sign int64, intervalFirst bool) scalarImpl {
+	return func(_ *fnCtx, args []driver.Value) (driver.Value, error) {
+		if args[0] == nil || args[1] == nil {
+			return nil, nil
+		}
+
+		tsArg, ivArg := args[0], args[1]
+		if intervalFirst {
+			tsArg, ivArg = ivArg, tsArg
+		}
+
+		t, okT := parseTSValue(tsArg)
+		n, okN := intervalNanos(ivArg)
+
+		if !okT || !okN {
+			return nil, errOperandType
+		}
+
+		shifted := t.UnixNano() + sign*n
+		if (sign*n > 0 && shifted < t.UnixNano()) || (sign*n < 0 && shifted > t.UnixNano()) {
+			return nil, evalError("timestamp out of range")
+		}
+
+		return formatTS(time.Unix(0, shifted)), nil
+	}
 }

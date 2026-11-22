@@ -131,7 +131,7 @@ func encodeJSONScalar(v any) string {
 		return strconv.FormatInt(x, 10)
 	case float64:
 		if math.IsNaN(x) || math.IsInf(x, 0) {
-			return "null"
+			return kwNull
 		}
 
 		s := strconv.FormatFloat(x, 'g', -1, 64)
@@ -628,12 +628,19 @@ func udfSequence(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 
 func sequenceOfTimes(start time.Time, args []driver.Value) (driver.Value, error) {
 	stop, ok := parseTSValue(args[1])
-	if !ok || len(args) <= argsTwo {
+	if !ok {
 		return nil, errBadSeq
 	}
 
-	step, ok := intArg(args[argsTwo])
-	if !ok || step == 0 {
+	step := int64(hoursInDay * time.Hour)
+
+	if len(args) > argsTwo {
+		if step, ok = intArg(args[argsTwo]); !ok {
+			return nil, errBadSeq
+		}
+	}
+
+	if step == 0 {
 		return nil, errBadSeq
 	}
 
@@ -644,6 +651,9 @@ func sequenceOfInts(args []driver.Value) (driver.Value, error) {
 	lo, ok1 := intArg(args[0])
 	hi, ok2 := intArg(args[1])
 	step := int64(1)
+	if ok1 && ok2 && lo > hi {
+		step = -1
+	}
 
 	if len(args) > argsTwo {
 		var ok3 bool
@@ -652,18 +662,40 @@ func sequenceOfInts(args []driver.Value) (driver.Value, error) {
 		}
 	}
 
-	if !ok1 || !ok2 || step == 0 || (hi-lo)/step >= maxSeqLen {
+	if !ok1 || !ok2 || step == 0 {
 		return nil, errBadSeq
 	}
 
-	var vals []int64
-	for v := lo; (step > 0 && v <= hi) || (step < 0 && v >= hi); v += step {
-		vals = append(vals, v)
+	count, ok := sequenceLen(lo, hi, step)
+	if !ok {
+		return nil, errBadSeq
+	}
+
+	vals := make([]int64, 0, count)
+	for i := range count {
+		vals = append(vals, lo+int64(i)*step)
 	}
 
 	b, _ := json.Marshal(vals, jsonx.V1())
 
 	return arrayMark + string(b), nil
+}
+
+// sequenceLen is the element count from lo toward hi, computed in uint64 so the span cannot overflow;
+// ok=false when it would reach maxSeqLen. A step pointing away from hi yields no elements.
+func sequenceLen(lo, hi, step int64) (uint64, bool) {
+	if (step > 0 && lo > hi) || (step < 0 && lo < hi) {
+		return 0, true
+	}
+
+	span, width := uint64(hi)-uint64(lo), uint64(step) //nolint:gosec // two's-complement distance and magnitude
+	if step < 0 {
+		span, width = uint64(lo)-uint64(hi), -uint64(step) //nolint:gosec // two's-complement distance and magnitude
+	}
+
+	n := span / width
+
+	return n + 1, n < maxSeqLen
 }
 
 func sequenceTimes(start, stop time.Time, stepNs int64) (driver.Value, error) {

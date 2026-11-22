@@ -13,6 +13,8 @@ func (b *InMemoryBackend) AuthorizeSecurityGroupIngress(
 	groupID string,
 	rules []SecurityGroupRule,
 ) error {
+	limit := b.quotaLimit(quotaServiceVPC, quotaRulesPerGroup)
+
 	b.mu.Lock("AuthorizeSecurityGroupIngress")
 	defer b.mu.Unlock()
 
@@ -29,6 +31,10 @@ func (b *InMemoryBackend) AuthorizeSecurityGroupIngress(
 		return err
 	}
 
+	if addExceeds(limit, len(sg.IngressRules), len(rules)) {
+		return quotaExceeded(ErrRulesPerSecurityGroupLimitExceeded, "rules in the security group", limit)
+	}
+
 	sg.IngressRules = append(sg.IngressRules, withRuleIDs(rules)...)
 
 	return nil
@@ -39,6 +45,8 @@ func (b *InMemoryBackend) AuthorizeSecurityGroupEgress(
 	groupID string,
 	rules []SecurityGroupRule,
 ) error {
+	limit := b.quotaLimit(quotaServiceVPC, quotaRulesPerGroup)
+
 	b.mu.Lock("AuthorizeSecurityGroupEgress")
 	defer b.mu.Unlock()
 
@@ -53,6 +61,10 @@ func (b *InMemoryBackend) AuthorizeSecurityGroupEgress(
 
 	if err := b.requireSourceGroupsLocked(rules); err != nil {
 		return err
+	}
+
+	if addExceeds(limit, len(sg.EgressRules), len(rules)) {
+		return quotaExceeded(ErrRulesPerSecurityGroupLimitExceeded, "rules in the security group", limit)
 	}
 
 	sg.EgressRules = append(sg.EgressRules, withRuleIDs(rules)...)
@@ -713,6 +725,8 @@ func (b *InMemoryBackend) CreateSecurityGroupWithID(
 		return nil, fmt.Errorf("%w: GroupName is required", ErrInvalidParameter)
 	}
 
+	limit := b.quotaLimit(quotaServiceVPC, quotaSecurityGroups)
+
 	b.mu.Lock("CreateSecurityGroup")
 	defer b.mu.Unlock()
 
@@ -731,6 +745,10 @@ func (b *InMemoryBackend) CreateSecurityGroupWithID(
 				vpcID,
 			)
 		}
+	}
+
+	if limit.Reached(len(b.securityGroups.All())) {
+		return nil, quotaExceeded(ErrSecurityGroupLimitExceeded, "security groups", limit)
 	}
 
 	id := newSecurityGroupID()

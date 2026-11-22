@@ -32,6 +32,13 @@ func renderDatum(d timestreamquery.Datum) string {
 		}
 
 		return "[" + strings.Join(parts, ", ") + "]"
+	case d.RowValue != nil:
+		parts := make([]string, 0, len(d.RowValue.Data))
+		for _, e := range d.RowValue.Data {
+			parts = append(parts, renderDatum(e))
+		}
+
+		return "(" + strings.Join(parts, ", ") + ")"
 	default:
 		return "<null>"
 	}

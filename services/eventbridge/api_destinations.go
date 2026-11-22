@@ -38,6 +38,8 @@ func (b *InMemoryBackend) CreateAPIDestination(ctx context.Context,
 
 	region := getRegionFromContext(ctx, b.region)
 
+	limit := b.quotaLimit(region, quotaAPIDestCount)
+
 	b.mu.Lock("CreateAPIDestination")
 	defer b.mu.Unlock()
 
@@ -51,6 +53,10 @@ func (b *InMemoryBackend) CreateAPIDestination(ctx context.Context,
 
 	if !b.connectionArnExistsLocked(region, input.ConnectionArn) {
 		return nil, fmt.Errorf("%w: connection %s does not exist", ErrNotFound, input.ConnectionArn)
+	}
+
+	if err := quotaReached(limit, b.apiDestinationsTable(region).Len(), "API destinations"); err != nil {
+		return nil, err
 	}
 
 	now := time.Now()

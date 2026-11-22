@@ -24,6 +24,7 @@ type translator struct {
 	unnest        map[string]unnestCol
 	qualifiers    map[string]bool
 	structCols    map[string]bool
+	owned         map[string]struct{}
 	unresolved    []string
 	unnestAliases []string
 	nUnnest       int
@@ -180,12 +181,14 @@ func collectCTEs(toks []token) map[string]bool {
 // translateSQL rewrites Presto/Trino SQL into SQLite SQL and resolves every
 // table reference through resolve.
 func translateSQL(sql string, resolve func(parts []string) resolvedRef) (string, []string, error) {
-	return translateSQLFor(sql, resolve, false)
+	return translateSQLFor(sql, resolve, false, nil)
 }
 
-// translateSQLFor translates for Athena or, when embedded, for another service that shares the engine
-// and registers its own to_milliseconds and parse_duration.
-func translateSQLFor(sql string, resolve func(parts []string) resolvedRef, embedded bool) (string, []string, error) {
+// translateSQLFor translates for Athena or, when embedded, for a service that shares the engine and owns
+// the function names in owned.
+func translateSQLFor(
+	sql string, resolve func(parts []string) resolvedRef, embedded bool, owned map[string]struct{},
+) (string, []string, error) {
 	toks, err := tokenize(sql)
 	if err != nil {
 		return "", nil, err
@@ -204,7 +207,7 @@ func translateSQLFor(sql string, resolve func(parts []string) resolvedRef, embed
 	toks = addNullsLast(toks)
 
 	x := &translator{
-		resolve: resolve, ctes: collectCTEs(toks), intervals: intervals, embedded: embedded,
+		resolve: resolve, ctes: collectCTEs(toks), intervals: intervals, embedded: embedded, owned: owned,
 		qualifiers: map[string]bool{}, structCols: map[string]bool{},
 	}
 	learnRowAliases(toks, x.structCols)
@@ -380,11 +383,19 @@ func (x *translator) rewriteCall(
 		return []token{{kind: tkWord, text: r}}, i, stack, true
 	}
 
-	if r, ok := athenaFunc(lw); ok && (!x.embedded || !isEmbedderOwned(lw)) {
+	if r, ok := x.engineFunc(lw); ok {
 		return []token{{kind: tkWord, text: r}}, i, stack, true
 	}
 
 	return nil, 0, stack, false
+}
+
+func (x *translator) engineFunc(lw string) (string, bool) {
+	if x.embedded {
+		return embeddedFunc(lw, x.owned)
+	}
+
+	return athenaFunc(lw)
 }
 
 // callWord rewrites CAST and EXTRACT calls; ok=false leaves the call to normal handling.

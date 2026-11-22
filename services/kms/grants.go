@@ -116,6 +116,8 @@ func (b *InMemoryBackend) CreateGrant(
 		}
 	}
 
+	limit := b.quotaLimit(b.grantKeyRegion(ctx, input.KeyID), quotaGrantsKey)
+
 	b.mu.Lock("CreateGrant")
 	defer b.mu.Unlock()
 
@@ -141,11 +143,11 @@ func (b *InMemoryBackend) CreateGrant(
 
 	grantsForKey := b.grantsRegion(region)
 
-	if len(grantsForKey.byKey.Get(keyID)) >= maxGrantsPerKey {
+	if maxGrants := grantsPerKeyLimit(limit); len(grantsForKey.byKey.Get(keyID)) >= maxGrants {
 		return nil, fmt.Errorf(
 			"%w: grant limit of %d exceeded for key %q",
 			ErrLimitExceeded,
-			maxGrantsPerKey,
+			maxGrants,
 			keyID,
 		)
 	}

@@ -9,6 +9,8 @@ import (
 func (b *InMemoryBackend) PublishStateMachineVersion(
 	smARN, description, revisionID string,
 ) (*StateMachineVersion, error) {
+	limit := b.quotaLimit(regionFromARN(smARN, b.region), quotaVersions)
+
 	b.mu.Lock("PublishStateMachineVersion")
 	defer b.mu.Unlock()
 
@@ -19,6 +21,12 @@ func (b *InMemoryBackend) PublishStateMachineVersion(
 
 	if sm.Status == statusDeleting {
 		return nil, fmt.Errorf("%w: %s", ErrStateMachineDeleting, smARN)
+	}
+
+	if err := quotaReached(
+		limit, len(b.versionsByStateMachine.Get(smARN)), ErrServiceQuotaExceeded, "state machine versions",
+	); err != nil {
+		return nil, err
 	}
 
 	versionNum := len(b.versionsByStateMachine.Get(smARN)) + 1

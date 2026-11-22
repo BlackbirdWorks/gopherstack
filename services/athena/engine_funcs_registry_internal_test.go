@@ -56,19 +56,23 @@ func TestEmbeddedTranslationKeepsOwnerFunctions(t *testing.T) {
 	none := func([]string) resolvedRef { return resolvedRef{} }
 
 	cases := []struct {
+		owned    map[string]struct{}
 		name     string
 		want     string
 		embedded bool
 	}{
-		{"athena", "SELECT athena_to_milliseconds(x), athena_reverse(y)", false},
-		{"embedded", "SELECT to_milliseconds(x), athena_reverse(y)", true},
+		{nil, "athena", "SELECT athena_to_milliseconds(x), athena_reverse(y)", false},
+		{
+			map[string]struct{}{"to_milliseconds": {}}, "embedded",
+			"SELECT to_milliseconds(x), athena_reverse(y)", true,
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, _, err := translateSQLFor("SELECT to_milliseconds(x), reverse(y)", none, tc.embedded)
+			got, _, err := translateSQLFor("SELECT to_milliseconds(x), reverse(y)", none, tc.embedded, tc.owned)
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, got)
 		})

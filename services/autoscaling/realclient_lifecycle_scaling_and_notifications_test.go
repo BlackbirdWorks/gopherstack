@@ -9,6 +9,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/autoscaling/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/autoscaling"
 )
 
 // TestRealClient_LifecycleScalingAndNotifications drives autoscaling's typed-coverage-blind ops
@@ -365,7 +367,11 @@ func TestRealClient_LifecycleScalingAndNotifications(t *testing.T) {
 		{name: "instance refresh cancel and rollback", run: func(t *testing.T) {
 			t.Helper()
 
-			client := newTestHandlerAndClient(t)
+			backend := autoscaling.NewInMemoryBackend()
+			backend.SetInstanceRefreshDelay(time.Hour)
+			t.Cleanup(backend.Close)
+
+			client := newTestClientFor(t, backend)
 			ctx := t.Context()
 
 			groupName := "s35-refresh-group"

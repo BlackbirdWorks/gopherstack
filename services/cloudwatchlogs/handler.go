@@ -439,7 +439,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 	case errors.Is(reqErr, ErrDeliveryDestinationInUse), errors.Is(reqErr, ErrDeliverySourceInUse):
 		errType = "ConflictException"
 		statusCode = http.StatusConflict
-	case errors.Is(reqErr, ErrSubscriptionFilterLimitExceed):
+	case errors.Is(reqErr, ErrSubscriptionFilterLimitExceed), errors.Is(reqErr, ErrLogGroupLimitExceeded):
 		errType = "LimitExceededException"
 		statusCode = http.StatusBadRequest
 	case errors.Is(reqErr, ErrOperationAborted):

@@ -50,15 +50,15 @@ func (b *InMemoryBackend) CreateDeliveryStream(
 		err                    error
 	)
 
+	limit := b.streamLimit(getRegionFromContext(ctx, b))
+
 	func() {
 		b.mu.Lock("CreateDeliveryStream")
 		defer b.mu.Unlock()
 
 		region = getRegionFromContext(ctx, b)
 
-		if _, ok := b.streams.Get(regionKey(region, input.Name)); ok {
-			err = fmt.Errorf("%w: stream %s already exists", ErrAlreadyExists, input.Name)
-
+		if err = b.checkNewStreamLocked(region, input.Name, limit); err != nil {
 			return
 		}
 

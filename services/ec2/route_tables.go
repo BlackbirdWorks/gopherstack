@@ -89,12 +89,18 @@ type RouteTable struct {
 
 // CreateRouteTable creates a new route table in a VPC.
 func (b *InMemoryBackend) CreateRouteTable(vpcID string) (*RouteTable, error) {
+	limit := b.quotaLimit(quotaServiceVPC, quotaRouteTablesPerVPC)
+
 	b.mu.Lock("CreateRouteTable")
 	defer b.mu.Unlock()
 
 	vpc, ok := b.vpcs.Get(vpcID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
+	}
+
+	if limit.Reached(b.routeTablesInVPCLocked(vpcID)) {
+		return nil, quotaExceeded(ErrRouteTableLimitExceeded, "route tables in the VPC", limit)
 	}
 
 	id := newRouteTableID()

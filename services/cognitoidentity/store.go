@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -97,6 +99,7 @@ type InMemoryBackend struct {
 	keyResolver         TokenKeyResolver
 	mu                  *lockmetrics.RWMutex
 	accountID           string
+	quotaGate           quotalimit.Gate
 	region              string
 }
 

@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
+
 	awsarn "github.com/aws/aws-sdk-go-v2/aws/arn"
 	"github.com/google/uuid"
 
@@ -256,6 +258,7 @@ type InMemoryBackend struct {
 	mu                   *lockmetrics.RWMutex
 	lastUsage            sync.Map
 	importWrappingKeys   sync.Map
+	quotaGate            quotalimit.Gate
 	defaultRegion        string
 	accountID            string
 	tableMu              sync.Mutex

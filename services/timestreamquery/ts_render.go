@@ -77,6 +77,15 @@ func decodeIntervalBlob(b []byte) (byte, int64, bool) {
 	return b[ivKindOffset], int64(raw), true //nolint:gosec // offset-binary payload, wrap-around intended
 }
 
+func encodeIntervalBlob(kind byte, n int64) []byte {
+	out := make([]byte, ivBlobLen)
+	copy(out, ivBlobMagic())
+	out[ivKindOffset] = kind
+	binary.BigEndian.PutUint64(out[ivKindOffset+1:], uint64(n)^ivSignFlip) //nolint:gosec // offset-binary payload
+
+	return out
+}
+
 func renderIntervalBlob(kind byte, n int64) Datum {
 	if kind == 'Y' {
 		return ScalarDatum(fmt.Sprintf("%d-%d", n/monthsPerYear, n%monthsPerYear))
@@ -168,7 +177,7 @@ func renderTimeOfDay(v any) Datum {
 		return renderText(v)
 	}
 
-	for _, l := range []string{"15:04:05.999999999", "15:04:05"} {
+	for _, l := range []string{layoutClockFrac, layoutClock} {
 		if t, err := time.Parse(l, s); err == nil {
 			return ScalarDatum(t.Format("15:04:05.000000000"))
 		}

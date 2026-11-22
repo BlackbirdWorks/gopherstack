@@ -3,6 +3,8 @@ package cognitoidp
 import (
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
+
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -114,6 +116,7 @@ type InMemoryBackend struct {
 	userPoolReplicasByPool        *store.Index[UserPoolReplica]
 	provisionedLimits             map[string]int32
 	accountID                     string
+	quotaGate                     *quotalimit.Gate
 	region                        string
 	endpoint                      string
 	tokenSeq                      int64
@@ -124,6 +127,7 @@ type InMemoryBackend struct {
 func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		mu:                    lockmetrics.New("cognitoidp"),
+		quotaGate:             &quotalimit.Gate{},
 		registry:              store.NewRegistry(),
 		refreshTokens:         make(map[string]*refreshTokenEntry),
 		authCodes:             make(map[string]*authCodeEntry),

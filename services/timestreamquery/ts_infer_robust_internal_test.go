@@ -109,12 +109,32 @@ func FuzzAnnotateQuery(f *testing.F) {
 		"SELECT max(v, 2), min(v, 2), approx_percentile(v, ARRAY[0.5, 0.9]), is_nan(0.0 / 0), -(a - -b)",
 		"SELECT transform(ARRAY[1, 2], x -> reduce(ARRAY[1], 0, (s, y) -> s + y * x, s -> s)) FROM t WHERE a IN (1 + 2, 3)",
 		"SELECT 'a+b' || CAST(1 + 1 AS varchar), \"col-1\" * 2 FROM t HAVING sum(a) / count(*) > 1",
+		"SELECT avg(c) FROM (VALUES 1, 2, 3) AS t(c)", "SELECT corr(a, b) FROM (VALUES ((1, 1)), ((2, 3))) AS t(a, b)",
+		"SELECT * FROM (VALUES 'a, (b', 'c') AS t(x) ORDER BY x", "SELECT 'VALUES 1, 2', \"VALUES\" FROM t",
+		"SELECT regexp_replace('ab', '(a)', x -> regexp_replace(x[1], '(a)', y -> 'Z'))",
+		"SELECT array_union(ARRAY[1], ARRAY[2]), zip(ARRAY[1], ARRAY[2]), repeat(1, 3), shuffle(ARRAY[1])",
+		"SELECT from_base('ff', 16), to_base(255, 16), strrpos('a', 'a', 1), bit_count(1, 8), bitwise_not(1)",
+		"SELECT max_by(a, b, 2), min_by(a, b, 2), approx_percentile(a, 1, 0.5), approx_percentile(a, 1, ARRAY[0.5], 0.1)",
+		"SELECT approx_distinct(a, 0.1), skewness(a), regr_slope(a, b), bitwise_and_agg(a) FROM t",
+		"SELECT 1h + 30m, ago(2m + 30s), 2 * 1h, 1h / 2, -1h, 1year + 2month, now() - (1h + 30m)",
+		"SELECT nan() + 1, infinity() - infinity(), sqrt(-1) < 1, ln(0), is_nan(nan()), CAST('NaN' AS double) = nan()",
+		"SELECT 1 < ALL (VALUES 2, 3), a = ANY (SELECT b FROM t), position('a' IN b), extract(DOW FROM t), hour(TIME '1:2')",
+		"SELECT reverse(ARRAY[1]), concat(ARRAY[1], ARRAY[2]), replace('a', 'b'), strpos('a', 'a', 1)",
+		"SELECT 'position(a IN b)', \"position\", position FROM t WHERE \"all\" = 1 AND 'x IN y' <> ''",
+		"SELECT a FROM t WHERE a NOT IN (VALUES 1, 2) AND b = ANY (SELECT c FROM u) AND d < ALL (ARRAY[1])",
+		"SELECT position(position('a' IN b) IN c), extract(DOW FROM extract(DOY FROM t))",
+		"SELECT -1year, -(1month + 1year), 5month - -1year, sequence(1, 9223372036854775807)",
 	} {
 		f.Add(s)
 	}
 
 	f.Fuzz(func(_ *testing.T, q string) {
 		_ = stripSQLComments(q)
+		_ = normalizeValues(q)
+		_ = rewriteValuesAliases(q)
+		_ = rewriteRegexpLambdas(q)
+		_ = rewriteFunctionSyntax(q)
+		_ = rewriteQuantified(q)
 		_, _ = parseSQL(q)
 		_ = buildAnnotation(q, loadedSet{}, time.Time{}, nil)
 	})

@@ -3,6 +3,8 @@ package firehose
 import (
 	"context"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -50,6 +52,7 @@ type InMemoryBackend struct {
 	// they are cancelled when the server shuts down rather than blocking indefinitely.
 	svcCtx    context.Context
 	accountID string
+	quotaGate quotalimit.Gate
 	region    string
 }
 

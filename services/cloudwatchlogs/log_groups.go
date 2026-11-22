@@ -53,12 +53,17 @@ func (b *InMemoryBackend) CreateLogGroup(
 	}
 
 	region := getRegion(ctx, b.region)
+	limit := b.logGroupLimit(region)
 
 	b.mu.Lock("CreateLogGroup")
 	defer b.mu.Unlock()
 
 	if b.groupHas(region, name) {
 		return nil, fmt.Errorf("%w: Log group %s already exists", ErrLogGroupAlreadyExists, name)
+	}
+
+	if err := b.checkLogGroupQuotaLocked(region, limit); err != nil {
+		return nil, err
 	}
 
 	g := &LogGroup{

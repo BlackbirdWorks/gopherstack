@@ -68,6 +68,8 @@ func (b *InMemoryBackend) CreateStateMachineAlias(
 		return nil, err
 	}
 
+	limit := b.quotaLimit(regionFromARN(routing[0].StateMachineVersionArn, b.region), quotaAliases)
+
 	b.mu.Lock("CreateStateMachineAlias")
 	defer b.mu.Unlock()
 
@@ -109,6 +111,11 @@ func (b *InMemoryBackend) CreateStateMachineAlias(
 
 	if b.aliases.Has(aARN) {
 		return nil, fmt.Errorf("%w: %s", ErrStateMachineAliasAlreadyExists, name)
+	}
+
+	err := quotaReached(limit, len(b.smAliases[smARN]), ErrServiceQuotaExceeded, "state machine aliases")
+	if err != nil {
+		return nil, err
 	}
 
 	now := epochNow()

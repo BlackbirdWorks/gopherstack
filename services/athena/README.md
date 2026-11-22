@@ -9,10 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 27 (26 ok, 1 partial) |
 | Feature families | 2 (2 ok) |
-| Known gaps | none |
+| Known gaps | 3 |
 | Structural gaps (can't be emulated) | 6 |
 | Deferred items | 1 |
 | Resource leaks | clean |
+
+### Known gaps
+
+- Trino functions Athena v3 documents but the engine lacks (each fails 'Function not registered'): aggregates listagg, checksum, map_union, multimap_agg, approx_most_frequent, numeric_histogram, approx_set/merge, qdigest_agg, tdigest_agg, reduce_agg; arrays array_histogram, combinations, ngrams; vector/stat functions cosine_distance, cosine_similarity, dot_product, euclidean_distance, beta_cdf, normal_cdf, t_cdf, t_pdf, inverse_beta_cdf, inverse_normal_cdf, wilson_interval_lower/upper; width_bucket(x, bins array) overload; date/time at_timezone, with_timezone, timezone_hour, timezone_minute, current_timezone, now, localtimestamp, from_unixtime_nanos, from_iso8601_timestamp_nanos, human_readable_seconds; string/binary luhn_check, normalize, regexp_position, split_to_map, split_to_multimap, title_case, word_stem, soundex, to_base64url, from_base64url, hmac_md5/sha1/sha256/sha512, xxhash64, spooky_hash_v2_32/64, JSON json_array_contains, json_array_get, is_json_scalar; maps map_entries, map_from_entries, map_concat, multimap_from_entries; position(x IN y) and overlay(... PLACING ...) syntax.
+- nan() cannot be a real DOUBLE: SQLite stores NaN as NULL, so nan() yields the text NaN (ColumnInfo varchar, not double) that is_nan/is_finite/is_infinite recognise; arithmetic on it and NaN results of skewness/kurtosis with zero variance surface as NULL.
+- Aggregates over zero rows (bitwise_*_agg, skewness, kurtosis, regr_*) report ColumnInfo varchar, not bigint/double: result types are inferred from the first non-NULL value.
 
 ### Structural gaps
 

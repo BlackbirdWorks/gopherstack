@@ -392,6 +392,7 @@ func errorMappings() []errorMapping {
 		{ErrGroupAlreadyExists, "AlreadyExists"},
 		{ErrLaunchConfigurationNotFound, errValidationError},
 		{ErrLaunchConfigurationAlreadyExists, "AlreadyExists"},
+		{ErrLimitExceeded, "LimitExceeded"},
 		{ErrInvalidParameter, errValidationError},
 		{ErrUnknownAction, "InvalidAction"},
 		{ErrInvalidNextToken, "InvalidNextToken"},

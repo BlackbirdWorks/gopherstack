@@ -106,12 +106,18 @@ func (b *InMemoryBackend) CreatePrivateNatGateway(subnetID string, tags map[stri
 func (b *InMemoryBackend) createNatGateway(
 	subnetID, allocationID, connectivity string, tags map[string]string,
 ) (*NatGateway, error) {
+	limit := b.quotaLimit(quotaServiceVPC, quotaNATPerAZ)
+
 	b.mu.Lock("CreateNatGateway")
 	defer b.mu.Unlock()
 
 	subnet, ok := b.subnets.Get(subnetID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
+	}
+
+	if limit.Reached(b.natGatewaysInZoneLocked(subnet.AvailabilityZone)) {
+		return nil, quotaExceeded(ErrNatGatewayLimitExceeded, "NAT gateways in the Availability Zone", limit)
 	}
 
 	ngw := &NatGateway{

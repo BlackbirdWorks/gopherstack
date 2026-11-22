@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
@@ -191,6 +193,7 @@ type InMemoryBackend struct {
 	cancel                 context.CancelFunc
 	region                 string
 	accountID              string
+	quotaGate              quotalimit.Gate
 	queriesOrder           []string
 	parsedQueriesOrder     []string
 	wg                     sync.WaitGroup

@@ -1,0 +1,258 @@
+package crossengine_test
+
+import (
+	"database/sql"
+	"fmt"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	_ "modernc.org/sqlite"
+
+	"github.com/blackbirdworks/gopherstack/services/athena"
+	"github.com/blackbirdworks/gopherstack/services/gcpbigquery/bqsql"
+	"github.com/blackbirdworks/gopherstack/services/timestreamquery"
+)
+
+func appFuncs(t *testing.T) []string {
+	t.Helper()
+
+	db, err := sql.Open("sqlite", ":memory:")
+	require.NoError(t, err)
+
+	defer db.Close()
+
+	rows, err := db.QueryContext(t.Context(), "SELECT DISTINCT name FROM pragma_function_list WHERE builtin = 0")
+	require.NoError(t, err)
+
+	defer rows.Close()
+
+	var out []string
+
+	for rows.Next() {
+		var n string
+		require.NoError(t, rows.Scan(&n))
+
+		out = append(out, n)
+	}
+
+	require.NoError(t, rows.Err())
+
+	return out
+}
+
+type noCatalog struct{}
+
+func (noCatalog) Table(bqsql.TableRef) (*bqsql.TableData, bool) { return nil, false }
+func (noCatalog) DatasetExists(string, string) bool             { return true }
+
+func bigQueryValue(t *testing.T, expr string) string {
+	t.Helper()
+
+	st, err := bqsql.ParseStatement("SELECT " + expr)
+	require.NoError(t, err)
+
+	res, err := bqsql.Run(t.Context(), st, &bqsql.Input{Catalog: noCatalog{}, Project: "p", Dataset: "ds"}, false)
+	require.NoError(t, err, expr)
+	require.Len(t, res.Rows, 1)
+
+	return fmt.Sprint(bqsql.Row(res.Fields, res.Rows[0])["f"].([]map[string]any)[0]["v"])
+}
+
+func athenaValue(t *testing.T, expr string) string {
+	t.Helper()
+
+	q, _, err := athena.TranslateTrino("SELECT "+expr, func([]string) (string, string, bool) { return "", "", false })
+	require.NoError(t, err, expr)
+
+	db, err := athena.OpenEngineDB()
+	require.NoError(t, err)
+
+	defer db.Close()
+
+	var v any
+
+	require.NoError(t, db.QueryRowContext(t.Context(), q).Scan(&v), q)
+
+	return fmt.Sprint(v)
+}
+
+func timestreamValue(t *testing.T, expr string) string {
+	t.Helper()
+
+	b := timestreamquery.NewInMemoryBackend("000000000000", "us-east-1")
+	pg, err := b.QueryWithOptions(t.Context(), timestreamquery.QueryOptions{QueryString: "SELECT " + expr})
+	require.NoError(t, err, expr)
+	require.Len(t, pg.Rows, 1)
+
+	d := pg.Rows[0].Data[0]
+	if d.ScalarValue == nil {
+		return "NULL"
+	}
+
+	return *d.ScalarValue
+}
+
+func TestSameFunctionNameKeepsEachEnginesResult(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		expr    string
+		athena  string
+		timestr string
+	}{
+		{
+			"skewness",
+			"round(skewness(x), 4) FROM (SELECT 1 AS x UNION ALL SELECT 2 UNION ALL SELECT 9)", "1.6301", "0.6655",
+		},
+		{"infinity", "infinity()", "+Inf", "Infinity"},
+		{"is_infinite", "is_infinite(infinity())", "1", "true"},
+		{"is_nan", "is_nan(nan())", "1", "true"},
+		{"arrays_overlap", "arrays_overlap(ARRAY[1, 2], ARRAY[2, 3])", "1", "true"},
+		{
+			"zip", "CAST(zip(ARRAY[1, 2], ARRAY['a', 'b']) AS VARCHAR)",
+			`[{"\u00000":1,"\u00001":"a","\u0000row":["\u00000","\u00001"]},` +
+				`{"\u00000":2,"\u00001":"b","\u0000row":["\u00000","\u00001"]}]`,
+			`[{"\u00000":1,"\u00001":"a"},{"\u00000":2,"\u00001":"b"}]`,
+		},
+		{"sequence", "CAST(sequence(1, 3) AS VARCHAR)", "[1,2,3]", "[1,2,3]"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.athena, strings.TrimPrefix(athenaValue(t, tt.expr), "\x01"), "athena")
+			assert.Equal(t, tt.timestr, strings.TrimPrefix(timestreamValue(t, tt.expr), "\x01"), "timestream")
+		})
+	}
+}
+
+func TestEnginesKeepTheirOwnFunctionSemantics(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		expr   string
+		engine string
+		want   string
+	}{
+		{"bq replace", "REPLACE('abc', 'b', 'X')", "bq", "aXc"},
+		{"bq repeat", "REPEAT('ab', 3)", "bq", "ababab"},
+		{"bq reverse", "REVERSE('abc')", "bq", "cba"},
+		{"bq sqrt", "SQRT(16.0)", "bq", "4.0"},
+		{"bq ln", "LN(1.0)", "bq", "0.0"},
+		{"bq log10", "LOG10(1000.0)", "bq", "3.0"},
+		{"bq pow", "POW(2, 10)", "bq", "1024.0"},
+		{"bq abs", "ABS(-3)", "bq", "3"},
+		{"bq sign", "SIGN(-2)", "bq", "-1"},
+		{"bq round", "ROUND(2.5)", "bq", "3.0"},
+		{"bq strpos", "STRPOS('abc', 'c')", "bq", "3"},
+		{"bq concat", "CONCAT('a', 'b')", "bq", "ab"},
+		{"athena replace", "replace('abc', 'b', 'X')", "athena", "aXc"},
+		{"athena lpad", "lpad('a', 3, 'x')", "athena", "xxa"},
+		{"athena reverse", "reverse('abc')", "athena", "cba"},
+		{"athena sqrt", "sqrt(16)", "athena", "4"},
+		{"athena ln", "ln(1)", "athena", "0"},
+		{"athena log10", "log10(1000)", "athena", "3"},
+		{"athena pow", "pow(2, 10)", "athena", "1024"},
+		{"athena abs", "abs(-3)", "athena", "3"},
+		{"athena sign", "sign(-2)", "athena", "-1"},
+		{"athena round", "round(2.5)", "athena", "3"},
+		{"athena strpos", "strpos('abc', 'c')", "athena", "3"},
+		{"athena concat", "concat('a', 'b')", "athena", "ab"},
+		{"athena sequence", "cardinality(sequence(1, 5))", "athena", "5"},
+		{"athena repeat", "cardinality(repeat('a', 3))", "athena", "3"},
+		{"athena zip", "cardinality(zip(ARRAY[1, 2], ARRAY[3, 4]))", "athena", "2"},
+		{"athena array_union", "cardinality(array_union(ARRAY[1, 2], ARRAY[2, 3]))", "athena", "3"},
+		{"athena array_intersect", "cardinality(array_intersect(ARRAY[1, 2], ARRAY[2, 3]))", "athena", "1"},
+		{"athena array_except", "cardinality(array_except(ARRAY[1, 2], ARRAY[2, 3]))", "athena", "1"},
+		{"athena arrays_overlap", "arrays_overlap(ARRAY[1, 2], ARRAY[2, 3])", "athena", "1"},
+		{"athena shuffle", "cardinality(shuffle(ARRAY[1, 2, 3]))", "athena", "3"},
+		{"athena from_base", "from_base('ff', 16)", "athena", "255"},
+		{"athena to_base", "to_base(255, 16)", "athena", "ff"},
+		{"athena bit_count", "bit_count(9, 64)", "athena", "2"},
+		{"athena bitwise_not", "bitwise_not(5)", "athena", "-6"},
+		{"athena hamming_distance", "hamming_distance('karolin', 'kathrin')", "athena", "3"},
+		{"athena infinity", "infinity()", "athena", "+Inf"},
+		{"athena nan", "nan()", "athena", "NaN"},
+		{"athena e", "e()", "athena", "2.718281828459045"},
+		{"athena year_of_week", "year_of_week(DATE '2021-01-03')", "athena", "2020"},
+		{"athena yow", "yow(DATE '2024-12-30')", "athena", "2025"},
+		{"athena bitwise_and_agg", "bitwise_and_agg(x) FROM (SELECT 7 AS x UNION ALL SELECT 3)", "athena", "3"},
+		{"athena bitwise_or_agg", "bitwise_or_agg(x) FROM (SELECT 4 AS x UNION ALL SELECT 3)", "athena", "7"},
+		{
+			"athena skewness",
+			"round(skewness(x), 4) FROM (SELECT 1 AS x UNION ALL SELECT 2 UNION ALL SELECT 9)",
+			"athena",
+			"1.6301",
+		},
+		{"athena regr_slope", "regr_slope(y, x) FROM (SELECT 1 AS x, 3 AS y UNION ALL SELECT 2, 5)", "athena", "2"},
+		{
+			"athena regr_intercept",
+			"regr_intercept(y, x) FROM (SELECT 1 AS x, 3 AS y UNION ALL SELECT 2, 5)",
+			"athena",
+			"1",
+		},
+		{"timestream replace", "replace('abc', 'b', 'X')", "ts", "aXc"},
+		{"timestream reverse", "reverse('abc')", "ts", "cba"},
+		{"timestream repeat", "cardinality(repeat('a', 3))", "ts", "3"},
+		{"timestream zip", "cardinality(zip(ARRAY[1,2], ARRAY[3,4]))", "ts", "2"},
+		{"timestream sqrt", "sqrt(16.0)", "ts", "4.0"},
+		{"timestream strpos", "strpos('abc', 'c')", "ts", "3"},
+		{"timestream concat", "concat('a', 'b')", "ts", "ab"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var got string
+
+			switch tt.engine {
+			case "bq":
+				got = bigQueryValue(t, tt.expr)
+			case "athena":
+				got = athenaValue(t, tt.expr)
+			default:
+				got = timestreamValue(t, tt.expr)
+			}
+
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// Runs before any parallel test: the driver reads its function registry unlocked on every connection open, so
+// every engine must have registered by init, not lazily on first use.
+func TestEngineFunctionsRegisteredAtInit(t *testing.T) { //nolint:paralleltest // must precede every engine call
+	got := appFuncs(t)
+
+	for _, name := range []string{"ts_sum", "athena_date_trunc", "bq_upper"} {
+		assert.Contains(t, got, name)
+	}
+}
+
+// Every engine's functions live under its own prefix; plain names belong to SQLite alone.
+func TestEngineFunctionsArePrefixed(t *testing.T) {
+	t.Parallel()
+
+	engine := []string{"ts_", "athena_", "bq_"}
+	// SQLite's own optional modules (FTS5, GeoPoly, R-tree) report as application-defined.
+	sqliteModules := []string{"fts5", "geopoly_", "rtree", "bm25", "highlight", "snippet", "match"}
+
+	var stray []string
+
+	for _, name := range appFuncs(t) {
+		hasPrefix := func(p string) bool { return strings.HasPrefix(name, p) }
+		if !slices.ContainsFunc(engine, hasPrefix) && !slices.ContainsFunc(sqliteModules, hasPrefix) {
+			stray = append(stray, name)
+		}
+	}
+
+	slices.Sort(stray)
+	assert.Empty(t, stray, "functions registered without an engine prefix are visible to every engine in the process")
+}

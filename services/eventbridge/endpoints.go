@@ -16,11 +16,17 @@ func (b *InMemoryBackend) CreateEndpoint(ctx context.Context, input CreateEndpoi
 
 	region := getRegionFromContext(ctx, b.region)
 
+	limit := b.quotaLimit(region, quotaEndpoints)
+
 	b.mu.Lock("CreateEndpoint")
 	defer b.mu.Unlock()
 
 	if b.endpointsTable(region).Has(input.Name) {
 		return nil, fmt.Errorf("%w: endpoint %s already exists", ErrAlreadyExists, input.Name)
+	}
+
+	if err := quotaReached(limit, b.endpointsTable(region).Len(), "endpoints"); err != nil {
+		return nil, err
 	}
 
 	now := time.Now()

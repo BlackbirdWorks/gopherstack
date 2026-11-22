@@ -428,8 +428,19 @@ func toFloatArg(v driver.Value) (float64, bool) {
 	}
 }
 
+// nanText stands in for NaN, which SQLite cannot store: a double NaN is read back as NULL.
+const nanText = "NaN"
+
+func floatOrNaN(v driver.Value) (float64, bool) {
+	if s, ok := v.(string); ok && s == nanText {
+		return math.NaN(), true
+	}
+
+	return toFloatArg(v)
+}
+
 func udfIsNaN(_ *fnCtx, args []driver.Value) (driver.Value, error) {
-	f, ok := toFloatArg(args[0])
+	f, ok := floatOrNaN(args[0])
 	if !ok {
 		return sqlNull(), nil
 	}
@@ -438,7 +449,7 @@ func udfIsNaN(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 }
 
 func udfIsFinite(_ *fnCtx, args []driver.Value) (driver.Value, error) {
-	f, ok := toFloatArg(args[0])
+	f, ok := floatOrNaN(args[0])
 	if !ok {
 		return sqlNull(), nil
 	}

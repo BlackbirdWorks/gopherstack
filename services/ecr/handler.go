@@ -73,6 +73,7 @@ func (h *Handler) EnableRegions(ctx context.Context) {
 		nb := NewInMemoryBackend(home.accountID, region, home.ProxyEndpoint())
 		nb.replicationSettleDelay = home.replicationSettleDelay
 		nb.endpoints = home.endpoints
+		nb.quotaGate = home.quotaGate
 		p := NewHandler(nb, nil)
 
 		if h.janitor == nil {
@@ -576,6 +577,7 @@ func (h *Handler) classifyError(err error) (int, string) {
 		{ErrTooManyTags, "TooManyTagsException", http.StatusBadRequest},
 		{ErrScanNotFoundException, "ScanNotFoundException", http.StatusBadRequest},
 		{ErrRepositoryAlreadyExists, "RepositoryAlreadyExistsException", http.StatusBadRequest},
+		{ErrLimitExceeded, "LimitExceededException", http.StatusBadRequest},
 		{ErrRepositoryNotEmpty, "RepositoryNotEmptyException", http.StatusBadRequest},
 		{ErrImageTagAlreadyExists, "ImageTagAlreadyExistsException", http.StatusBadRequest},
 		{ErrLayerInaccessible, "LayerInaccessibleException", http.StatusBadRequest},

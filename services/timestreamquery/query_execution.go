@@ -855,7 +855,7 @@ func (b *InMemoryBackend) staticColumns(ctx context.Context, queryString string)
 		return nil, false
 	}
 
-	q := strings.TrimSpace(strings.TrimRight(strings.TrimSpace(stripSQLComments(queryString)), ";"))
+	q := normalizeQuery(queryString)
 
 	tables, _, err := loadSourceTables(getRegion(ctx, b.defaultRegion), b.recordSource(), q, b.clock())
 	if err != nil {
@@ -882,7 +882,7 @@ func (b *InMemoryBackend) staticColumns(ctx context.Context, queryString string)
 
 // namedParameters lists a query's @identifier parameters; one with no contextual type is VARCHAR.
 func (b *InMemoryBackend) namedParameters(ctx context.Context, queryString string) []ColumnInfo {
-	q := strings.TrimSpace(strings.TrimRight(strings.TrimSpace(stripSQLComments(queryString)), ";"))
+	q := normalizeQuery(queryString)
 	tables := loadedSet{}
 
 	if src := b.recordSource(); src != nil {

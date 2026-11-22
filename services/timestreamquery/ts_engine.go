@@ -54,7 +54,7 @@ func (b *InMemoryBackend) execute(
 func (b *InMemoryBackend) executeStatement(
 	ctx context.Context, query string, vars map[string]string, queryID string,
 ) (*resultSet, error) {
-	query = strings.TrimSpace(strings.TrimRight(strings.TrimSpace(stripSQLComments(query)), ";"))
+	query = normalizeQuery(query)
 	region := getRegion(ctx, b.defaultRegion)
 
 	switch firstWord(query) {
@@ -214,7 +214,7 @@ func translate(q string, set loadedSet) (string, error) {
 		return "main", t.sqlName, true
 	}
 
-	out, unresolved, err := athena.TranslateTrino(q, resolve)
+	out, unresolved, err := athena.TranslateEmbedded(q, resolve, plainFuncs)
 	if err != nil {
 		return "", validationf("%s", err.Error())
 	}
@@ -270,7 +270,7 @@ func runTranslated(ctx context.Context, q string, set loadedSet, ann annotation)
 		}
 	}
 
-	rows, err := conn.QueryContext(ctx, q)
+	rows, err := conn.QueryContext(ctx, qualifyEngineFuncs(q))
 	if err != nil {
 		return nil, mapEngineError(err)
 	}

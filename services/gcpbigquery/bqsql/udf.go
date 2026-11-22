@@ -36,6 +36,9 @@ func errBQ(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", errBQBase, fmt.Sprintf(format, args...))
 }
 
+//nolint:gochecknoinits // the driver reads its registry unlocked on Open; lazy registration crashes
+func init() { registerUDFs() }
+
 func registerUDFs() {
 	registerOnce.Do(func() {
 		defs := map[string]udfDef{}

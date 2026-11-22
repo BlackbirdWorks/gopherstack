@@ -748,7 +748,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [RDS Data](services/rdsdata/README.md) | A | 7 | 4 structural gaps |
 | [Redshift](services/redshift/README.md) | A | 9 | 5 structural gaps |
 | [Redshift Data](services/redshiftdata/README.md) | A | 12 | 4 structural gaps; 1 deferred |
-| [Timestream Query](services/timestreamquery/README.md) | A | 12 | 7 gaps; 1 structural gap |
+| [Timestream Query](services/timestreamquery/README.md) | A | 12 | 8 gaps; 1 structural gap |
 | [Timestream Write](services/timestreamwrite/README.md) | A | 19 | 1 structural gap |
 
 ### Networking & Content Delivery
@@ -794,7 +794,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [Athena](services/athena/README.md) | A | 27 | 6 structural gaps; 1 deferred |
+| [Athena](services/athena/README.md) | A | 27 | 3 gaps; 6 structural gaps; 1 deferred |
 | [Clean Rooms](services/cleanrooms/README.md) | A | — | 18 families; 5 structural gaps |
 | [EMR](services/emr/README.md) | A | 65 | 7 structural gaps |
 | [EMR Serverless](services/emrserverless/README.md) | A | 22 | 1 structural gap |

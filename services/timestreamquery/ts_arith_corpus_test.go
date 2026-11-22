@@ -315,7 +315,7 @@ func TestArithCorpus_Positions(t *testing.T) {
 		{
 			"nan is null downstream",
 			`SELECT sum(x), 0.0/0 + 1, x > 1.0, x = x FROM (SELECT 0.0/0 AS x)`,
-			"null|null|null|null",
+			"null|NaN|null|null",
 			"",
 		},
 		{

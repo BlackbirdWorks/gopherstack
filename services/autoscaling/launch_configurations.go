@@ -14,8 +14,16 @@ import (
 func (b *InMemoryBackend) CreateLaunchConfiguration(
 	input CreateLaunchConfigurationInput,
 ) (*LaunchConfiguration, error) {
+	limit := b.quotaLimit(quotaLaunchCfgs)
+
 	b.mu.Lock("CreateLaunchConfiguration")
 	defer b.mu.Unlock()
+
+	if !b.launchConfigurations.Has(input.LaunchConfigurationName) {
+		if err := quotaReached(limit, len(b.launchConfigurations.All()), "launch configurations"); err != nil {
+			return nil, err
+		}
+	}
 
 	return b.createLaunchConfigurationLocked(input)
 }

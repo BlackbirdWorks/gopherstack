@@ -25,7 +25,12 @@ const rtTestRegion = "us-east-1"
 func newTestHandlerAndClient(t *testing.T) *assdk.Client {
 	t.Helper()
 
-	backend := autoscaling.NewInMemoryBackend()
+	return newTestClientFor(t, autoscaling.NewInMemoryBackend())
+}
+
+func newTestClientFor(t *testing.T, backend *autoscaling.InMemoryBackend) *assdk.Client {
+	t.Helper()
+
 	h := autoscaling.NewHandler(backend)
 
 	e := echo.New()

@@ -28,6 +28,8 @@ func (b *InMemoryBackend) CreateTrafficPolicy(
 		return nil, fmt.Errorf("%w: document is required", ErrInvalidInput)
 	}
 
+	limit := b.quotaLimit(quotaTrafficPolicies)
+
 	b.mu.Lock("CreateTrafficPolicy")
 	defer b.mu.Unlock()
 
@@ -39,6 +41,10 @@ func (b *InMemoryBackend) CreateTrafficPolicy(
 				name,
 			)
 		}
+	}
+
+	if err := quotaReached(limit, len(b.trafficPolicies), ErrTooManyTrafficPolicies, "traffic policies"); err != nil {
+		return nil, err
 	}
 
 	id := randomTrafficPolicyID()

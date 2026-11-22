@@ -233,6 +233,7 @@ var cognitoIdentitySentinelErrors = []struct { //nolint:gochecknoglobals // pack
 }{
 	{ErrIdentityPoolNotFound, ErrIdentityPoolNotFound.Error()},
 	{ErrIdentityPoolAlreadyExists, ErrIdentityPoolAlreadyExists.Error()},
+	{ErrLimitExceeded, ErrLimitExceeded.Error()},
 	{ErrInvalidParameter, ErrInvalidParameter.Error()},
 	{ErrNotAuthorized, ErrNotAuthorized.Error()},
 	{ErrResourceConflict, ErrResourceConflict.Error()},

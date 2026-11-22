@@ -25,6 +25,7 @@ func (b *InMemoryBackend) CreateIdentityPool(
 	opts ...*PoolExtendedConfig,
 ) (*IdentityPool, error) {
 	region := getRegion(ctx, b.region)
+	limit := b.identityPoolLimit(region)
 
 	b.mu.Lock("CreateIdentityPool")
 	defer b.mu.Unlock()
@@ -43,6 +44,10 @@ func (b *InMemoryBackend) CreateIdentityPool(
 			ErrIdentityPoolAlreadyExists,
 			name,
 		)
+	}
+
+	if err := b.checkIdentityPoolQuotaLocked(region, limit); err != nil {
+		return nil, err
 	}
 
 	poolID := region + ":" + uuid.New().String()

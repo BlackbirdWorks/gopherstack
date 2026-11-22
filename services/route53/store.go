@@ -4,6 +4,8 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -47,6 +49,7 @@ type InMemoryBackend struct {
 	changes                      *store.Table[ChangeInfo]
 	tags                         map[string]*svcTags.Tags
 	mu                           *lockmetrics.RWMutex
+	quotaGate                    quotalimit.Gate
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.

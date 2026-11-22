@@ -19,6 +19,8 @@ import (
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 )
 
+type quotaLimited interface{ SetQuotaLimiter(f quotalimit.Func) }
+
 type quotaCounter func(a *quotaUsageAdapter, account, region string) (int, bool)
 
 // quotaCounters maps "service/quota" to the live resource count behind it.
@@ -77,6 +79,8 @@ var quotaCounters = map[string]quotaCounter{ //nolint:gochecknoglobals // immuta
 	},
 }
 
+var extraQuotaCounters = serviceQuotaCounters() //nolint:gochecknoglobals // immutable dispatch table
+
 type iamKind int
 
 const (
@@ -99,11 +103,17 @@ type quotaUsageAdapter struct {
 	cfn   *cfnbackend.Handler
 	elb   *elbbackend.InMemoryBackend
 	elbv2 *elbv2backend.Handler
+
+	byName map[string]service.Registerable
 }
 
 // QuotaUsage implements servicequotas.UsageSource.
 func (a *quotaUsageAdapter) QuotaUsage(account, region, serviceCode, quotaCode string) (float64, bool) {
 	count, ok := quotaCounters[serviceCode+"/"+quotaCode]
+	if !ok {
+		count, ok = extraQuotaCounters[serviceCode+"/"+quotaCode]
+	}
+
 	if !ok {
 		return 0, false
 	}
@@ -197,7 +207,7 @@ func (n quotaSNSNotifier) Notify(ctx context.Context, topicArn, subject, message
 }
 
 func newQuotaUsageAdapter(byName map[string]service.Registerable) *quotaUsageAdapter {
-	a := &quotaUsageAdapter{}
+	a := &quotaUsageAdapter{byName: byName}
 
 	if h, ok := byName["S3"].(*s3backend.S3Handler); ok {
 		a.s3, _ = h.Backend.(*s3backend.InMemoryBackend)
@@ -272,19 +282,13 @@ func enforceServiceQuotas(limit quotalimit.Func, a *quotaUsageAdapter) {
 		a.eks.SetQuotaLimiter(limit)
 	}
 
-	if a.rds != nil {
-		a.rds.SetQuotaLimiter(limit)
-	}
-
-	if a.cfn != nil {
-		a.cfn.SetQuotaLimiter(limit)
-	}
-
-	if a.elbv2 != nil {
-		a.elbv2.SetQuotaLimiter(limit)
-	}
-
 	if a.elb != nil {
 		a.elb.SetQuotaLimiter(limit)
+	}
+
+	for _, r := range a.byName {
+		if q, ok := r.(quotaLimited); ok {
+			q.SetQuotaLimiter(limit)
+		}
 	}
 }

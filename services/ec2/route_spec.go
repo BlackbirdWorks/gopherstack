@@ -112,6 +112,8 @@ func (b *InMemoryBackend) validateRouteTargetLocked(rt *RouteTable, s RouteSpec)
 
 // CreateRouteSpec adds a route to a route table.
 func (b *InMemoryBackend) CreateRouteSpec(rtID string, spec RouteSpec) error {
+	limit := b.quotaLimit(quotaServiceVPC, quotaRoutesPerTable)
+
 	b.mu.Lock("CreateRoute")
 	defer b.mu.Unlock()
 
@@ -133,6 +135,10 @@ func (b *InMemoryBackend) CreateRouteSpec(rtID string, spec RouteSpec) error {
 
 	if err := b.validateRouteTargetLocked(rt, spec); err != nil {
 		return err
+	}
+
+	if limit.Reached(userRouteCount(rt)) {
+		return quotaExceeded(ErrResourceCountLimitExceeded, "routes in the route table", limit)
 	}
 
 	rt.Routes = append(rt.Routes, spec.route(routeOriginCreateRoute))

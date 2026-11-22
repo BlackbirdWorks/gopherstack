@@ -126,7 +126,7 @@ func checkedOps() []checkedOp {
 
 func arithFailure(try bool, format string, args ...any) (driver.Value, error) {
 	if try {
-		return nil, nil //nolint:nilnil // try() maps failures to SQL NULL
+		return nil, nil //nolint:nilnil // SQL NULL
 	}
 
 	return nil, evalError(fmt.Sprintf(format, args...))
@@ -229,6 +229,11 @@ func checkedAbs(bits int, try bool) scalarImpl {
 	}
 }
 
+// floatBinary is DOUBLE addition, subtraction or multiplication that tolerates NaN passed as text.
+func floatBinary(op func(a, b float64) float64, keepNaN bool) scalarImpl {
+	return domainMath(func(a []float64) float64 { return op(a[0], a[1]) }, keepNaN)
+}
+
 // floatDivide is DOUBLE division; NaN is text only where keepNaN says the result is rendered, else NULL like SQLite.
 func floatDivide(mod, keepNaN bool) scalarImpl {
 	return func(_ *fnCtx, args []driver.Value) (driver.Value, error) {
@@ -271,6 +276,122 @@ func udfRandom(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 	}
 
 	return rand.Int64N(n), nil //nolint:gosec // not security sensitive
+}
+
+func domainMath(apply func(args []float64) float64, keepNaN bool) scalarImpl {
+	return func(_ *fnCtx, args []driver.Value) (driver.Value, error) {
+		fs := make([]float64, len(args))
+
+		for i, a := range args {
+			if a == nil {
+				return nil, nil
+			}
+
+			f, ok := toFloat64(a)
+			if !ok {
+				return nil, errOperandType
+			}
+
+			fs[i] = f
+		}
+
+		r := apply(fs)
+		if math.IsNaN(r) {
+			if keepNaN {
+				return nanText, nil
+			}
+
+			return nil, nil
+		}
+
+		return r, nil
+	}
+}
+
+// floatCompare compares two DOUBLE values with IEEE semantics: every comparison with NaN is false except <>.
+func floatCompare(test func(a, b float64) bool) scalarImpl {
+	return func(_ *fnCtx, args []driver.Value) (driver.Value, error) {
+		if args[0] == nil || args[1] == nil {
+			return nil, nil
+		}
+
+		a, okA := toFloat64(args[0])
+		b, okB := toFloat64(args[1])
+
+		if !okA || !okB {
+			return nil, errOperandType
+		}
+
+		return boolInt(test(a, b)), nil
+	}
+}
+
+// log10 is math.Log10 made exact at powers of ten, where Go's log2-based form is off by an ulp (log10(0.1)).
+func log10(x float64) float64 {
+	r := math.Log10(x)
+	n := math.Round(r)
+
+	if r != n && math.Abs(r-n) < 1e-9 && math.Pow10(int(n)) == x {
+		return n
+	}
+
+	return r
+}
+
+func domainMathFuncs() []scalarFunc {
+	unary := map[string]func(float64) float64{
+		"sqrt": math.Sqrt, "ln": math.Log, "log10": log10, "log2": math.Log2, "acos": math.Acos,
+		"asin": math.Asin, "acosh": math.Acosh, "atanh": math.Atanh,
+	}
+
+	var out []scalarFunc
+
+	for _, keep := range []bool{true, false} {
+		suffix := ""
+		if !keep {
+			suffix = "n"
+		}
+
+		for name, f := range unary {
+			out = append(
+				out,
+				raisingFn("ts_"+name+suffix, 1, domainMath(func(a []float64) float64 { return f(a[0]) }, keep)),
+			)
+		}
+
+		out = append(
+			out,
+			raisingFn(
+				"ts_power"+suffix,
+				argsTwo,
+				domainMath(func(a []float64) float64 { return math.Pow(a[0], a[1]) }, keep),
+			),
+		)
+	}
+
+	for _, keep := range []bool{true, false} {
+		suffix := ""
+		if !keep {
+			suffix = "n"
+		}
+
+		out = append(out,
+			raisingFn("ts_dadd"+suffix, argsTwo, floatBinary(func(a, b float64) float64 { return a + b }, keep)),
+			raisingFn("ts_dsub"+suffix, argsTwo, floatBinary(func(a, b float64) float64 { return a - b }, keep)),
+			raisingFn("ts_dmul"+suffix, argsTwo, floatBinary(func(a, b float64) float64 { return a * b }, keep)),
+		)
+	}
+
+	out = append(out,
+		raisingFn("ts_deq", argsTwo, floatCompare(func(a, b float64) bool { return a == b })),
+		raisingFn("ts_dne", argsTwo, floatCompare(func(a, b float64) bool { return a != b })),
+		raisingFn("ts_dlt", argsTwo, floatCompare(func(a, b float64) bool { return a < b })),
+		raisingFn("ts_dle", argsTwo, floatCompare(func(a, b float64) bool { return a <= b })),
+		raisingFn("ts_dgt", argsTwo, floatCompare(func(a, b float64) bool { return a > b })),
+		raisingFn("ts_dge", argsTwo, floatCompare(func(a, b float64) bool { return a >= b })),
+	)
+
+	return append(out, raisingFn("ts_nann", 0, func(*fnCtx, []driver.Value) (driver.Value, error) { return nil, nil }))
 }
 
 func floatClass(test func(float64) bool) scalarImpl {
@@ -316,27 +437,40 @@ func tsArithFuncs() []scalarFunc {
 	for _, bits := range []int{bits32, bits64} {
 		for _, try := range []bool{false, true} {
 			for _, op := range checkedOps() {
-				out = append(out, scalarFn(arithName(op.name, bits, try), argsTwo, checkedBinary(op, bits, try)))
+				out = append(out, raisingFn(arithName(op.name, bits, try), argsTwo, checkedBinary(op, bits, try)))
 			}
 
 			out = append(out,
-				scalarFn(arithName("div", bits, try), argsTwo, checkedDivide(bits, false, try)),
-				scalarFn(arithName("mod", bits, try), argsTwo, checkedDivide(bits, true, try)),
-				scalarFn(arithName("neg", bits, try), 1, checkedNegate(bits, try)),
-				scalarFn(arithName("abs", bits, try), 1, checkedAbs(bits, try)),
+				raisingFn(arithName("div", bits, try), argsTwo, checkedDivide(bits, false, try)),
+				raisingFn(arithName("mod", bits, try), argsTwo, checkedDivide(bits, true, try)),
+				raisingFn(arithName("neg", bits, try), 1, checkedNegate(bits, try)),
+				raisingFn(arithName("abs", bits, try), 1, checkedAbs(bits, try)),
 			)
 		}
 	}
 
+	out = append(out, domainMathFuncs()...)
+	out = append(out,
+		raisingFn("ts_ivadd", argsTwo, udfIntervalAdd(1)),
+		raisingFn("ts_ivsub", argsTwo, udfIntervalAdd(-1)),
+		raisingFn("ts_ivneg", 1, udfIntervalNegate),
+		raisingFn("ts_tsadd", argsTwo, udfTimestampShift(1, false)),
+		raisingFn("ts_tssub", argsTwo, udfTimestampShift(-1, false)),
+		raisingFn("ts_tsaddr", argsTwo, udfTimestampShift(1, true)),
+		raisingFn("ts_ivmul", argsTwo, udfIntervalScale(false, false)),
+		raisingFn("ts_ivmulr", argsTwo, udfIntervalScale(false, true)),
+		raisingFn("ts_ivdiv", argsTwo, udfIntervalScale(true, false)),
+	)
+
 	return append(out,
-		scalarFn("ts_ddiv", argsTwo, floatDivide(false, true)),
-		scalarFn("ts_dmod", argsTwo, floatDivide(true, true)),
-		scalarFn("ts_ddivn", argsTwo, floatDivide(false, false)),
-		scalarFn("ts_dmodn", argsTwo, floatDivide(true, false)),
+		raisingFn("ts_ddiv", argsTwo, floatDivide(false, true)),
+		raisingFn("ts_dmod", argsTwo, floatDivide(true, true)),
+		raisingFn("ts_ddivn", argsTwo, floatDivide(false, false)),
+		raisingFn("ts_dmodn", argsTwo, floatDivide(true, false)),
 		scalarFn("e", 0, udfE),
-		scalarFn("ts_is_nan", 1, floatClass(math.IsNaN)),
-		scalarFn("ts_is_infinite", 1, floatClass(func(f float64) bool { return math.IsInf(f, 0) })),
-		scalarFn("ts_is_finite", 1, floatClass(func(f float64) bool { return !math.IsNaN(f) && !math.IsInf(f, 0) })),
+		raisingFn("ts_is_nan", 1, floatClass(math.IsNaN)),
+		raisingFn("ts_is_infinite", 1, floatClass(func(f float64) bool { return math.IsInf(f, 0) })),
+		raisingFn("ts_is_finite", 1, floatClass(func(f float64) bool { return !math.IsNaN(f) && !math.IsInf(f, 0) })),
 	)
 }
 
@@ -385,7 +519,7 @@ func (a *sumAgg) WindowInverse(_ *fnCtx, args []driver.Value) error {
 
 func (a *sumAgg) WindowValue(_ *fnCtx) (driver.Value, error) {
 	if a.count == 0 {
-		return nil, nil //nolint:nilnil // SUM of no rows is NULL
+		return nil, nil //nolint:nilnil // SQL NULL
 	}
 
 	return a.total, nil
@@ -395,7 +529,7 @@ func (*sumAgg) Final(_ *fnCtx) {}
 
 func registerArithFuncs() {
 	for _, f := range tsArithFuncs() {
-		sqlitedriver.MustRegisterDeterministicScalarFunction(f.name, f.nargs, f.impl)
+		registerScalar(f)
 	}
 
 	registerAggFuncs()

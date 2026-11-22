@@ -1089,6 +1089,9 @@ func (b *InMemoryBackend) RunInstancesWithID(
 		return nil, err
 	}
 
+	vcpus := b.typeVCPUs(instanceType) * count
+	limit := b.vcpuLimit(instanceType, false)
+
 	b.mu.Lock("RunInstances")
 	defer b.mu.Unlock()
 
@@ -1118,23 +1121,19 @@ func (b *InMemoryBackend) RunInstancesWithID(
 		outpostArn = sub.OutpostArn
 	}
 
+	if addExceeds(limit, b.onDemandVCPUsLocked(vcpuClass(instanceType)), vcpus) {
+		return nil, quotaExceeded(ErrVcpuLimitExceeded, "On-Demand vCPUs", limit)
+	}
+
 	// Real AWS depletes an Outpost's configured instance-type capacity as
 	// instances launch onto it (see services/outposts/capacity_ledger.go's
 	// ConsumeCapacity doc comment). Reserve capacity for the WHOLE batch
 	// before creating any instance, using pre-minted IDs, so a rejected
 	// batch (Outpost gone, insufficient capacity) never creates an
 	// ec2.Instance at all -- matches real RunInstances failing atomically.
-	instanceIDs := newOutpostReservedInstanceIDs(count)
-	if pinnedID != "" {
-		instanceIDs[0] = pinnedID
-	}
-
-	if outpostArn != "" {
-		if outpostsBk, ok := b.outpostsBackend(); ok {
-			if capErr := outpostsBk.ConsumeCapacity(outpostArn, instanceType, b.AccountID, instanceIDs); capErr != nil {
-				return nil, translateOutpostsCapacityErr(capErr)
-			}
-		}
+	instanceIDs, err := b.reserveOutpostCapacityLocked(pinnedID, outpostArn, instanceType, count)
+	if err != nil {
+		return nil, err
 	}
 
 	// No capacity hint — user-derived values in the make capacity position
@@ -1178,6 +1177,28 @@ func (b *InMemoryBackend) RunInstancesWithID(
 	}
 
 	return out, nil
+}
+
+// reserveOutpostCapacityLocked mints the instance IDs of a launch and consumes Outpost capacity for them.
+func (b *InMemoryBackend) reserveOutpostCapacityLocked(
+	pinnedID, outpostArn, instanceType string, count int,
+) ([]string, error) {
+	instanceIDs := newOutpostReservedInstanceIDs(count)
+	if pinnedID != "" {
+		instanceIDs[0] = pinnedID
+	}
+
+	if outpostArn == "" {
+		return instanceIDs, nil
+	}
+
+	if outpostsBk, ok := b.outpostsBackend(); ok {
+		if capErr := outpostsBk.ConsumeCapacity(outpostArn, instanceType, b.AccountID, instanceIDs); capErr != nil {
+			return nil, translateOutpostsCapacityErr(capErr)
+		}
+	}
+
+	return instanceIDs, nil
 }
 
 // attachLaunchENILocked registers inst and gives it the primary network interface, placing both

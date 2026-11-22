@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/endpointstrategy"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -53,6 +55,7 @@ type InMemoryBackend struct {
 	lifecycleLastEvaluated map[string]time.Time
 	registryPolicy         string
 	accountID              string
+	quotaGate              *quotalimit.Gate
 	region                 string
 	endpoint               string
 	endpoints              endpointstrategy.Config
@@ -78,6 +81,7 @@ func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 		lifecycleLastEvaluated: make(map[string]time.Time),
 		mu:                     lockmetrics.New("ecr"),
 		accountID:              accountID,
+		quotaGate:              &quotalimit.Gate{},
 		region:                 region,
 		endpoint:               endpoint,
 	}
