@@ -78,12 +78,7 @@ func (b *InMemoryBackend) executeStatement(
 
 	ann := annotateQuery(query, tables, now, vars)
 
-	translated, err := translateTimestream(rewriteTimestream(ann.query, now, vars), tables)
-	if err != nil {
-		return nil, err
-	}
-
-	rs, err := runTranslated(ctx, translated, tables, ann)
+	rs, err := runWithFallback(ctx, ann, now, vars, tables)
 	if err != nil {
 		return nil, err
 	}
@@ -95,6 +90,33 @@ func (b *InMemoryBackend) executeStatement(
 	rs.scans = b.scanInsights(region, ann.scans, tables, now, src)
 
 	return rs, nil
+}
+
+// runWithFallback reruns a query without its checked-arithmetic rewrites when the rewritten form fails for a
+// reason other than a checked function rejecting a value.
+func runWithFallback(
+	ctx context.Context, ann annotation, now time.Time, vars map[string]string, tables loadedSet,
+) (*resultSet, error) {
+	rs, err := runAnnotated(ctx, ann.query, now, vars, tables, ann)
+
+	var runtimeErr *runtimeError
+	if err != nil && ann.plain != ann.query && ctx.Err() == nil && !errors.As(err, &runtimeErr) {
+		return runAnnotated(ctx, ann.plain, now, vars, tables, ann)
+	}
+
+	return rs, err
+}
+
+// runAnnotated translates and runs q; a failure that is not a checked-function error may come from the rewrite.
+func runAnnotated(
+	ctx context.Context, q string, now time.Time, vars map[string]string, tables loadedSet, ann annotation,
+) (*resultSet, error) {
+	translated, err := translateTimestream(rewriteTimestream(q, now, vars), tables)
+	if err != nil {
+		return nil, err
+	}
+
+	return runTranslated(ctx, translated, tables, ann)
 }
 
 func firstWord(q string) string {
@@ -309,9 +331,20 @@ func insertRecords(ctx context.Context, tx *sql.Tx, target, marks string, t *tab
 	return nil
 }
 
+// runtimeError is an error a checked function raised while evaluating the query itself.
+type runtimeError struct{ error }
+
+func (e *runtimeError) Unwrap() error { return e.error }
+
 // mapEngineError turns SQLite failures into Timestream-style ValidationExceptions.
 func mapEngineError(err error) error {
 	msg := err.Error()
+
+	if strings.Contains(msg, evalMarker) {
+		clean := reSQLiteTag.ReplaceAllString(strings.ReplaceAll(msg, evalMarker, ""), "")
+
+		return &runtimeError{validationf("line 1:1: %s", clean)}
+	}
 
 	if m := reNoColumn.FindStringSubmatch(msg); m != nil {
 		return validationf("line 1:8: Column '%s' does not exist", strings.Trim(m[1], `"`))

@@ -104,6 +104,11 @@ func FuzzAnnotateQuery(f *testing.F) {
 		"SELECT zip_with(ARRAY[1], ARRAY[2], (a, b) -> a + b), regexp_replace('a', '(a)', x -> x[1])",
 		"SELECT ROW(1, 'a')[2] FROM t WHERE time > @start AND a BETWEEN @x AND @y AND b IN (@z, 1)",
 		"SELECT bigint '1' + integer '2', double '1.5' / 0, 1.0 % 0",
+		"SELECT sum(v + 1) OVER (ORDER BY time ROWS BETWEEN 1 + 1 PRECEDING AND CURRENT ROW) FROM t GROUP BY v % 3",
+		"SELECT CASE WHEN b = 0 THEN NULL ELSE a / b END, COALESCE(a / NULLIF(b, 0), 0), try(a / b) FROM t",
+		"SELECT max(v, 2), min(v, 2), approx_percentile(v, ARRAY[0.5, 0.9]), is_nan(0.0 / 0), -(a - -b)",
+		"SELECT transform(ARRAY[1, 2], x -> reduce(ARRAY[1], 0, (s, y) -> s + y * x, s -> s)) FROM t WHERE a IN (1 + 2, 3)",
+		"SELECT 'a+b' || CAST(1 + 1 AS varchar), \"col-1\" * 2 FROM t HAVING sum(a) / count(*) > 1",
 	} {
 		f.Add(s)
 	}

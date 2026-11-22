@@ -37,6 +37,7 @@ type inferrer struct {
 	ctes        []map[string][]outCol
 	edits       []typedEdit
 	params      []outCol
+	nanRoots    map[*node]bool
 	unsupported []string
 	steps       int
 	tryDepth    int
@@ -60,6 +61,17 @@ func (inf *inferrer) edit(text string, start, end int) {
 
 func (inf *inferrer) closeEdit(text string, pos int) {
 	inf.edits = append(inf.edits, typedEdit{text: text, start: pos, end: pos, seq: len(inf.edits), closing: true})
+}
+
+// checkedEdit is an edit that only routes arithmetic or a cast through a checked function; it can be dropped.
+func (inf *inferrer) checkedEdit(text string, start, end int) {
+	inf.edits = append(inf.edits, typedEdit{text: text, start: start, end: end, seq: len(inf.edits), checked: true})
+}
+
+func (inf *inferrer) checkedClose(text string, pos int) {
+	inf.edits = append(inf.edits, typedEdit{
+		text: text, start: pos, end: pos, seq: len(inf.edits), closing: true, checked: true,
+	})
 }
 
 func fieldType(t tsType, name string) tsType {
@@ -185,6 +197,10 @@ func (inf *inferrer) inferCompound(n *node, sc *scope) tsType {
 	case nCase:
 		return inf.inferCase(n, sc)
 	case nCast:
+		if n.typ.kind != tyDouble {
+			inf.keepNaN(n.args[0])
+		}
+
 		inf.rewriteCast(n, inf.infer(n.args[0], sc))
 
 		return n.typ
@@ -490,6 +506,10 @@ func itemName(it selectItem) string {
 
 func (inf *inferrer) inferItem(it selectItem, sc *scope) []outCol {
 	if !it.star {
+		if len(inf.ctes) == 1 {
+			inf.keepNaN(it.expr)
+		}
+
 		return []outCol{{name: itemName(it), typ: inf.infer(it.expr, sc)}}
 	}
 
@@ -666,6 +686,10 @@ func (inf *inferrer) inferCall(n *node, sc *scope) tsType {
 	if lw == "try" {
 		inf.tryDepth++
 		defer func() { inf.tryDepth-- }()
+	}
+
+	if isFloatClassFunc(lw) && len(n.args) == 1 {
+		inf.keepNaN(n.args[0])
 	}
 
 	args := inf.inferAll(n.args, sc)

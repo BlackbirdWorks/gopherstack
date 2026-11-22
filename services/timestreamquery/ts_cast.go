@@ -65,7 +65,7 @@ func castValue(v driver.Value, src, dst string, try bool) (driver.Value, error) 
 	case typBoolean:
 		return castToBool(v, src, try)
 	case typVarchar:
-		return castToVarchar(v, src, try)
+		return castToVarchar(v, src)
 	default:
 		return castToTemporal(v, dst, try)
 	}
@@ -80,7 +80,7 @@ func castToInt(v driver.Value, src string, bits int, try bool) (driver.Value, er
 	case typDouble:
 		f, ok := toFloat64(v)
 		if !ok {
-			return castFailure(try, "Cannot cast value to %s", strings.ToUpper(name))
+			return nil, errOperandType
 		}
 
 		if math.IsNaN(f) {
@@ -96,7 +96,7 @@ func castToInt(v driver.Value, src string, bits int, try bool) (driver.Value, er
 	case typVarchar:
 		s, _ := textOf(v)
 
-		p, err := strconv.ParseInt(s, 10, 64)
+		p, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
 		if err != nil || !fitsBits(p, bits) {
 			return castFailure(try, "Cannot cast '%s' to %s", s, strings.ToUpper(name))
 		}
@@ -105,7 +105,7 @@ func castToInt(v driver.Value, src string, bits int, try bool) (driver.Value, er
 	default:
 		i, ok := toInt64(v)
 		if !ok {
-			return castFailure(try, "Cannot cast value to %s", strings.ToUpper(name))
+			return nil, errOperandType
 		}
 
 		if !fitsBits(i, bits) {
@@ -160,7 +160,7 @@ func castToDouble(v driver.Value, src string, try bool) (driver.Value, error) {
 
 	f, ok := toFloat64(v)
 	if !ok {
-		return castFailure(try, "Cannot cast value to DOUBLE")
+		return nil, errOperandType
 	}
 
 	return f, nil
@@ -182,7 +182,7 @@ func castToBool(v driver.Value, src string, try bool) (driver.Value, error) {
 
 	f, ok := toFloat64(v)
 	if !ok {
-		return castFailure(try, "Cannot cast value to BOOLEAN")
+		return nil, errOperandType
 	}
 
 	if f != 0 {
@@ -192,7 +192,7 @@ func castToBool(v driver.Value, src string, try bool) (driver.Value, error) {
 	return int64(0), nil
 }
 
-func castToVarchar(v driver.Value, src string, try bool) (driver.Value, error) {
+func castToVarchar(v driver.Value, src string) (driver.Value, error) {
 	switch src {
 	case typBoolean:
 		f, ok := toFloat64(v)
@@ -201,25 +201,43 @@ func castToVarchar(v driver.Value, src string, try bool) (driver.Value, error) {
 				return strconv.FormatBool(strings.EqualFold(s, "true") || s == "1"), nil
 			}
 
-			return castFailure(try, "Cannot cast value to VARCHAR")
+			return nil, errOperandType
 		}
 
 		return strconv.FormatBool(f != 0), nil
 	case typDouble:
 		f, ok := toFloat64(v)
 		if !ok {
-			return castFailure(try, "Cannot cast value to VARCHAR")
+			return nil, errOperandType
 		}
 
 		return javaDouble(f), nil
 	default:
 		i, ok := toInt64(v)
 		if !ok {
-			return castFailure(try, "Cannot cast value to VARCHAR")
+			return nil, errOperandType
 		}
 
 		return strconv.FormatInt(i, 10), nil
 	}
+}
+
+// parseCastTimestamp accepts the forms the engine's own datetime parser did before casts were checked.
+func parseCastTimestamp(s string) (time.Time, bool) {
+	if t, ok := parseTSValue(s); ok {
+		return t, true
+	}
+
+	for _, l := range []string{
+		"2006-01-02 15:04:05Z07:00", "2006-01-02 15:04Z07:00", "2006-01-02T15:04Z07:00",
+		"2006-01-02 15:04", "2006-01-02T15:04",
+	} {
+		if t, err := time.Parse(l, s); err == nil {
+			return t.UTC(), true
+		}
+	}
+
+	return time.Time{}, false
 }
 
 func castToTemporal(v driver.Value, dst string, try bool) (driver.Value, error) {
@@ -235,7 +253,7 @@ func castToTemporal(v driver.Value, dst string, try bool) (driver.Value, error) 
 		return castFailure(try, "Value cannot be cast to time: %s", s)
 	}
 
-	t, ok := parseTSValue(strings.TrimSpace(s))
+	t, ok := parseCastTimestamp(strings.TrimSpace(s))
 	if !ok {
 		return castFailure(try, "Value cannot be cast to %s: %s", dst, s)
 	}

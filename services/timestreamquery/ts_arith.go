@@ -2,6 +2,7 @@ package timestreamquery
 
 import (
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"math"
 	"math/rand/v2"
@@ -18,9 +19,14 @@ const (
 	nanText      = "NaN"
 )
 
+// evalMarker tags a message raised by a checked function so a failed query can tell a runtime error from a bad rewrite.
+const evalMarker = "\x1e"
+
+var errOperandType = errors.New("operand does not match its static type")
+
 type evalError string
 
-func (e evalError) Error() string { return string(e) }
+func (e evalError) Error() string { return evalMarker + string(e) }
 
 func bitsName(bits int) string {
 	if bits == bits32 {
@@ -144,7 +150,7 @@ func checkedBinary(op checkedOp, bits int, try bool) scalarImpl {
 		b, okB := toInt64(args[1])
 
 		if !okA || !okB {
-			return arithFailure(try, "%s operands must be integers", bitsName(bits))
+			return nil, errOperandType
 		}
 
 		r, ok := op.apply(a, b)
@@ -166,7 +172,7 @@ func checkedDivide(bits int, mod, try bool) scalarImpl {
 		b, okB := toInt64(args[1])
 
 		if !okA || !okB {
-			return arithFailure(try, "%s operands must be integers", bitsName(bits))
+			return nil, errOperandType
 		}
 
 		if b == 0 {
@@ -189,7 +195,7 @@ func checkedNegate(bits int, try bool) scalarImpl {
 
 		a, ok := toInt64(args[0])
 		if !ok {
-			return arithFailure(try, "%s operand must be an integer", bitsName(bits))
+			return nil, errOperandType
 		}
 
 		if a == math.MinInt64 || !fitsBits(-a, bits) {
@@ -208,7 +214,7 @@ func checkedAbs(bits int, try bool) scalarImpl {
 
 		a, ok := toInt64(args[0])
 		if !ok {
-			return arithFailure(try, "%s operand must be an integer", bitsName(bits))
+			return nil, errOperandType
 		}
 
 		if a >= 0 {
@@ -223,7 +229,8 @@ func checkedAbs(bits int, try bool) scalarImpl {
 	}
 }
 
-func floatDivide(mod bool) scalarImpl {
+// floatDivide is DOUBLE division; NaN is text only where keepNaN says the result is rendered, else NULL like SQLite.
+func floatDivide(mod, keepNaN bool) scalarImpl {
 	return func(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 		if args[0] == nil || args[1] == nil {
 			return nil, nil
@@ -233,7 +240,7 @@ func floatDivide(mod bool) scalarImpl {
 		b, okB := toFloat64(args[1])
 
 		if !okA || !okB {
-			return nil, evalError("operands must be numbers")
+			return nil, errOperandType
 		}
 
 		r := a / b
@@ -242,7 +249,11 @@ func floatDivide(mod bool) scalarImpl {
 		}
 
 		if math.IsNaN(r) {
-			return nanText, nil
+			if keepNaN {
+				return nanText, nil
+			}
+
+			return nil, nil
 		}
 
 		return r, nil
@@ -260,6 +271,29 @@ func udfRandom(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 	}
 
 	return rand.Int64N(n), nil //nolint:gosec // not security sensitive
+}
+
+func floatClass(test func(float64) bool) scalarImpl {
+	return func(_ *fnCtx, args []driver.Value) (driver.Value, error) {
+		if args[0] == nil {
+			return nil, nil
+		}
+
+		f, ok := toFloat64(args[0])
+		if !ok {
+			return nil, errOperandType
+		}
+
+		return boolInt(test(f)), nil
+	}
+}
+
+func boolInt(b bool) int64 {
+	if b {
+		return 1
+	}
+
+	return 0
 }
 
 func udfE(*fnCtx, []driver.Value) (driver.Value, error) { return math.E, nil }
@@ -295,9 +329,14 @@ func tsArithFuncs() []scalarFunc {
 	}
 
 	return append(out,
-		scalarFn("ts_ddiv", argsTwo, floatDivide(false)),
-		scalarFn("ts_dmod", argsTwo, floatDivide(true)),
+		scalarFn("ts_ddiv", argsTwo, floatDivide(false, true)),
+		scalarFn("ts_dmod", argsTwo, floatDivide(true, true)),
+		scalarFn("ts_ddivn", argsTwo, floatDivide(false, false)),
+		scalarFn("ts_dmodn", argsTwo, floatDivide(true, false)),
 		scalarFn("e", 0, udfE),
+		scalarFn("ts_is_nan", 1, floatClass(math.IsNaN)),
+		scalarFn("ts_is_infinite", 1, floatClass(func(f float64) bool { return math.IsInf(f, 0) })),
+		scalarFn("ts_is_finite", 1, floatClass(func(f float64) bool { return !math.IsNaN(f) && !math.IsInf(f, 0) })),
 	)
 }
 
@@ -314,7 +353,7 @@ func (a *sumAgg) Step(_ *fnCtx, args []driver.Value) error {
 
 	v, ok := toInt64(args[0])
 	if !ok {
-		return evalError("sum operand must be an integer")
+		return errOperandType
 	}
 
 	r, fits := addExact(a.total, v)
@@ -335,7 +374,7 @@ func (a *sumAgg) WindowInverse(_ *fnCtx, args []driver.Value) error {
 
 	v, ok := toInt64(args[0])
 	if !ok {
-		return evalError("sum operand must be an integer")
+		return errOperandType
 	}
 
 	a.total -= v
@@ -359,6 +398,7 @@ func registerArithFuncs() {
 		sqlitedriver.MustRegisterDeterministicScalarFunction(f.name, f.nargs, f.impl)
 	}
 
+	registerAggFuncs()
 	sqlitedriver.MustRegisterScalarFunction("ts_random", 1, udfRandom)
 	sqlitedriver.MustRegisterFunction("ts_sum", &sqlitedriver.FunctionImpl{
 		NArgs: 1, Deterministic: true,

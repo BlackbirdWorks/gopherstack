@@ -132,6 +132,7 @@ type typedEdit struct {
 	start, end int
 	seq        int
 	closing    bool
+	checked    bool
 }
 
 func (n *node) arg(i int) *node {
