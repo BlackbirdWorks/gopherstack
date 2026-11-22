@@ -54,7 +54,10 @@ families:
   pagination: {status: ok, note: "FIXED (2026-07-23) — WorkGroups/NamedQueries/DataCatalogs/PreparedStatements/(new) ListTagsForResource all sort + NextToken/MaxResults correctly, and an unrecognized/stale NextToken (e.g. its boundary item was deleted between calls) now resumes at the first surviving item at-or-after the boundary (pagination.paginationStart, mutation-stable via sort.Search) instead of silently restarting the page from offset 0 and re-emitting already-consumed results. Locked in by TestListWorkGroups_Pagination_StaleTokenResumesStably."}
   janitor/leaks: {status: clean, note: "worker.Group-based ticker with ctx cancellation; sweeps queryExecutions+queryResults, sessions, calculations under RLock-collect/Lock-delete with re-verification to avoid racing a concurrent revival. No goroutine leak risk found."}
 gaps: []
-items_still_open: []
+items_still_open:
+  - "Trino functions Athena v3 documents but the engine lacks (each fails 'Function not registered'): aggregates listagg, checksum, map_union, multimap_agg, approx_most_frequent, numeric_histogram, approx_set/merge, qdigest_agg, tdigest_agg, reduce_agg; arrays array_histogram, combinations, ngrams; vector/stat functions cosine_distance, cosine_similarity, dot_product, euclidean_distance, beta_cdf, normal_cdf, t_cdf, t_pdf, inverse_beta_cdf, inverse_normal_cdf, wilson_interval_lower/upper; width_bucket(x, bins array) overload; date/time at_timezone, with_timezone, timezone_hour, timezone_minute, current_timezone, now, localtimestamp, from_unixtime_nanos, from_iso8601_timestamp_nanos, human_readable_seconds; string/binary luhn_check, normalize, regexp_position, split_to_map, split_to_multimap, title_case, word_stem, soundex, to_base64url, from_base64url, hmac_md5/sha1/sha256/sha512, xxhash64, spooky_hash_v2_32/64, JSON json_array_contains, json_array_get, is_json_scalar; maps map_entries, map_from_entries, map_concat, multimap_from_entries; position(x IN y) and overlay(... PLACING ...) syntax."
+  - "nan() cannot be a real DOUBLE: SQLite stores NaN as NULL, so nan() yields the text NaN (ColumnInfo varchar, not double) that is_nan/is_finite/is_infinite recognise; arithmetic on it and NaN results of skewness/kurtosis with zero variance surface as NULL."
+  - "Aggregates over zero rows (bitwise_*_agg, skewness, kurtosis, regr_*) report ColumnInfo varchar, not bigint/double: result types are inferred from the first non-NULL value."
 structural_gaps:
   - "SQL is SQLite semantics behind a Presto/Trino translation layer, not Trino; TABLESAMPLE and multi-argument UNNEST fail as SYNTAX_ERROR."
   - "DeleteDataCatalogInput.DeleteCatalogOnly has no effect: a FEDERATED catalog's CFN Stack/Lambda/Glue Connection resources are not simulated."
@@ -75,6 +78,21 @@ leaks: {status: clean, note: "janitor uses pkgs/worker.Group with proper ctx.Don
 - INTERVAL YEAR TO MONTH / DAY TO SECOND are real values (ordered blobs, ColumnInfo type `interval year to month` / `interval day to second`, printed `Y-M` and `D HH:MM:SS.mmm`): literals incl. fractional seconds and all Trino unit ranges, + - * / with date/timestamp/interval/number, comparison, ordering, CAST to/from varchar and INTERVAL, extract/year/month/day/hour/minute/second/millisecond, to_milliseconds, parse_duration. Per trino.io/docs/current/functions/datetime.html. `timestamp - timestamp` is not an operator in the documented table; use date_diff. date + hour/minute/second interval fails as in Trino (wording UNVERIFIED). TIME is not a supported type here. CTAS of an interval column fails NOT_SUPPORTED.
 - ROW(...) constructors, CAST(... AS ROW(a T, b U)) (also inside ARRAY(...)), name and subscript access, nesting in ARRAY/MAP, `{a=1, b=x}` / anonymous `[1, x]` rendering, ColumnInfo type `row`. Per trino.io/docs/current/language/types.html#row.
 - Table-less FROM (subquery or CTE over constants) now runs in the SQL engine instead of returning no rows.
+
+### Trino collection, bitwise, base and statistics functions
+
+Added natively under the `athena_` prefix (no dependency on any other service engine): sequence (bigint, date and
+timestamp with day-to-second / year-to-month steps, 10000-entry cap), repeat (count 0..10000), zip (2-5 arrays, null padded,
+anonymous ROW elements), array_union/array_intersect/array_except/arrays_overlap, shuffle, array_first/array_last, flatten,
+trim_array, contains_sequence, from_base/to_base, bit_count, bitwise_not, bitwise_left_shift/right_shift/right_shift_arithmetic,
+hamming_distance, infinity, nan, e, is_infinite, year_of_week/yow, width_bucket (4-argument form), ends_with, translate,
+url_encode/url_decode, and the aggregates bitwise_and_agg/bitwise_or_agg/bitwise_xor_agg, skewness, kurtosis,
+regr_slope, regr_intercept. Signatures per trino.io/docs/current/functions/{array,math,bitwise,string,datetime,aggregate}.html.
+Names Timestream Query registered plain that are NOT Trino functions (strrpos, from_milliseconds, from_nanoseconds,
+to_nanoseconds, nanosecond) are deliberately not registered here: real Athena rejects them. Error wording for sequence,
+repeat, from_base, bit_count and hamming_distance follows Trino's source; trim_array, width_bucket and the shift errors are
+UNVERIFIED wording. skewness uses the sample-adjusted estimator and kurtosis the sample excess estimator (min 3 / 4 rows)
+from memory of Trino's implementation: UNVERIFIED against live Athena.
 
 ### 2026-11-06 booleans, Avro, Iceberg row-level DML
 

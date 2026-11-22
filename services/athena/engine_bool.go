@@ -33,7 +33,8 @@ const (
 func isBoolFunc(n string) bool {
 	switch n {
 	case "regexp_like", "starts_with", "contains", "is_nan", "is_finite", "is_infinite", "any_match", "all_match",
-		"none_match", "json_array_contains", "bool_and", "bool_or", "every", "arrays_overlap":
+		"none_match", "json_array_contains", "bool_and", "bool_or", "every", "arrays_overlap", "ends_with",
+		"contains_sequence":
 		return true
 	}
 
