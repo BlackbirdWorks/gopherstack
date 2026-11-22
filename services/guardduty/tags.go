@@ -3,6 +3,7 @@ package guardduty
 import (
 	"maps"
 	"strings"
+	"time"
 )
 
 // TagResource sets tags on a resource.
@@ -133,8 +134,8 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 	return b.entries(false)
 }
 
-// InventoryResources lists every detector, filter, set, destination and malware protection plan plus every
-// tagged ARN of the tag store.
+// InventoryResources lists every detector, filter, set, destination, malware protection plan and live custom
+// detection rule association plus every tagged ARN of the tag store.
 func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
 	return b.entries(true)
 }
@@ -172,7 +173,8 @@ func (b *InMemoryBackend) resourceARNsLocked() []string {
 		[]string,
 		0,
 		b.detectors.Len()+b.filters.Len()+b.ipSets.Len()+b.threatIntelSets.Len()+b.threatEntitySets.Len()+
-			b.trustedEntitySets.Len()+b.publishingDestinations.Len()+b.malwareProtectionPlans.Len(),
+			b.trustedEntitySets.Len()+b.publishingDestinations.Len()+b.malwareProtectionPlans.Len()+
+			b.customRuleAssociations.Len(),
 	)
 
 	for _, d := range b.detectors.All() {
@@ -205,6 +207,14 @@ func (b *InMemoryBackend) resourceARNsLocked() []string {
 
 	for _, p := range b.malwareProtectionPlans.All() {
 		out = append(out, p.Arn)
+	}
+
+	now := time.Now()
+
+	for _, a := range b.customRuleAssociations.All() {
+		if a.AccountID == b.accountID && !expired(a.ExpiresAt, now) {
+			out = append(out, b.customRuleAssociationARN(a.RuleID, a.AssociationID))
+		}
 	}
 
 	return out

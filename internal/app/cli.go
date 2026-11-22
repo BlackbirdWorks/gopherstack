@@ -9827,6 +9827,7 @@ func wireResourceGroupsTaggingSweep5(
 	wireTaggingAppRunner(bk, byName["AppRunner"])
 	wireTaggingRoute53Resolver(bk, byName["Route53Resolver"])
 	wireTaggingTimestreamWrite(bk, byName["TimestreamWrite"])
+	wireInventoryTimestreamQuery(bk, byName["TimestreamQuery"])
 	wireTaggingS3Tables(bk, byName["S3tables"])
 	wireTaggingS3(bk, byName["S3"])
 	wireTaggingS3Control(bk, byName["S3Control"])

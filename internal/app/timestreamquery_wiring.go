@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	rgtapibackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
@@ -42,4 +43,29 @@ func wireTimestreamQueryIntegrations(byName map[string]service.Registerable) {
 			bk.SetObjectStore(s3Bk)
 		}
 	}
+}
+
+// wireInventoryTimestreamQuery lists every scheduled query of the request Region for Resource Explorer; the
+// tagging aggregation carries only the tagged ones, through the Timestream Write tag store.
+func wireInventoryTimestreamQuery(bk rgtapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*timestreamquerybackend.Handler)
+	if !ok {
+		return
+	}
+
+	tsqBk, ok := h.Backend.(*timestreamquerybackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	registerInventory(bk, func(ctx context.Context) []taggedARNEntry {
+		queries := tsqBk.ListScheduledQueriesFull(ctx)
+		out := make([]taggedARNEntry, 0, len(queries))
+
+		for _, q := range queries {
+			out = append(out, taggedARNEntry{ARN: q.Arn, Tags: q.Tags})
+		}
+
+		return out
+	}, func(arn string) string { return nestedResourceType(arn, "timestream") })
 }

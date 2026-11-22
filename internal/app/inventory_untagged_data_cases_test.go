@@ -238,5 +238,6 @@ func inventoryCases() []inventoryCase {
 		kafkaInventoryCase(),
 		timestreamwriteInventoryCase(),
 		lightsailInventoryCase(),
+		timestreamQueryInventoryCase(),
 	}
 }

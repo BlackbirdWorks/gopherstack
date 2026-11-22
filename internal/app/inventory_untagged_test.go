@@ -250,6 +250,14 @@ func inventoryExemptProviders() map[string]string {
 	}
 }
 
+// inventoryOnlyProviders names the inventory providers that have no tagging provider of their own: their
+// tagged resources reach the aggregation through another service's tag store.
+func inventoryOnlyProviders() map[string]string {
+	return map[string]string{
+		"TimestreamQuery": "scheduled queries are tagged through the Timestream Write tag store",
+	}
+}
+
 // TestTaggingWiringRegistersInventory fails when a service is wired into the tagging aggregation without an
 // inventory source, unless it is one of the providers that already list every resource.
 func TestTaggingWiringRegistersInventory(t *testing.T) {
@@ -264,7 +272,7 @@ func TestTaggingWiringRegistersInventory(t *testing.T) {
 
 	require.NotNil(t, rgtH)
 	assert.Positive(t, rec.providers)
-	assert.Equal(t, len(inventoryExemptProviders()), rec.providers-rec.inventory,
+	assert.Equal(t, len(inventoryExemptProviders())-len(inventoryOnlyProviders()), rec.providers-rec.inventory,
 		"every wired provider except the exempt ones needs an inventory provider (providers=%d inventory=%d)",
 		rec.providers, rec.inventory)
 }

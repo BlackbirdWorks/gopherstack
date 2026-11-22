@@ -178,8 +178,8 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 	return b.entries(false)
 }
 
-// InventoryResources lists every cluster, service, task definition, task, container instance, task set and
-// capacity provider plus every tagged ARN of the tag store.
+// InventoryResources lists every cluster, service, task definition, task, container instance, task set,
+// capacity provider, daemon task definition and express gateway service plus every tagged ARN of the tag store.
 func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
 	return b.entries(true)
 }
@@ -217,7 +217,8 @@ func (b *InMemoryBackend) resourceARNsLocked() []string {
 		[]string,
 		0,
 		b.clusters.Len()+b.services.Len()+b.taskDefByArn.Len()+b.tasks.Len()+b.containerInstances.Len()+
-			b.taskSets.Len()+b.capacityProviders.Len(),
+			b.taskSets.Len()+b.capacityProviders.Len()+b.daemonTaskDefByArn.Len()+
+			b.expressGatewayServices.Len(),
 	)
 
 	for _, v := range b.clusters.All() {
@@ -246,6 +247,14 @@ func (b *InMemoryBackend) resourceARNsLocked() []string {
 
 	for _, v := range b.capacityProviders.All() {
 		out = append(out, v.CapacityProviderArn)
+	}
+
+	for _, v := range b.daemonTaskDefByArn.All() {
+		out = append(out, v.DaemonTaskDefinitionArn)
+	}
+
+	for _, v := range b.expressGatewayServices.All() {
+		out = append(out, v.ServiceArn)
 	}
 
 	return out

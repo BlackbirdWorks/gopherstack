@@ -48,7 +48,7 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 	return b.entries(false)
 }
 
-// InventoryResources lists every queue, job template and preset plus every tagged ARN of the tag store.
+// InventoryResources lists every queue, job template, preset and job plus every tagged ARN of the tag store.
 func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
 	return b.entries(true)
 }
@@ -82,7 +82,7 @@ func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 }
 
 func (b *InMemoryBackend) resourceARNsLocked() []string {
-	out := make([]string, 0, b.queues.Len()+b.jobTemplates.Len()+b.presets.Len())
+	out := make([]string, 0, b.queues.Len()+b.jobTemplates.Len()+b.presets.Len()+b.jobs.Len())
 
 	for _, v := range b.queues.All() {
 		out = append(out, v.Arn)
@@ -93,6 +93,10 @@ func (b *InMemoryBackend) resourceARNsLocked() []string {
 	}
 
 	for _, v := range b.presets.All() {
+		out = append(out, v.Arn)
+	}
+
+	for _, v := range b.jobs.All() {
 		out = append(out, v.Arn)
 	}
 

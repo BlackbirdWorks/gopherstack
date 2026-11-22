@@ -42,7 +42,7 @@ families:
   Tags: {status: ok, note: "Tags on indexes and views only."}
 gaps: []
 items_still_open:
-  - "Search: untagged Timestream Query scheduled queries do not appear (only tagged ones surface, through the Timestream Write tag store); services/timestreamquery needs its own InventoryResources source wired like services/timestreamwrite"
+  - "Search: ECS daemons do not appear tagged or untagged; their creation tags live on the Daemon record, not in the ECS resource tag store the tagging aggregation and InventoryResources read"
 structural_gaps:
   - "Indexing is instantaneous and always complete: there is no crawler, so LastReportedAt is the query time and replication lag between Regions cannot occur."
 deferred: []
@@ -51,7 +51,7 @@ leaks: {status: clean, note: "leak_main_test.go runs goleak over the package; st
 
 ## Notes
 
-Every service wired into the tagging aggregation exposes `InventoryResources` beside `TaggedResources`, both built from one enumeration; only S3, DynamoDB, SQS, SNS, Lambda, KMS and Secrets Manager need none because their tagging providers already list every resource. `TestTaggedListingsHaveInventory` and `TestTaggingWiringRegistersInventory` fail when a wired service lacks the inventory source.
+Every service wired into the tagging aggregation exposes `InventoryResources` beside `TaggedResources`, both built from one enumeration; only S3, DynamoDB, SQS, SNS, Lambda, KMS and Secrets Manager need none because their tagging providers already list every resource. Timestream Query scheduled queries are listed by an inventory-only source, since their tags live in the Timestream Write tag store. `TestTaggedListingsHaveInventory` and `TestTaggingWiringRegistersInventory` fail when a wired service lacks the inventory source.
 
 Protocol is REST-JSON (`pkgs/restroute`): every operation is a POST to `/<OperationName>` except the tag operations on `/tags/{resourceArn}`. Timestamps are ISO8601 `date-time` strings because the schemas carry an explicit `timestampFormat`, unlike the JSON-protocol services. Requests are matched by the `resource-explorer-2` SigV4 signing name or the SDK user-agent marker.
 

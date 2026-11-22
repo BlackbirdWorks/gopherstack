@@ -75,8 +75,8 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 }
 
 // InventoryResources lists every instance, cluster, snapshot, subnet group, parameter group, option group,
-// event subscription, global cluster, security group, proxy and endpoint plus every tagged ARN of the tag
-// store.
+// event subscription, global cluster, security group, proxy, endpoint and integration plus every tagged ARN of
+// the tag store.
 func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
 	return b.entries(true)
 }
@@ -164,7 +164,7 @@ func (b *InMemoryBackend) resourceARNsPart2Locked() []string {
 		[]string,
 		0,
 		b.eventSubscriptions.Len()+b.globalClusters.Len()+b.dbSecurityGroups.Len()+b.proxies.Len()+
-			b.proxyEndpoints.Len()+b.clusterEndpoints.Len(),
+			b.proxyEndpoints.Len()+b.clusterEndpoints.Len()+b.integrations.Len(),
 	)
 
 	for _, v := range b.eventSubscriptions.All() {
@@ -189,6 +189,10 @@ func (b *InMemoryBackend) resourceARNsPart2Locked() []string {
 
 	for _, v := range b.clusterEndpoints.All() {
 		out = append(out, v.DBClusterEndpointArn)
+	}
+
+	for _, v := range b.integrations.All() {
+		out = append(out, v.IntegrationArn)
 	}
 
 	return out
