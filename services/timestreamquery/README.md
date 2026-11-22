@@ -9,17 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 12 (12 ok) |
 | Feature families | 2 (1 ok, 1 deferred) |
-| Known gaps | 4 |
+| Known gaps | 3 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Query engine typeof: the engine is SQLite, so typeof returns SQLite storage names (integer/text/real/null) rather than the Timestream names listed in supported-data-types.html (bigint, double, varchar, boolean, timestamp, date, time, interval, unknown); values carry no static type at the UDF boundary (ts_funcs.go), so a correct typeof needs the static type inference the engine lacks
-- Time-series lambdas: filter/reduce lambdas are recognised only when the body reads the element as p.value/p.time, so a lambda over a timeseries that never reads the element falls through to the stock engine
-- Query engine: result ColumnInfo types for non-boolean expressions are inferred from values (BIGINT/DOUBLE/VARCHAR/TIMESTAMP) and an empty result reports VARCHAR for computed non-boolean columns. Boolean typing (ts_boolean.go) is syntactic: a CASE/CAST wrapping booleans, or a boolean function outside the known list, still reports its engine type. Plain column references keep their declared type.
-- QueryInsightsResponse (Query and ExecuteScheduledQuery runs) carries OutputRows, OutputBytes and QueryTableCount but not QueryTemporalRange or QuerySpatialCoverage: both need time-predicate and partition-key pruning analysis the engine does not do (the dormant QuerySpatialCoverage float field in models.go is never set, so it cannot reach the wire; the SDK shape is a struct). ENABLED_WITH_RATE_CONTROL does not apply the 1 QPS rate limit, and an unknown QueryInsights.Mode is ignored rather than rejected. OutputBytes sums scalar value lengths only
+- Static type inference (ts_infer.go) types every select-list expression before execution, but a query using a construct it cannot parse or type keeps the older value-based column typing (and syntactic boolean/interval typing, ts_boolean.go) for the affected columns: positional ? and named @parameters (PrepareQuery), AT TIME ZONE, TABLESAMPLE, recursive CTEs, transform() over a timeseries (the engine has no implementation), and any function without a return-type rule (SQLite built-ins outside the Timestream function list); an empty result of such a column still reports VARCHAR
+- Unverified against the service: integer literals are typed INTEGER when they fit 32 bits else BIGINT (supported-data-types.html lists int and bigint but not which a literal gets; the SDK ScalarType enum has INTEGER, appended after UNKNOWN, so the service does emit it for something, and no recorded real response in the repo or the documentation shows a literal's ColumnInfo), and typeof() prints array(T), row(name T, ...) and timeseries(T) for nested types where the page gives only the notations array[T,...], row(T,...) and timeseries[row(timestamp, T,...)]
+- Integer overflow is not an error: a 32-bit INTEGER result that overflows is widened to BIGINT and a 64-bit overflow (SQLite promotes it to a float) is reported as DOUBLE, where the service fails the query; CAST(double AS bigint) truncates (SQLite) rather than rounding, and TRY_CAST of an unparsable string yields 0 rather than NULL
 
 ### Structural gaps
 
