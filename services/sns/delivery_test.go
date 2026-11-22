@@ -70,16 +70,16 @@ func TestSNSHTTPDelivery_Robustness(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		serverFn    func() (http.Handler, <-chan string)
-		name        string
-		wantBody    string
-		numSubs     int
-		wantFastPub bool
+		serverFn     func(release <-chan struct{}) (http.Handler, <-chan string)
+		name         string
+		wantBody     string
+		numSubs      int
+		publishFirst bool
 	}{
 		{
 			name:    "large_response_bounded",
 			numSubs: 1,
-			serverFn: func() (http.Handler, <-chan string) {
+			serverFn: func(<-chan struct{}) (http.Handler, <-chan string) {
 				received := make(chan string, 1)
 				large := bytes.Repeat([]byte("x"), 2*1024*1024)
 				h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -96,20 +96,19 @@ func TestSNSHTTPDelivery_Robustness(t *testing.T) {
 		{
 			name:    "non_blocking_under_load",
 			numSubs: 12, // more than snsMaxConcurrentDeliveries (8)
-			serverFn: func() (http.Handler, <-chan string) {
-				// Sleep briefly so that goroutines are still in-flight when we
-				// assert on elapsed time, but ensure the server completes well
-				// before any test timeout. This avoids the deadlock that occurs
-				// when httptest.Server.Close() (called via defer) waits for
-				// handlers that are blocked indefinitely.
-				h := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-					time.Sleep(200 * time.Millisecond)
+			serverFn: func(release <-chan struct{}) (http.Handler, <-chan string) {
+				received := make(chan string, 12)
+				h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					<-release
+					body, _ := io.ReadAll(r.Body)
+					received <- string(body)
 					w.WriteHeader(http.StatusOK)
 				})
 
-				return h, nil
+				return h, received
 			},
-			wantFastPub: true,
+			wantBody:     "ping",
+			publishFirst: true,
 		},
 	}
 
@@ -117,9 +116,13 @@ func TestSNSHTTPDelivery_Robustness(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h, received := tt.serverFn()
+			release := make(chan struct{})
+			var releaseOnce sync.Once
+			doRelease := func() { releaseOnce.Do(func() { close(release) }) }
+
+			h, received := tt.serverFn(release)
 			ts := newNotificationServer(h)
-			defer ts.Close()
+			t.Cleanup(ts.Close)
 
 			b := sns.NewInMemoryBackend()
 			b.SetHTTPDeliveryClient(&http.Client{Transport: testclient.New(t).Transport, Timeout: 5 * time.Second})
@@ -131,9 +134,8 @@ func TestSNSHTTPDelivery_Robustness(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			// Ensure goroutines are drained before the test exits to avoid leaks.
 			t.Cleanup(func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 10*time.Second)
 				defer cancel()
 				done := make(chan struct{})
 				go func() { b.WaitDeliveries(); close(done) }()
@@ -143,22 +145,39 @@ func TestSNSHTTPDelivery_Robustness(t *testing.T) {
 					t.Errorf("WaitDeliveries timed out; goroutines may have leaked")
 				}
 			})
+			t.Cleanup(doRelease)
 
-			start := time.Now()
-			_, err = b.Publish(tp.TopicArn, "ping", "", "", nil)
-			require.NoError(t, err)
-			elapsed := time.Since(start)
-
-			if tt.wantFastPub {
-				assert.Less(t, elapsed, 500*time.Millisecond,
-					"Publish must not block waiting for slow HTTP endpoints")
+			if !tt.publishFirst {
+				doRelease()
 			}
 
-			if tt.wantBody != "" {
+			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+			defer cancel()
+
+			publishErr := make(chan error, 1)
+			go func() {
+				_, perr := b.Publish(tp.TopicArn, "ping", "", "", nil)
+				publishErr <- perr
+			}()
+
+			select {
+			case perr := <-publishErr:
+				require.NoError(t, perr)
+			case <-ctx.Done():
+				require.FailNow(t, "Publish blocked waiting for slow HTTP endpoints")
+			}
+
+			doRelease()
+
+			if tt.wantBody == "" {
+				return
+			}
+
+			for range tt.numSubs {
 				select {
 				case got := <-received:
 					assert.Equal(t, tt.wantBody, extractSNSHTTPMessage(got))
-				case <-time.After(3 * time.Second):
+				case <-ctx.Done():
 					require.FailNow(t, "timed out waiting for HTTP delivery")
 				}
 			}

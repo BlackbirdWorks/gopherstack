@@ -242,7 +242,7 @@ func TestSNSHandler_Shutdown(t *testing.T) {
 		name           string
 		blockServer    bool // server blocks until unblocked by cleanup
 		cancelCtxFirst bool // cancel the context before calling Shutdown
-		wantFast       bool // Shutdown should return in <500 ms
+		wantFast       bool // Shutdown must return while delivery is still blocked
 		wantDelivered  bool // delivery must complete before Shutdown returns
 	}{
 		{
@@ -300,13 +300,19 @@ func TestSNSHandler_Shutdown(t *testing.T) {
 				cancel()
 			}
 
-			start := time.Now()
-			h.Shutdown(ctx)
-			elapsed := time.Since(start)
+			shutdownDone := make(chan struct{})
+			go func() {
+				h.Shutdown(ctx)
+				close(shutdownDone)
+			}()
 
-			if tt.wantFast {
-				assert.Less(t, elapsed, 500*time.Millisecond,
-					"Shutdown with cancelled context must return immediately")
+			failsafe, stop := context.WithTimeout(t.Context(), 30*time.Second)
+			defer stop()
+
+			select {
+			case <-shutdownDone:
+			case <-failsafe.Done():
+				require.FailNow(t, "Shutdown did not return")
 			}
 
 			if tt.wantDelivered {
