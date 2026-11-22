@@ -3,6 +3,7 @@ package timestreamquery
 import (
 	"database/sql/driver"
 	"errors"
+	"math"
 	"slices"
 	"sync"
 	"time"
@@ -166,12 +167,12 @@ func raisingFn(name string, nargs int32, impl scalarImpl) scalarFunc {
 
 func registerScalar(f scalarFunc) {
 	if f.volatile {
-		sqlitedriver.MustRegisterScalarFunction(f.name, f.nargs, f.impl)
+		sqlitedriver.MustRegisterScalarFunction(engineFunc(f.name), f.nargs, f.impl)
 
 		return
 	}
 
-	sqlitedriver.MustRegisterDeterministicScalarFunction(f.name, f.nargs, f.impl)
+	sqlitedriver.MustRegisterDeterministicScalarFunction(engineFunc(f.name), f.nargs, f.impl)
 }
 
 // tsScalarFuncs lists the scalar functions this package registers with the engine.
@@ -200,24 +201,27 @@ func tsScalarFuncs() []scalarFunc {
 		scalarFn("interpolate_fill", argsThree, udfInterpolateFill),
 		scalarFn("derivative_linear", argsTwo, udfDerivative(false)),
 		scalarFn("non_negative_derivative_linear", argsTwo, udfDerivative(true)),
-		raisingFn("integral_trapezoidal", -1, udfIntegral),
+		raisingFn("integral_trapezoidal", -1, withArgRange(1, argsTwo, udfIntegral)),
 		scalarFn("correlate_pearson", argsTwo, udfCorrelate(false)),
 		scalarFn("correlate_spearman", argsTwo, udfCorrelate(true)),
-		scalarFn("sequence", -1, udfSequence),
+		scalarFn("sequence", -1, withArgRange(argsTwo, argsThree, udfSequence)),
 		scalarFn("ts_series_json", 1, udfSeriesJSON),
 	}, tsTextFuncs(), tsArrayFuncs(), clockFuncs())
 }
 
-// withMaxArgs guards a variadic registration against calls with fewer than two or more than hi arguments.
-func withMaxArgs(hi int, impl scalarImpl) scalarImpl {
+// withArgRange guards a variadic registration against calls with fewer than lo or more than hi arguments.
+func withArgRange(lo, hi int, impl scalarImpl) scalarImpl {
 	return func(c *fnCtx, args []driver.Value) (driver.Value, error) {
-		if len(args) < argsTwo || len(args) > hi {
+		if len(args) < lo || len(args) > hi {
 			return nil, evalError("wrong number of arguments")
 		}
 
 		return impl(c, args)
 	}
 }
+
+// withMaxArgs guards a variadic registration against calls with fewer than two or more than hi arguments.
+func withMaxArgs(hi int, impl scalarImpl) scalarImpl { return withArgRange(argsTwo, hi, impl) }
 
 func tsTextFuncs() []scalarFunc {
 	return []scalarFunc{
@@ -245,7 +249,7 @@ func tsArrayFuncs() []scalarFunc {
 		raisingFn("ts_reverse_array", 1, udfReverseArray),
 		raisingFn("ts_regexp_groups", argsTwo, udfRegexpGroups),
 		raisingFn("ts_regexp_splice", argsThree, udfRegexpSplice),
-		raisingFn("ts_concat_array", -1, udfConcatArrays),
+		raisingFn("ts_concat_array", -1, withArgRange(1, math.MaxInt, udfConcatArrays)),
 	}
 }
 
@@ -265,19 +269,22 @@ func udfTimestampDiff(_ *sqlitedriver.FunctionContext, args []driver.Value) (dri
 	return formatInterval(a.Sub(b).Nanoseconds()), nil
 }
 
+//nolint:gochecknoinits // the driver reads its registry unlocked on Open; lazy registration crashes
+func init() { registerTimestreamFuncs() }
+
 func registerTimestreamFuncs() {
 	registerFuncsOnce.Do(func() {
 		registerUnnestModule()
 		registerArithFuncs()
 		registerCastFuncs()
 		registerSetAggs()
-		sqlitedriver.MustRegisterScalarFunction("shuffle", 1, udfShuffle)
+		sqlitedriver.MustRegisterScalarFunction(engineFunc("shuffle"), 1, udfShuffle)
 
 		for _, f := range tsScalarFuncs() {
 			registerScalar(f)
 		}
 
-		sqlitedriver.MustRegisterFunction("create_time_series", &sqlitedriver.FunctionImpl{
+		sqlitedriver.MustRegisterFunction(engineFunc("create_time_series"), &sqlitedriver.FunctionImpl{
 			NArgs: argsTwo,
 			MakeAggregate: func(_ fnCtx) (sqlitedriver.AggregateFunction, error) {
 				return &seriesAgg{}, nil

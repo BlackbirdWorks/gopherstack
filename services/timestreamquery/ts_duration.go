@@ -135,6 +135,16 @@ func udfIntervalNegate(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 		return nil, nil //nolint:nilnil // SQL NULL
 	}
 
+	if b, isBlob := args[0].([]byte); isBlob {
+		if kind, months, isIv := decodeIntervalBlob(b); isIv && kind == 'Y' {
+			if months == math.MinInt64 {
+				return nil, evalError("interval year to month negation overflow")
+			}
+
+			return encodeIntervalBlob(kind, -months), nil
+		}
+	}
+
 	n, ok := intervalNanos(args[0])
 	if !ok {
 		return nil, errOperandType

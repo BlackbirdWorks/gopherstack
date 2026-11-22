@@ -81,7 +81,7 @@ func (a *bufferedAgg) WindowValue(*fnCtx) (driver.Value, error) { return a.finis
 func (*bufferedAgg) Final(*fnCtx) {}
 
 func registerBuffered(name string, nargs int32, check func(aggRow) error, finish func([]aggRow) (driver.Value, error)) {
-	sqlitedriver.MustRegisterFunction(name, &sqlitedriver.FunctionImpl{
+	sqlitedriver.MustRegisterFunction(engineFunc(name), &sqlitedriver.FunctionImpl{
 		NArgs: nargs, Deterministic: true,
 		MakeAggregate: func(_ fnCtx) (sqlitedriver.AggregateFunction, error) {
 			return &bufferedAgg{finish: finish, check: check}, nil

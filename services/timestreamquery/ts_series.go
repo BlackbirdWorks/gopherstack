@@ -662,18 +662,40 @@ func sequenceOfInts(args []driver.Value) (driver.Value, error) {
 		}
 	}
 
-	if !ok1 || !ok2 || step == 0 || (hi-lo)/step >= maxSeqLen {
+	if !ok1 || !ok2 || step == 0 {
 		return nil, errBadSeq
 	}
 
-	var vals []int64
-	for v := lo; (step > 0 && v <= hi) || (step < 0 && v >= hi); v += step {
-		vals = append(vals, v)
+	count, ok := sequenceLen(lo, hi, step)
+	if !ok {
+		return nil, errBadSeq
+	}
+
+	vals := make([]int64, 0, count)
+	for i := range count {
+		vals = append(vals, lo+int64(i)*step)
 	}
 
 	b, _ := json.Marshal(vals, jsonx.V1())
 
 	return arrayMark + string(b), nil
+}
+
+// sequenceLen is the element count from lo toward hi, computed in uint64 so the span cannot overflow;
+// ok=false when it would reach maxSeqLen. A step pointing away from hi yields no elements.
+func sequenceLen(lo, hi, step int64) (uint64, bool) {
+	if (step > 0 && lo > hi) || (step < 0 && lo < hi) {
+		return 0, true
+	}
+
+	span, width := uint64(hi)-uint64(lo), uint64(step) //nolint:gosec // two's-complement distance and magnitude
+	if step < 0 {
+		span, width = uint64(lo)-uint64(hi), -uint64(step) //nolint:gosec // two's-complement distance and magnitude
+	}
+
+	n := span / width
+
+	return n + 1, n < maxSeqLen
 }
 
 func sequenceTimes(start, stop time.Time, stepNs int64) (driver.Value, error) {

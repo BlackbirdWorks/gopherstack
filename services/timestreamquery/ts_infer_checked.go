@@ -283,7 +283,7 @@ func (inf *inferrer) rewriteIntervalArith(n *node, a, b tsType) {
 }
 
 func (inf *inferrer) rewriteNegate(n *node, arg tsType) {
-	if n.name == "-" && isIntervalDS(arg) {
+	if n.name == "-" && (isIntervalDS(arg) || arg.kind == tyIntervalYM) {
 		inf.edit("ts_ivneg(", n.start, n.start+1)
 		inf.closeEdit(")", n.end)
 

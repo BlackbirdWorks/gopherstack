@@ -326,9 +326,21 @@ func floatCompare(test func(a, b float64) bool) scalarImpl {
 	}
 }
 
+// log10 is math.Log10 made exact at powers of ten, where Go's log2-based form is off by an ulp (log10(0.1)).
+func log10(x float64) float64 {
+	r := math.Log10(x)
+	n := math.Round(r)
+
+	if r != n && math.Abs(r-n) < 1e-9 && math.Pow10(int(n)) == x {
+		return n
+	}
+
+	return r
+}
+
 func domainMathFuncs() []scalarFunc {
 	unary := map[string]func(float64) float64{
-		"sqrt": math.Sqrt, "ln": math.Log, "log10": math.Log10, "log2": math.Log2, "acos": math.Acos,
+		"sqrt": math.Sqrt, "ln": math.Log, "log10": log10, "log2": math.Log2, "acos": math.Acos,
 		"asin": math.Asin, "acosh": math.Acosh, "atanh": math.Atanh,
 	}
 

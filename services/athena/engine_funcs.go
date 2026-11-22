@@ -29,8 +29,10 @@ var errBadUnit = errors.New("invalid unit")
 
 func sqlNull() driver.Value { return nil }
 
-// registerEngineFuncs installs the athena_* scalar functions the SQL
-// translator targets; the driver registry is process-wide.
+//nolint:gochecknoinits // the driver reads its registry unlocked on Open; lazy registration crashes
+func init() { registerEngineFuncs() }
+
+// registerEngineFuncs installs the athena_* scalar functions the SQL translator targets.
 func registerEngineFuncs() {
 	registerFuncsOnce.Do(func() {
 		reg := registerScalar

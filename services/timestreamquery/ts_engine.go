@@ -270,7 +270,7 @@ func runTranslated(ctx context.Context, q string, set loadedSet, ann annotation)
 		}
 	}
 
-	rows, err := conn.QueryContext(ctx, q)
+	rows, err := conn.QueryContext(ctx, qualifyEngineFuncs(q))
 	if err != nil {
 		return nil, mapEngineError(err)
 	}

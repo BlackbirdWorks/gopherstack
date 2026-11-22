@@ -120,6 +120,10 @@ func FuzzAnnotateQuery(f *testing.F) {
 		"SELECT nan() + 1, infinity() - infinity(), sqrt(-1) < 1, ln(0), is_nan(nan()), CAST('NaN' AS double) = nan()",
 		"SELECT 1 < ALL (VALUES 2, 3), a = ANY (SELECT b FROM t), position('a' IN b), extract(DOW FROM t), hour(TIME '1:2')",
 		"SELECT reverse(ARRAY[1]), concat(ARRAY[1], ARRAY[2]), replace('a', 'b'), strpos('a', 'a', 1)",
+		"SELECT 'position(a IN b)', \"position\", position FROM t WHERE \"all\" = 1 AND 'x IN y' <> ''",
+		"SELECT a FROM t WHERE a NOT IN (VALUES 1, 2) AND b = ANY (SELECT c FROM u) AND d < ALL (ARRAY[1])",
+		"SELECT position(position('a' IN b) IN c), extract(DOW FROM extract(DOY FROM t))",
+		"SELECT -1year, -(1month + 1year), 5month - -1year, sequence(1, 9223372036854775807)",
 	} {
 		f.Add(s)
 	}
