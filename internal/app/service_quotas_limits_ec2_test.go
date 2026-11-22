@@ -30,13 +30,13 @@ func defaultSubnet(ctx context.Context, c *ec2.Client) (*ec2types.Subnet, error)
 	return &out.Subnets[0], nil
 }
 
-func ec2ByTag(name string) []ec2types.Filter {
-	return []ec2types.Filter{{Name: aws.String("tag:Name"), Values: []string{name}}}
+func ec2ByTag() []ec2types.Filter {
+	return []ec2types.Filter{{Name: aws.String("tag:Name"), Values: []string{"lim"}}}
 }
 
-func ec2NameTag(rt ec2types.ResourceType, name string) []ec2types.TagSpecification {
+func ec2NameTag(rt ec2types.ResourceType) []ec2types.TagSpecification {
 	return []ec2types.TagSpecification{{
-		ResourceType: rt, Tags: []ec2types.Tag{{Key: aws.String("Name"), Value: aws.String(name)}},
+		ResourceType: rt, Tags: []ec2types.Tag{{Key: aws.String("Name"), Value: aws.String("lim")}},
 	}}
 }
 
@@ -49,20 +49,20 @@ func routeCase() limitCase {
 			c := ec2Client(e)
 
 			vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{
-				CidrBlock: aws.String("10.77.0.0/16"), TagSpecifications: ec2NameTag(ec2types.ResourceTypeVpc, "lim"),
+				CidrBlock: aws.String("10.77.0.0/16"), TagSpecifications: ec2NameTag(ec2types.ResourceTypeVpc),
 			})
 			if err != nil {
 				return err
 			}
 
 			if _, err = c.CreateRouteTable(ctx, &ec2.CreateRouteTableInput{
-				VpcId: vpc.Vpc.VpcId, TagSpecifications: ec2NameTag(ec2types.ResourceTypeRouteTable, "lim"),
+				VpcId: vpc.Vpc.VpcId, TagSpecifications: ec2NameTag(ec2types.ResourceTypeRouteTable),
 			}); err != nil {
 				return err
 			}
 
 			igw, err := c.CreateInternetGateway(ctx, &ec2.CreateInternetGatewayInput{
-				TagSpecifications: ec2NameTag(ec2types.ResourceTypeInternetGateway, "lim"),
+				TagSpecifications: ec2NameTag(ec2types.ResourceTypeInternetGateway),
 			})
 			if err != nil {
 				return err
@@ -77,12 +77,12 @@ func routeCase() limitCase {
 		create: func(ctx context.Context, e limitEnv, i int) error {
 			c := ec2Client(e)
 
-			rt, err := c.DescribeRouteTables(ctx, &ec2.DescribeRouteTablesInput{Filters: ec2ByTag("lim")})
+			rt, err := c.DescribeRouteTables(ctx, &ec2.DescribeRouteTablesInput{Filters: ec2ByTag()})
 			if err != nil || len(rt.RouteTables) == 0 {
 				return errors.Join(err, errNoQuotaTarget)
 			}
 
-			igw, err := c.DescribeInternetGateways(ctx, &ec2.DescribeInternetGatewaysInput{Filters: ec2ByTag("lim")})
+			igw, err := c.DescribeInternetGateways(ctx, &ec2.DescribeInternetGatewaysInput{Filters: ec2ByTag()})
 			if err != nil || len(igw.InternetGateways) == 0 {
 				return errors.Join(err, errNoQuotaTarget)
 			}
@@ -98,7 +98,7 @@ func routeCase() limitCase {
 		remove: func(ctx context.Context, e limitEnv, _ int) error {
 			c := ec2Client(e)
 
-			rt, err := c.DescribeRouteTables(ctx, &ec2.DescribeRouteTablesInput{Filters: ec2ByTag("lim")})
+			rt, err := c.DescribeRouteTables(ctx, &ec2.DescribeRouteTablesInput{Filters: ec2ByTag()})
 			if err != nil || len(rt.RouteTables) == 0 {
 				return errors.Join(err, errNoQuotaTarget)
 			}

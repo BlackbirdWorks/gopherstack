@@ -79,12 +79,18 @@ func (b *InMemoryBackend) CreateSubnetWithOptions(p CreateSubnetParams) (*Subnet
 		return nil, err
 	}
 
+	limit := b.quotaLimit(quotaServiceVPC, quotaSubnetsPerVPC)
+
 	b.mu.Lock("CreateSubnet")
 	defer b.mu.Unlock()
 
 	vpc, ok := b.vpcs.Get(p.VPCID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, p.VPCID)
+	}
+
+	if limit.Reached(b.subnetsInVPCLocked(p.VPCID)) {
+		return nil, quotaExceeded(ErrSubnetLimitExceeded, "subnets in the VPC", limit)
 	}
 
 	az, err := b.resolveSubnetAZLocked(p.VPCID, p.AvailabilityZone, p.AvailabilityZoneID)

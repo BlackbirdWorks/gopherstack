@@ -72,6 +72,7 @@ const (
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
+	quotaGate               *quotalimit.Gate
 	ec2Launcher             EC2Launcher
 	instanceTypeResolver    InstanceTypeResolver
 	elbv2Registrar          ELBv2TargetRegistrar
@@ -95,11 +96,11 @@ type InMemoryBackend struct {
 	registry                *store.Registry
 	instanceIndex           map[string]string
 	accountID               string
-	quotaGate               *quotalimit.Gate
 	region                  string
 	deletedActivities       []ScalingActivity
 	launchTimers            []*time.Timer
 	nextHookSeq             int64
+	refreshDelay            time.Duration
 	launchDelay             atomic.Int64
 }
 

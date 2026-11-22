@@ -116,7 +116,7 @@ func (b *InMemoryBackend) CreateGrant(
 		}
 	}
 
-	limit := b.quotaLimit(getRegion(ctx, b.defaultRegion), quotaGrantsKey)
+	limit := b.quotaLimit(b.grantKeyRegion(ctx, input.KeyID), quotaGrantsKey)
 
 	b.mu.Lock("CreateGrant")
 	defer b.mu.Unlock()

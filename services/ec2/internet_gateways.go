@@ -22,8 +22,14 @@ type InternetGateway struct {
 
 // CreateInternetGateway creates a new Internet Gateway.
 func (b *InMemoryBackend) CreateInternetGateway() (*InternetGateway, error) {
+	limit := b.quotaLimit(quotaServiceVPC, quotaIGWs)
+
 	b.mu.Lock("CreateInternetGateway")
 	defer b.mu.Unlock()
+
+	if limit.Reached(len(b.internetGateways.All())) {
+		return nil, quotaExceeded(ErrInternetGatewayLimitExceeded, "internet gateways", limit)
+	}
 
 	id := newInternetGatewayID()
 	igw := &InternetGateway{

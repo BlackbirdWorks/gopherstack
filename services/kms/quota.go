@@ -1,6 +1,7 @@
 package kms
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
@@ -131,6 +132,19 @@ func (b *InMemoryBackend) maxGrantsPerKeyIn(region string) int {
 	}
 
 	return most
+}
+
+// grantKeyRegion is the Region the key behind keyID lives in, which owns the grant quota; the request Region
+// when the key does not resolve.
+func (b *InMemoryBackend) grantKeyRegion(ctx context.Context, keyID string) string {
+	b.mu.RLock("GrantKeyRegion")
+	defer b.mu.RUnlock()
+
+	if _, region, err := b.resolveKeyAndRegion(ctx, keyID, ErrInvalidArn); err == nil {
+		return region
+	}
+
+	return getRegion(ctx, b.defaultRegion)
 }
 
 func (b *InMemoryBackend) quotaLimit(region, code string) quotalimit.Limit {

@@ -3,6 +3,8 @@ package ec2
 import (
 	"errors"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
 )
 
 const (
@@ -43,7 +45,94 @@ var (
 	ErrNatGatewayLimitExceeded       = errors.New("NatGatewayLimitExceeded")
 	ErrNetworkInterfaceLimitExceeded = errors.New("NetworkInterfaceLimitExceeded")
 	ErrResourceCountLimitExceeded    = errors.New("ResourceCountLimitExceeded")
+
+	ErrSubnetLimitExceeded                = errors.New("SubnetLimitExceeded")
+	ErrInternetGatewayLimitExceeded       = errors.New("InternetGatewayLimitExceeded")
+	ErrSecurityGroupLimitExceeded         = errors.New("SecurityGroupLimitExceeded")
+	ErrRulesPerSecurityGroupLimitExceeded = errors.New("RulesPerSecurityGroupLimitExceeded")
+	ErrRouteTableLimitExceeded            = errors.New("RouteTableLimitExceeded")
+	ErrVcpuLimitExceeded                  = errors.New("VcpuLimitExceeded")
+	ErrMaxSpotInstanceCountExceeded       = errors.New("MaxSpotInstanceCountExceeded")
 )
+
+func onDemandQuotaCode(class string) string {
+	switch class {
+	case vcpuStandard:
+		return quotaOnDemandStandard
+	case vcpuGVT:
+		return quotaOnDemandGVT
+	case vcpuP:
+		return quotaOnDemandP
+	case vcpuF:
+		return quotaOnDemandF
+	case vcpuX:
+		return quotaOnDemandX
+	case vcpuInf:
+		return quotaOnDemandInf
+	case vcpuHighMemory:
+		return quotaOnDemandHighMemory
+	default:
+		return ""
+	}
+}
+
+func spotQuotaCode(class string) string {
+	switch class {
+	case vcpuStandard:
+		return quotaSpotStandard
+	case vcpuP:
+		return quotaSpotP
+	case vcpuGVT:
+		return quotaSpotGVT
+	default:
+		return ""
+	}
+}
+
+// vcpuLimit looks up the vCPU quota of instanceType's class; spot selects the Spot quota.
+func (b *InMemoryBackend) vcpuLimit(instanceType string, spot bool) quotalimit.Limit {
+	class := vcpuClass(instanceType)
+
+	code := onDemandQuotaCode(class)
+	if spot {
+		code = spotQuotaCode(class)
+	}
+
+	if code == "" {
+		return quotalimit.Limit{}
+	}
+
+	return b.quotaLimit(quotaServiceEC2, code)
+}
+
+// addExceeds reports whether adding add units to current passes the limit.
+func addExceeds(limit quotalimit.Limit, current, add int) bool {
+	return add > 0 && limit.Reached(current+add-1)
+}
+
+func (b *InMemoryBackend) subnetsInVPCLocked(vpcID string) int {
+	n := 0
+
+	for _, s := range b.subnets.All() {
+		if s.VPCID == vpcID {
+			n++
+		}
+	}
+
+	return n
+}
+
+func (b *InMemoryBackend) routeTablesInVPCLocked(vpcID string) int {
+	n := 0
+
+	for _, r := range b.routeTables.All() {
+		if r.VPCID == vpcID {
+			n++
+		}
+	}
+
+	return n
+}
 
 // vcpuClass maps an instance type to the vCPU quota class the type is counted under.
 func vcpuClass(instanceType string) string {

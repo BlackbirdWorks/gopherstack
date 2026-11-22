@@ -80,6 +80,9 @@ func (b *InMemoryBackend) RequestSpotInstances(
 		count = 1
 	}
 
+	vcpus := b.typeVCPUs(instanceType) * count
+	limit := b.vcpuLimit(instanceType, true)
+
 	b.mu.Lock("RequestSpotInstances")
 	defer b.mu.Unlock()
 
@@ -87,6 +90,10 @@ func (b *InMemoryBackend) RequestSpotInstances(
 		subnetID = b.findDefaultSubnetID()
 	} else if _, ok := b.subnets.Get(subnetID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
+	}
+
+	if addExceeds(limit, b.spotVCPUsLocked(vcpuClass(instanceType)), vcpus) {
+		return nil, quotaExceeded(ErrMaxSpotInstanceCountExceeded, "Spot vCPUs", limit)
 	}
 
 	// Allocate a backing instance immediately (mock fulfils spot requests instantly).

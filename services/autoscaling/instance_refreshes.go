@@ -191,7 +191,12 @@ func (b *InMemoryBackend) armRefreshTransition(refreshID, groupName, nextStatus 
 		GroupName:  groupName,
 		NextStatus: nextStatus,
 	}
-	action.timer = time.AfterFunc(instanceRefreshTransitionDelay, func() {
+	delay := instanceRefreshTransitionDelay
+	if b.refreshDelay > 0 {
+		delay = b.refreshDelay
+	}
+
+	action.timer = time.AfterFunc(delay, func() {
 		b.resolveRefreshTransition(refreshID)
 	})
 	b.pendingRefreshActions.Put(action)
@@ -305,4 +310,12 @@ func (b *InMemoryBackend) applyDesiredConfiguration(groupName string, dc *Desire
 		g.LaunchTemplate = nil
 		g.LaunchConfigurationName = ""
 	}
+}
+
+// SetInstanceRefreshDelay sets the simulated delay before an instance refresh reaches a terminal status.
+func (b *InMemoryBackend) SetInstanceRefreshDelay(d time.Duration) {
+	b.mu.Lock("SetInstanceRefreshDelay")
+	defer b.mu.Unlock()
+
+	b.refreshDelay = d
 }

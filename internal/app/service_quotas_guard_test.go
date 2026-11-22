@@ -83,7 +83,8 @@ func TestQuotaClassificationCoversCatalog(t *testing.T) {
 			t,
 			classified,
 			k,
-			"catalogued quota %s is not classified in testdata/service_quota_classes.json",
+			"catalogued quota %s is not classified: add it to testdata/service_quota_classes.json as c (and wire a counter in "+
+				"service_quota_counters.go), e (count, no counter yet), s (size or length) or r (rate or concurrency)",
 			k,
 		)
 	}
@@ -118,10 +119,11 @@ func TestQuotaCountersMatchClassification(t *testing.T) {
 	}
 
 	for k := range counted {
-		assert.True(t, counters[k], "%s is classified as counted but has no counter in quotaCounters", k)
+		assert.True(t, counters[k],
+			"%s is classified c but has no counter: add it to serviceQuotaCounters/quotaCounters or reclassify it e", k)
 	}
 
 	for k := range counters {
-		assert.True(t, counted[k], "%s has a counter but is not classified as counted", k)
+		assert.True(t, counted[k], "%s has a counter but is not classified c in testdata/service_quota_classes.json", k)
 	}
 }
