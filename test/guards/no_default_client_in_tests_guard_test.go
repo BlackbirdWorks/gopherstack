@@ -22,9 +22,6 @@ var clientMention = regexp.MustCompile(`http\.Client\b`)
 func defaultClientTestAllowlist() map[string]string {
 	return map[string]string{
 		"pkgs/httpclient/httpclient_test.go":                   "proves clients are isolated from http.DefaultTransport",
-		"services/cognitoidp/localstack_alias_test.go":         "TEMPORARY: fixed on the branch that merges first",
-		"services/cognitoidp/oauth_helpers_test.go":            "TEMPORARY: fixed on the branch that merges first",
-		"services/cognitoidp/saml_federation_test.go":          "TEMPORARY: fixed on the branch that merges first",
 		"services/sns/leak_main_test.go":                       "TestMain restricts dialing; httpclient clones inherit it",
 		"test/guards/http_transport_guard_test.go":             "fixture strings",
 		"test/guards/no_default_client_in_tests_guard_test.go": "fixture strings",
