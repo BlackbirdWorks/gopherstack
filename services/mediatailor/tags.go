@@ -56,22 +56,83 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every MediaTailor resource ARN that currently has
-// at least one tag applied via TagResource.
+// TaggedResources lists every tag-store ARN that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+// InventoryResources lists every playback configuration, channel, source location, VOD source, live source,
+// prefetch schedule, program and function plus every tagged ARN of the tag store.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, len(b.tags))
+	seen := make(map[string]struct{}, len(b.tags))
 
-	for arn, tags := range b.tags {
-		if len(tags) == 0 {
+	for key, t := range b.tags {
+		if len(t) == 0 {
 			continue
 		}
 
-		cp := make(map[string]string, len(tags))
-		maps.Copy(cp, tags)
-		out = append(out, TaggedEntry{ARN: arn, Tags: cp})
+		seen[key] = struct{}{}
+		out = append(out, TaggedEntry{ARN: key, Tags: copyTags(t)})
+	}
+
+	if withUntagged {
+		for _, key := range b.resourceARNsLocked() {
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				out = append(out, TaggedEntry{ARN: key})
+			}
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsLocked() []string {
+	out := make(
+		[]string,
+		0,
+		b.playbackConfigurations.Len()+b.channels.Len()+b.sourceLocations.Len()+b.vodSources.Len()+
+			b.liveSources.Len()+b.prefetchSchedules.Len()+b.programs.Len()+b.functions.Len(),
+	)
+
+	for _, v := range b.playbackConfigurations.All() {
+		out = append(out, v.PlaybackConfigurationARN)
+	}
+
+	for _, v := range b.channels.All() {
+		out = append(out, v.ARN)
+	}
+
+	for _, v := range b.sourceLocations.All() {
+		out = append(out, v.ARN)
+	}
+
+	for _, v := range b.vodSources.All() {
+		out = append(out, v.ARN)
+	}
+
+	for _, v := range b.liveSources.All() {
+		out = append(out, v.ARN)
+	}
+
+	for _, v := range b.prefetchSchedules.All() {
+		out = append(out, v.ARN)
+	}
+
+	for _, v := range b.programs.All() {
+		out = append(out, v.ARN)
+	}
+
+	for _, v := range b.functions.All() {
+		out = append(out, v.ARN)
 	}
 
 	return out

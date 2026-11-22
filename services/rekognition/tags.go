@@ -126,22 +126,70 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every collection, stream processor, and project
-// version ARN that currently has at least one tag applied via TagResource.
+// TaggedResources lists every tag-store ARN that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+// InventoryResources lists every collection, stream processor, project, dataset and project version plus
+// every tagged ARN of the tag store.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, len(b.tags))
+	seen := make(map[string]struct{}, len(b.tags))
 
-	for arn, tags := range b.tags {
-		if len(tags) == 0 {
+	for key, t := range b.tags {
+		if len(t) == 0 {
 			continue
 		}
 
-		cp := make(map[string]string, len(tags))
-		maps.Copy(cp, tags)
-		out = append(out, TaggedEntry{ARN: arn, Tags: cp})
+		seen[key] = struct{}{}
+		out = append(out, TaggedEntry{ARN: key, Tags: maps.Clone(t)})
+	}
+
+	if withUntagged {
+		for _, key := range b.resourceARNsLocked() {
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				out = append(out, TaggedEntry{ARN: key})
+			}
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsLocked() []string {
+	out := make(
+		[]string,
+		0,
+		b.collections.Len()+b.streamProcessors.Len()+b.projects.Len()+b.datasets.Len()+b.projectVersions.Len(),
+	)
+
+	for _, c := range b.collections.All() {
+		out = append(out, c.CollectionARN)
+	}
+
+	for _, p := range b.streamProcessors.All() {
+		out = append(out, p.StreamProcessorARN)
+	}
+
+	for _, p := range b.projects.All() {
+		out = append(out, p.ProjectARN)
+	}
+
+	for _, d := range b.datasets.All() {
+		out = append(out, d.DatasetARN)
+	}
+
+	for _, v := range b.projectVersions.All() {
+		out = append(out, v.ProjectVersionARN)
 	}
 
 	return out

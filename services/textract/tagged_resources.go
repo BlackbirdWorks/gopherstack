@@ -8,15 +8,24 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every tagged adapter and adapter version in region.
+// TaggedResources lists every adapter and adapter version of region that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources(region string) []TaggedEntry {
+	return b.entries(region, true)
+}
+
+// InventoryResources lists every adapter and adapter version of region, tagged or not.
+func (b *InMemoryBackend) InventoryResources(region string) []TaggedEntry {
+	return b.entries(region, false)
+}
+
+func (b *InMemoryBackend) entries(region string, taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	var out []TaggedEntry
 
 	for _, a := range b.adapters.All() {
-		if a.Region == region && len(a.Tags) > 0 {
+		if a.Region == region && (!taggedOnly || len(a.Tags) > 0) {
 			out = append(out, TaggedEntry{
 				ARN:  buildAdapterARN(region, b.accountID, a.AdapterID),
 				Tags: maps.Clone(a.Tags),
@@ -25,7 +34,7 @@ func (b *InMemoryBackend) TaggedResources(region string) []TaggedEntry {
 	}
 
 	for _, v := range b.adapterVersions.All() {
-		if v.Region == region && len(v.Tags) > 0 {
+		if v.Region == region && (!taggedOnly || len(v.Tags) > 0) {
 			out = append(out, TaggedEntry{
 				ARN:  buildAdapterVersionARN(region, b.accountID, v.AdapterID, v.AdapterVersion),
 				Tags: maps.Clone(v.Tags),

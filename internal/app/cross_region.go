@@ -166,6 +166,7 @@ type regionalTagSpec[B any] struct {
 	backendFor     func(region string) B
 	backendForCtx  func(ctx context.Context, region string) B
 	list           func(B) []taggedARNEntry
+	inventory      func(B) []taggedARNEntry
 	tag            func(B, context.Context, string, map[string]string) error
 	untag          func(B, context.Context, string, []string) error
 	resourceTypeOf func(arn string) string
@@ -181,22 +182,37 @@ func (s regionalTagSpec[B]) resolve(ctx context.Context, region string) B {
 	return s.backendFor(region)
 }
 
+// entryResources converts bridge entries to tagging resources typed by resourceTypeOf.
+func entryResources(
+	items []taggedARNEntry, resourceTypeOf func(string) string,
+) []resourcegroupstaggingapibackend.TaggedResource {
+	out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(items))
+
+	for _, item := range items {
+		out = append(out, resourcegroupstaggingapibackend.TaggedResource{
+			ResourceARN: item.ARN, ResourceType: resourceTypeOf(item.ARN), Tags: item.Tags,
+		})
+	}
+
+	return out
+}
+
+// provider lists the request region's entries through list as tagging resources.
+func (s regionalTagSpec[B]) provider(list func(B) []taggedARNEntry) resourcegroupstaggingapibackend.ResourceProvider {
+	return func(ctx context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+		return entryResources(list(s.resolve(ctx, awsmeta.Region(ctx))), s.resourceTypeOf)
+	}
+}
+
 // wireRegionalTagging lists the request region's resources and tags or untags in the ARN's region.
 func wireRegionalTagging[B any](bk resourcegroupstaggingapibackend.StorageBackend, spec regionalTagSpec[B]) {
+	if spec.inventory != nil {
+		registerInventoryProvider(bk, spec.provider(spec.inventory))
+	}
+
 	registerTaggingService(
 		bk,
-		func(ctx context.Context) []resourcegroupstaggingapibackend.TaggedResource {
-			items := spec.list(spec.resolve(ctx, awsmeta.Region(ctx)))
-			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(items))
-
-			for _, item := range items {
-				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
-					ResourceARN: item.ARN, ResourceType: spec.resourceTypeOf(item.ARN), Tags: item.Tags,
-				})
-			}
-
-			return out
-		},
+		spec.provider(spec.list),
 		spec.arnService,
 		func(ctx context.Context, arn string, newTags map[string]string) error {
 			return spec.tag(spec.resolve(ctx, originRegion(ctx, arn)), ctx, arn, newTags)
@@ -218,6 +234,7 @@ type taggedEntry interface {
 // tagSurface is the plain tagging surface of a bridged backend.
 type tagSurface[E taggedEntry] interface {
 	TaggedResources() []E
+	InventoryResources() []E
 	TagResource(arn string, tags map[string]string) error
 	UntagResource(arn string, keys []string) error
 }
@@ -239,6 +256,7 @@ func wireStdRegionalTagging[B tagSurface[E], E taggedEntry](
 		resourceTypeOf: resourceTypeOf,
 		backendFor:     func(region string) B { return asBackend(backendOf(region), home) },
 		list:           func(b B) []taggedARNEntry { return taggedEntries(b.TaggedResources()) },
+		inventory:      func(b B) []taggedARNEntry { return taggedEntries(b.InventoryResources()) },
 		tag: func(b B, _ context.Context, arn string, tags map[string]string) error {
 			return b.TagResource(arn, tags)
 		},

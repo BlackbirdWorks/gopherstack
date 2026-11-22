@@ -168,34 +168,6 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// resourceARNLocked resolves a resourceID (b.tags's own key, not an ARN) to the
-// ARN of whichever of the four cross-service-taggable kinds owns it (account,
-// root, OU, policy -- the organization itself is deliberately excluded: real
-// TagResource's ResourceId pattern has no branch for an organization ID, only
-// account/OU/root/policy, per the AWS Organizations API reference for
-// TagResource). Every stored kind carries its ARN precomputed at creation time
-// (accounts.go/organization.go/organizational_units.go/policies.go), so this
-// only needs to find which store holds the ID. Must be called with lock held.
-func (b *InMemoryBackend) resourceARNLocked(resourceID string) (string, bool) {
-	if b.root != nil && b.root.ID == resourceID {
-		return b.root.ARN, true
-	}
-
-	if ou, ok := b.ous.Get(resourceID); ok {
-		return ou.ARN, true
-	}
-
-	if acct, ok := b.accounts.Get(resourceID); ok {
-		return acct.ARN, true
-	}
-
-	if p, ok := b.policies.Get(resourceID); ok {
-		return p.PolicySummary.ARN, true
-	}
-
-	return "", false
-}
-
 // resourceIDForARNLocked is resourceARNLocked's inverse (same four-kind scope,
 // organization excluded): the cross-service tagging aggregator deals only in
 // ARNs, but TagResource/UntagResource are keyed by the internal resourceID, so
@@ -227,26 +199,43 @@ func (b *InMemoryBackend) resourceIDForARNLocked(resourceARN string) (string, bo
 	return "", false
 }
 
-// TaggedResources returns every taggable Organizations resource that carries at
-// least one tag, across all four cross-service-taggable kinds (account, root,
-// OU, policy).
+// TaggedResources lists every root, organizational unit, account and policy that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every root, organizational unit, account and policy, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
-	out := make([]TaggedEntry, 0, len(b.tags))
+	var out []TaggedEntry
 
-	for resourceID, t := range b.tags {
-		if len(t) == 0 {
-			continue
+	add := func(id, arn string) {
+		t := b.tags[id]
+		if !taggedOnly || len(t) > 0 {
+			out = append(out, TaggedEntry{ARN: arn, Tags: maps.Clone(t)})
 		}
+	}
 
-		arn, ok := b.resourceARNLocked(resourceID)
-		if !ok {
-			continue
-		}
+	if b.root != nil {
+		add(b.root.ID, b.root.ARN)
+	}
 
-		out = append(out, TaggedEntry{ARN: arn, Tags: maps.Clone(t)})
+	for _, ou := range b.ous.All() {
+		add(ou.ID, ou.ARN)
+	}
+
+	for _, acct := range b.accounts.All() {
+		add(acct.ID, acct.ARN)
+	}
+
+	for _, p := range b.policies.All() {
+		add(p.PolicySummary.ID, p.PolicySummary.ARN)
 	}
 
 	return out

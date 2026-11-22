@@ -127,10 +127,17 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every MemoryDB resource ARN (clusters, ACLs,
-// subnet groups, users, parameter groups, snapshots, multi-region clusters), across all regions,
-// that currently has at least one tag applied via TagResource.
+// TaggedResources lists every resource of every region that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every resource of every region, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
@@ -139,7 +146,7 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 	for region, arns := range b.arnToResource {
 		for resourceArn, ref := range arns {
 			t := b.tagsForRef(region, ref)
-			if len(t) == 0 {
+			if taggedOnly && len(t) == 0 {
 				continue
 			}
 

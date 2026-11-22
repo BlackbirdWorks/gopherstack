@@ -312,3 +312,48 @@ func TestSDKPrepareQuery_StaticColumns(t *testing.T) {
 		})
 	}
 }
+
+func TestSDKPrepareQuery_NamedParameters(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		query string
+		want  string
+	}{
+		{
+			"typed by comparison",
+			`SELECT host FROM db.t WHERE time > @start AND measure_value::double > @floor AND host = @h`,
+			"start:TIMESTAMP,floor:DOUBLE,h:VARCHAR",
+		},
+		{"scheduled runtime", `SELECT bin(@scheduled_runtime, 1h) FROM db.t`, "scheduled_runtime:TIMESTAMP"},
+		{
+			"between and in",
+			`SELECT host FROM db.t WHERE time BETWEEN @a AND @b AND host IN (@x, 'k')`,
+			"a:TIMESTAMP,b:TIMESTAMP,x:VARCHAR",
+		},
+		{
+			"repeat once",
+			`SELECT host FROM db.t WHERE measure_value::double > @v OR measure_value::double < @v`,
+			"v:DOUBLE",
+		},
+		{"untyped defaults to varchar", `SELECT @anything FROM db.t`, "anything:VARCHAR"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			out, err := newSDKQueryClient(t).PrepareQuery(
+				t.Context(), &tqsdk.PrepareQueryInput{QueryString: aws.String(tc.query)})
+			require.NoError(t, err)
+
+			params := make([]string, len(out.Parameters))
+			for i, p := range out.Parameters {
+				params[i] = aws.ToString(p.Name) + ":" + typeLabel(p.Type)
+			}
+
+			assert.Equal(t, tc.want, strings.Join(params, ","))
+		})
+	}
+}

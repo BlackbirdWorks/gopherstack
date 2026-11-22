@@ -82,15 +82,22 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every Route 53 Resolver resource ARN that
-// currently has at least one tag, across every region (unlike
-// TagResource/UntagResource/ListTagsForResource, which are scoped to the
-// caller's own region via getRegion).
+// TaggedResources lists every tag-store ARN of every region that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+// InventoryResources lists every resolver resource plus every tagged ARN of the tag store.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, len(b.tags))
+	seen := make(map[string]struct{}, len(b.tags))
 
 	for _, regionTags := range b.tags {
 		for resourceARN, kvs := range regionTags {
@@ -103,8 +110,61 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 				m[kv.Key] = kv.Value
 			}
 
+			seen[resourceARN] = struct{}{}
 			out = append(out, TaggedEntry{ARN: resourceARN, Tags: m})
 		}
+	}
+
+	if withUntagged {
+		for _, key := range b.resourceARNsLocked() {
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				out = append(out, TaggedEntry{ARN: key})
+			}
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsLocked() []string {
+	out := make(
+		[]string,
+		0,
+		b.queryLogConfigs.Len()+b.resolverConfigs.Len()+b.endpoints.Len()+b.rules.Len()+b.firewallRuleGroups.Len()+
+			b.firewallRuleGroupAssociations.Len()+b.firewallDomainLists.Len()+b.outpostResolvers.Len(),
+	)
+
+	for _, v := range b.queryLogConfigs.All() {
+		out = append(out, v.ARN)
+	}
+
+	for _, v := range b.resolverConfigs.All() {
+		out = append(out, v.ARN)
+	}
+
+	for _, v := range b.endpoints.All() {
+		out = append(out, v.ARN)
+	}
+
+	for _, v := range b.rules.All() {
+		out = append(out, v.ARN)
+	}
+
+	for _, v := range b.firewallRuleGroups.All() {
+		out = append(out, v.ARN)
+	}
+
+	for _, v := range b.firewallRuleGroupAssociations.All() {
+		out = append(out, v.ARN)
+	}
+
+	for _, v := range b.firewallDomainLists.All() {
+		out = append(out, v.ARN)
+	}
+
+	for _, v := range b.outpostResolvers.All() {
+		out = append(out, v.ARN)
 	}
 
 	return out

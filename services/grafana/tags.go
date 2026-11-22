@@ -70,9 +70,17 @@ func (b *InMemoryBackend) ListTagsForResource(resourceArn string) (map[string]st
 	return w.Tags.Clone(), nil
 }
 
-// TaggedResources returns every tagged workspace, for the
-// resourcegroupstaggingapi integration.
+// TaggedResources lists every workspace that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every workspace, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
@@ -80,11 +88,17 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 	out := make([]TaggedEntry, 0, len(all))
 
 	for _, w := range all {
-		if w.Tags == nil || w.Tags.Len() == 0 {
+		empty := w.Tags == nil || w.Tags.Len() == 0
+		if taggedOnly && empty {
 			continue
 		}
 
-		out = append(out, TaggedEntry{ARN: w.ARN, Tags: w.Tags.Clone()})
+		entry := TaggedEntry{ARN: w.ARN}
+		if !empty {
+			entry.Tags = w.Tags.Clone()
+		}
+
+		out = append(out, entry)
 	}
 
 	return out

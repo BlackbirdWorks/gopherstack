@@ -104,9 +104,17 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every application ARN that currently has at least
-// one tag applied via TagResource.
+// TaggedResources lists every application that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every application, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
@@ -114,7 +122,7 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 	out := make([]TaggedEntry, 0, len(apps))
 
 	for _, app := range apps {
-		if len(app.Tags) == 0 {
+		if taggedOnly && len(app.Tags) == 0 {
 			continue
 		}
 

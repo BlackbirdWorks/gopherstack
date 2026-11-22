@@ -204,59 +204,65 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// appendBatchTaggedEntry appends a TaggedEntry for arn/tagMap to entries when
-// tagMap holds at least one tag.
-func appendBatchTaggedEntry(entries []TaggedEntry, arn string, tagMap map[string]string) []TaggedEntry {
-	if len(tagMap) == 0 {
+func appendBatchTaggedEntry(
+	entries []TaggedEntry,
+	arn string,
+	tagMap map[string]string,
+	taggedOnly bool,
+) []TaggedEntry {
+	if taggedOnly && len(tagMap) == 0 {
 		return entries
 	}
 
-	out := make(map[string]string, len(tagMap))
-	maps.Copy(out, tagMap)
-
-	return append(entries, TaggedEntry{ARN: arn, Tags: out})
+	return append(entries, TaggedEntry{ARN: arn, Tags: maps.Clone(tagMap)})
 }
 
-// TaggedResources returns every Batch resource ARN that currently has at
-// least one tag, across every taggable Batch resource kind (compute
-// environments, job queues, job definitions, jobs, consumable resources,
-// scheduling policies, service environments, service jobs).
+// TaggedResources lists every Batch resource that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every Batch resource, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	var out []TaggedEntry
 
 	for _, ce := range b.computeEnvironments.All() {
-		out = appendBatchTaggedEntry(out, ce.ComputeEnvironmentArn, ce.Tags)
+		out = appendBatchTaggedEntry(out, ce.ComputeEnvironmentArn, ce.Tags, taggedOnly)
 	}
 
 	for _, jq := range b.jobQueues.All() {
-		out = appendBatchTaggedEntry(out, jq.JobQueueArn, jq.Tags)
+		out = appendBatchTaggedEntry(out, jq.JobQueueArn, jq.Tags, taggedOnly)
 	}
 
 	for _, jd := range b.jobDefinitions.All() {
-		out = appendBatchTaggedEntry(out, jd.JobDefinitionArn, jd.Tags)
+		out = appendBatchTaggedEntry(out, jd.JobDefinitionArn, jd.Tags, taggedOnly)
 	}
 
 	for _, j := range b.jobs.All() {
-		out = appendBatchTaggedEntry(out, j.JobARN, j.Tags)
+		out = appendBatchTaggedEntry(out, j.JobARN, j.Tags, taggedOnly)
 	}
 
 	for _, cr := range b.consumableResources.All() {
-		out = appendBatchTaggedEntry(out, cr.ConsumableResourceArn, cr.Tags)
+		out = appendBatchTaggedEntry(out, cr.ConsumableResourceArn, cr.Tags, taggedOnly)
 	}
 
 	for _, sp := range b.schedulingPolicies.All() {
-		out = appendBatchTaggedEntry(out, sp.Arn, sp.Tags)
+		out = appendBatchTaggedEntry(out, sp.Arn, sp.Tags, taggedOnly)
 	}
 
 	for _, se := range b.serviceEnvironments.All() {
-		out = appendBatchTaggedEntry(out, se.ServiceEnvironmentArn, se.Tags)
+		out = appendBatchTaggedEntry(out, se.ServiceEnvironmentArn, se.Tags, taggedOnly)
 	}
 
 	for _, sj := range b.serviceJobs.All() {
-		out = appendBatchTaggedEntry(out, sj.JobArn, sj.Tags)
+		out = appendBatchTaggedEntry(out, sj.JobArn, sj.Tags, taggedOnly)
 	}
 
 	return out

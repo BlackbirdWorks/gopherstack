@@ -9,9 +9,11 @@ import (
 // annotation is a query with its type-dependent rewrites applied and the static type of each result column.
 type annotation struct {
 	query       string
+	plain       string
 	cols        []outCol
 	unsupported []string
 	scans       []pruneScan
+	params      []outCol
 	ok          bool
 }
 
@@ -58,7 +60,7 @@ func applyEdits(q string, edits []typedEdit) string {
 
 // annotateQuery parses q and infers the type of every result column; ok is false when q is not parsed.
 func annotateQuery(q string, tables loadedSet, now time.Time, vars map[string]string) annotation {
-	res := annotation{query: q}
+	res := annotation{query: q, plain: q}
 
 	func() {
 		defer func() { _ = recover() }()
@@ -72,15 +74,20 @@ func annotateQuery(q string, tables loadedSet, now time.Time, vars map[string]st
 func buildAnnotation(q string, tables loadedSet, now time.Time, vars map[string]string) annotation {
 	qn, err := parseSQL(q)
 	if err != nil {
-		return annotation{query: q}
+		return annotation{query: q, plain: q}
 	}
 
 	inf := newInferrer(tables, now, vars)
 	cols := inf.inferQuery(qn, nil)
 
 	return annotation{
-		query: applyEdits(q, inf.edits), cols: cols, unsupported: inf.unsupported, scans: inf.scans, ok: true,
+		query: applyEdits(q, inf.edits), plain: applyEdits(q, withoutChecked(inf.edits)), cols: cols,
+		unsupported: inf.unsupported, scans: inf.scans, params: inf.params, ok: true,
 	}
+}
+
+func withoutChecked(edits []typedEdit) []typedEdit {
+	return slices.DeleteFunc(slices.Clone(edits), func(e typedEdit) bool { return e.checked })
 }
 
 // columnTypes returns the per-column static types, or nil when they cannot be aligned with n result columns.

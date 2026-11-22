@@ -160,9 +160,17 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every pipeline and webhook ARN that currently has
-// at least one tag applied via TagResource.
+// TaggedResources lists every pipeline, webhook and custom action type that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every pipeline, webhook and custom action type, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
@@ -172,33 +180,21 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 	out := make([]TaggedEntry, 0, len(pipelines)+len(webhooks)+len(actionTypes))
 
 	for _, p := range pipelines {
-		if len(p.Tags) == 0 {
-			continue
+		if !taggedOnly || len(p.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: p.Metadata.PipelineArn, Tags: maps.Clone(p.Tags)})
 		}
-
-		cp := make(map[string]string, len(p.Tags))
-		maps.Copy(cp, p.Tags)
-		out = append(out, TaggedEntry{ARN: p.Metadata.PipelineArn, Tags: cp})
 	}
 
 	for _, wh := range webhooks {
-		if len(wh.Tags) == 0 {
-			continue
+		if !taggedOnly || len(wh.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: wh.ARN, Tags: maps.Clone(wh.Tags)})
 		}
-
-		cp := make(map[string]string, len(wh.Tags))
-		maps.Copy(cp, wh.Tags)
-		out = append(out, TaggedEntry{ARN: wh.ARN, Tags: cp})
 	}
 
 	for _, cat := range actionTypes {
-		if len(cat.Tags) == 0 {
-			continue
+		if !taggedOnly || len(cat.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: cat.arn, Tags: maps.Clone(cat.Tags)})
 		}
-
-		cp := make(map[string]string, len(cat.Tags))
-		maps.Copy(cp, cat.Tags)
-		out = append(out, TaggedEntry{ARN: cat.arn, Tags: cp})
 	}
 
 	return out

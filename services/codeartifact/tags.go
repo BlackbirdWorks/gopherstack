@@ -3,6 +3,8 @@ package codeartifact
 import (
 	"context"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // TaggedEntry pairs a resource ARN with its tags.
@@ -11,41 +13,49 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every CodeArtifact domain, repository, and
-// package-group ARN that currently has at least one tag, across every
-// region (unlike TagResource/UntagResource/ListTagsForResource, which are
-// scoped to the caller's own region via getRegion).
+// TaggedResources lists every domain, repository and package group that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every domain, repository and package group, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
-	out := make([]TaggedEntry, 0, b.domains.Len()+b.repositories.Len()+b.packageGroups.Len())
+	var out []TaggedEntry
 
-	for _, d := range b.domains.All() {
-		if d.Tags == nil || d.Tags.Len() == 0 {
-			continue
-		}
-
-		out = append(out, TaggedEntry{ARN: d.ARN, Tags: d.Tags.Clone()})
+	for _, v := range b.domains.All() {
+		out = appendEntry(out, v.ARN, v.Tags, taggedOnly)
 	}
 
-	for _, r := range b.repositories.All() {
-		if r.Tags == nil || r.Tags.Len() == 0 {
-			continue
-		}
-
-		out = append(out, TaggedEntry{ARN: r.ARN, Tags: r.Tags.Clone()})
+	for _, v := range b.repositories.All() {
+		out = appendEntry(out, v.ARN, v.Tags, taggedOnly)
 	}
 
-	for _, pg := range b.packageGroups.All() {
-		if pg.Tags == nil || pg.Tags.Len() == 0 {
-			continue
-		}
-
-		out = append(out, TaggedEntry{ARN: pg.ARN, Tags: pg.Tags.Clone()})
+	for _, v := range b.packageGroups.All() {
+		out = appendEntry(out, v.ARN, v.Tags, taggedOnly)
 	}
 
 	return out
+}
+
+func appendEntry(out []TaggedEntry, arn string, t *tags.Tags, taggedOnly bool) []TaggedEntry {
+	empty := t == nil || t.Len() == 0
+	if taggedOnly && empty {
+		return out
+	}
+
+	entry := TaggedEntry{ARN: arn}
+	if !empty {
+		entry.Tags = t.Clone()
+	}
+
+	return append(out, entry)
 }
 
 // TagResource adds or replaces tags on a resource by ARN.

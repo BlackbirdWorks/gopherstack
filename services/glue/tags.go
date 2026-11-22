@@ -147,78 +147,81 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every Glue resource ARN that currently has at least
-// one tag, across every taggable Glue resource kind (databases, crawlers,
-// jobs, data quality rulesets, connections, triggers, workflows, blueprints,
-// dev endpoints, ML transforms, user-defined functions). Unlike ECS/Athena/ECR,
-// Glue keeps tags inline on each typed resource (Database.Tags, Crawler.Tags,
-// ...) rather than in a side map keyed by ARN, so this walks each store.Table
-// directly instead of a single flat map.
+// TaggedResources lists every database, crawler, job, connection, trigger, workflow and other Glue resource
+// that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every database, crawler, job, connection, trigger, workflow and other Glue
+// resource, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	var out []TaggedEntry
 
 	for _, db := range b.databases.All() {
-		out = appendTaggedEntry(out, db.ARN, db.Tags)
+		out = appendTaggedEntry(out, db.ARN, db.Tags, taggedOnly)
 	}
 
 	for _, c := range b.crawlers.All() {
-		out = appendTaggedEntry(out, c.ARN, c.Tags)
+		out = appendTaggedEntry(out, c.ARN, c.Tags, taggedOnly)
 	}
 
 	for _, j := range b.jobs.All() {
-		out = appendTaggedEntry(out, j.ARN, j.Tags)
+		out = appendTaggedEntry(out, j.ARN, j.Tags, taggedOnly)
 	}
 
 	for _, r := range b.dataQualityRulesets.All() {
-		out = appendTaggedEntry(out, r.ARN, r.Tags)
+		out = appendTaggedEntry(out, r.ARN, r.Tags, taggedOnly)
 	}
 
 	for _, conn := range b.connections.All() {
-		out = appendTaggedEntry(out, conn.ARN, conn.Tags)
+		out = appendTaggedEntry(out, conn.ARN, conn.Tags, taggedOnly)
 	}
 
 	for _, trig := range b.triggers.All() {
-		out = appendTaggedEntry(out, trig.ARN, trig.Tags)
+		out = appendTaggedEntry(out, trig.ARN, trig.Tags, taggedOnly)
 	}
 
 	for _, w := range b.workflows.All() {
-		out = appendTaggedEntry(out, w.ARN, w.Tags)
+		out = appendTaggedEntry(out, w.ARN, w.Tags, taggedOnly)
 	}
 
 	for _, bp := range b.blueprints.All() {
-		out = appendTaggedEntry(out, b.blueprintARN(bp.Name), bp.Tags)
+		out = appendTaggedEntry(out, b.blueprintARN(bp.Name), bp.Tags, taggedOnly)
 	}
 
 	for _, dep := range b.devEndpoints.All() {
-		out = appendTaggedEntry(out, dep.ARN, dep.Tags)
+		out = appendTaggedEntry(out, dep.ARN, dep.Tags, taggedOnly)
 	}
 
 	for _, m := range b.mlTransforms.All() {
-		out = appendTaggedEntry(out, b.mlTransformARN(m.TransformID), m.Tags)
+		out = appendTaggedEntry(out, b.mlTransformARN(m.TransformID), m.Tags, taggedOnly)
 	}
 
 	for _, u := range b.udfs.All() {
-		out = appendTaggedEntry(out, u.FunctionARN, u.Tags)
+		out = appendTaggedEntry(out, u.FunctionARN, u.Tags, taggedOnly)
 	}
 
 	for _, ig := range b.integrations.All() {
-		out = appendTaggedEntry(out, ig.IntegrationArn, ig.Tags)
+		out = appendTaggedEntry(out, ig.IntegrationArn, ig.Tags, taggedOnly)
 	}
 
 	for _, c := range b.catalogs.All() {
-		out = appendTaggedEntry(out, c.ResourceArn, c.Tags)
+		out = appendTaggedEntry(out, c.ResourceArn, c.Tags, taggedOnly)
 	}
 
 	return out
 }
 
-// appendTaggedEntry appends a TaggedEntry for arn/tags to entries when tags is
-// non-empty, cloning tags so callers cannot mutate the backend's copy.
-func appendTaggedEntry(entries []TaggedEntry, arn string, tagMap map[string]string) []TaggedEntry {
-	if len(tagMap) == 0 {
+func appendTaggedEntry(entries []TaggedEntry, arn string, tagMap map[string]string, taggedOnly bool) []TaggedEntry {
+	if taggedOnly && len(tagMap) == 0 {
 		return entries
 	}
 

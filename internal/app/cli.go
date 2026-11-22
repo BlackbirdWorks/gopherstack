@@ -9827,6 +9827,7 @@ func wireResourceGroupsTaggingSweep5(
 	wireTaggingAppRunner(bk, byName["AppRunner"])
 	wireTaggingRoute53Resolver(bk, byName["Route53Resolver"])
 	wireTaggingTimestreamWrite(bk, byName["TimestreamWrite"])
+	wireInventoryTimestreamQuery(bk, byName["TimestreamQuery"])
 	wireTaggingS3Tables(bk, byName["S3tables"])
 	wireTaggingS3(bk, byName["S3"])
 	wireTaggingS3Control(bk, byName["S3Control"])
@@ -9948,23 +9949,20 @@ func wireTaggingARNResources(
 	arnService string,
 	resourceTypeOf func(arn string) string,
 	listFn func() []taggedARNEntry,
+	inventoryFn func(context.Context) []taggedARNEntry,
 	tagFn func(string, map[string]string) error,
 	untagFn func(string, []string) error,
 ) {
+	if inventoryFn != nil {
+		registerInventoryProvider(bk, func(ctx context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+			return entryResources(inventoryFn(ctx), resourceTypeOf)
+		})
+	}
+
 	registerTaggingService(
 		bk,
 		func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
-			items := listFn()
-			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(items))
-			for _, item := range items {
-				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
-					ResourceARN:  item.ARN,
-					ResourceType: resourceTypeOf(item.ARN),
-					Tags:         item.Tags,
-				})
-			}
-
-			return out
+			return entryResources(listFn(), resourceTypeOf)
 		},
 		arnService,
 		func(_ context.Context, arn string, newTags map[string]string) error {
@@ -9987,23 +9985,20 @@ func wireTaggingCtxARNResources(
 	arnService string,
 	resourceTypeOf func(arn string) string,
 	listFn func() []taggedARNEntry,
+	inventoryFn func(context.Context) []taggedARNEntry,
 	tagFn func(context.Context, string, map[string]string) error,
 	untagFn func(context.Context, string, []string) error,
 ) {
+	if inventoryFn != nil {
+		registerInventoryProvider(bk, func(ctx context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+			return entryResources(inventoryFn(ctx), resourceTypeOf)
+		})
+	}
+
 	registerTaggingService(
 		bk,
 		func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
-			items := listFn()
-			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(items))
-			for _, item := range items {
-				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
-					ResourceARN:  item.ARN,
-					ResourceType: resourceTypeOf(item.ARN),
-					Tags:         item.Tags,
-				})
-			}
-
-			return out
+			return entryResources(listFn(), resourceTypeOf)
 		},
 		arnService,
 		tagFn,
@@ -10181,6 +10176,7 @@ func wireTaggingSQS(
 
 			return out
 		},
+		nil,
 		sqsBk.TagQueueByARN,
 		sqsBk.UntagQueueByARN,
 	)
@@ -10211,6 +10207,7 @@ func wireTaggingSNS(
 
 			return out
 		},
+		nil,
 		snsBk.TagTopicByARN,
 		snsBk.UntagTopicByARN,
 	)
@@ -10326,6 +10323,10 @@ func wireTaggingECS(bk resourcegroupstaggingapibackend.StorageBackend, ecsReg se
 
 	in := regionalECSBackend(ecsH, home)
 
+	registerInventoryProvider(bk, func(ctx context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+		return toTaggedResources(in(awsmeta.Region(ctx)).InventoryResources(), arnResourceType("ecs"))
+	})
+
 	registerTaggingService(
 		bk,
 		func(ctx context.Context) []resourcegroupstaggingapibackend.TaggedResource {
@@ -10395,6 +10396,9 @@ func wireTaggingECR(bk resourcegroupstaggingapibackend.StorageBackend, ecrReg se
 		list: func(b *ecrbackend.InMemoryBackend) []taggedARNEntry {
 			return taggedEntries(b.TaggedResources())
 		},
+		inventory: func(b *ecrbackend.InMemoryBackend) []taggedARNEntry {
+			return taggedEntries(b.InventoryResources())
+		},
 		tag: func(b *ecrbackend.InMemoryBackend, ctx context.Context, arn string, t map[string]string) error {
 			return b.TagResource(ctx, arn, t)
 		},
@@ -10418,6 +10422,8 @@ func wireTaggingKinesis(bk resourcegroupstaggingapibackend.StorageBackend, kines
 	if !ok {
 		return
 	}
+
+	registerInventoryFn(bk, kinesisBk.InventoryResources, constantResourceType("kinesis:stream"))
 
 	registerTaggingService(
 		bk,
@@ -10458,15 +10464,8 @@ func wireTaggingStepFunctions(bk resourcegroupstaggingapibackend.StorageBackend,
 	wireTaggingARNResources(
 		bk, "states",
 		func(arn string) string { return resourceTypeFromARN(arn, "states") },
-		func() []taggedARNEntry {
-			items := sfnH.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(sfnH.TaggedResources()) },
+		func(ctx context.Context) []taggedARNEntry { return taggedEntries(sfnH.InventoryResources(ctx)) },
 		sfnH.TagResourceByARN,
 		sfnH.UntagResourceByARN,
 	)
@@ -10492,15 +10491,8 @@ func wireTaggingCloudFront(bk resourcegroupstaggingapibackend.StorageBackend, cf
 	wireTaggingARNResources(
 		bk, "cloudfront",
 		func(arn string) string { return resourceTypeFromARN(arn, "cloudfront") },
-		func() []taggedARNEntry {
-			items := cfBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(cfBk.TaggedResources()) },
+		func(_ context.Context) []taggedARNEntry { return taggedEntries(cfBk.InventoryResources()) },
 		cfBk.TagResource,
 		cfBk.UntagResource,
 	)
@@ -10540,15 +10532,8 @@ func wireTaggingBatch(bk resourcegroupstaggingapibackend.StorageBackend, batchRe
 	wireTaggingCtxARNResources(
 		bk, "batch",
 		func(arn string) string { return resourceTypeFromARN(arn, "batch") },
-		func() []taggedARNEntry {
-			items := batchBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(batchBk.TaggedResources()) },
+		func(_ context.Context) []taggedARNEntry { return taggedEntries(batchBk.InventoryResources()) },
 		batchBk.TagResource,
 		batchBk.UntagResource,
 	)
@@ -10575,15 +10560,8 @@ func wireTaggingWAFv2(bk resourcegroupstaggingapibackend.StorageBackend, wafReg 
 	wireTaggingCtxARNResources(
 		bk, "wafv2",
 		wafv2ResourceType,
-		func() []taggedARNEntry {
-			items := wafBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(wafBk.TaggedResources()) },
+		func(_ context.Context) []taggedARNEntry { return taggedEntries(wafBk.InventoryResources()) },
 		wafBk.TagResource,
 		wafBk.UntagResource,
 	)
@@ -10622,15 +10600,8 @@ func wireTaggingEFS(bk resourcegroupstaggingapibackend.StorageBackend, efsReg se
 	wireTaggingCtxARNResources(
 		bk, "elasticfilesystem",
 		func(arn string) string { return resourceTypeFromARN(arn, "elasticfilesystem") },
-		func() []taggedARNEntry {
-			items := efsBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(efsBk.TaggedResources()) },
+		func(_ context.Context) []taggedARNEntry { return taggedEntries(efsBk.InventoryResources()) },
 		efsBk.TagResource,
 		efsBk.UntagResource,
 	)
@@ -10678,6 +10649,8 @@ func wireTaggingDocDB(bk resourcegroupstaggingapibackend.StorageBackend, docdbRe
 	if docdbBk == nil {
 		return
 	}
+
+	registerInventoryFn(bk, docdbBk.InventoryResources, arnResourceType("rds"))
 
 	bk.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
 		items := docdbBk.TaggedResources()
@@ -10755,6 +10728,8 @@ func wireTaggingNeptune(bk resourcegroupstaggingapibackend.StorageBackend, neptu
 		return
 	}
 
+	registerInventoryFn(bk, neptuneBk.InventoryResources, neptuneResourceType)
+
 	bk.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
 		items := neptuneBk.TaggedResources()
 		out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(items))
@@ -10812,14 +10787,9 @@ func wireTaggingRDS(bk resourcegroupstaggingapibackend.StorageBackend, rdsReg se
 	wireTaggingARNResources(
 		bk, "rds",
 		func(arn string) string { return resourceTypeFromARN(arn, "rds") },
-		func() []taggedARNEntry {
-			items := rdsBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
+		func() []taggedARNEntry { return taggedEntries(rdsBk.TaggedResources()) },
+		func(ctx context.Context) []taggedARNEntry {
+			return taggedEntries(rdsH.BackendFor(awsmeta.Region(ctx)).InventoryResources())
 		},
 		func(arn string, newTags map[string]string) error {
 			tagList := make([]rdsbackend.Tag, 0, len(newTags))
@@ -10861,15 +10831,8 @@ func wireTaggingElastiCache(bk resourcegroupstaggingapibackend.StorageBackend, e
 	wireTaggingCtxARNResources(
 		bk, "elasticache",
 		func(arn string) string { return resourceTypeFromARN(arn, "elasticache") },
-		func() []taggedARNEntry {
-			items := ecBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(ecBk.TaggedResources()) },
+		func(_ context.Context) []taggedARNEntry { return taggedEntries(ecBk.InventoryResources()) },
 		ecBk.AddTagsToResource,
 		ecBk.RemoveTagsFromResource,
 	)
@@ -10919,7 +10882,8 @@ func wireTaggingRedshift(bk resourcegroupstaggingapibackend.StorageBackend, reds
 		resourceTypeOf: constantResourceType("redshift:cluster"),
 		backendFor: regionalBackendFor[*redshiftbackend.InMemoryBackend](
 			func(region string) any { return redshiftH.BackendFor(region) }),
-		list: redshiftTaggedClusters,
+		list:      redshiftTaggedClusters,
+		inventory: redshiftInventoryClusters,
 		tag: func(b *redshiftbackend.InMemoryBackend, _ context.Context, arnStr string, tags map[string]string) error {
 			id, parsed := redshiftClusterIDFromARN(arnStr)
 			if !parsed {
@@ -10940,11 +10904,19 @@ func wireTaggingRedshift(bk resourcegroupstaggingapibackend.StorageBackend, reds
 }
 
 func redshiftTaggedClusters(b *redshiftbackend.InMemoryBackend) []taggedARNEntry {
+	return redshiftClusterEntries(b, true)
+}
+
+func redshiftInventoryClusters(b *redshiftbackend.InMemoryBackend) []taggedARNEntry {
+	return redshiftClusterEntries(b, false)
+}
+
+func redshiftClusterEntries(b *redshiftbackend.InMemoryBackend, taggedOnly bool) []taggedARNEntry {
 	all := b.DescribeTags()
 	out := make([]taggedARNEntry, 0, len(all))
 
 	for clusterID, tagMap := range all {
-		if len(tagMap) == 0 {
+		if taggedOnly && len(tagMap) == 0 {
 			continue
 		}
 
@@ -10998,16 +10970,8 @@ func wireTaggingFirehose(bk resourcegroupstaggingapibackend.StorageBackend, fire
 	wireTaggingCtxARNResources(
 		bk, "firehose",
 		constantResourceType("firehose:deliverystream"),
-		func() []taggedARNEntry {
-			items := firehoseBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(firehoseBk.TaggedResources()) },
+		func(_ context.Context) []taggedARNEntry { return taggedEntries(firehoseBk.InventoryResources()) },
 		func(ctx context.Context, arnStr string, newTags map[string]string) error {
 			name, parsed := firehoseStreamNameFromARN(arnStr)
 			if !parsed {
@@ -11047,7 +11011,8 @@ func wireTaggingOpenSearch(bk resourcegroupstaggingapibackend.StorageBackend, os
 		resourceTypeOf: constantResourceType("es:domain"),
 		backendFor: regionalBackendFor[*opensearchbackend.InMemoryBackend](
 			func(region string) any { return osH.BackendFor(region) }),
-		list: openSearchTaggedDomains,
+		list:      openSearchTaggedDomains,
+		inventory: openSearchInventoryDomains,
 		tag: func(b *opensearchbackend.InMemoryBackend, _ context.Context, arnStr string, tags map[string]string) error {
 			return b.AddTags(arnStr, tags)
 		},
@@ -11058,6 +11023,14 @@ func wireTaggingOpenSearch(bk resourcegroupstaggingapibackend.StorageBackend, os
 }
 
 func openSearchTaggedDomains(b *opensearchbackend.InMemoryBackend) []taggedARNEntry {
+	return openSearchDomainEntries(b, true)
+}
+
+func openSearchInventoryDomains(b *opensearchbackend.InMemoryBackend) []taggedARNEntry {
+	return openSearchDomainEntries(b, false)
+}
+
+func openSearchDomainEntries(b *opensearchbackend.InMemoryBackend, taggedOnly bool) []taggedARNEntry {
 	domains, err := b.DescribeDomains(nil)
 	if err != nil {
 		return nil
@@ -11066,11 +11039,17 @@ func openSearchTaggedDomains(b *opensearchbackend.InMemoryBackend) []taggedARNEn
 	out := make([]taggedARNEntry, 0, len(domains))
 
 	for _, d := range domains {
-		if d.Tags == nil || d.Tags.Len() == 0 {
+		empty := d.Tags == nil || d.Tags.Len() == 0
+		if taggedOnly && empty {
 			continue
 		}
 
-		out = append(out, taggedARNEntry{ARN: d.ARN, Tags: d.Tags.Clone()})
+		entry := taggedARNEntry{ARN: d.ARN}
+		if !empty {
+			entry.Tags = d.Tags.Clone()
+		}
+
+		out = append(out, entry)
 	}
 
 	return out
@@ -11095,6 +11074,9 @@ func wireTaggingMQ(bk resourcegroupstaggingapibackend.StorageBackend, mqReg serv
 		backendFor: regionalBackendFor[*mqbackend.InMemoryBackend](
 			func(region string) any { return mqH.BackendFor(region) }),
 		list: func(b *mqbackend.InMemoryBackend) []taggedARNEntry { return taggedEntries(b.TaggedResources()) },
+		inventory: func(b *mqbackend.InMemoryBackend) []taggedARNEntry {
+			return taggedEntries(b.InventoryResources())
+		},
 		tag: func(b *mqbackend.InMemoryBackend, _ context.Context, arn string, tags map[string]string) error {
 			return b.CreateTags(arn, tags)
 		},
@@ -11124,16 +11106,8 @@ func wireTaggingEMR(bk resourcegroupstaggingapibackend.StorageBackend, emrReg se
 	wireTaggingCtxARNResources(
 		bk, "elasticmapreduce",
 		func(arnStr string) string { return resourceTypeFromARN(arnStr, "elasticmapreduce") },
-		func() []taggedARNEntry {
-			items := emrBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(emrBk.TaggedResources()) },
+		func(_ context.Context) []taggedARNEntry { return taggedEntries(emrBk.InventoryResources()) },
 		func(ctx context.Context, arnStr string, newTags map[string]string) error {
 			tagList := make([]emrbackend.Tag, 0, len(newTags))
 			for k, v := range newTags {
@@ -11166,6 +11140,9 @@ func wireTaggingGrafana(bk resourcegroupstaggingapibackend.StorageBackend, grafa
 		list: func(b *grafanabackend.InMemoryBackend) []taggedARNEntry {
 			return taggedEntries(b.TaggedResources())
 		},
+		inventory: func(b *grafanabackend.InMemoryBackend) []taggedARNEntry {
+			return taggedEntries(b.InventoryResources())
+		},
 		tag:   (*grafanabackend.InMemoryBackend).TagResource,
 		untag: (*grafanabackend.InMemoryBackend).UntagResource,
 	})
@@ -11194,6 +11171,9 @@ func wireTaggingOutposts(bk resourcegroupstaggingapibackend.StorageBackend, outp
 		backendFor:     h.BackendFor,
 		list: func(b *outpostsbackend.InMemoryBackend) []taggedARNEntry {
 			return taggedEntries(b.TaggedResources())
+		},
+		inventory: func(b *outpostsbackend.InMemoryBackend) []taggedARNEntry {
+			return taggedEntries(b.InventoryResources())
 		},
 		tag:   (*outpostsbackend.InMemoryBackend).TagResource,
 		untag: (*outpostsbackend.InMemoryBackend).UntagResource,
@@ -11228,6 +11208,9 @@ func wireTaggingResilienceHub(
 		list: func(b *resiliencehubbackend.InMemoryBackend) []taggedARNEntry {
 			return taggedEntries(b.TaggedResources())
 		},
+		inventory: func(b *resiliencehubbackend.InMemoryBackend) []taggedARNEntry {
+			return taggedEntries(b.InventoryResources())
+		},
 		tag:   (*resiliencehubbackend.InMemoryBackend).TagResource,
 		untag: (*resiliencehubbackend.InMemoryBackend).UntagResource,
 	})
@@ -11258,6 +11241,9 @@ func wireTaggingDirectConnect(
 		list: func(b *directconnectbackend.InMemoryBackend) []taggedARNEntry {
 			return taggedEntries(b.TaggedResources())
 		},
+		inventory: func(b *directconnectbackend.InMemoryBackend) []taggedARNEntry {
+			return taggedEntries(b.InventoryResources())
+		},
 		tag:   (*directconnectbackend.InMemoryBackend).TagResource,
 		untag: (*directconnectbackend.InMemoryBackend).UntagResource,
 	})
@@ -11286,6 +11272,9 @@ func wireTaggingMGN(
 		backendFor:     h.BackendFor,
 		list: func(b *mgnbackend.InMemoryBackend) []taggedARNEntry {
 			return taggedEntries(b.TaggedResources())
+		},
+		inventory: func(b *mgnbackend.InMemoryBackend) []taggedARNEntry {
+			return taggedEntries(b.InventoryResources())
 		},
 		tag:   (*mgnbackend.InMemoryBackend).TagResource,
 		untag: (*mgnbackend.InMemoryBackend).UntagResource,
@@ -11319,16 +11308,8 @@ func wireTaggingNetworkManager(
 	wireTaggingARNResources(
 		bk, "networkmanager",
 		func(arn string) string { return resourceTypeFromARN(arn, "networkmanager") },
-		func() []taggedARNEntry {
-			items := networkmanagerBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(networkmanagerBk.TaggedResources()) },
+		func(_ context.Context) []taggedARNEntry { return taggedEntries(networkmanagerBk.InventoryResources()) },
 		networkmanagerBk.TagResource,
 		networkmanagerBk.UntagResource,
 	)
@@ -11362,6 +11343,9 @@ func wireTaggingLightsail(bk resourcegroupstaggingapibackend.StorageBackend, lig
 		list: func(b *lightsailbackend.InMemoryBackend) []taggedARNEntry {
 			return taggedEntries(b.TaggedResources())
 		},
+		inventory: func(b *lightsailbackend.InMemoryBackend) []taggedARNEntry {
+			return taggedEntries(b.InventoryResources())
+		},
 		tag: func(b *lightsailbackend.InMemoryBackend, _ context.Context, arn string, t map[string]string) error {
 			return b.TagResourceByARN(arn, t)
 		},
@@ -11393,16 +11377,8 @@ func wireTaggingCloudWatchLogs(bk resourcegroupstaggingapibackend.StorageBackend
 	wireTaggingARNResources(
 		bk, "logs",
 		func(arnStr string) string { return resourceTypeFromARN(arnStr, "logs") },
-		func() []taggedARNEntry {
-			items := cwlH.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(cwlH.TaggedResources()) },
+		func(ctx context.Context) []taggedARNEntry { return taggedEntries(cwlH.InventoryResources(ctx)) },
 		func(arnStr string, newTags map[string]string) error {
 			cwlH.TagResource(arnStr, newTags)
 
@@ -11442,16 +11418,8 @@ func wireTaggingSageMaker(bk resourcegroupstaggingapibackend.StorageBackend, smR
 	wireTaggingCtxARNResources(
 		bk, "sagemaker",
 		func(arnStr string) string { return resourceTypeFromARN(arnStr, "sagemaker") },
-		func() []taggedARNEntry {
-			items := smBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(smBk.TaggedResources()) },
+		func(_ context.Context) []taggedARNEntry { return taggedEntries(smBk.InventoryResources()) },
 		smBk.AddTags,
 		smBk.DeleteTags,
 	)
@@ -11476,6 +11444,9 @@ func wireTaggingDAX(bk resourcegroupstaggingapibackend.StorageBackend, daxReg se
 		backendFor: regionalBackendFor[*daxbackend.InMemoryBackend](
 			func(region string) any { return h.BackendFor(region) }),
 		list: func(b *daxbackend.InMemoryBackend) []taggedARNEntry { return taggedEntries(b.TaggedResources()) },
+		inventory: func(b *daxbackend.InMemoryBackend) []taggedARNEntry {
+			return taggedEntries(b.InventoryResources())
+		},
 		tag: func(b *daxbackend.InMemoryBackend, _ context.Context, arn string, tags map[string]string) error {
 			_, err := b.TagResource(arn, tags)
 
@@ -11550,6 +11521,9 @@ func wireTaggingCognitoIDP(bk resourcegroupstaggingapibackend.StorageBackend, id
 		list: func(b *cognitoidpbackend.InMemoryBackend) []taggedARNEntry {
 			return taggedEntries(b.TaggedResources())
 		},
+		inventory: func(b *cognitoidpbackend.InMemoryBackend) []taggedARNEntry {
+			return taggedEntries(b.InventoryResources())
+		},
 		tag: func(b *cognitoidpbackend.InMemoryBackend, _ context.Context, arn string, t map[string]string) error {
 			b.TagResource(arn, t)
 
@@ -11622,15 +11596,8 @@ func wireTaggingMemoryDB(bk resourcegroupstaggingapibackend.StorageBackend, mdbR
 	wireTaggingCtxARNResources(
 		bk, "memorydb",
 		func(arn string) string { return resourceTypeFromARN(arn, "memorydb") },
-		func() []taggedARNEntry {
-			items := mdbBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(mdbBk.TaggedResources()) },
+		func(_ context.Context) []taggedARNEntry { return taggedEntries(mdbBk.InventoryResources()) },
 		mdbBk.TagResource,
 		mdbBk.UntagResource,
 	)
@@ -11691,6 +11658,9 @@ func wireTaggingComprehend(bk resourcegroupstaggingapibackend.StorageBackend, re
 		list: func(b *comprehendbackend.InMemoryBackend) []taggedARNEntry {
 			return taggedEntries(b.TaggedResources())
 		},
+		inventory: func(b *comprehendbackend.InMemoryBackend) []taggedARNEntry {
+			return taggedEntries(b.InventoryResources())
+		},
 		tag: func(b *comprehendbackend.InMemoryBackend, _ context.Context, arn string, tags map[string]string) error {
 			return b.TagResource(arn, mapToTagSlice(tags, func(k, v string) comprehendbackend.Tag {
 				return comprehendbackend.Tag{Key: k, Value: v}
@@ -11722,15 +11692,8 @@ func wireTaggingShield(bk resourcegroupstaggingapibackend.StorageBackend, reg se
 
 	wireTaggingARNResources(
 		bk, "shield", constantResourceType("shield:protection"),
-		func() []taggedARNEntry {
-			items := sBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(sBk.TaggedResources()) },
+		func(_ context.Context) []taggedARNEntry { return taggedEntries(sBk.InventoryResources()) },
 		sBk.TagResource,
 		sBk.UntagResource,
 	)
@@ -11782,15 +11745,8 @@ func wireTaggingWAF(bk resourcegroupstaggingapibackend.StorageBackend, reg servi
 	wireTaggingARNResources(
 		bk, "waf",
 		func(arn string) string { return resourceTypeFromARN(arn, "waf") },
-		func() []taggedARNEntry {
-			items := wBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(wBk.TaggedResources()) },
+		func(_ context.Context) []taggedARNEntry { return taggedEntries(wBk.InventoryResources()) },
 		wBk.TagResource,
 		wBk.UntagResource,
 	)
@@ -11851,15 +11807,8 @@ func wireTaggingRoute53Resolver(bk resourcegroupstaggingapibackend.StorageBacken
 	wireTaggingCtxARNResources(
 		bk, "route53resolver",
 		func(arn string) string { return resourceTypeFromARN(arn, "route53resolver") },
-		func() []taggedARNEntry {
-			items := r53Bk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(r53Bk.TaggedResources()) },
+		func(_ context.Context) []taggedARNEntry { return taggedEntries(r53Bk.InventoryResources()) },
 		func(ctx context.Context, arn string, tags map[string]string) error {
 			return r53Bk.TagResource(ctx, arn, svctags.MapToKV(tags))
 		},
@@ -11986,6 +11935,8 @@ func wireTaggingS3Control(bk resourcegroupstaggingapibackend.StorageBackend, reg
 		return
 	}
 
+	registerInventoryFn(bk, s3cBk.InventoryResources, s3controlResourceType)
+
 	bk.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
 		items := s3cBk.TaggedResources()
 		out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(items))
@@ -12071,6 +12022,9 @@ func wireTaggingAppSync(bk resourcegroupstaggingapibackend.StorageBackend, reg s
 		backendFor: regionalBackendFor[*appsyncbackend.InMemoryBackend](
 			func(region string) any { return h.BackendFor(region) }),
 		list: func(b *appsyncbackend.InMemoryBackend) []taggedARNEntry { return taggedEntries(b.TaggedResources()) },
+		inventory: func(b *appsyncbackend.InMemoryBackend) []taggedARNEntry {
+			return taggedEntries(b.InventoryResources())
+		},
 		tag: func(b *appsyncbackend.InMemoryBackend, _ context.Context, arnStr string, tags map[string]string) error {
 			return b.TagResource(appsyncAPIIDFromARN(arnStr), tags)
 		},
@@ -12157,15 +12111,8 @@ func wireTaggingACM(bk resourcegroupstaggingapibackend.StorageBackend, reg servi
 	wireTaggingCtxARNResources(
 		bk, "acm",
 		func(arnStr string) string { return nestedResourceType(arnStr, "acm") },
-		func() []taggedARNEntry {
-			items := h.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(h.TaggedResources()) },
+		func(ctx context.Context) []taggedARNEntry { return taggedEntries(h.InventoryResources(ctx)) },
 		h.TagResource,
 		h.UntagResource,
 	)
@@ -12190,6 +12137,9 @@ func wireTaggingSSOAdmin(bk resourcegroupstaggingapibackend.StorageBackend, reg 
 			func(region string) any { return h.BackendFor(region) }),
 		list: func(b *ssoadminbackend.InMemoryBackend) []taggedARNEntry {
 			return taggedEntries(b.TaggedResources())
+		},
+		inventory: func(b *ssoadminbackend.InMemoryBackend) []taggedARNEntry {
+			return taggedEntries(b.InventoryResources())
 		},
 		tag: func(b *ssoadminbackend.InMemoryBackend, _ context.Context, arnStr string, tags map[string]string) error {
 			instanceArn, found := b.InstanceArnForResource(arnStr)
@@ -12267,15 +12217,8 @@ func wireTaggingAPIGateway(bk resourcegroupstaggingapibackend.StorageBackend, re
 	wireTaggingARNResources(
 		bk, "apigateway",
 		apigatewayResourceType,
-		func() []taggedARNEntry {
-			items := apigwBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(apigwBk.TaggedResources()) },
+		func(_ context.Context) []taggedARNEntry { return taggedEntries(apigwBk.InventoryResources()) },
 		apigwBk.TagResource,
 		apigwBk.UntagResource,
 	)
@@ -12308,15 +12251,8 @@ func wireTaggingOrganizations(bk resourcegroupstaggingapibackend.StorageBackend,
 	wireTaggingARNResources(
 		bk, "organizations",
 		func(arnStr string) string { return resourceTypeFromARN(arnStr, "organizations") },
-		func() []taggedARNEntry {
-			items := orgBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(orgBk.TaggedResources()) },
+		func(_ context.Context) []taggedARNEntry { return taggedEntries(orgBk.InventoryResources()) },
 		orgBk.TagResourceByARN,
 		orgBk.UntagResourceByARN,
 	)
@@ -12341,15 +12277,8 @@ func wireTaggingWorkMail(bk resourcegroupstaggingapibackend.StorageBackend, reg 
 	wireTaggingARNResources(
 		bk, "workmail",
 		func(arn string) string { return nestedResourceType(arn, "workmail") },
-		func() []taggedARNEntry {
-			items := wmBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(wmBk.TaggedResources()) },
+		func(_ context.Context) []taggedARNEntry { return taggedEntries(wmBk.InventoryResources()) },
 		func(arn string, tags map[string]string) error {
 			return wmBk.TagResource(arn, mapToTagSlice(tags, func(k, v string) workmailbackend.Tag {
 				return workmailbackend.Tag{Key: k, Value: v}
@@ -12415,15 +12344,8 @@ func wireTaggingCodeArtifact(bk resourcegroupstaggingapibackend.StorageBackend, 
 	wireTaggingCtxARNResources(
 		bk, "codeartifact",
 		func(arn string) string { return resourceTypeFromARN(arn, "codeartifact") },
-		func() []taggedARNEntry {
-			items := caBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(caBk.TaggedResources()) },
+		func(_ context.Context) []taggedARNEntry { return taggedEntries(caBk.InventoryResources()) },
 		caBk.TagResource,
 		caBk.UntagResource,
 	)
@@ -12519,6 +12441,9 @@ func wireTaggingAWSConfig(bk resourcegroupstaggingapibackend.StorageBackend, reg
 			return h.BackendForAccount(awsmeta.Account(ctx), region)
 		},
 		list: func(b *awsconfigbackend.InMemoryBackend) []taggedARNEntry { return taggedEntries(b.TaggedResources()) },
+		inventory: func(b *awsconfigbackend.InMemoryBackend) []taggedARNEntry {
+			return taggedEntries(b.InventoryResources())
+		},
 		tag: func(b *awsconfigbackend.InMemoryBackend, _ context.Context, arn string, tags map[string]string) error {
 			return b.TagResource(arn, mapToTagSlice(tags, func(k, v string) awsconfigbackend.Tag {
 				return awsconfigbackend.Tag{Key: k, Value: v}
@@ -12551,15 +12476,8 @@ func wireTaggingScheduler(bk resourcegroupstaggingapibackend.StorageBackend, reg
 	wireTaggingCtxARNResources(
 		bk, "scheduler",
 		func(arn string) string { return resourceTypeFromARN(arn, "scheduler") },
-		func() []taggedARNEntry {
-			items := schBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(schBk.TaggedResources()) },
+		func(_ context.Context) []taggedARNEntry { return taggedEntries(schBk.InventoryResources()) },
 		schBk.TagResource,
 		schBk.UntagResource,
 	)
@@ -12585,15 +12503,8 @@ func wireTaggingCE(bk resourcegroupstaggingapibackend.StorageBackend, reg servic
 	wireTaggingARNResources(
 		bk, "ce",
 		func(arn string) string { return resourceTypeFromARN(arn, "ce") },
-		func() []taggedARNEntry {
-			items := ceBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(ceBk.TaggedResources()) },
+		func(_ context.Context) []taggedARNEntry { return taggedEntries(ceBk.InventoryResources()) },
 		ceBk.TagResource,
 		ceBk.UntagResource,
 	)
@@ -12642,15 +12553,8 @@ func wireTaggingFIS(bk resourcegroupstaggingapibackend.StorageBackend, reg servi
 	wireTaggingARNResources(
 		bk, "fis",
 		func(arn string) string { return resourceTypeFromARN(arn, "fis") },
-		func() []taggedARNEntry {
-			items := fisBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(fisBk.TaggedResources()) },
+		func(_ context.Context) []taggedARNEntry { return taggedEntries(fisBk.InventoryResources()) },
 		fisBk.TagResource,
 		fisBk.UntagResource,
 	)
@@ -12676,15 +12580,8 @@ func wireTaggingCodeConnections(bk resourcegroupstaggingapibackend.StorageBacken
 	wireTaggingCtxARNResources(
 		bk, "codeconnections",
 		func(arn string) string { return resourceTypeFromARN(arn, "codeconnections") },
-		func() []taggedARNEntry {
-			items := ccBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(ccBk.TaggedResources()) },
+		func(_ context.Context) []taggedARNEntry { return taggedEntries(ccBk.InventoryResources()) },
 		ccBk.TagResource,
 		ccBk.UntagResource,
 	)
@@ -12706,15 +12603,8 @@ func wireTaggingMediaStore(bk resourcegroupstaggingapibackend.StorageBackend, re
 
 	wireTaggingCtxARNResources(
 		bk, "mediastore", constantResourceType("mediastore:container"),
-		func() []taggedARNEntry {
-			items := msBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(msBk.TaggedResources()) },
+		func(_ context.Context) []taggedARNEntry { return taggedEntries(msBk.InventoryResources()) },
 		msBk.TagResource,
 		msBk.UntagResource,
 	)
@@ -12737,15 +12627,8 @@ func wireTaggingMWAA(bk resourcegroupstaggingapibackend.StorageBackend, reg serv
 
 	wireTaggingCtxARNResources(
 		bk, "airflow", constantResourceType("airflow:environment"),
-		func() []taggedARNEntry {
-			items := mwaaBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(mwaaBk.TaggedResources()) },
+		func(_ context.Context) []taggedARNEntry { return taggedEntries(mwaaBk.InventoryResources()) },
 		mwaaBk.TagResource,
 		mwaaBk.UntagResource,
 	)
@@ -12767,15 +12650,8 @@ func wireTaggingPipes(bk resourcegroupstaggingapibackend.StorageBackend, reg ser
 
 	wireTaggingCtxARNResources(
 		bk, "pipes", constantResourceType("pipes:pipe"),
-		func() []taggedARNEntry {
-			items := pipesBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(pipesBk.TaggedResources()) },
+		func(_ context.Context) []taggedARNEntry { return taggedEntries(pipesBk.InventoryResources()) },
 		pipesBk.TagResource,
 		pipesBk.UntagResource,
 	)
@@ -12826,6 +12702,9 @@ func wireTaggingMediaConvert(bk resourcegroupstaggingapibackend.StorageBackend, 
 			func(region string) any { return h.BackendFor(region) }),
 		list: func(b *mediaconvertbackend.InMemoryBackend) []taggedARNEntry {
 			return taggedEntries(b.TaggedResources())
+		},
+		inventory: func(b *mediaconvertbackend.InMemoryBackend) []taggedARNEntry {
+			return taggedEntries(b.InventoryResources())
 		},
 		tag: func(b *mediaconvertbackend.InMemoryBackend, _ context.Context, arn string, tags map[string]string) error {
 			b.TagResource(arn, tags)
@@ -13040,15 +12919,8 @@ func wireTaggingCodePipeline(bk resourcegroupstaggingapibackend.StorageBackend, 
 
 	wireTaggingCtxARNResources(
 		bk, "codepipeline", codepipelineResourceType,
-		func() []taggedARNEntry {
-			items := cpBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(cpBk.TaggedResources()) },
+		func(_ context.Context) []taggedARNEntry { return taggedEntries(cpBk.InventoryResources()) },
 		func(ctx context.Context, arnStr string, newTags map[string]string) error {
 			tagList := make([]codepipelinebackend.Tag, 0, len(newTags))
 			for k, v := range newTags {
@@ -13083,15 +12955,8 @@ func wireTaggingKinesisAnalyticsV2(bk resourcegroupstaggingapibackend.StorageBac
 
 	wireTaggingCtxARNResources(
 		bk, "kinesisanalytics", constantResourceType("kinesisanalytics:application"),
-		func() []taggedARNEntry {
-			items := kaBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
+		func() []taggedARNEntry { return taggedEntries(kaBk.TaggedResources()) },
+		func(_ context.Context) []taggedARNEntry { return taggedEntries(kaBk.InventoryResources()) },
 		func(ctx context.Context, arnStr string, newTags map[string]string) error {
 			tagList := make([]kinesisanalyticsv2backend.Tag, 0, len(newTags))
 			for k, v := range newTags {

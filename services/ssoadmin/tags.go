@@ -171,44 +171,44 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every taggable resource that carries at least one tag.
+// TaggedResources lists every instance, permission set, application and trusted token issuer that carries at
+// least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every instance, permission set, application and trusted token issuer, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0,
 		b.instances.Len()+b.permissionSets.Len()+b.applications.Len()+b.trustedTokenIssuers.Len())
 
-	for _, inst := range b.instances.All() {
-		if len(inst.Tags) == 0 {
-			continue
+	add := func(arn string, tags map[string]string) {
+		if !taggedOnly || len(tags) > 0 {
+			out = append(out, TaggedEntry{ARN: arn, Tags: maps.Clone(tags)})
 		}
+	}
 
-		out = append(out, TaggedEntry{ARN: inst.InstanceArn, Tags: maps.Clone(inst.Tags)})
+	for _, inst := range b.instances.All() {
+		add(inst.InstanceArn, inst.Tags)
 	}
 
 	for _, ps := range b.permissionSets.All() {
-		if len(ps.Tags) == 0 {
-			continue
-		}
-
-		out = append(out, TaggedEntry{ARN: ps.PermissionSetArn, Tags: maps.Clone(ps.Tags)})
+		add(ps.PermissionSetArn, ps.Tags)
 	}
 
 	for _, app := range b.applications.All() {
-		if len(app.Tags) == 0 {
-			continue
-		}
-
-		out = append(out, TaggedEntry{ARN: app.ApplicationArn, Tags: maps.Clone(app.Tags)})
+		add(app.ApplicationArn, app.Tags)
 	}
 
 	for _, tti := range b.trustedTokenIssuers.All() {
-		if len(tti.Tags) == 0 {
-			continue
-		}
-
-		out = append(out, TaggedEntry{ARN: tti.TrustedTokenIssuerArn, Tags: maps.Clone(tti.Tags)})
+		add(tti.TrustedTokenIssuerArn, tti.Tags)
 	}
 
 	return out

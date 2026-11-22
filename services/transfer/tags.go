@@ -65,22 +65,65 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every Transfer Family resource ARN (servers,
-// users, connectors, certificates, profiles, web apps, workflows,
-// agreements, host keys) that currently has at least one tag applied via
-// TagResource.
+// TaggedResources lists every Transfer Family resource that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every Transfer Family resource, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
-	out := make([]TaggedEntry, 0, len(b.tagsStore))
+	var out []TaggedEntry
 
-	for arn, t := range b.tagsStore {
-		if len(t) == 0 {
-			continue
+	add := func(arn string) {
+		tags := b.tagsStore[arn]
+		if taggedOnly && len(tags) == 0 {
+			return
 		}
 
-		out = append(out, TaggedEntry{ARN: arn, Tags: maps.Clone(t)})
+		out = append(out, TaggedEntry{ARN: arn, Tags: maps.Clone(tags)})
+	}
+
+	for _, v := range b.servers.All() {
+		add(serverARN(b.accountID, b.region, v.ServerID))
+	}
+
+	for _, v := range b.users.All() {
+		add(userARN(b.accountID, b.region, v.ServerID, v.UserName))
+	}
+
+	for _, v := range b.agreements.All() {
+		add(agreementARN(b.accountID, b.region, v.ServerID, v.AgreementID))
+	}
+
+	for _, v := range b.connectors.All() {
+		add(connectorARN(b.accountID, b.region, v.ConnectorID))
+	}
+
+	for _, v := range b.profiles.All() {
+		add(profileARN(b.accountID, b.region, v.ProfileID))
+	}
+
+	for _, v := range b.webApps.All() {
+		add(webAppARN(b.accountID, b.region, v.WebAppID))
+	}
+
+	for _, v := range b.workflows.All() {
+		add(workflowARN(b.accountID, b.region, v.WorkflowID))
+	}
+
+	for _, v := range b.certificates.All() {
+		add(certificateARN(b.accountID, b.region, v.CertificateID))
+	}
+
+	for _, v := range b.hostKeys.All() {
+		add(hostKeyARN(b.accountID, b.region, v.ServerID, v.HostKeyID))
 	}
 
 	return out

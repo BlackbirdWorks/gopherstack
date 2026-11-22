@@ -106,20 +106,88 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every Transcribe resource ARN that currently has
-// at least one tag applied via TagResource or recorded at creation time.
+// TaggedResources lists every tag-store ARN that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+// InventoryResources lists every job, vocabulary, vocabulary filter, language model and call analytics
+// category plus every tagged ARN of the tag store.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, len(b.resourceTags))
+	seen := make(map[string]struct{}, len(b.resourceTags))
 
-	for resourceArn, tags := range b.resourceTags {
-		if len(tags) == 0 {
+	for key, t := range b.resourceTags {
+		if len(t) == 0 {
 			continue
 		}
 
-		out = append(out, TaggedEntry{ARN: resourceArn, Tags: maps.Clone(tags)})
+		seen[key] = struct{}{}
+		out = append(out, TaggedEntry{ARN: key, Tags: maps.Clone(t)})
+	}
+
+	if withUntagged {
+		for _, key := range b.resourceARNsLocked() {
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				out = append(out, TaggedEntry{ARN: key})
+			}
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsLocked() []string {
+	out := make(
+		[]string,
+		0,
+		b.jobs.Len()+b.medicalTranscriptionJobs.Len()+b.callAnalyticsJobs.Len()+b.medicalScribeJobs.Len()+
+			b.vocabularies.Len()+b.medicalVocabularies.Len()+b.vocabularyFilters.Len()+b.languageModels.Len()+
+			b.callAnalyticsCategories.Len(),
+	)
+
+	for _, j := range b.jobs.All() {
+		out = append(out, b.resourceARN(resourceTypeTranscriptionJob, j.JobName))
+	}
+
+	for _, j := range b.medicalTranscriptionJobs.All() {
+		out = append(out, b.resourceARN(resourceTypeMedicalTranscriptionJob, j.MedicalTranscriptionJobName))
+	}
+
+	for _, j := range b.callAnalyticsJobs.All() {
+		out = append(out, b.resourceARN(resourceTypeCallAnalyticsJob, j.CallAnalyticsJobName))
+	}
+
+	for _, j := range b.medicalScribeJobs.All() {
+		out = append(out, b.resourceARN(resourceTypeMedicalScribeJob, j.MedicalScribeJobName))
+	}
+
+	for _, v := range b.vocabularies.All() {
+		out = append(out, b.resourceARN(resourceTypeVocabulary, v.VocabularyName))
+	}
+
+	for _, v := range b.medicalVocabularies.All() {
+		out = append(out, b.resourceARN(resourceTypeMedicalVocabulary, v.VocabularyName))
+	}
+
+	for _, f := range b.vocabularyFilters.All() {
+		out = append(out, b.resourceARN(resourceTypeVocabularyFilter, f.VocabularyFilterName))
+	}
+
+	for _, m := range b.languageModels.All() {
+		out = append(out, b.resourceARN(resourceTypeLanguageModel, m.ModelName))
+	}
+
+	for _, c := range b.callAnalyticsCategories.All() {
+		out = append(out, b.resourceARN(resourceTypeCallAnalyticsCategory, c.CategoryName))
 	}
 
 	return out

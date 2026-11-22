@@ -237,6 +237,10 @@ func (b *InMemoryBackend) PrepareQuery(
 		cols = static
 	}
 
+	if named := b.namedParameters(ctx, queryString); len(named) > 0 {
+		params = named
+	}
+
 	return &PrepareQueryResult{
 		QueryString: queryString,
 		Columns:     cols,
@@ -874,4 +878,30 @@ func (b *InMemoryBackend) staticColumns(ctx context.Context, queryString string)
 	}
 
 	return cols, true
+}
+
+// namedParameters lists a query's @identifier parameters; one with no contextual type is VARCHAR.
+func (b *InMemoryBackend) namedParameters(ctx context.Context, queryString string) []ColumnInfo {
+	q := strings.TrimSpace(strings.TrimRight(strings.TrimSpace(stripSQLComments(queryString)), ";"))
+	tables := loadedSet{}
+
+	if src := b.recordSource(); src != nil {
+		if set, _, err := loadSourceTables(getRegion(ctx, b.defaultRegion), src, q, b.clock()); err == nil {
+			tables = set
+		}
+	}
+
+	ann := annotateQuery(q, tables, b.clock(), nil)
+	out := make([]ColumnInfo, 0, len(ann.params))
+
+	for _, p := range ann.params {
+		typ := p.typ
+		if !typ.known() {
+			typ = scalar(tyVarchar)
+		}
+
+		out = append(out, typ.columnInfo(p.name))
+	}
+
+	return out
 }

@@ -93,11 +93,17 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every GraphQL API (v1) and Event API (v2) that
-// carries at least one tag, keyed by ARN -- the two resource kinds taggable
-// through the generic TagResource/UntagResource/ListTagsForResource ops (see
-// TagResource's doc comment).
+// TaggedResources lists every GraphQL API and event API that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every GraphQL API and event API, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	apis := b.apis.All()
 	eventAPIs := b.eventAPIs.All()
@@ -106,19 +112,23 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 	out := make([]TaggedEntry, 0, len(apis)+len(eventAPIs))
 
 	for _, api := range apis {
-		if api.Tags == nil || api.Tags.Len() == 0 {
+		empty := api.Tags == nil || api.Tags.Len() == 0
+		if taggedOnly && empty {
 			continue
 		}
 
-		out = append(out, TaggedEntry{ARN: api.ARN, Tags: api.Tags.Clone()})
+		entry := TaggedEntry{ARN: api.ARN}
+		if !empty {
+			entry.Tags = api.Tags.Clone()
+		}
+
+		out = append(out, entry)
 	}
 
 	for _, eventAPI := range eventAPIs {
-		if len(eventAPI.Tags) == 0 {
-			continue
+		if !taggedOnly || len(eventAPI.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: eventAPI.ARN, Tags: maps.Clone(eventAPI.Tags)})
 		}
-
-		out = append(out, TaggedEntry{ARN: eventAPI.ARN, Tags: maps.Clone(eventAPI.Tags)})
 	}
 
 	return out

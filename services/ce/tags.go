@@ -95,37 +95,40 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every CE resource ARN (cost categories, anomaly monitors,
-// anomaly subscriptions) that currently has at least one tag applied via TagResource.
+// TaggedResources lists every cost category, anomaly monitor and anomaly subscription that carries at least
+// one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every cost category, anomaly monitor and anomaly subscription, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	var out []TaggedEntry
 
-	b.costCategories.Range(func(cat *CostCategory) bool {
-		if len(cat.Tags) > 0 {
-			out = append(out, TaggedEntry{ARN: cat.ARN, Tags: cloneCETags(cat.Tags)})
+	for _, v := range b.costCategories.All() {
+		if !taggedOnly || len(v.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: v.ARN, Tags: cloneCETags(v.Tags)})
 		}
+	}
 
-		return true
-	})
-
-	b.anomalyMonitors.Range(func(mon *AnomalyMonitor) bool {
-		if len(mon.Tags) > 0 {
-			out = append(out, TaggedEntry{ARN: mon.MonitorARN, Tags: cloneCETags(mon.Tags)})
+	for _, v := range b.anomalyMonitors.All() {
+		if !taggedOnly || len(v.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: v.MonitorARN, Tags: cloneCETags(v.Tags)})
 		}
+	}
 
-		return true
-	})
-
-	b.anomalySubscriptions.Range(func(sub *AnomalySubscription) bool {
-		if len(sub.Tags) > 0 {
-			out = append(out, TaggedEntry{ARN: sub.SubscriptionARN, Tags: cloneCETags(sub.Tags)})
+	for _, v := range b.anomalySubscriptions.All() {
+		if !taggedOnly || len(v.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: v.SubscriptionARN, Tags: cloneCETags(v.Tags)})
 		}
-
-		return true
-	})
+	}
 
 	return out
 }

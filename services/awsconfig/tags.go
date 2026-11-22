@@ -91,26 +91,97 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every AWS Config resource ARN that currently has
-// at least one tag applied via TagResource.
+// TaggedResources lists every tag-store ARN that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+// InventoryResources lists every config rule, aggregator, conformance pack, connector, recorder, organization
+// rule or pack, stored query and aggregation authorization plus every tagged ARN of the tag store.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, len(b.resourceTags))
+	seen := make(map[string]struct{}, len(b.resourceTags))
 
-	for arn, tagList := range b.resourceTags {
-		if len(tagList) == 0 {
+	for key, t := range b.resourceTags {
+		if len(t) == 0 {
 			continue
 		}
 
-		m := make(map[string]string, len(tagList))
-		for _, t := range tagList {
-			m[t.Key] = t.Value
-		}
+		seen[key] = struct{}{}
+		out = append(out, TaggedEntry{ARN: key, Tags: tagListToMap(t)})
+	}
 
-		out = append(out, TaggedEntry{ARN: arn, Tags: m})
+	if withUntagged {
+		for _, key := range b.resourceARNsLocked() {
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				out = append(out, TaggedEntry{ARN: key})
+			}
+		}
 	}
 
 	return out
+}
+
+func (b *InMemoryBackend) resourceARNsLocked() []string {
+	out := make(
+		[]string,
+		0,
+		b.configRules.Len()+b.aggregators.Len()+b.conformancePacks.Len()+b.connectors.Len()+b.recorders.Len()+
+			b.orgConformancePacks.Len()+b.orgConfigRules.Len()+b.storedQueries.Len()+b.aggregationAuths.Len(),
+	)
+
+	for _, v := range b.configRules.All() {
+		out = append(out, v.ConfigRuleArn)
+	}
+
+	for _, v := range b.aggregators.All() {
+		out = append(out, v.ConfigurationAggregatorArn)
+	}
+
+	for _, v := range b.conformancePacks.All() {
+		out = append(out, v.ConformancePackArn)
+	}
+
+	for _, v := range b.connectors.All() {
+		out = append(out, v.Arn)
+	}
+
+	for _, v := range b.recorders.All() {
+		out = append(out, v.Arn)
+	}
+
+	for _, v := range b.orgConformancePacks.All() {
+		out = append(out, v.OrganizationConformancePackArn)
+	}
+
+	for _, v := range b.orgConfigRules.All() {
+		out = append(out, v.OrganizationConfigRuleArn)
+	}
+
+	for _, v := range b.storedQueries.All() {
+		out = append(out, v.QueryArn)
+	}
+
+	for _, v := range b.aggregationAuths.All() {
+		out = append(out, v.AggregationAuthorizationArn)
+	}
+
+	return out
+}
+
+func tagListToMap(tags []Tag) map[string]string {
+	m := make(map[string]string, len(tags))
+	for _, t := range tags {
+		m[t.Key] = t.Value
+	}
+
+	return m
 }

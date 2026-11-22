@@ -56,20 +56,125 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every Personalize resource ARN that currently has
-// at least one tag applied via TagResource.
+// TaggedResources lists every tag-store ARN that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+// InventoryResources lists every dataset group, dataset, solution, solution version, campaign, job, event
+// tracker, filter, recommender and metric attribution plus every tagged ARN of the tag store.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, len(b.tags))
+	seen := make(map[string]struct{}, len(b.tags))
 
-	for resourceArn, tags := range b.tags {
-		if len(tags) == 0 {
+	for key, t := range b.tags {
+		if len(t) == 0 {
 			continue
 		}
 
-		out = append(out, TaggedEntry{ARN: resourceArn, Tags: maps.Clone(tags)})
+		seen[key] = struct{}{}
+		out = append(out, TaggedEntry{ARN: key, Tags: maps.Clone(t)})
+	}
+
+	if withUntagged {
+		for _, key := range b.resourceARNsLocked() {
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				out = append(out, TaggedEntry{ARN: key})
+			}
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsLocked() []string {
+	out := b.resourceARNsPart1Locked()
+	out = append(out, b.resourceARNsPart2Locked()...)
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsPart1Locked() []string {
+	out := make(
+		[]string,
+		0,
+		b.datasetGroups.Len()+b.datasets.Len()+b.solutions.Len()+b.solutionVersions.Len()+b.campaigns.Len()+
+			b.datasetImportJobs.Len()+b.datasetExportJobs.Len()+b.batchInferenceJobs.Len(),
+	)
+
+	for _, v := range b.datasetGroups.All() {
+		out = append(out, v.DatasetGroupArn)
+	}
+
+	for _, v := range b.datasets.All() {
+		out = append(out, v.DatasetArn)
+	}
+
+	for _, v := range b.solutions.All() {
+		out = append(out, v.SolutionArn)
+	}
+
+	for _, v := range b.solutionVersions.All() {
+		out = append(out, v.SolutionVersionArn)
+	}
+
+	for _, v := range b.campaigns.All() {
+		out = append(out, v.CampaignArn)
+	}
+
+	for _, v := range b.datasetImportJobs.All() {
+		out = append(out, v.DatasetImportJobArn)
+	}
+
+	for _, v := range b.datasetExportJobs.All() {
+		out = append(out, v.DatasetExportJobArn)
+	}
+
+	for _, v := range b.batchInferenceJobs.All() {
+		out = append(out, v.BatchInferenceJobArn)
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsPart2Locked() []string {
+	out := make(
+		[]string,
+		0,
+		b.batchSegmentJobs.Len()+b.dataDeletionJobs.Len()+b.eventTrackers.Len()+b.filters.Len()+
+			b.recommenders.Len()+b.metricAttributions.Len(),
+	)
+
+	for _, v := range b.batchSegmentJobs.All() {
+		out = append(out, v.BatchSegmentJobArn)
+	}
+
+	for _, v := range b.dataDeletionJobs.All() {
+		out = append(out, v.DataDeletionJobArn)
+	}
+
+	for _, v := range b.eventTrackers.All() {
+		out = append(out, v.EventTrackerArn)
+	}
+
+	for _, v := range b.filters.All() {
+		out = append(out, v.FilterArn)
+	}
+
+	for _, v := range b.recommenders.All() {
+		out = append(out, v.RecommenderArn)
+	}
+
+	for _, v := range b.metricAttributions.All() {
+		out = append(out, v.MetricAttributionArn)
 	}
 
 	return out

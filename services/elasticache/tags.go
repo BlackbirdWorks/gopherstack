@@ -195,10 +195,17 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every ElastiCache resource ARN that currently has
-// at least one tag, across every taggable resource kind (see
-// collectTagCandidatesLocked).
+// TaggedResources lists every taggable ElastiCache resource that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every taggable ElastiCache resource, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
@@ -206,11 +213,18 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 
 	for _, c := range b.collectTagCandidatesLocked() {
 		t := *c.entry.ptr
-		if t == nil || t.Len() == 0 {
+		empty := t == nil || t.Len() == 0
+
+		if taggedOnly && empty {
 			continue
 		}
 
-		out = append(out, TaggedEntry{ARN: c.arn, Tags: t.Clone()})
+		entry := TaggedEntry{ARN: c.arn}
+		if !empty {
+			entry.Tags = t.Clone()
+		}
+
+		out = append(out, entry)
 	}
 
 	return out

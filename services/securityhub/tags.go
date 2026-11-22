@@ -47,20 +47,108 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every Security Hub resource ARN that currently has
-// at least one tag applied via TagResource.
+// TaggedResources lists every tag-store ARN that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+// InventoryResources lists every hub, automation rule, configuration policy, connector, aggregator, insight,
+// action target and finding aggregator plus every tagged ARN of the tag store.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, len(b.tags))
+	seen := make(map[string]struct{}, len(b.tags))
 
-	for resourceArn, tags := range b.tags {
-		if len(tags) == 0 {
+	for key, t := range b.tags {
+		if len(t) == 0 {
 			continue
 		}
 
-		out = append(out, TaggedEntry{ARN: resourceArn, Tags: maps.Clone(tags)})
+		seen[key] = struct{}{}
+		out = append(out, TaggedEntry{ARN: key, Tags: maps.Clone(t)})
+	}
+
+	if withUntagged {
+		for _, key := range b.resourceARNsLocked() {
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				out = append(out, TaggedEntry{ARN: key})
+			}
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsLocked() []string {
+	out := b.resourceARNsPart1Locked()
+	out = append(out, b.resourceARNsPart2Locked()...)
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsPart1Locked() []string {
+	out := make(
+		[]string,
+		0,
+		b.automationRules.Len()+b.automationRulesV2.Len()+b.configPolicies.Len()+b.cspmConnectors.Len()+
+			b.connectorsV2.Len()+b.aggregatorsV2.Len(),
+	)
+
+	if b.hub != nil {
+		out = append(out, b.hub.HubArn)
+	}
+
+	if b.hubV2 != nil {
+		out = append(out, b.hubV2.HubV2Arn)
+	}
+
+	for _, r := range b.automationRules.All() {
+		out = append(out, r.RuleArn)
+	}
+
+	for _, r := range b.automationRulesV2.All() {
+		out = append(out, r.RuleArn)
+	}
+
+	for _, p := range b.configPolicies.All() {
+		out = append(out, p.Arn)
+	}
+
+	for _, c := range b.cspmConnectors.All() {
+		out = append(out, c.ConnectorArn)
+	}
+
+	for _, c := range b.connectorsV2.All() {
+		out = append(out, c.ConnectorArn)
+	}
+
+	for _, a := range b.aggregatorsV2.All() {
+		out = append(out, a.AggregatorV2Arn)
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsPart2Locked() []string {
+	out := make([]string, 0, b.insights.Len()+b.actionTargets.Len()+b.findingAggregators.Len())
+
+	for _, i := range b.insights.All() {
+		out = append(out, i.InsightArn)
+	}
+
+	for _, t := range b.actionTargets.All() {
+		out = append(out, t.ActionTargetArn)
+	}
+
+	for _, a := range b.findingAggregators.All() {
+		out = append(out, a.FindingAggregatorArn)
 	}
 
 	return out

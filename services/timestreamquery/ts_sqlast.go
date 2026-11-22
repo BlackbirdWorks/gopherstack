@@ -55,6 +55,9 @@ type node struct {
 	end      int
 	opStart  int
 	opEnd    int
+	headEnd  int
+	xs       int
+	xe       int
 	kind     nodeKind
 	distinct bool
 	star     bool
@@ -129,6 +132,7 @@ type typedEdit struct {
 	start, end int
 	seq        int
 	closing    bool
+	checked    bool
 }
 
 func (n *node) arg(i int) *node {
@@ -137,4 +141,13 @@ func (n *node) arg(i int) *node {
 	}
 
 	return nil
+}
+
+// extent is the node's source span including any enclosing parentheses.
+func (n *node) extent() (int, int) {
+	if n.xe != 0 {
+		return n.xs, n.xe
+	}
+
+	return n.start, n.end
 }

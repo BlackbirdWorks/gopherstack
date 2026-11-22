@@ -99,22 +99,53 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every stack or layer ARN with at least one tag,
-// for the resourcegroupstaggingapi integration (cli.go's wireTaggingOpsWorks).
+// TaggedResources lists every tag-store ARN that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+// InventoryResources lists every stack and layer plus every tagged ARN of the tag store.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, len(b.tags))
+	seen := make(map[string]struct{}, len(b.tags))
 
-	for resourceARN, t := range b.tags {
+	for key, t := range b.tags {
 		if len(t) == 0 {
 			continue
 		}
 
-		tagsCopy := make(map[string]string, len(t))
-		maps.Copy(tagsCopy, t)
-		out = append(out, TaggedEntry{ARN: resourceARN, Tags: tagsCopy})
+		seen[key] = struct{}{}
+		out = append(out, TaggedEntry{ARN: key, Tags: maps.Clone(t)})
+	}
+
+	if withUntagged {
+		for _, key := range b.resourceARNsLocked() {
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				out = append(out, TaggedEntry{ARN: key})
+			}
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsLocked() []string {
+	out := make([]string, 0, b.stacks.Len()+b.layers.Len())
+
+	for _, s := range b.stacks.All() {
+		out = append(out, s.Arn)
+	}
+
+	for _, l := range b.layers.All() {
+		out = append(out, b.layerARN(l.LayerID))
 	}
 
 	return out

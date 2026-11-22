@@ -168,24 +168,38 @@ func (b *InMemoryBackend) ListTagsForResource(resourceArn string) (map[string]st
 
 // appendIfTagged appends a TaggedEntry for (arn, t) to out iff t carries at
 // least one tag -- matching services/directconnect's identical helper.
-func appendIfTagged(out []TaggedEntry, arn string, t *tags.Tags) []TaggedEntry {
-	if t == nil || t.Len() == 0 {
+func appendIfTagged(out []TaggedEntry, arn string, t *tags.Tags, taggedOnly bool) []TaggedEntry {
+	empty := t == nil || t.Len() == 0
+	if taggedOnly && empty {
 		return out
 	}
 
-	return append(out, TaggedEntry{ARN: arn, Tags: t.Clone()})
+	entry := TaggedEntry{ARN: arn}
+	if !empty {
+		entry.Tags = t.Clone()
+	}
+
+	return append(out, entry)
 }
 
-// TaggedResources returns every tagged resource across all 12 taggable
-// kinds, for the resourcegroupstaggingapi integration.
+// TaggedResources lists every resource of the 12 taggable kinds that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every resource of the 12 taggable kinds, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	var out []TaggedEntry
 
-	out = b.taggedResourcesGroup1Locked(out)
-	out = b.taggedResourcesGroup2Locked(out)
+	out = b.taggedResourcesGroup1Locked(out, taggedOnly)
+	out = b.taggedResourcesGroup2Locked(out, taggedOnly)
 
 	return out
 }
@@ -194,58 +208,58 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 // is the point (a uniform tagging seam across 12 kinds), not accidental duplication.
 //
 //nolint:dupl // each block below builds a TaggedEntry from a genuinely distinct resource kind's
-func (b *InMemoryBackend) taggedResourcesGroup1Locked(out []TaggedEntry) []TaggedEntry {
+func (b *InMemoryBackend) taggedResourcesGroup1Locked(out []TaggedEntry, taggedOnly bool) []TaggedEntry {
 	for _, s := range b.sourceServers.Snapshot() {
-		out = appendIfTagged(out, b.sourceServerARN(s.SourceServerID), s.Tags)
+		out = appendIfTagged(out, b.sourceServerARN(s.SourceServerID), s.Tags, taggedOnly)
 	}
 
 	for _, j := range b.jobs.Snapshot() {
-		out = appendIfTagged(out, b.jobARN(j.JobID), j.Tags)
+		out = appendIfTagged(out, b.jobARN(j.JobID), j.Tags, taggedOnly)
 	}
 
 	for _, a := range b.applications.Snapshot() {
-		out = appendIfTagged(out, b.applicationARN(a.ApplicationID), a.Tags)
+		out = appendIfTagged(out, b.applicationARN(a.ApplicationID), a.Tags, taggedOnly)
 	}
 
 	for _, w := range b.waves.Snapshot() {
-		out = appendIfTagged(out, b.waveARN(w.WaveID), w.Tags)
+		out = appendIfTagged(out, b.waveARN(w.WaveID), w.Tags, taggedOnly)
 	}
 
 	for _, c := range b.connectors.Snapshot() {
-		out = appendIfTagged(out, b.connectorARN(c.ConnectorID), c.Tags)
+		out = appendIfTagged(out, b.connectorARN(c.ConnectorID), c.Tags, taggedOnly)
 	}
 
 	for _, v := range b.vcenterClients.Snapshot() {
-		out = appendIfTagged(out, b.vcenterClientARN(v.VcenterClientID), v.Tags)
+		out = appendIfTagged(out, b.vcenterClientARN(v.VcenterClientID), v.Tags, taggedOnly)
 	}
 
 	return out
 }
 
 //nolint:dupl // see taggedResourcesGroup1Locked's sibling doc comment above
-func (b *InMemoryBackend) taggedResourcesGroup2Locked(out []TaggedEntry) []TaggedEntry {
+func (b *InMemoryBackend) taggedResourcesGroup2Locked(out []TaggedEntry, taggedOnly bool) []TaggedEntry {
 	for _, t := range b.launchTemplates.Snapshot() {
-		out = appendIfTagged(out, b.launchTemplateARN(t.LaunchConfigurationTemplateID), t.Tags)
+		out = appendIfTagged(out, b.launchTemplateARN(t.LaunchConfigurationTemplateID), t.Tags, taggedOnly)
 	}
 
 	for _, t := range b.replicationTemplates.Snapshot() {
-		out = appendIfTagged(out, b.replicationTemplateARN(t.ReplicationConfigurationTemplateID), t.Tags)
+		out = appendIfTagged(out, b.replicationTemplateARN(t.ReplicationConfigurationTemplateID), t.Tags, taggedOnly)
 	}
 
 	for _, e := range b.exportTasks.Snapshot() {
-		out = appendIfTagged(out, b.exportTaskARN(e.ExportID), e.Tags)
+		out = appendIfTagged(out, b.exportTaskARN(e.ExportID), e.Tags, taggedOnly)
 	}
 
 	for _, i := range b.importTasks.Snapshot() {
-		out = appendIfTagged(out, b.importTaskARN(i.ImportID), i.Tags)
+		out = appendIfTagged(out, b.importTaskARN(i.ImportID), i.Tags, taggedOnly)
 	}
 
 	for _, d := range b.nmDefinitions.Snapshot() {
-		out = appendIfTagged(out, b.nmDefinitionARN(d.NetworkMigrationDefinitionID), d.Tags)
+		out = appendIfTagged(out, b.nmDefinitionARN(d.NetworkMigrationDefinitionID), d.Tags, taggedOnly)
 	}
 
 	for _, e := range b.nmExecutions.Snapshot() {
-		out = appendIfTagged(out, b.nmExecutionARN(e.NetworkMigrationExecutionID), e.Tags)
+		out = appendIfTagged(out, b.nmExecutionARN(e.NetworkMigrationExecutionID), e.Tags, taggedOnly)
 	}
 
 	return out

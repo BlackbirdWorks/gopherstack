@@ -8,15 +8,26 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every tagged cluster, configuration, replicator, VPC connection and channel in region.
+// TaggedResources lists every cluster, configuration, replicator, VPC connection and channel of region that
+// carries at least one tag.
 func (b *InMemoryBackend) TaggedResources(region string) []TaggedEntry {
+	return b.entries(region, true)
+}
+
+// InventoryResources lists every cluster, configuration, replicator, VPC connection and channel of region,
+// tagged or not.
+func (b *InMemoryBackend) InventoryResources(region string) []TaggedEntry {
+	return b.entries(region, false)
+}
+
+func (b *InMemoryBackend) entries(region string, taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	var out []TaggedEntry
 
 	add := func(arnVal string, tags map[string]string) {
-		if len(tags) > 0 && regionFromARN(arnVal, region) == region {
+		if (!taggedOnly || len(tags) > 0) && regionFromARN(arnVal, region) == region {
 			out = append(out, TaggedEntry{ARN: arnVal, Tags: maps.Clone(tags)})
 		}
 	}

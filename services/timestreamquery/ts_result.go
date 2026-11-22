@@ -320,7 +320,7 @@ func datumOf(v any, typ string) Datum {
 func javaDouble(f float64) string {
 	switch {
 	case math.IsNaN(f):
-		return "NaN"
+		return nanText
 	case math.IsInf(f, 1):
 		return "Infinity"
 	case math.IsInf(f, -1):

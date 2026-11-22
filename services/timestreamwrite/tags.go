@@ -66,20 +66,47 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every Timestream Write database or table ARN that
-// currently has at least one tag applied via TagResource.
+// TaggedResources lists every ARN in the tag store that carries at least one tag, including
+// scheduled queries whose tags Timestream Query mirrors here.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+// InventoryResources lists every database and table plus every tagged ARN of the tag store.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, len(b.tags))
+	seen := make(map[string]struct{}, len(b.tags))
 
 	for resourceARN, tags := range b.tags {
 		if len(tags) == 0 {
 			continue
 		}
 
+		seen[resourceARN] = struct{}{}
 		out = append(out, TaggedEntry{ARN: resourceARN, Tags: maps.Clone(tags)})
+	}
+
+	if !withUntagged {
+		return out
+	}
+
+	for _, d := range b.databases.All() {
+		if _, ok := seen[d.ARN]; !ok {
+			out = append(out, TaggedEntry{ARN: d.ARN})
+		}
+	}
+
+	for _, t := range b.tables.All() {
+		if _, ok := seen[t.ARN]; !ok {
+			out = append(out, TaggedEntry{ARN: t.ARN})
+		}
 	}
 
 	return out

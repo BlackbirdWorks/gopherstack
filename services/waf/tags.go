@@ -68,20 +68,111 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every WAF resource ARN that currently has at least
-// one tag applied via TagResource.
+// TaggedResources lists every tag-store ARN that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+// InventoryResources lists every web ACL, rule, rule group and match set plus every tagged ARN of the tag store.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, len(b.tags))
+	seen := make(map[string]struct{}, len(b.tags))
 
-	for resourceArn, tagMap := range b.tags {
-		if len(tagMap) == 0 {
+	for key, t := range b.tags {
+		if len(t) == 0 {
 			continue
 		}
 
-		out = append(out, TaggedEntry{ARN: resourceArn, Tags: maps.Clone(tagMap)})
+		seen[key] = struct{}{}
+		out = append(out, TaggedEntry{ARN: key, Tags: maps.Clone(t)})
+	}
+
+	if withUntagged {
+		for _, key := range b.resourceARNsLocked() {
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				out = append(out, TaggedEntry{ARN: key})
+			}
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsLocked() []string {
+	out := b.resourceARNsPart1Locked()
+	out = append(out, b.resourceARNsPart2Locked()...)
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsPart1Locked() []string {
+	out := make(
+		[]string,
+		0,
+		b.webACLs.Len()+b.rules.Len()+b.rateBasedRules.Len()+b.ruleGroups.Len()+b.ipSets.Len()+
+			b.byteMatchSets.Len()+b.sizeConstraintSets.Len()+b.sqlInjectionMatchSets.Len(),
+	)
+
+	for _, v := range b.webACLs.All() {
+		out = append(out, b.webACLARN(v.WebACLId))
+	}
+
+	for _, v := range b.rules.All() {
+		out = append(out, b.ruleARN(v.RuleId))
+	}
+
+	for _, v := range b.rateBasedRules.All() {
+		out = append(out, b.rateBasedRuleARN(v.RuleId))
+	}
+
+	for _, v := range b.ruleGroups.All() {
+		out = append(out, b.ruleGroupARN(v.RuleGroupId))
+	}
+
+	for _, v := range b.ipSets.All() {
+		out = append(out, b.ipSetARN(v.IPSetId))
+	}
+
+	for _, v := range b.byteMatchSets.All() {
+		out = append(out, b.byteMatchSetARN(v.ByteMatchSetId))
+	}
+
+	for _, v := range b.sizeConstraintSets.All() {
+		out = append(out, b.sizeConstraintSetARN(v.SizeConstraintSetId))
+	}
+
+	for _, v := range b.sqlInjectionMatchSets.All() {
+		out = append(out, b.sqlInjectionMatchSetARN(v.SqlInjectionMatchSetId))
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsPart2Locked() []string {
+	out := make([]string, 0, b.xssMatchSets.Len()+b.geoMatchSets.Len()+b.regexPatternSets.Len()+b.regexMatchSets.Len())
+
+	for _, v := range b.xssMatchSets.All() {
+		out = append(out, b.xssMatchSetARN(v.XssMatchSetId))
+	}
+
+	for _, v := range b.geoMatchSets.All() {
+		out = append(out, b.geoMatchSetARN(v.GeoMatchSetId))
+	}
+
+	for _, v := range b.regexPatternSets.All() {
+		out = append(out, b.regexPatternSetARN(v.RegexPatternSetId))
+	}
+
+	for _, v := range b.regexMatchSets.All() {
+		out = append(out, b.regexMatchSetARN(v.RegexMatchSetId))
 	}
 
 	return out

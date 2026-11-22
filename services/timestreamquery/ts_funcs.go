@@ -211,6 +211,8 @@ func udfTimestampDiff(_ *sqlitedriver.FunctionContext, args []driver.Value) (dri
 func registerTimestreamFuncs() {
 	registerFuncsOnce.Do(func() {
 		registerUnnestModule()
+		registerArithFuncs()
+		registerCastFuncs()
 
 		for _, f := range tsScalarFuncs() {
 			sqlitedriver.MustRegisterDeterministicScalarFunction(f.name, f.nargs, f.impl)

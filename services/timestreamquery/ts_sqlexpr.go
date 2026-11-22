@@ -57,7 +57,10 @@ func (p *sqlParser) tryLambda() (*node, bool, error) {
 }
 
 func (p *sqlParser) binary(op string, l, r *node) *node {
-	return &node{kind: nBinary, name: op, args: []*node{l, r}, start: l.start, end: r.end}
+	ls, _ := l.extent()
+	_, re := r.extent()
+
+	return &node{kind: nBinary, name: op, args: []*node{l, r}, start: ls, end: re}
 }
 
 func (p *sqlParser) parseOr() (*node, error) {
@@ -299,14 +302,15 @@ func (p *sqlParser) parseMultiplicative() (*node, error) {
 	}
 
 	for p.peek().isOp("*") || p.peek().isOp("/") || p.peek().isOp("%") {
-		op := p.next().text
+		opTok := p.next()
 
 		r, rerr := p.parseUnary()
 		if rerr != nil {
 			return nil, rerr
 		}
 
-		l = p.binary(op, l, r)
+		l = p.binary(opTok.text, l, r)
+		l.opStart, l.opEnd = opTok.start, opTok.end
 	}
 
 	return l, nil
@@ -326,7 +330,9 @@ func (p *sqlParser) parseUnary() (*node, error) {
 			return nil, err
 		}
 
-		return &node{kind: nUnary, name: t.text, args: []*node{e}, start: t.start, end: e.end}, nil
+		_, ee := e.extent()
+
+		return &node{kind: nUnary, name: t.text, args: []*node{e}, start: t.start, end: ee}, nil
 	}
 
 	e, err := p.parsePrimary()
@@ -458,6 +464,8 @@ func (p *sqlParser) parseOpPrimary() (*node, error) {
 		}
 
 		if len(items) == 1 {
+			items[0].xs, items[0].xe = t.start, p.toks[p.pos-1].end
+
 			return items[0], nil
 		}
 
@@ -715,12 +723,14 @@ func (p *sqlParser) parseCase() (*node, error) {
 
 func (p *sqlParser) parseCast() (*node, error) {
 	t := p.next()
-	p.pos++
+	lp := p.next()
 
 	e, err := p.parseExpr()
 	if err != nil {
 		return nil, err
 	}
+
+	asTok := p.peek()
 
 	if err = p.expectKw("as"); err != nil {
 		return nil, err
@@ -735,6 +745,7 @@ func (p *sqlParser) parseCast() (*node, error) {
 
 	return &node{
 		kind: nCast, name: strings.ToLower(t.text), typ: typ, args: []*node{e}, start: t.start, end: end,
+		headEnd: lp.end, opStart: asTok.start,
 	}, p.expectOp(")")
 }
 

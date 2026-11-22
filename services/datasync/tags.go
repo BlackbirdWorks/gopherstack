@@ -124,20 +124,61 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every DataSync resource ARN that currently has at
-// least one tag applied via TagResource.
+// TaggedResources lists every tag-store ARN that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+// InventoryResources lists every agent, location, task and task execution plus every tagged ARN of the tag store.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, len(b.tags))
+	seen := make(map[string]struct{}, len(b.tags))
 
-	for resourceArn, tags := range b.tags {
-		if len(tags) == 0 {
+	for key, t := range b.tags {
+		if len(t) == 0 {
 			continue
 		}
 
-		out = append(out, TaggedEntry{ARN: resourceArn, Tags: maps.Clone(tags)})
+		seen[key] = struct{}{}
+		out = append(out, TaggedEntry{ARN: key, Tags: maps.Clone(t)})
+	}
+
+	if withUntagged {
+		for _, key := range b.resourceARNsLocked() {
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				out = append(out, TaggedEntry{ARN: key})
+			}
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsLocked() []string {
+	out := make([]string, 0, b.agents.Len()+b.locations.Len()+b.tasks.Len()+b.executions.Len())
+
+	for _, a := range b.agents.All() {
+		out = append(out, a.AgentArn)
+	}
+
+	for _, l := range b.locations.All() {
+		out = append(out, l.LocationArn)
+	}
+
+	for _, t := range b.tasks.All() {
+		out = append(out, t.TaskArn)
+	}
+
+	for _, e := range b.executions.All() {
+		out = append(out, e.TaskExecutionArn)
 	}
 
 	return out

@@ -12,24 +12,28 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every MediaStore container ARN, across every region, that
-// currently has at least one tag applied via TagResource.
+// TaggedResources lists every container that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every container, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	var out []TaggedEntry
 
 	for _, table := range b.containers {
-		table.Range(func(c *Container) bool {
-			if len(c.Tags) > 0 {
-				result := make(map[string]string, len(c.Tags))
-				maps.Copy(result, c.Tags)
-				out = append(out, TaggedEntry{ARN: c.ARN, Tags: result})
+		for _, v := range table.All() {
+			if !taggedOnly || len(v.Tags) > 0 {
+				out = append(out, TaggedEntry{ARN: v.ARN, Tags: maps.Clone(v.Tags)})
 			}
-
-			return true
-		})
+		}
 	}
 
 	return out

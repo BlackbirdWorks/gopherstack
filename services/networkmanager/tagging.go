@@ -194,57 +194,70 @@ type TaggedResource struct {
 	ARN  string
 }
 
-// TaggedResources enumerates every tagged resource across all 9 taggable
-// kinds, for cli.go's ResourceGroupsTaggingAPI wiring
-// (wireTaggingNetworkManager).
+// TaggedResources lists every resource of the 9 taggable kinds that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedResource {
+	return b.entries(true)
+}
+
+// InventoryResources lists every resource of the 9 taggable kinds, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedResource {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedResource {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	var out []TaggedResource
 
-	appendIfTagged := func(arn string, t *tags.Tags) {
-		if t == nil || t.Len() == 0 {
+	add := func(arn string, t *tags.Tags) {
+		empty := t == nil || t.Len() == 0
+		if taggedOnly && empty {
 			return
 		}
 
-		out = append(out, TaggedResource{ARN: arn, Tags: t.Clone()})
+		entry := TaggedResource{ARN: arn}
+		if !empty {
+			entry.Tags = t.Clone()
+		}
+
+		out = append(out, entry)
 	}
 
 	for _, v := range b.globalNetworks.Snapshot() {
-		appendIfTagged(v.GlobalNetworkArn, v.Tags)
+		add(v.GlobalNetworkArn, v.Tags)
 	}
 
 	for _, v := range b.sites.Snapshot() {
-		appendIfTagged(v.SiteArn, v.Tags)
+		add(v.SiteArn, v.Tags)
 	}
 
 	for _, v := range b.devices.Snapshot() {
-		appendIfTagged(v.DeviceArn, v.Tags)
+		add(v.DeviceArn, v.Tags)
 	}
 
 	for _, v := range b.links.Snapshot() {
-		appendIfTagged(v.LinkArn, v.Tags)
+		add(v.LinkArn, v.Tags)
 	}
 
 	for _, v := range b.connections.Snapshot() {
-		appendIfTagged(v.ConnectionArn, v.Tags)
+		add(v.ConnectionArn, v.Tags)
 	}
 
 	for _, v := range b.connectPeers.Snapshot() {
-		appendIfTagged(b.connectPeerARN(v.ConnectPeerID), v.Tags)
+		add(b.connectPeerARN(v.ConnectPeerID), v.Tags)
 	}
 
 	for _, v := range b.coreNetworks.Snapshot() {
-		appendIfTagged(v.CoreNetworkArn, v.Tags)
+		add(v.CoreNetworkArn, v.Tags)
 	}
 
 	for _, v := range b.peerings.Snapshot() {
-		appendIfTagged(b.peeringARN(v.PeeringID), v.Tags)
+		add(b.peeringARN(v.PeeringID), v.Tags)
 	}
 
 	for _, v := range b.attachments.Snapshot() {
-		appendIfTagged(b.attachmentARN(v.AttachmentID), v.Tags)
+		add(b.attachmentARN(v.AttachmentID), v.Tags)
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].ARN < out[j].ARN })

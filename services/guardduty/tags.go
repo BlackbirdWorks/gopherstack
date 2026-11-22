@@ -3,6 +3,7 @@ package guardduty
 import (
 	"maps"
 	"strings"
+	"time"
 )
 
 // TagResource sets tags on a resource.
@@ -128,22 +129,92 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every GuardDuty resource ARN (detectors, filters,
-// IP sets, threat intel/entity sets, trusted entity sets, publishing
-// destinations, malware protection plans) that currently has at least one
-// tag applied via TagResource.
+// TaggedResources lists every tag-store ARN that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+// InventoryResources lists every detector, filter, set, destination, malware protection plan and live custom
+// detection rule association plus every tagged ARN of the tag store.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, len(b.tags))
+	seen := make(map[string]struct{}, len(b.tags))
 
 	for arn, t := range b.tags {
 		if len(t) == 0 {
 			continue
 		}
 
+		seen[arn] = struct{}{}
 		out = append(out, TaggedEntry{ARN: arn, Tags: maps.Clone(t)})
+	}
+
+	if withUntagged {
+		for _, arn := range b.resourceARNsLocked() {
+			if _, ok := seen[arn]; !ok {
+				seen[arn] = struct{}{}
+				out = append(out, TaggedEntry{ARN: arn})
+			}
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsLocked() []string {
+	out := make(
+		[]string,
+		0,
+		b.detectors.Len()+b.filters.Len()+b.ipSets.Len()+b.threatIntelSets.Len()+b.threatEntitySets.Len()+
+			b.trustedEntitySets.Len()+b.publishingDestinations.Len()+b.malwareProtectionPlans.Len()+
+			b.customRuleAssociations.Len(),
+	)
+
+	for _, d := range b.detectors.All() {
+		out = append(out, b.detectorARN(d.DetectorID))
+	}
+
+	for _, f := range b.filters.All() {
+		out = append(out, b.filterARN(f.DetectorID, f.Name))
+	}
+
+	for _, s := range b.ipSets.All() {
+		out = append(out, b.ipSetARN(s.DetectorID, s.IPSetID))
+	}
+
+	for _, s := range b.threatIntelSets.All() {
+		out = append(out, b.threatIntelSetARN(s.DetectorID, s.ThreatIntelSetID))
+	}
+
+	for _, s := range b.threatEntitySets.All() {
+		out = append(out, b.threatEntitySetARN(s.DetectorID, s.ThreatEntitySetID))
+	}
+
+	for _, s := range b.trustedEntitySets.All() {
+		out = append(out, b.trustedEntitySetARN(s.DetectorID, s.TrustedEntitySetID))
+	}
+
+	for _, d := range b.publishingDestinations.All() {
+		out = append(out, b.publishingDestinationARN(d.DetectorID, d.DestinationID))
+	}
+
+	for _, p := range b.malwareProtectionPlans.All() {
+		out = append(out, p.Arn)
+	}
+
+	now := time.Now()
+
+	for _, a := range b.customRuleAssociations.All() {
+		if a.AccountID == b.accountID && !expired(a.ExpiresAt, now) {
+			out = append(out, b.customRuleAssociationARN(a.RuleID, a.AssociationID))
+		}
 	}
 
 	return out

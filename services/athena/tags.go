@@ -70,22 +70,62 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every Athena resource ARN that currently has at
-// least one tag applied via TagResource, spanning every resource kind that
-// shares the flat resourceTags map (workgroups, data catalogs, capacity
-// reservations, notebooks).
+// TaggedResources lists every tag-store ARN that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+// InventoryResources lists every workgroup, data catalog, capacity reservation and session plus every tagged
+// ARN of the tag store.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, len(b.resourceTags))
+	seen := make(map[string]struct{}, len(b.resourceTags))
 
-	for arn, tagMap := range b.resourceTags {
-		if len(tagMap) == 0 {
+	for key, t := range b.resourceTags {
+		if len(t) == 0 {
 			continue
 		}
 
-		out = append(out, TaggedEntry{ARN: arn, Tags: maps.Clone(tagMap)})
+		seen[key] = struct{}{}
+		out = append(out, TaggedEntry{ARN: key, Tags: maps.Clone(t)})
+	}
+
+	if withUntagged {
+		for _, key := range b.resourceARNsLocked() {
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				out = append(out, TaggedEntry{ARN: key})
+			}
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsLocked() []string {
+	out := make([]string, 0, b.workGroups.Len()+b.dataCatalogs.Len()+b.capacityReservations.Len()+b.sessions.Len())
+
+	for _, w := range b.workGroups.All() {
+		out = append(out, b.workGroupARN(w.Name))
+	}
+
+	for _, c := range b.dataCatalogs.All() {
+		out = append(out, b.dataCatalogARN(c.Name))
+	}
+
+	for _, c := range b.capacityReservations.All() {
+		out = append(out, b.capacityReservationARN(c.Name))
+	}
+
+	for _, s := range b.sessions.All() {
+		out = append(out, b.sessionARN(s.SessionID))
 	}
 
 	return out

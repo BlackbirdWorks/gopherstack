@@ -83,9 +83,17 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every Cloud Map namespace and service ARN that
-// currently has at least one tag applied via TagResource.
+// TaggedResources lists every namespace and service that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every namespace and service, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
@@ -94,19 +102,15 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 	out := make([]TaggedEntry, 0, len(namespaces)+len(services))
 
 	for _, ns := range namespaces {
-		if len(ns.Tags) == 0 {
-			continue
+		if !taggedOnly || len(ns.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: ns.ARN, Tags: copyTags(ns.Tags)})
 		}
-
-		out = append(out, TaggedEntry{ARN: ns.ARN, Tags: copyTags(ns.Tags)})
 	}
 
 	for _, svc := range services {
-		if len(svc.Tags) == 0 {
-			continue
+		if !taggedOnly || len(svc.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: svc.ARN, Tags: copyTags(svc.Tags)})
 		}
-
-		out = append(out, TaggedEntry{ARN: svc.ARN, Tags: copyTags(svc.Tags)})
 	}
 
 	return out

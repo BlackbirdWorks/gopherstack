@@ -99,9 +99,17 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedStreams returns every Kinesis stream that currently has at least one
-// tag, across every region this backend holds streams for.
+// TaggedStreams lists every stream, across every region this backend holds, that carries at least one tag.
 func (b *InMemoryBackend) TaggedStreams() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every stream, across every region this backend holds, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedStreams")
 	streams := b.streams.All()
 	b.mu.RUnlock()
@@ -110,14 +118,16 @@ func (b *InMemoryBackend) TaggedStreams() []TaggedEntry {
 
 	for _, s := range streams {
 		s.mu.RLock("TaggedStreams.stream")
+
 		var tagMap map[string]string
 		if s.Tags != nil {
 			tagMap = s.Tags.Clone()
 		}
+
 		arn := s.ARN
 		s.mu.RUnlock()
 
-		if len(tagMap) == 0 {
+		if taggedOnly && len(tagMap) == 0 {
 			continue
 		}
 

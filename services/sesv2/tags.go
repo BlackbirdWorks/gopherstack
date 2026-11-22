@@ -74,20 +74,76 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every SESv2 resource ARN that currently has at
-// least one tag applied via TagResource.
+// TaggedResources lists every tag-store ARN that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+// InventoryResources lists every email identity, configuration set, contact list, email template, dedicated
+// IP pool and tenant plus every tagged ARN of the tag store.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+func (b *InMemoryBackend) entries(withUntagged bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, len(b.resourceTags))
+	seen := make(map[string]struct{}, len(b.resourceTags))
 
-	for resourceArn, tags := range b.resourceTags {
-		if len(tags) == 0 {
+	for key, t := range b.resourceTags {
+		if len(t) == 0 {
 			continue
 		}
 
-		out = append(out, TaggedEntry{ARN: resourceArn, Tags: maps.Clone(tags)})
+		seen[key] = struct{}{}
+		out = append(out, TaggedEntry{ARN: key, Tags: maps.Clone(t)})
+	}
+
+	if withUntagged {
+		for _, key := range b.resourceARNsLocked() {
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				out = append(out, TaggedEntry{ARN: key})
+			}
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) resourceARNsLocked() []string {
+	out := make(
+		[]string,
+		0,
+		b.identities.Len()+b.configurationSets.Len()+b.contactLists.Len()+b.emailTemplates.Len()+b.dedicatedIPPools.Len()+len(
+			b.tenants,
+		),
+	)
+
+	for _, v := range b.identities.All() {
+		out = append(out, b.identityARN(v.Identity))
+	}
+
+	for _, v := range b.configurationSets.All() {
+		out = append(out, b.configurationSetARN(v.Name))
+	}
+
+	for _, v := range b.contactLists.All() {
+		out = append(out, b.contactListARN(v.Name))
+	}
+
+	for _, v := range b.emailTemplates.All() {
+		out = append(out, b.emailTemplateARN(v.TemplateName))
+	}
+
+	for _, v := range b.dedicatedIPPools.All() {
+		out = append(out, b.dedicatedIPPoolARN(v.PoolName))
+	}
+
+	for name := range b.tenants {
+		out = append(out, b.tenantARN(name))
 	}
 
 	return out

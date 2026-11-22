@@ -1,6 +1,10 @@
 package scheduler
 
-import "context"
+import (
+	"context"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
+)
 
 // TaggedEntry pairs a resource ARN with its tags.
 type TaggedEntry struct {
@@ -8,33 +12,45 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every EventBridge Scheduler schedule and
-// schedule-group ARN that currently has at least one tag, across every
-// region (unlike TagResource/UntagResource/ListTagsForResource, which are
-// scoped to the caller's own region via getRegion).
+// TaggedResources lists every schedule and schedule group that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every schedule and schedule group, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
-	out := make([]TaggedEntry, 0, b.schedules.Len()+b.scheduleGroups.Len())
+	var out []TaggedEntry
 
-	for _, s := range b.schedules.All() {
-		if s.Tags == nil || s.Tags.Len() == 0 {
-			continue
-		}
-
-		out = append(out, TaggedEntry{ARN: s.ARN, Tags: s.Tags.Clone()})
+	for _, v := range b.schedules.All() {
+		out = appendEntry(out, v.ARN, v.Tags, taggedOnly)
 	}
 
-	for _, g := range b.scheduleGroups.All() {
-		if g.Tags == nil || g.Tags.Len() == 0 {
-			continue
-		}
-
-		out = append(out, TaggedEntry{ARN: g.ARN, Tags: g.Tags.Clone()})
+	for _, v := range b.scheduleGroups.All() {
+		out = appendEntry(out, v.ARN, v.Tags, taggedOnly)
 	}
 
 	return out
+}
+
+func appendEntry(out []TaggedEntry, arn string, t *tags.Tags, taggedOnly bool) []TaggedEntry {
+	empty := t == nil || t.Len() == 0
+	if taggedOnly && empty {
+		return out
+	}
+
+	entry := TaggedEntry{ARN: arn}
+	if !empty {
+		entry.Tags = t.Clone()
+	}
+
+	return append(out, entry)
 }
 
 func (b *InMemoryBackend) TagResource(ctx context.Context, resourceARN string, kv map[string]string) error {

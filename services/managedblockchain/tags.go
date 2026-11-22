@@ -59,9 +59,17 @@ func resourceTags(res any) map[string]string {
 	}
 }
 
-// TaggedResources returns every Managed Blockchain resource ARN that
-// currently has at least one tag applied via TagResource.
+// TaggedResources lists every resource that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every network, member, node, accessor, proposal and invitation, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
@@ -69,7 +77,7 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 
 	for resourceARN, res := range b.arnToResource {
 		tags := resourceTags(res)
-		if len(tags) == 0 {
+		if taggedOnly && len(tags) == 0 {
 			continue
 		}
 

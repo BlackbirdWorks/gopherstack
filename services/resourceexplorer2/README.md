@@ -16,7 +16,7 @@
 
 ### Known gaps
 
-- Search: untagged resources appear for S3, DynamoDB, Lambda, SQS, SNS, KMS and Secrets Manager (their tagging providers list every resource), for ECS clusters and services, RDS instances and clusters, CloudWatch Logs groups, IAM roles, users, groups and policies, CloudFormation stacks, ELBv2 load balancers and target groups and Classic load balancers (internal/app/resourceexplorer_inventory.go), for AMP, AppIntegrations, CloudHSM v2, CodeGuru Reviewer, RUM, Timestream for InfluxDB and the EC2 kinds; each other service wired into the tagging aggregation (about 90, each with its own TaggedResources that keeps only tagged entries, e.g. services/rum/tags.go TaggedResources/InventoryResources pair) still needs its own inventory source
+- Search: ECS daemons do not appear tagged or untagged; their creation tags live on the Daemon record, not in the ECS resource tag store the tagging aggregation and InventoryResources read
 
 ### Structural gaps
 

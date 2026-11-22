@@ -131,11 +131,17 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every EMR cluster and studio ARN, across all
-// regions, that currently has at least one tag. b.clusters and b.studios are
-// each a single store.Table keyed by "region|id" (see regionKey), so All()
-// on each already spans every region without a per-region loop.
+// TaggedResources lists every cluster and studio that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every cluster and studio, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
@@ -144,19 +150,15 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 	out := make([]TaggedEntry, 0, len(clusters)+len(studios))
 
 	for _, c := range clusters {
-		if len(c.Tags) == 0 {
-			continue
+		if !taggedOnly || len(c.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: c.ARN, Tags: tagsToMap(c.Tags)})
 		}
-
-		out = append(out, TaggedEntry{ARN: c.ARN, Tags: tagsToMap(c.Tags)})
 	}
 
 	for _, s := range studios {
-		if len(s.Tags) == 0 {
-			continue
+		if !taggedOnly || len(s.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: s.StudioArn, Tags: tagsToMap(s.Tags)})
 		}
-
-		out = append(out, TaggedEntry{ARN: s.StudioArn, Tags: tagsToMap(s.Tags)})
 	}
 
 	return out

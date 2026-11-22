@@ -9,9 +9,17 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every CodeCommit repository ARN that currently has
-// at least one tag applied via TagResource.
+// TaggedResources lists every repository that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every repository, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
@@ -19,11 +27,17 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 	out := make([]TaggedEntry, 0, len(repos))
 
 	for _, r := range repos {
-		if r.Tags == nil || r.Tags.Len() == 0 {
+		empty := r.Tags == nil || r.Tags.Len() == 0
+		if taggedOnly && empty {
 			continue
 		}
 
-		out = append(out, TaggedEntry{ARN: r.ARN, Tags: r.Tags.Clone()})
+		entry := TaggedEntry{ARN: r.ARN}
+		if !empty {
+			entry.Tags = r.Tags.Clone()
+		}
+
+		out = append(out, entry)
 	}
 
 	return out

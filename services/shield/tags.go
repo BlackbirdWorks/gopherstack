@@ -181,20 +181,26 @@ type TaggedEntry struct {
 	ARN  string
 }
 
-// TaggedResources returns every Shield protection ARN that currently has at
-// least one tag applied via TagResource.
+// TaggedResources lists every protection that carries at least one tag.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	return b.entries(true)
+}
+
+// InventoryResources lists every protection, tagged or not.
+func (b *InMemoryBackend) InventoryResources() []TaggedEntry {
+	return b.entries(false)
+}
+
+func (b *InMemoryBackend) entries(taggedOnly bool) []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, b.protections.Len())
 
 	for _, p := range b.protections.All() {
-		if len(p.Tags) == 0 {
-			continue
+		if !taggedOnly || len(p.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: p.ProtectionArn, Tags: maps.Clone(p.Tags)})
 		}
-
-		out = append(out, TaggedEntry{ARN: p.ProtectionArn, Tags: maps.Clone(p.Tags)})
 	}
 
 	return out
