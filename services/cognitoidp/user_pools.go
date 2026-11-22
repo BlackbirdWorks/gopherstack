@@ -19,8 +19,14 @@ const deletionProtectionActive = "ACTIVE"
 
 // CreateUserPool creates a new user pool with the given name.
 func (b *InMemoryBackend) CreateUserPool(name string) (*UserPool, error) {
+	limit := b.userPoolLimit()
+
 	b.mu.Lock("CreateUserPool")
 	defer b.mu.Unlock()
+
+	if err := b.checkUserPoolQuotaLocked(limit); err != nil {
+		return nil, err
+	}
 
 	poolID := b.region + "_" + randomAlphanumeric(poolIDSuffixLen)
 	issuerURL := fmt.Sprintf("%s/%s", b.endpoint, poolID)
@@ -379,8 +385,14 @@ func validatePassword(policy *PasswordPolicy, password string) error {
 
 // CreateUserPoolWithOpts creates a user pool with optional PasswordPolicy and AutoVerifiedAttributes.
 func (b *InMemoryBackend) CreateUserPoolWithOpts(name string, opts UserPoolOptions) (*UserPool, error) {
+	limit := b.userPoolLimit()
+
 	b.mu.Lock("CreateUserPoolWithOpts")
 	defer b.mu.Unlock()
+
+	if err := b.checkUserPoolQuotaLocked(limit); err != nil {
+		return nil, err
+	}
 
 	poolID, err := b.newPoolID(opts.PinnedPoolID)
 	if err != nil {

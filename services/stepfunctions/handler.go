@@ -378,6 +378,9 @@ func errorMappings() []errorMapping {
 		{ErrValidation, "ValidationException", http.StatusBadRequest},
 		{errUnknownOperation, "UnknownOperationException", http.StatusBadRequest},
 		{ErrInvalidToken, "InvalidToken", http.StatusBadRequest},
+		{ErrStateMachineLimitExceeded, "StateMachineLimitExceeded", http.StatusBadRequest},
+		{ErrActivityLimitExceeded, "ActivityLimitExceeded", http.StatusBadRequest},
+		{ErrServiceQuotaExceeded, "ServiceQuotaExceededException", http.StatusBadRequest},
 	}
 }
 

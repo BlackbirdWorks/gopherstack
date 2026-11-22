@@ -11,6 +11,8 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
@@ -177,6 +179,7 @@ type InMemoryBackend struct {
 	// make a status-keyed Index stale -- see store_setup.go.
 	smExecsByStatus map[string]map[string][]string
 	accountID       string
+	quotaGate       quotalimit.Gate
 	region          string
 	settings        Settings
 	// mapChildSeq counts Distributed Map child executions spawned so far,

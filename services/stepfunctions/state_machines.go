@@ -91,6 +91,7 @@ func (b *InMemoryBackend) CreateStateMachine(
 
 	region := getRegionFromContext(ctx, b.region)
 	smARN := b.smARN(region, name)
+	limit := b.quotaLimit(region, quotaStateMachines)
 
 	b.mu.Lock("CreateStateMachine")
 	defer b.mu.Unlock()
@@ -119,6 +120,10 @@ func (b *InMemoryBackend) CreateStateMachine(
 
 	if existing != nil {
 		return nil, fmt.Errorf("%w: %s", ErrStateMachineAlreadyExists, name)
+	}
+
+	if err = quotaReached(limit, len(nameIdx), ErrStateMachineLimitExceeded, "state machines"); err != nil {
+		return nil, err
 	}
 
 	now := epochNow()

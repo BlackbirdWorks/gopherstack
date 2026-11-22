@@ -142,6 +142,8 @@ func (b *InMemoryBackend) buildNewAutoScalingGroup(
 
 // CreateAutoScalingGroup creates a new Auto Scaling group.
 func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInput) (*AutoScalingGroup, error) {
+	limit := b.quotaLimit(quotaGroups)
+
 	b.mu.Lock("CreateAutoScalingGroup")
 	defer b.mu.Unlock()
 
@@ -151,6 +153,12 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 	}
 
 	input.AvailabilityZones = zones
+
+	if !b.groups.Has(input.AutoScalingGroupName) {
+		if qerr := quotaReached(limit, len(b.groups.All()), "Auto Scaling groups"); qerr != nil {
+			return nil, qerr
+		}
+	}
 
 	if input.HealthCheckType == "" {
 		input.HealthCheckType = healthCheckTypeEC2

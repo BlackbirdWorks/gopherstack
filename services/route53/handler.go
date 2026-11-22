@@ -980,6 +980,10 @@ var backendErrorTable = []backendErrorMapping{
 	{ErrLastVPCAssociation, "LastVPCAssociation", http.StatusBadRequest},
 	{ErrHostedZoneAlreadyExists, "HostedZoneAlreadyExists", http.StatusConflict},
 	{ErrHealthCheckAlreadyExists, "HealthCheckAlreadyExists", http.StatusConflict},
+	{ErrTooManyHostedZones, "TooManyHostedZones", http.StatusBadRequest},
+	{ErrTooManyHealthChecks, "TooManyHealthChecks", http.StatusBadRequest},
+	{ErrTooManyTrafficPolicies, "TooManyTrafficPolicies", http.StatusBadRequest},
+	{ErrLimitsExceeded, "LimitsExceeded", http.StatusBadRequest},
 	{ErrKeySigningKeyAlreadyExists, "KeySigningKeyAlreadyExists", http.StatusConflict},
 	{ErrTrafficPolicyInstanceAlreadyExists, "TrafficPolicyInstanceAlreadyExists", http.StatusConflict},
 	// AWS: CidrCollectionAlreadyExistsException has httpStatusCode 400

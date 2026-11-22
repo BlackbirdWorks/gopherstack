@@ -204,12 +204,18 @@ func (b *InMemoryBackend) CreateKey(
 		return nil, err
 	}
 
-	b.mu.Lock("CreateKey")
-	defer b.mu.Unlock()
-
 	region := getRegion(ctx, b.defaultRegion)
 	if input.Region != "" {
 		region = input.Region
+	}
+
+	limit := b.quotaLimit(region, quotaKeys)
+
+	b.mu.Lock("CreateKey")
+	defer b.mu.Unlock()
+
+	if err := b.checkKeyQuotaLocked(region, limit); err != nil {
+		return nil, err
 	}
 
 	// An inline policy, if supplied, must be a well-formed key policy document.

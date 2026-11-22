@@ -5,6 +5,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -93,6 +95,7 @@ type InMemoryBackend struct {
 	registry                *store.Registry
 	instanceIndex           map[string]string
 	accountID               string
+	quotaGate               *quotalimit.Gate
 	region                  string
 	deletedActivities       []ScalingActivity
 	launchTimers            []*time.Timer
@@ -109,6 +112,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		accountID:           accountID,
+		quotaGate:           &quotalimit.Gate{},
 		region:              region,
 		activities:          make(map[string][]ScalingActivity),
 		instanceRefreshes:   make(map[string][]*InstanceRefresh),

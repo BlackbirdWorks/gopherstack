@@ -80,6 +80,7 @@ func (b *InMemoryBackend) CreateActivity(ctx context.Context, name string) (*Act
 
 	region := getRegionFromContext(ctx, b.region)
 	actARN := b.activityARN(region, name)
+	limit := b.quotaLimit(region, quotaActivities)
 
 	b.mu.Lock("CreateActivity")
 	defer b.mu.Unlock()
@@ -87,6 +88,10 @@ func (b *InMemoryBackend) CreateActivity(ctx context.Context, name string) (*Act
 	actIdx := b.regionActivityIndex(region)
 	if _, exists := actIdx[name]; exists {
 		return nil, fmt.Errorf("%w: %s", ErrActivityAlreadyExists, name)
+	}
+
+	if err := quotaReached(limit, len(actIdx), ErrActivityLimitExceeded, "activities"); err != nil {
+		return nil, err
 	}
 
 	a := &Activity{

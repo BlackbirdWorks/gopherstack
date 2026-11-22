@@ -122,12 +122,18 @@ func (b *InMemoryBackend) CreateNetworkInterfaceWithOptions(
 		return nil, fmt.Errorf("%w: SubnetId is required", ErrInvalidParameter)
 	}
 
+	limit := b.quotaLimit(quotaServiceVPC, quotaNetworkInterfaces)
+
 	b.mu.Lock("CreateNetworkInterface")
 	defer b.mu.Unlock()
 
 	sub, ok := b.subnets.Get(subnetID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
+	}
+
+	if limit.Reached(len(b.networkInterfaces.All())) {
+		return nil, quotaExceeded(ErrNetworkInterfaceLimitExceeded, "network interfaces", limit)
 	}
 
 	groups, err := b.resolveENIGroupsLocked(sub.VPCID, opts.SecurityGroupIDs)

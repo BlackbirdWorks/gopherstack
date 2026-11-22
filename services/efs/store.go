@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -140,6 +142,7 @@ type InMemoryBackend struct {
 	ec2Resolver EC2Resolver
 	storageRoot string
 	accountID   string
+	quotaGate   quotalimit.Gate
 	region      string
 	// fsActivationDelay controls how long CreateFileSystem waits before transitioning
 	// a file system from "creating" to "available". Zero (default) means the transition

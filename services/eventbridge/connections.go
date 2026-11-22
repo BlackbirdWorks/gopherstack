@@ -27,11 +27,17 @@ func (b *InMemoryBackend) CreateConnection(ctx context.Context, input CreateConn
 
 	region := getRegionFromContext(ctx, b.region)
 
+	limit := b.quotaLimit(region, quotaConnections)
+
 	b.mu.Lock("CreateConnection")
 	defer b.mu.Unlock()
 
 	if b.connectionsTable(region).Has(input.Name) {
 		return nil, fmt.Errorf("%w: connection %s already exists", ErrAlreadyExists, input.Name)
+	}
+
+	if err := quotaReached(limit, b.connectionsTable(region).Len(), "connections"); err != nil {
+		return nil, err
 	}
 
 	now := time.Now()

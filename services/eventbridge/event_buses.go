@@ -61,6 +61,7 @@ func (b *InMemoryBackend) CreateEventBus(ctx context.Context, params CreateEvent
 	}
 
 	region := getRegionFromContext(ctx, b.region)
+	limit := b.quotaLimit(region, quotaEventBuses)
 
 	b.mu.Lock("CreateEventBus")
 	defer b.mu.Unlock()
@@ -75,20 +76,8 @@ func (b *InMemoryBackend) CreateEventBus(ctx context.Context, params CreateEvent
 	}
 
 	// Count custom buses across all regions — the AWS limit is per-account, not per-region.
-	customBusCount := 0
-	for _, regionBuses := range b.buses {
-		for _, bus := range regionBuses.All() {
-			if bus.Name != defaultEventBusName {
-				customBusCount++
-			}
-		}
-	}
-	if customBusCount >= maxEventBusesPerAccount {
-		return nil, fmt.Errorf(
-			"%w: account has reached the maximum of %d custom event buses",
-			ErrResourceLimitExceeded,
-			maxEventBusesPerAccount,
-		)
+	if err := b.checkBusQuotaLocked(region, limit); err != nil {
+		return nil, err
 	}
 
 	now := time.Now()

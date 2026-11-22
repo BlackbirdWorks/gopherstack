@@ -16,6 +16,8 @@ func (b *InMemoryBackend) CreateCidrCollection(
 		return nil, fmt.Errorf("%w: name is required", ErrInvalidInput)
 	}
 
+	limit := b.quotaLimit(quotaCidrCollections)
+
 	b.mu.Lock("CreateCidrCollection")
 	defer b.mu.Unlock()
 
@@ -27,6 +29,10 @@ func (b *InMemoryBackend) CreateCidrCollection(
 				name,
 			)
 		}
+	}
+
+	if err := quotaReached(limit, b.cidrCollections.Len(), ErrLimitsExceeded, "CIDR collections"); err != nil {
+		return nil, err
 	}
 
 	id := "Z" + randomZoneID()

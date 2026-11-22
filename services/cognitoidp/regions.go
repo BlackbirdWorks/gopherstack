@@ -46,6 +46,7 @@ func (h *Handler) EnableRegions(ctx context.Context) {
 	h.peers = regionpeers.New(h.Backend.region, func(region string) *Handler {
 		nb := NewInMemoryBackend(h.Backend.accountID, region, h.Backend.endpoint)
 		nb.inheritTriggerInvoker(h.Backend)
+		nb.quotaGate = h.Backend.quotaGate
 
 		p := NewHandler(nb, region)
 

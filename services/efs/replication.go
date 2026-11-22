@@ -26,6 +26,7 @@ func (b *InMemoryBackend) CreateReplicationConfiguration(
 	}
 
 	region := getRegion(ctx, b.region)
+	limit := b.fileSystemLimit(region)
 
 	b.mu.Lock("CreateReplicationConfiguration")
 	defer b.mu.Unlock()
@@ -50,8 +51,8 @@ func (b *InMemoryBackend) CreateReplicationConfiguration(
 	// operations.CreateReplicationConfiguration.errors, see limits.go) because it
 	// implicitly creates a destination file system, drawing on the same
 	// per-account/region quota CreateFileSystem enforces.
-	if len(b.fileSystemsByRegion.Get(region)) >= b.limits.fileSystemsPerAccount {
-		return nil, fileSystemLimitExceededErr(b.limits.fileSystemsPerAccount)
+	if maxFS := b.fileSystemCap(limit); len(b.fileSystemsByRegion.Get(region)) >= maxFS {
+		return nil, fileSystemLimitExceededErr(maxFS)
 	}
 
 	creationTime := time.Now().UTC()

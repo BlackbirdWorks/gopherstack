@@ -71,6 +71,7 @@ func (b *InMemoryBackend) CreateHostedZone(
 	}
 
 	name = normaliseName(name)
+	limit := b.quotaLimit(quotaHostedZones)
 
 	b.mu.Lock("CreateHostedZone")
 	defer b.mu.Unlock()
@@ -78,6 +79,10 @@ func (b *InMemoryBackend) CreateHostedZone(
 	existing, err := b.matchExistingHostedZone(name, callerRef, comment, delegationSetID, private)
 	if existing != nil || err != nil {
 		return existing, err
+	}
+
+	if err = quotaReached(limit, b.zones.Len(), ErrTooManyHostedZones, "hosted zones"); err != nil {
+		return nil, err
 	}
 
 	nameServers, err := b.resolveZoneNameServers(delegationSetID)

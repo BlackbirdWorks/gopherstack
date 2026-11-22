@@ -211,6 +211,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		return respond(http.StatusNotFound, "ResourceNotFoundException")
 	case errors.Is(err, ErrAlreadyExists):
 		return respond(http.StatusBadRequest, "ResourceInUseException")
+	case errors.Is(err, ErrLimitExceeded):
+		return respond(http.StatusBadRequest, "LimitExceededException")
 	case errors.Is(err, ErrConcurrentModification):
 		return respond(http.StatusBadRequest, "ConcurrentModificationException")
 	case errors.Is(err, errUnknownAction):

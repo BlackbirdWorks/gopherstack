@@ -116,6 +116,8 @@ func (b *InMemoryBackend) PutRule(ctx context.Context, input PutRuleInput) (*Rul
 		return nil, awsErrorf(ErrInvalidParameter, "ScheduleExpression is supported only on the default event bus.")
 	}
 
+	limit := b.quotaLimit(region, quotaRules)
+
 	b.mu.Lock("PutRule")
 	defer b.mu.Unlock()
 
@@ -134,12 +136,12 @@ func (b *InMemoryBackend) PutRule(ctx context.Context, input PutRuleInput) (*Rul
 
 	// Enforce per-bus rule limit only for new rules (not updates).
 	if !exists {
-		if ruleTable.Len() >= maxRulesPerBus {
+		if maxRules := ruleLimit(limit); ruleTable.Len() >= maxRules {
 			return nil, fmt.Errorf(
 				"%w: event bus %s has reached the maximum of %d rules",
 				ErrResourceLimitExceeded,
 				busName,
-				maxRulesPerBus,
+				maxRules,
 			)
 		}
 	} else if err := checkManagedRule(existing); err != nil {

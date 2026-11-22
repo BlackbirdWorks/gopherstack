@@ -38,8 +38,8 @@ families:
   Reports: {status: ok, note: "The report snapshot is taken when the report completes."}
   AutoManagement: {status: ok, note: "One configuration per account and Region."}
 items_still_open:
-  - "QuotaUtilization: S3 buckets, EC2 Elastic IPs, VPCs, IAM roles/users/groups/customer managed policies/instance profiles, EKS clusters, DynamoDB tables, ECS clusters, RDS DB instances and clusters, CloudFormation stacks and ALB/NLB/Classic load balancers report usage; the other catalogued quotas (Lambda, CloudFormation stack sets, EC2 instance vCPUs and Spot requests, the other VPC quotas and every quota of the other documented services) have no live counter wired in internal/app/service_quotas_wiring.go quotaCounters"
-  - "AppliedQuotaEnforcement: opt-in (--enforce-service-quotas) for S3 buckets, EC2 Elastic IPs and VPCs, IAM roles/users/groups/customer managed policies/instance profiles, EKS clusters, DynamoDB tables, RDS DB instances and clusters, CloudFormation stacks and ALB/NLB/Classic load balancers only; ECS clusters are counted but not enforced (CreateCluster declares no limit exception), and the other catalogued quotas are never enforced"
+  - "QuotaUtilization: 61 count-of-resources quotas report live usage (internal/app/testdata/service_quota_classes.json class c); the other 3368 count-of-resources quotas (per-instance-type usage of SageMaker, Bedrock, Connect, Glue, CloudFront, Spot-fleet style quotas and the remaining quotas of every documented service) have no counter wired in internal/app/service_quotas_counters.go, and the 1413 rate, throughput and concurrency quotas report no usage because the emulator keeps no request-rate or concurrency meter"
+  - "AppliedQuotaEnforcement: opt-in (--enforce-service-quotas) for S3 buckets, EC2 Elastic IPs, VPCs, NAT gateways per AZ, network interfaces and routes per table, IAM roles/users/groups/customer managed policies/instance profiles, EKS clusters, DynamoDB tables, RDS DB instances and clusters, CloudFormation stacks, ALB/NLB/Classic load balancers, CloudWatch Logs log groups, KMS keys/aliases per key/grants per key, EventBridge buses/rules per bus/connections/endpoints/API destinations, Step Functions state machines/activities/versions/aliases, Route 53 hosted zones/health checks/delegation sets/traffic policies/CIDR collections, ECR repositories, Auto Scaling groups and launch configurations, EFS file systems, Firehose delivery streams and Cognito identity and user pools; counted but not enforced: ECS clusters (CreateCluster declares no limit exception), EC2 subnets/internet gateways/security groups/rules per group/route tables/vCPU and Spot quotas (the EC2 error code reference lists no limit code for them) and Route 53 records per hosted zone (ChangeResourceRecordSets declares none); rate quotas never throttle"
 gaps: []
 structural_gaps:
   - "Support staff never review a case: a request still auto-approves on the lifecycle dwell unless its Support case is resolved first (CASE_CLOSED)."
@@ -65,6 +65,16 @@ Emulator choices the SDK does not document:
 ## 2026-11-13 template limits
 
 Quota request templates answer TemplatesNotAvailableInRegionException in opt-in, China and GovCloud Regions and hold at most 10 items (QuotaExceededException on the 11th); sources docs.aws.amazon.com/servicequotas/latest/userguide/organization-templates.html and docs.aws.amazon.com/accounts/latest/reference/manage-acct-regions.html.
+
+## Live usage and enforcement
+
+- Count quotas are classified one by one in `internal/app/testdata/service_quota_classes.json` (c counted, e count without counter, s size or length, r rate or concurrency); `TestQuotaClassificationCoversCatalog` fails for a catalogued quota missing from it and `TestQuotaCountersMatchClassification` for a counter and a class that disagree. The s/r/e split of the uncounted quotas is name-derived and was not reviewed quota by quota.
+- Quotas scoped to a parent (subnets per VPC, rules per security group, aliases per KMS key, rules per event bus, routes per table, versions and aliases per state machine) report the largest count in any single parent in the Region, and enforce per parent.
+- Enforcement reads the applied value before the owning backend takes its lock and compares it inside the same critical section as the create, so concurrent creates cannot overshoot; with the flag off nothing is consulted and the built-in caps (EventBridge 200 buses and 300 rules per bus, KMS 50,000 grants per key, EFS file system cap) are unchanged.
+- Limit errors come from the SDK operation error lists (`deserializeOpError<Op>` of the pinned module versions) or, for EC2, from the EC2 error code reference (NatGatewayLimitExceeded, NetworkInterfaceLimitExceeded, ResourceCountLimitExceeded).
+- EC2 vCPU quotas count pending and running On-Demand instances by instance family class and open or active Spot requests by requested type; instances launched by a Spot request are excluded from the On-Demand count.
+- Route 53 is account-global: it consults the applied value of the Service Quotas backend's own account and Region.
+- Rate, throughput and concurrency quotas (requests per second, concurrent executions) are catalogued with their values and never produce throttling; no usage is reported for them.
 
 ## Primary-source checks (2026-11-13)
 - servicequotas: IAM reference_iam-quotas.html lists the maximum quotas per account as roles 10,000, customer managed policies 10,000, instance profiles 10,000 and groups 500 (catalog fixed from 5,000).

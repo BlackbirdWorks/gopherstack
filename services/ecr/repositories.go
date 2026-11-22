@@ -30,6 +30,9 @@ func (b *InMemoryBackend) CreateRepository(
 		encryptionType = "AES256"
 	}
 
+	region := b.regionFor(ctx)
+	limit := b.repositoryLimit(region)
+
 	b.mu.Lock("CreateRepository")
 	defer b.mu.Unlock()
 
@@ -37,7 +40,9 @@ func (b *InMemoryBackend) CreateRepository(
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryAlreadyExists, name)
 	}
 
-	region := b.regionFor(ctx)
+	if err := b.checkRepositoryQuotaLocked(limit); err != nil {
+		return nil, err
+	}
 
 	endpoint := b.registryHostLocked(region)
 

@@ -53,10 +53,11 @@ func (b *InMemoryBackend) CreateAlias(ctx context.Context, input *CreateAliasInp
 		)
 	}
 
+	region := getRegion(ctx, b.defaultRegion)
+	limit := b.quotaLimit(region, quotaAliasesKey)
+
 	b.mu.Lock("CreateAlias")
 	defer b.mu.Unlock()
-
-	region := getRegion(ctx, b.defaultRegion)
 
 	if b.aliasesStore(region).Has(input.AliasName) {
 		return fmt.Errorf("%w: An alias with the name %s already exists",
@@ -72,6 +73,10 @@ func (b *InMemoryBackend) CreateAlias(ctx context.Context, input *CreateAliasInp
 
 	if !b.keysStore(region).Has(targetID) {
 		return ErrKeyNotFound
+	}
+
+	if err = b.checkAliasQuotaLocked(region, targetID, limit); err != nil {
+		return err
 	}
 
 	now := UnixTimeFloat(time.Now())

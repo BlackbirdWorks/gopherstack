@@ -40,6 +40,8 @@ func (b *InMemoryBackend) CreateReusableDelegationSet(
 		return nil, fmt.Errorf("%w: callerReference is required", ErrInvalidInput)
 	}
 
+	limit := b.quotaLimit(quotaDelegationSets)
+
 	b.mu.Lock("CreateReusableDelegationSet")
 	defer b.mu.Unlock()
 
@@ -54,6 +56,11 @@ func (b *InMemoryBackend) CreateReusableDelegationSet(
 	}
 
 	nameServers, err := b.resolveSourceZoneNameServers(hostedZoneID)
+	if err != nil {
+		return nil, err
+	}
+
+	err = quotaReached(limit, b.reusableDelegationSets.Len(), ErrLimitsExceeded, "reusable delegation sets")
 	if err != nil {
 		return nil, err
 	}

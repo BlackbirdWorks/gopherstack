@@ -93,6 +93,7 @@ func (b *InMemoryBackend) CreateHealthCheck(
 	}
 
 	cfg = applyHealthCheckDefaults(cfg)
+	limit := b.quotaLimit(quotaHealthChecks)
 
 	b.mu.Lock("CreateHealthCheck")
 	defer b.mu.Unlock()
@@ -118,6 +119,10 @@ func (b *InMemoryBackend) CreateHealthCheck(
 			ErrHealthCheckAlreadyExists,
 			callerRef,
 		)
+	}
+
+	if err := quotaReached(limit, b.healthChecks.Len(), ErrTooManyHealthChecks, "health checks"); err != nil {
+		return nil, err
 	}
 
 	hc := &HealthCheck{
