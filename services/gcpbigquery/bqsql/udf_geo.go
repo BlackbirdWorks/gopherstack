@@ -428,18 +428,10 @@ func (g *geo) geoJSON() string {
 	return `{ "type": "GeometryCollection", "geometries": [] }`
 }
 
-// udfMakeLine concatenates the vertices of its point or linestring arguments, dropping consecutive repeats.
+// udfMakeLine concatenates the vertices of its point or linestring arguments, dropping consecutive repeats and
+// collapsing retraced or overlapping edges.
 func udfMakeLine(a []driver.Value) (driver.Value, error) {
-	if len(a) == 1 && a[0] != nil {
-		if arr, err := decodeJSONArray(a[0]); err == nil {
-			a = make([]driver.Value, len(arr))
-			for i, e := range arr {
-				if s, ok := e.(string); ok {
-					a[i] = s
-				}
-			}
-		}
-	}
+	a = unwrapGeoArray(a)
 
 	if anyNull(a) {
 		return nil, nil //nolint:nilnil // NULL in, NULL out
@@ -471,7 +463,37 @@ func udfMakeLine(a []driver.Value) (driver.Value, error) {
 		return (&geo{kind: gEmpty}).wkt(), nil
 	}
 
-	return (&geo{kind: gLine, lines: [][]lonLat{pts}}).wkt(), nil
+	if err := checkEdgeSpans(pts); err != nil {
+		return nil, err
+	}
+
+	lines := nodeLines(pts)
+	if len(lines) > 1 {
+		return (&geo{kind: gMultiLine, lines: lines}).wkt(), nil
+	}
+
+	return (&geo{kind: gLine, lines: lines}).wkt(), nil
+}
+
+// unwrapGeoArray turns a single ARRAY<GEOGRAPHY> argument into its elements.
+func unwrapGeoArray(a []driver.Value) []driver.Value {
+	if len(a) != 1 || a[0] == nil {
+		return a
+	}
+
+	arr, err := decodeJSONArray(a[0])
+	if err != nil {
+		return a
+	}
+
+	out := make([]driver.Value, len(arr))
+	for i, e := range arr {
+		if s, ok := e.(string); ok {
+			out[i] = s
+		}
+	}
+
+	return out
 }
 
 func appendDistinct(dst []lonLat, add ...lonLat) []lonLat {

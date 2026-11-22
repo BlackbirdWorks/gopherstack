@@ -346,12 +346,29 @@ type searchNode struct {
 }
 
 type searchParser struct {
-	src []rune
-	pos int
+	src   []rune
+	pos   int
+	depth int
+}
+
+const searchMaxDepth = 16
+
+func hasLogicalWord(s string) bool {
+	for w := range strings.FieldsSeq(s) {
+		if w == litAnd || w == litOr {
+			return true
+		}
+	}
+
+	return false
 }
 
 func parseSearchQuery(q string) (*searchNode, error) {
-	p := &searchParser{src: []rune(q)}
+	return parseSearchQueryAt(q, 0)
+}
+
+func parseSearchQueryAt(q string, depth int) (*searchNode, error) {
+	p := &searchParser{src: []rune(q), depth: depth}
 
 	n, err := p.or()
 	if err != nil {
@@ -501,6 +518,13 @@ func (p *searchParser) quoted(q rune) (*searchNode, error) {
 			kind := byte('p')
 			if q == '`' {
 				kind = 'b'
+			}
+
+			// search_functions example: "foo AND (bar OR baz)" matches 'foo bar', so operators in a phrase are logical.
+			if kind == 'p' && p.depth < searchMaxDepth && hasLogicalWord(sb.String()) {
+				if n, err := parseSearchQueryAt(sb.String(), p.depth+1); err == nil {
+					return n, nil
+				}
 			}
 
 			return &searchNode{kind: kind, text: sb.String()}, nil

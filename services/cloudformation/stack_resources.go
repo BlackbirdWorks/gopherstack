@@ -19,7 +19,7 @@ func (b *InMemoryBackend) DescribeStackResource(
 		return nil, ErrStackNotFound
 	}
 
-	res, ok := b.resources[stack.StackID][logicalID]
+	res, ok := b.liveResourcesLocked(stack)[logicalID]
 	if !ok {
 		return nil, ErrResourceNotFound
 	}
@@ -39,7 +39,7 @@ func (b *InMemoryBackend) ListStackResources(
 		return page.Page[StackResourceSummary]{}, ErrStackNotFound
 	}
 
-	resMap := b.resources[stack.StackID]
+	resMap := b.liveResourcesLocked(stack)
 	summaries := make([]StackResourceSummary, 0, len(resMap))
 
 	for _, res := range resMap {
@@ -69,7 +69,7 @@ func (b *InMemoryBackend) DescribeStackResources(nameOrID string) ([]StackResour
 		return nil, ErrStackNotFound
 	}
 
-	resMap := b.resources[stack.StackID]
+	resMap := b.liveResourcesLocked(stack)
 	resources := make([]StackResource, 0, len(resMap))
 
 	for _, res := range resMap {

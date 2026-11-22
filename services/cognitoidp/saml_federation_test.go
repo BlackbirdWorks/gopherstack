@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -568,7 +569,10 @@ func bindingCookie(resp *http.Response) *http.Cookie {
 func bareDo(t *testing.T, req *http.Request) *http.Response {
 	t.Helper()
 
-	c := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	c := &http.Client{
+		Transport:     testclient.New(t).Transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
 
 	resp, err := c.Do(req)
 	require.NoError(t, err)

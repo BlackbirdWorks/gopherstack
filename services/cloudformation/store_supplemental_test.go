@@ -421,24 +421,31 @@ func TestBackend_ContinueUpdateRollback(t *testing.T) {
 		setup       bool
 	}{
 		{
-			name:        "rollback_in_progress",
+			name:        "rollback_failed_without_failed_resources",
 			stackName:   "my-stack",
 			setup:       true,
-			forceStatus: "ROLLBACK_IN_PROGRESS",
-			wantStatus:  "ROLLBACK_COMPLETE",
+			forceStatus: "UPDATE_ROLLBACK_FAILED",
+			wantStatus:  "UPDATE_ROLLBACK_COMPLETE",
 		},
 		{
 			name:        "update_rollback_in_progress",
 			stackName:   "my-stack",
 			setup:       true,
 			forceStatus: "UPDATE_ROLLBACK_IN_PROGRESS",
-			wantStatus:  "UPDATE_ROLLBACK_COMPLETE",
+			wantErr:     cloudformation.ErrContinueRollback,
 		},
 		{
-			name:       "no_op_when_create_complete",
-			stackName:  "my-stack",
-			setup:      true,
-			wantStatus: "CREATE_COMPLETE",
+			name:        "create_rollback_failed",
+			stackName:   "my-stack",
+			setup:       true,
+			forceStatus: "ROLLBACK_FAILED",
+			wantErr:     cloudformation.ErrContinueRollback,
+		},
+		{
+			name:      "create_complete",
+			stackName: "my-stack",
+			setup:     true,
+			wantErr:   cloudformation.ErrContinueRollback,
 		},
 		{
 			name:      "stack_not_found",
@@ -462,7 +469,7 @@ func TestBackend_ContinueUpdateRollback(t *testing.T) {
 				b.ForceStackStatus(tt.stackName, tt.forceStatus)
 			}
 
-			err := b.ContinueUpdateRollback(t.Context(), tt.stackName)
+			err := b.ContinueUpdateRollback(t.Context(), tt.stackName, cloudformation.ContinueRollbackInput{})
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -472,11 +479,9 @@ func TestBackend_ContinueUpdateRollback(t *testing.T) {
 
 			require.NoError(t, err)
 
-			if tt.wantStatus != "" {
-				stack, descErr := b.DescribeStack(tt.stackName)
-				require.NoError(t, descErr)
-				assert.Equal(t, tt.wantStatus, stack.StackStatus)
-			}
+			stack, descErr := b.DescribeStack(tt.stackName)
+			require.NoError(t, descErr)
+			assert.Equal(t, tt.wantStatus, stack.StackStatus)
 		})
 	}
 }

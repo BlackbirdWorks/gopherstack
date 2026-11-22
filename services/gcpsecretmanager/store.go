@@ -162,6 +162,10 @@ func parseProject(parent string) (string, error) {
 			"Invalid parent %q. Expected projects/{project} or projects/{project}/locations/{location}.", parent)
 	}
 
+	if regional && !knownLocation(parts[3]) {
+		return "", errInvalid("Location %q is not a supported Secret Manager location.", parts[3])
+	}
+
 	return strings.TrimPrefix(parent, "projects/"), nil
 }
 
@@ -181,6 +185,10 @@ func parseSecretName(name string) (string, error) {
 	if parts[0] != "projects" || parts[1] == "" || (!global && !regional) || !secretIDRe.MatchString(parts[n-1]) {
 		return "", errInvalid("Invalid secret name %q. Expected projects/{project}/secrets/{secret} or "+
 			"projects/{project}/locations/{location}/secrets/{secret}.", name)
+	}
+
+	if regional && !knownLocation(parts[3]) {
+		return "", errInvalid("Location %q is not a supported Secret Manager location.", parts[3])
 	}
 
 	return name, nil

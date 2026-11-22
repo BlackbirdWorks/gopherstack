@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -85,9 +86,8 @@ func TestLocalStackAlias_AuthCodeFlowWithPinnedIDs(t *testing.T) {
 	jar, err := cookiejar.New(nil)
 	require.NoError(t, err)
 
-	hc := &http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	}}
+	hc := &http.Client{Transport: testclient.New(t).Transport, Jar: jar,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 
 	q := url.Values{
 		"response_type": {"code"}, "client_id": {"myclient123"}, "redirect_uri": {oauthRedirect}, "state": {"st8"},

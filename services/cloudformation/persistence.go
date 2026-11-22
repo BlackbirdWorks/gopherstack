@@ -45,6 +45,7 @@ type backendSnapshot struct {
 	ResourceDriftStatus map[string]map[string]string                    `json:"resourceDriftStatus"`
 	ResourceDriftDetail map[string]map[string]StackResourceDrift        `json:"resourceDriftDetail"`
 	PendingStackOps     map[string]*pendingStackOp                      `json:"pendingStackOps,omitempty"`
+	FailedRollbacks     map[string]*pendingStackOp                      `json:"failedRollbacks,omitempty"`
 	AccountID           string                                          `json:"accountID"`
 	Region              string                                          `json:"region"`
 	Version             int                                             `json:"version"`
@@ -85,6 +86,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		ResourceDriftStatus: b.resourceDriftStatus,
 		ResourceDriftDetail: b.resourceDriftDetail,
 		PendingStackOps:     b.pendingOps,
+		FailedRollbacks:     b.failedRollbacks,
 		AccountID:           b.accountID,
 		Region:              b.region,
 	}
@@ -206,6 +208,10 @@ func (b *InMemoryBackend) assignSnapshotFields(snap backendSnapshot) {
 	if b.pendingOps == nil {
 		b.pendingOps = make(map[string]*pendingStackOp)
 	}
+	b.failedRollbacks = snap.FailedRollbacks
+	if b.failedRollbacks == nil {
+		b.failedRollbacks = make(map[string]*pendingStackOp)
+	}
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 }
@@ -260,4 +266,31 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 		func(p *Handler, d []byte) error { return p.Restore(ctx, d) },
 		func(*Handler) {},
 	)
+}
+
+// Reset implements service.Resettable: it clears every region and cancels scheduled provisioning.
+func (h *Handler) Reset() {
+	type resetter interface{ Reset() }
+
+	if r, ok := h.Backend.(resetter); ok {
+		r.Reset()
+	}
+
+	for _, p := range h.peers.Drain() {
+		p.Reset()
+		p.Shutdown(context.Background())
+	}
+}
+
+// Shutdown implements service.Shutdowner: no scheduled provisioning step outlives the service.
+func (h *Handler) Shutdown(context.Context) {
+	type closer interface{ Close() }
+
+	if c, ok := h.Backend.(closer); ok {
+		c.Close()
+	}
+
+	for _, p := range h.peers.All() {
+		p.Shutdown(context.Background())
+	}
 }

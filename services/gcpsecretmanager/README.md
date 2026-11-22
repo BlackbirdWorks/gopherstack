@@ -9,13 +9,9 @@
 | --- | --- |
 | PARITY entries audited | 18 (18 ok) |
 | Feature families | 6 (4 ok, 2 partial) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- Regional secret location names are not validated against Secret Manager's supported-region list: no verified catalog exists in the repo and rejecting a valid region would break working clients.
 
 ## More
 

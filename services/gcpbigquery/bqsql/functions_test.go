@@ -232,6 +232,30 @@ func TestGeographyFunctions(t *testing.T) {
 			[][]any{{"LINESTRING(1 2, 2 3)", "POINT(1 2)", "LINESTRING(1 2, 2 3, 3 4, 4 5)"}},
 		},
 		{
+			"makeline overlap",
+			"SELECT ST_ASTEXT(ST_MAKELINE([ST_MAKELINE(ST_GEOGPOINT(1, 0), ST_GEOGPOINT(10, 0)), " +
+				"ST_MAKELINE(ST_GEOGPOINT(10, 0), ST_GEOGPOINT(5, 0)), ST_MAKELINE(ST_GEOGPOINT(5, 0), ST_GEOGPOINT(5, 4))]))",
+			[][]any{{"MULTILINESTRING((1 0, 5 0, 10 0), (5 0, 5 4))"}},
+		},
+		{
+			"makeline retrace",
+			"SELECT ST_ASTEXT(ST_MAKELINE([ST_GEOGPOINT(0, 0), ST_GEOGPOINT(2, 0), ST_GEOGPOINT(0, 0)])), " +
+				"ST_ASTEXT(ST_MAKELINE([ST_GEOGPOINT(0, 0), ST_GEOGPOINT(1, 0), ST_GEOGPOINT(0, 0), ST_GEOGPOINT(0, 1)])), " +
+				"ST_ASTEXT(ST_MAKELINE([ST_GEOGPOINT(0, 0), ST_GEOGPOINT(0, 4), ST_GEOGPOINT(0, 2), ST_GEOGPOINT(0, 6)]))",
+			[][]any{{"LINESTRING(0 0, 2 0)", "LINESTRING(1 0, 0 0, 0 1)", "LINESTRING(0 0, 0 2, 0 4, 0 6)"}},
+		},
+		{
+			"makeline touch",
+			"SELECT ST_ASTEXT(ST_MAKELINE([ST_GEOGPOINT(0, 0), ST_GEOGPOINT(2, 0), ST_GEOGPOINT(1, 1), ST_GEOGPOINT(1, 0)]))",
+			[][]any{{"LINESTRING(0 0, 2 0, 1 1, 1 0)"}},
+		},
+		{
+			"makeline null",
+			"SELECT ST_MAKELINE(ST_GEOGPOINT(1, 2), CAST(NULL AS GEOGRAPHY)), " +
+				"ST_MAKELINE([ST_GEOGPOINT(1, 2), CAST(NULL AS GEOGRAPHY)])",
+			[][]any{{nil, nil}},
+		},
+		{
 			"makepolygon",
 			"SELECT ST_ASTEXT(ST_MAKEPOLYGON(ST_GEOGFROMTEXT('LINESTRING(0 0, 1 0, 1 1, 0 0)')))",
 			[][]any{{"POLYGON((0 0, 1 0, 1 1, 0 0))"}},
@@ -282,16 +306,19 @@ func TestGeographyErrors(t *testing.T) {
 	t.Parallel()
 
 	for name, sql := range map[string]string{
-		"latitude":    "SELECT ST_GEOGPOINT(0, 91)",
-		"x of line":   "SELECT ST_X(ST_GEOGFROMTEXT('LINESTRING(1 2, 3 4)'))",
-		"x of empty":  "SELECT ST_X(ST_GEOGFROMTEXT('GEOMETRYCOLLECTION EMPTY'))",
-		"badwkt":      "SELECT ST_GEOGFROMTEXT('POINT(1)')",
-		"z coords":    "SELECT ST_GEOGFROMTEXT('POINT Z (1 2 3)')",
-		"oriented":    "SELECT ST_GEOGFROMTEXT('POINT(1 2)', oriented => TRUE, planar => TRUE)",
-		"feature":     "SELECT ST_GEOGFROMGEOJSON('{\"type\":\"Feature\",\"geometry\":null}')",
-		"open loop":   "SELECT ST_MAKEPOLYGON(ST_GEOGFROMTEXT('LINESTRING(0 0, 1 0, 1 1)'))",
-		"spheroid":    "SELECT ST_DISTANCE(ST_GEOGPOINT(0, 0), ST_GEOGPOINT(1, 1), TRUE)",
-		"named other": "SELECT ABS(x => 1)",
+		"latitude":             "SELECT ST_GEOGPOINT(0, 91)",
+		"x of line":            "SELECT ST_X(ST_GEOGFROMTEXT('LINESTRING(1 2, 3 4)'))",
+		"x of empty":           "SELECT ST_X(ST_GEOGFROMTEXT('GEOMETRYCOLLECTION EMPTY'))",
+		"badwkt":               "SELECT ST_GEOGFROMTEXT('POINT(1)')",
+		"z coords":             "SELECT ST_GEOGFROMTEXT('POINT Z (1 2 3)')",
+		"oriented":             "SELECT ST_GEOGFROMTEXT('POINT(1 2)', oriented => TRUE, planar => TRUE)",
+		"feature":              "SELECT ST_GEOGFROMGEOJSON('{\"type\":\"Feature\",\"geometry\":null}')",
+		"open loop":            "SELECT ST_MAKEPOLYGON(ST_GEOGFROMTEXT('LINESTRING(0 0, 1 0, 1 1)'))",
+		"makeline half circle": "SELECT ST_MAKELINE(ST_GEOGPOINT(0, 0), ST_GEOGPOINT(180, 0))",
+		"makeline pole pair":   "SELECT ST_MAKELINE(ST_GEOGPOINT(0, 90), ST_GEOGPOINT(30, -90))",
+		"makeline antipode":    "SELECT ST_MAKELINE([ST_GEOGPOINT(1, 1), ST_GEOGPOINT(10, 20), ST_GEOGPOINT(-170, -20)])",
+		"spheroid":             "SELECT ST_DISTANCE(ST_GEOGPOINT(0, 0), ST_GEOGPOINT(1, 1), TRUE)",
+		"named other":          "SELECT ABS(x => 1)",
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -708,6 +735,66 @@ func TestSearchFunctions(t *testing.T) {
 			"email custom full",
 			"SELECT SEARCH('Please use foobar@example.com as your email.', 'foobar@example.com', " +
 				"analyzer_options => '{\"delimiters\": [\" \", \"@\"]}')",
+		},
+		{
+			"true",
+			"phrase logical",
+			"SELECT SEARCH(R'foo bar', R'\"foo AND (bar OR baz)\"')",
+		},
+		{
+			"false",
+			"phrase logical miss",
+			"SELECT SEARCH(R'foo', R'\"foo AND (bar OR baz)\"')",
+		},
+		{
+			"true",
+			"phrase keeps literal and",
+			"SELECT SEARCH(R'Bonnie and Clyde', R'\"Bonnie AND Clyde\"')",
+		},
+		{
+			"true",
+			"phrase keeps literal or",
+			"SELECT SEARCH(R'stay in or out', R'\"in OR out\"')",
+		},
+		{
+			"false",
+			"phrase lowercase and is a term",
+			"SELECT SEARCH(R'foo bar', R'\"foo and bar\"')",
+		},
+		{
+			"true",
+			"phrase unbalanced stays phrase",
+			"SELECT SEARCH(R'foo and bar', R'\"foo AND ( bar\"')",
+		},
+		{
+			"false",
+			"phrase noop analyzer",
+			"SELECT SEARCH(R'foo bar', R'\"foo AND bar\"', analyzer => 'NO_OP_ANALYZER')",
+		},
+		{
+			"false",
+			"phrase deep nesting",
+			"SELECT SEARCH(R'x', R'\"" + strings.Repeat("(", 5000) + "a AND b" + strings.Repeat(")", 5000) + "\"')",
+		},
+		{
+			"true",
+			"phrase or",
+			"SELECT SEARCH(R'foo bar', R'\"zzz OR bar\"')",
+		},
+		{
+			"true",
+			"implicit and",
+			"SELECT SEARCH(R'foo bar baz', R'foo bar')",
+		},
+		{
+			"true",
+			"empty noop",
+			"SELECT SEARCH('', '', analyzer => 'NO_OP_ANALYZER')",
+		},
+		{
+			"false",
+			"noop phrase",
+			"SELECT SEARCH(R'foo bar baz', R'\"foo bar\"', analyzer => 'NO_OP_ANALYZER')",
 		},
 		{
 			"true",

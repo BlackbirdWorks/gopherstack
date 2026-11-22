@@ -1063,9 +1063,9 @@ func TestContinueUpdateRollback(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Should not error even in non-rollback state (permissive implementation).
-	err = b.ContinueUpdateRollback(t.Context(), "cur-stack")
-	require.NoError(t, err)
+	err = b.ContinueUpdateRollback(t.Context(), "cur-stack", cloudformation.ContinueRollbackInput{})
+	require.ErrorIs(t, err, cloudformation.ErrContinueRollback)
+	assert.ErrorContains(t, err, "is in CREATE_COMPLETE state and can not be continue rolled back")
 }
 
 func TestCancelUpdateStack(t *testing.T) {

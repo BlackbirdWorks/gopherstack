@@ -576,7 +576,7 @@ func TestHandler_ContinueUpdateRollback_HTTP(t *testing.T) {
 		"Action":    {"ContinueUpdateRollback"},
 		"StackName": {"cur-http"},
 	})
-	resp.mustOK(t)
+	assert.Equal(t, http.StatusBadRequest, resp.Status)
 }
 
 func TestHandler_CancelUpdateStack_HTTP(t *testing.T) {

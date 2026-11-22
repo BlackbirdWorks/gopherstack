@@ -6,7 +6,7 @@ import (
 	accessanalyzerbackend "github.com/blackbirdworks/gopherstack/services/accessanalyzer"
 )
 
-// RollbackUpdateResourcesForTest exposes rollbackUpdateResources for
+// RollbackUpdateResourcesForTest exposes beginUpdateRollbackLocked for
 // white-box testing: updateResources creates newly-added resources by
 // iterating a Go map, so which of two new resources is created first (and
 // thus whether it's in `created` when a sibling fails) isn't deterministic
@@ -29,7 +29,8 @@ func (b *InMemoryBackend) RollbackUpdateResourcesForTest(
 		prevResources[k] = &cp
 	}
 
-	b.rollbackUpdateResources(ctx, stack, prevResources, created, true)
+	op := &pendingStackOp{PrevResources: prevResources, Created: created, RetainExceptOnCreate: true}
+	b.beginUpdateRollbackLocked(ctx, stack, op, stack.StackStatusReason)
 }
 
 // RegisterForTest exposes MacroRegistry.register for test-only use.

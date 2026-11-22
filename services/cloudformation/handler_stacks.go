@@ -407,7 +407,14 @@ func (h *Handler) handleContinueUpdateRollback(form url.Values, c *echo.Context)
 		return h.xmlError(c, "ValidationError", "StackName is required")
 	}
 
-	if err := h.Backend.ContinueUpdateRollback(c.Request().Context(), stackName); err != nil {
+	in := ContinueRollbackInput{
+		ClientRequestToken: form.Get("ClientRequestToken"),
+		RoleARN:            form.Get("RoleARN"),
+		ForceRollback:      strings.EqualFold(form.Get("ForceRollback"), "true"),
+		ResourcesToSkip:    parseMemberList(form, "ResourcesToSkip."),
+	}
+
+	if err := h.Backend.ContinueUpdateRollback(c.Request().Context(), stackName, in); err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
 

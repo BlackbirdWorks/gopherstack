@@ -377,7 +377,7 @@ func TestHandler_ContinueUpdateRollback(t *testing.T) {
 
 			postForm(t, h, "Action=CreateStack&StackName=my-stack&TemplateBody="+simpleTemplate)
 			rec := postForm(t, h, "Action=ContinueUpdateRollback&StackName=my-stack")
-			assert.Equal(t, 200, rec.Code)
+			assert.Equal(t, 400, rec.Code, "only UPDATE_ROLLBACK_FAILED stacks can continue a rollback")
 		})
 	}
 }

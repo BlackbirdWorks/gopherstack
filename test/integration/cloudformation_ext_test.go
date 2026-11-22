@@ -200,11 +200,13 @@ func TestIntegration_CloudFormation_CancelUpdateRollback(t *testing.T) {
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, "ValidationError", apiErr.ErrorCode())
 
-	// ContinueUpdateRollback (no-op on CREATE_COMPLETE stack)
+	// ContinueUpdateRollback is only valid from UPDATE_ROLLBACK_FAILED
 	_, err = client.ContinueUpdateRollback(ctx, &cloudformationsdk.ContinueUpdateRollbackInput{
 		StackName: aws.String(stackName),
 	})
-	require.NoError(t, err)
+	require.Error(t, err)
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, "ValidationError", apiErr.ErrorCode())
 
 	// Cleanup
 	_, err = client.DeleteStack(ctx, &cloudformationsdk.DeleteStackInput{StackName: aws.String(stackName)})

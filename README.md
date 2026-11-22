@@ -980,7 +980,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Google Cloud Pub/Sub](services/gcppubsub/README.md) | B | 38 | 3 gaps |
 | [Google Cloud Resource Manager and Service Usage](services/gcpresourcemanager/README.md) | B | 39 | 3 gaps |
 | [Google Cloud Storage](services/gcpstorage/README.md) | B | 39 | 4 gaps |
-| [Google Secret Manager](services/gcpsecretmanager/README.md) | B | 18 | 1 gap |
+| [Google Secret Manager](services/gcpsecretmanager/README.md) | B | 18 | clean |
 | [Identity Platform](services/gcpidentitytoolkit/README.md) | B | 1 | clean |
 | [Kubernetes Engine](services/gcpcontainer/README.md) | B | — | 5 families; 4 gaps |
 | [Memorystore for Redis](services/gcpredis/README.md) | B | 14 | 3 gaps |
@@ -1028,7 +1028,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cloudfrontkeyvaluestore](services/cloudfrontkeyvaluestore/README.md) | A | 6 | 2 structural gaps |
 | [Cloudhsmv2](services/cloudhsmv2/README.md) | B | 18 | 3 structural gaps |
 | [Codegurureviewer](services/codegurureviewer/README.md) | B | 14 | 2 structural gaps |
-| [Connect](services/connect/README.md) | B | 397 | 9 gaps; 2 structural gaps |
+| [Connect](services/connect/README.md) | B | 397 | 8 gaps; 2 structural gaps |
 | [Cur](services/cur/README.md) | B | 7 | clean |
 | [Directconnect](services/directconnect/README.md) | A | 73 | 8 structural gaps; 1 deferred |
 | [Dsql](services/dsql/README.md) | A | 16 | 7 gaps; 2 structural gaps |

@@ -147,3 +147,45 @@ func TestCompleteAttachedFileUploadLogsWouldScan(t *testing.T) {
 		})
 	}
 }
+
+func TestStartAttachedFileUploadLogsWouldAttachToCase(t *testing.T) {
+	t.Parallel()
+
+	const caseARN = "arn:aws:cases:us-east-1:" + testAccount + ":domain/d1/case/c1"
+
+	tests := []struct {
+		name    string
+		cases   bool
+		wantLog bool
+	}{
+		{name: "case", cases: true, wantLog: true},
+		{name: "contact"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			logs := &lockedBuf{}
+			e := newContactEnvOn(t, newLoggedFixture(t, logs))
+			resource := caseARN
+
+			if !tt.cases {
+				resource = e.contactARN(t, e.task(t))
+			}
+
+			start := e.startUpload(t, resource, "a.txt", int64(len(attachedText)))
+			out := logs.String()
+
+			if !tt.wantLog {
+				assert.NotContains(t, out, "would attach the file")
+
+				return
+			}
+
+			assert.Equal(t, 1, strings.Count(out, "would attach the file to the Cases case"))
+			assert.Contains(t, out, aws.ToString(start.FileId))
+			assert.Contains(t, out, caseARN)
+		})
+	}
+}

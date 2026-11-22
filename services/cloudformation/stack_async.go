@@ -2,13 +2,13 @@ package cloudformation
 
 import (
 	"context"
-	"slices"
 	"strings"
 	"time"
 )
 
 const (
 	pendingCreate                = "create"
+	pendingCreateWalk            = "createWalk"
 	pendingCreateSettle          = "createSettle"
 	pendingRollbackCreate        = "rollbackCreate"
 	pendingUpdate                = "update"
@@ -25,30 +25,28 @@ const (
 // so a restored snapshot can finish it.
 type pendingStackOp struct {
 	PrevResources        map[string]*StackResource `json:"prevResources,omitempty"`
-	Kind                 string                    `json:"kind"`
-	OnFailure            string                    `json:"onFailure,omitempty"`
-	OldTemplateBody      string                    `json:"oldTemplateBody,omitempty"`
-	ResourceTypes        []string                  `json:"resourceTypes,omitempty"`
-	OldParams            []Parameter               `json:"oldParams,omitempty"`
-	Created              []string                  `json:"created,omitempty"`
-	Announced            []string                  `json:"announced,omitempty"`
-	RetainResources      []string                  `json:"retainResources,omitempty"`
-	DisableValidation    bool                      `json:"disableValidation,omitempty"`
-	RetainExceptOnCreate bool                      `json:"retainExceptOnCreate,omitempty"`
-	ForceDelete          bool                      `json:"forceDelete,omitempty"`
-}
-
-type updateOptions struct {
-	resourceTypes        []string
-	disableValidation    bool
-	retainExceptOnCreate bool
-}
-
-func (op *pendingStackOp) updateOptions() updateOptions {
-	return updateOptions{
-		resourceTypes: op.ResourceTypes, disableValidation: op.DisableValidation,
-		retainExceptOnCreate: op.RetainExceptOnCreate,
-	}
+	PhysicalIDs          map[string]string         `json:"physicalIds,omitempty"`
+	InFlight             map[string]string         `json:"inFlight,omitempty"`
+	FailedReasons        map[string]string         `json:"failedReasons,omitempty"`
+	rt                   *walkRuntime
+	Kind                 string           `json:"kind"`
+	Phase                string           `json:"phase,omitempty"`
+	OnFailure            string           `json:"onFailure,omitempty"`
+	OldTemplateBody      string           `json:"oldTemplateBody,omitempty"`
+	TemplateBody         string           `json:"templateBody,omitempty"`
+	ResourceTypes        []string         `json:"resourceTypes,omitempty"`
+	OldParams            []Parameter      `json:"oldParams,omitempty"`
+	Created              []string         `json:"created,omitempty"`
+	Updated              []string         `json:"updated,omitempty"`
+	Done                 []string         `json:"done,omitempty"`
+	Remaining            []string         `json:"remaining,omitempty"`
+	Replaced             []replacedRecord `json:"replaced,omitempty"`
+	Announced            []string         `json:"announced,omitempty"`
+	RetainResources      []string         `json:"retainResources,omitempty"`
+	DisableValidation    bool             `json:"disableValidation,omitempty"`
+	RetainExceptOnCreate bool             `json:"retainExceptOnCreate,omitempty"`
+	ForceDelete          bool             `json:"forceDelete,omitempty"`
+	SettleLater          bool             `json:"settleLater,omitempty"`
 }
 
 // SetProvisioningScheduler makes top-level stack operations return in their
@@ -74,7 +72,58 @@ func (b *InMemoryBackend) SetProvisioningDelay(d time.Duration) {
 		return
 	}
 
-	b.SetProvisioningScheduler(func(run func()) { time.AfterFunc(d, run) })
+	b.SetProvisioningScheduler(b.delayScheduler(d))
+}
+
+// delayScheduler runs each step d later on a timer the backend can cancel; it is
+// only called from scheduleLocked, with b.mu held.
+func (b *InMemoryBackend) delayScheduler(d time.Duration) func(run func()) {
+	return func(run func()) {
+		b.timerSeq++
+		id := b.timerSeq
+
+		b.delayTimers[id] = time.AfterFunc(d, func() {
+			b.mu.Lock("provisioningTimer")
+			delete(b.delayTimers, id)
+			b.mu.Unlock()
+
+			run()
+		})
+	}
+}
+
+// cancelProvisioningLocked drops every scheduled step without running it.
+func (b *InMemoryBackend) cancelProvisioningLocked() {
+	for id, t := range b.delayTimers {
+		if t.Stop() {
+			b.provisionWG.Done()
+		}
+
+		delete(b.delayTimers, id)
+	}
+
+	clear(b.pendingOps)
+	b.signalSettledLocked()
+}
+
+// Close cancels every scheduled provisioning step; stacks still in flight stay in
+// their *_IN_PROGRESS status and later operations run synchronously.
+func (b *InMemoryBackend) Close() {
+	b.mu.Lock("Close")
+	defer b.mu.Unlock()
+
+	b.cancelProvisioningLocked()
+	b.provisionSchedule = nil
+}
+
+// Reset cancels scheduled provisioning and clears all stacks and their state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.cancelProvisioningLocked()
+	b.registry.ResetAll()
+	b.initState()
 }
 
 // WaitForStackProvisioning blocks until every scheduled stack step has run.
@@ -169,16 +218,12 @@ func (b *InMemoryBackend) runPendingOpLocked(ctx context.Context, stackID string
 		return
 	}
 
-	b.stepAsync = true
-	b.announced = make(map[string]struct{}, len(op.Announced))
+	b.upgradeLegacyOp(stack, op)
 
-	for _, key := range op.Announced {
-		b.announced[key] = struct{}{}
-	}
+	b.stepAsync = true
 
 	defer func() {
 		b.stepAsync = false
-		b.announced = nil
 		b.settleChangeSetsLocked(stack)
 		b.signalSettledLocked()
 	}()
@@ -188,13 +233,13 @@ func (b *InMemoryBackend) runPendingOpLocked(ctx context.Context, stackID string
 
 func (b *InMemoryBackend) runOpLocked(ctx context.Context, stack *Stack, op *pendingStackOp) {
 	switch op.Kind {
-	case pendingCreate, pendingCreateSettle, pendingRollbackCreate:
+	case pendingCreate, pendingCreateWalk, pendingCreateSettle, pendingRollbackCreate:
 		b.runCreateOpLocked(ctx, stack, op)
 	case pendingUpdate, pendingUpdateCleanup, pendingRollbackUpdate, pendingRollbackUpdateCleanup:
 		b.runUpdateOpLocked(ctx, stack, op)
 	case pendingDelete:
 		if stack.StackStatus == statusDeleteInProgress {
-			b.runDeleteLocked(ctx, stack, deleteSettings{retain: op.RetainResources, force: op.ForceDelete})
+			b.runDeleteLocked(ctx, stack, op)
 		}
 	case pendingDeleteFinalize:
 		if stack.StackStatus == statusDeleteInProgress {
@@ -207,12 +252,17 @@ func (b *InMemoryBackend) runCreateOpLocked(ctx context.Context, stack *Stack, o
 	switch op.Kind {
 	case pendingCreate:
 		if stack.StackStatus == statusCreateInProgress {
-			b.finishCreateLocked(ctx, stack, stack.Parameters, createFinish{
-				onFailure:            op.OnFailure,
-				resourceTypes:        op.ResourceTypes,
-				disableValidation:    op.DisableValidation,
-				retainExceptOnCreate: op.RetainExceptOnCreate,
-			})
+			b.finishCreateLocked(ctx, stack, stack.Parameters, op.createFinish().withAnnounced(op.InFlight))
+		}
+	case pendingCreateWalk:
+		if stack.StackStatus != statusCreateInProgress {
+			return
+		}
+
+		b.walkCreateLocked(ctx, stack, op)
+
+		if !b.createWalkPending(stack) {
+			b.settleCreateLocked(ctx, stack, op.createFinish())
 		}
 	case pendingCreateSettle:
 		if stack.StackStatus != statusCreateInProgress {
@@ -228,10 +278,7 @@ func (b *InMemoryBackend) runCreateOpLocked(ctx context.Context, stack *Stack, o
 		b.completeCreateLocked(stack)
 	case pendingRollbackCreate:
 		if stack.StackStatus == statusRollbackInProgress {
-			b.finishCreateRollbackLocked(ctx, stack, op.Created, createFinish{
-				onFailure:            op.OnFailure,
-				retainExceptOnCreate: op.RetainExceptOnCreate,
-			})
+			b.runCreateRollbackLocked(ctx, stack, op)
 		}
 	}
 }
@@ -243,30 +290,22 @@ func (b *InMemoryBackend) runUpdateOpLocked(ctx context.Context, stack *Stack, o
 			return
 		}
 
-		if !b.applyTemplateToStack(ctx, stack, op.updateOptions(), op.OldTemplateBody, op.OldParams) {
-			return
-		}
-
-		stack.StackStatus = statusUpdateCleanupProgress
-
-		b.stageLocked(ctx, stack.StackID, &pendingStackOp{Kind: pendingUpdateCleanup}, func() {
-			b.completeUpdateLocked(stack)
-		})
+		b.runUpdateStepLocked(ctx, stack, op)
 	case pendingUpdateCleanup:
 		if stack.StackStatus != statusUpdateCleanupProgress {
 			return
 		}
 
-		if b.childrenInProgressLocked(stack) {
-			b.scheduleLocked(ctx, stack.StackID, op)
+		if op.Phase == phaseSettle {
+			b.settleUpdateLocked(ctx, stack)
 
 			return
 		}
 
-		b.completeUpdateLocked(stack)
+		b.walkUpdateCleanupLocked(ctx, stack, op)
 	case pendingRollbackUpdate:
 		if stack.StackStatus == statusUpdateRollbackInProgress {
-			b.runUpdateRollbackLocked(ctx, stack, op.PrevResources, op.Created, op.RetainExceptOnCreate)
+			b.runUpdateRollbackLocked(ctx, stack, op)
 		}
 	case pendingRollbackUpdateCleanup:
 		if stack.StackStatus == statusUpdateRollbackCleanup {
@@ -309,84 +348,6 @@ func (b *InMemoryBackend) settleChangeSetsLocked(stack *Stack) {
 			cs.ExecutionStatus = final
 		}
 	}
-}
-
-// addProgressEvent records a plain *_IN_PROGRESS resource event unless the
-// operation already announced it when it started.
-func (b *InMemoryBackend) addProgressEvent(stackID, stackName, logicalID, physicalID, resourceType, status string) {
-	key := announceKey(logicalID, status)
-	if _, ok := b.announced[key]; ok {
-		delete(b.announced, key)
-
-		return
-	}
-
-	b.addEvent(stackID, stackName, logicalID, physicalID, resourceType, status, "")
-}
-
-func announceKey(logicalID, status string) string { return logicalID + "|" + status }
-
-// announceLocked emits the first wave of resource events at operation start
-// and returns their keys so the later step does not repeat them.
-func (b *InMemoryBackend) announceLocked(
-	stack *Stack, status string, ids []string, resources map[string]TemplateResource,
-) []string {
-	keys := make([]string, 0, len(ids))
-
-	for _, id := range ids {
-		b.addEvent(stack.StackID, stack.StackName, id, "", resources[id].Type, status, "")
-		keys = append(keys, announceKey(id, status))
-	}
-
-	return keys
-}
-
-// firstWave returns the sorted members of want that start first: those that
-// depend on no other member (creates/updates), or that no other member
-// depends on (leaves, for deletes).
-func firstWave(resources map[string]TemplateResource, want []string, leaves bool) []string {
-	all := make(map[string]struct{}, len(resources))
-	for id := range resources {
-		all[id] = struct{}{}
-	}
-
-	inWant := make(map[string]struct{}, len(want))
-	for _, id := range want {
-		inWant[id] = struct{}{}
-	}
-
-	blocked := make(map[string]bool, len(want))
-
-	for _, id := range want {
-		res, ok := resources[id]
-		if !ok {
-			continue
-		}
-
-		for _, dep := range resourceDependencies(id, res, all) {
-			if _, ok = inWant[dep]; !ok {
-				continue
-			}
-
-			if leaves {
-				blocked[dep] = true
-			} else {
-				blocked[id] = true
-			}
-		}
-	}
-
-	out := make([]string, 0, len(want))
-
-	for _, id := range want {
-		if _, ok := resources[id]; ok && !blocked[id] {
-			out = append(out, id)
-		}
-	}
-
-	slices.Sort(out)
-
-	return out
 }
 
 // resumePendingOpsLocked finishes operations a restored snapshot captured

@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -71,7 +72,8 @@ func newOAuthEnvWith(t *testing.T, opts cognitoidp.UserPoolOptions, inv cognitoi
 	require.NoError(t, err)
 
 	env := &oauthEnv{backend: b, handler: h, srv: srv, client: &http.Client{
-		Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		Transport: testclient.New(t).Transport, Jar: jar,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}}
 
 	pool, err := b.CreateUserPoolWithOpts("oauth-pool", opts)

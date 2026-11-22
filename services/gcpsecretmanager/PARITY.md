@@ -32,8 +32,7 @@ families:
   auth: {status: partial, note: "No request is authenticated or authorised; IAM policies are stored but not enforced."}
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; RPC failures are logged at debug. gRPC calls are not fed to the shared telemetry operation metrics."}
   audit_logs: {status: ok, note: "Create/Update/Delete/Add/Enable/Disable/Destroy/SetIamPolicy are Admin Activity records and AccessSecretVersion a Data Access read (google.cloud.secretmanager.v1.SecretManagerService.*) written through pkgs/gcpaudit when a sink is set. Request and response bodies, which can hold secret payloads, are never logged."}
-items_still_open:
-  - "Regional secret location names are not validated against Secret Manager's supported-region list: no verified catalog exists in the repo and rejecting a valid region would break working clients."
+items_still_open: []
 leaks: {status: clean, note: "Background resources are the grpc.Server and the expiry janitor goroutine, both stopped and joined by Shutdown."}
 ---
 
@@ -44,5 +43,6 @@ Pass 2026-11-13: customer-managed keys resolve against gcpkms when wired (intern
 ## Emulator choices where the vendor is silent
 
 - SECRET_ROTATE delivery is a single best-effort publish per due time (no 7-day retry), failures are dropped; a one-shot rotation clears next_rotation_time (inferred, not documented); TOPIC_CONFIGURED and other event types are not sent.
+- Regional secret location names are checked against the regional endpoint list in google.golang.org/api@v0.304.0 secretmanager/v1/secretmanager-api.json (52 entries, including the us/eu/ca/in/ch/sa multi-regions); an unlisted location is INVALID_ARGUMENT, a code no vendor page gives. Replica locations of user_managed replication are not checked.
 - Regional secrets share the one listener; the secretmanager.<region>.rep.googleapis.com authority is honoured only for the location check.
 - Managed rotation (EnableManagedRotation, RotateSecret) sets the Cloud SQL user password through the gcpsql emulator when wired, before the new version is added; instance_id may be a bare id or project:region:instance, and the user must already exist (FAILED_PRECONDITION otherwise). Without gcpsql only the secret version is written.

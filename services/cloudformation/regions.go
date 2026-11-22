@@ -87,8 +87,13 @@ func (b *InMemoryBackend) inheritWiring(home *InMemoryBackend) {
 	defer home.mu.RUnlock()
 
 	b.orgDirectory = home.orgDirectory
-	b.provisionSchedule = home.provisionSchedule
 	b.provisionDelay = home.provisionDelay
+	b.provisionSchedule = home.provisionSchedule
+
+	if home.provisionDelay > 0 {
+		b.provisionSchedule = b.delayScheduler(home.provisionDelay)
+	}
+
 	b.quotaGate = home.quotaGate
 }
 

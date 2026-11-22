@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 397 (397 ok) |
-| Known gaps | 9 |
+| Known gaps | 8 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -18,11 +18,10 @@
 - EvaluationForms: contact evaluations are never auto-evaluated (no AI or Contact Lens answers) and the Acknowledgement, Review and CalibrationSessionId metadata members are never set because the pinned SDK has no operation that changes them; POINTS_BASED scoring ignores per-question PointsConfiguration (bonus, min/max points) and the weighted-score formulas are unverified against the real service
 - TestCases: executions are recorded (Start/Stop/List/ListRecords/GetSummary) but never leave INITIATED on their own, because the emulator has no flow test runner: no PASSED/FAILED outcome, observations or ObservationSummary are ever produced (the test case Content grammar is not published, API_CreateTestCase only calls it a JSON string, and the VOICE_CALL and CHAT entry points need a media plane to drive a flow)
 - Notifications: push registrations are stored but no push is ever sent (nothing triggers one: there is no chat message plane); notifications from rules or the system are not generated
-- AttachedFiles: Cases are not modeled so Cases ARNs are only shape-checked; without the S3 emulator wired the content endpoint /attached-files-content stands in for S3 pre-signed URLs
 - Contact data and participants: GetFederationToken ListRealtimeContactAnalysisSegmentsV2 SendChatIntegrationEvent UpdateParticipantAuthentication StartAssistantContact StartScreenSharing StartWebRTCContact are not routed (no chat message plane, no caller identity for federation, no Wisdom assistant, no WebRTC media plane); UpdateParticipantRoleConfig timers are stored on the contact but nothing enforces them (no chat message plane); QueuePriority and QueueTimeAdjustmentSeconds order GetContactMetrics queue positions but no routing engine assigns agents from that order, and RoutingCriteria steps are only stored
 - GetMetricDataV2: only the computed subset of metrics is available (agent-state, hold, after-contact-work, flow, campaign, evaluation, case, AI and Contact Lens metrics need signals the emulator never records), so custom metrics built on them are rejected
 - PhoneNumber import: ImportPhoneNumber needs an AWS End User Messaging (pinpoint-sms-voice-v2) phone-number inventory; the emulator has no such service and none may be added, so a number could only be fabricated
-- SES-wired email delivery status readback and TEMPLATE outbound email (Wisdom message templates) are not modeled
+- TEMPLATE outbound email (Wisdom message templates) is not modeled, so SendOutboundEmail and StartOutboundEmailContact accept RAW messages only
 - CloudFormation: AWS::Connect::Metric GetAtt Filters, Groupings, PrimaryEventSource, PrimaryEventSourceEffectiveTimestampType, RefreshRate and SupportedStats are not returned: the CloudFormation reference (aws-resource-connect-metric.html) names them without a value format or derivation, and the stored MetricDefinition (services/connect/metricdefs.go MetricDefinition) has no PrimaryEventSource, RefreshRate or SupportedStats; SourcePhoneNumberArn of PhoneNumber is rejected because it needs an imported number (ImportPhoneNumber item) and ClaimPhoneNumber has no source member (SDK ClaimPhoneNumberInput)
 
 ### Structural gaps
