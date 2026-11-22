@@ -214,7 +214,7 @@ func translate(q string, set loadedSet) (string, error) {
 		return "main", t.sqlName, true
 	}
 
-	out, unresolved, err := athena.TranslateTrino(q, resolve)
+	out, unresolved, err := athena.TranslateEmbedded(q, resolve, plainFuncs)
 	if err != nil {
 		return "", validationf("%s", err.Error())
 	}

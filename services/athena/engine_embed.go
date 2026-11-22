@@ -8,11 +8,23 @@ import "database/sql"
 func TranslateTrino(
 	query string, resolve func(parts []string) (schema, name string, ok bool),
 ) (string, []string, error) {
-	return translateSQLFor(query, func(parts []string) resolvedRef {
+	return translateSQLFor(query, wrapResolve(resolve), false, nil)
+}
+
+// TranslateEmbedded is TranslateTrino for a service that embeds the engine: names in owned are left
+// for the host to resolve, and functions Athena adds beyond the shared set stay unresolved.
+func TranslateEmbedded(
+	query string, resolve func(parts []string) (schema, name string, ok bool), owned map[string]struct{},
+) (string, []string, error) {
+	return translateSQLFor(query, wrapResolve(resolve), true, owned)
+}
+
+func wrapResolve(resolve func(parts []string) (schema, name string, ok bool)) func([]string) resolvedRef {
+	return func(parts []string) resolvedRef {
 		schema, name, ok := resolve(parts)
 
 		return resolvedRef{schema: schema, name: name, found: ok}
-	}, true)
+	}
 }
 
 // OpenEngineDB opens a private in-memory SQLite database with the Trino function set registered.

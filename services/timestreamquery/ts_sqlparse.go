@@ -32,7 +32,7 @@ func parseSQL(q string) (*queryNode, error) {
 	return qn, nil
 }
 
-func (p *sqlParser) peek() token { return p.toks[p.pos] }
+func (p *sqlParser) peek() token { return p.peekAt(0) }
 
 func (p *sqlParser) peekAt(n int) token {
 	if p.pos+n >= len(p.toks) {

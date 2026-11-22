@@ -95,6 +95,42 @@ func timestreamValue(t *testing.T, expr string) string {
 	return *d.ScalarValue
 }
 
+func TestSameFunctionNameKeepsEachEnginesResult(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		expr    string
+		athena  string
+		timestr string
+	}{
+		{
+			"skewness",
+			"round(skewness(x), 4) FROM (SELECT 1 AS x UNION ALL SELECT 2 UNION ALL SELECT 9)", "1.6301", "0.6655",
+		},
+		{"infinity", "infinity()", "+Inf", "Infinity"},
+		{"is_infinite", "is_infinite(infinity())", "1", "true"},
+		{"is_nan", "is_nan(nan())", "1", "true"},
+		{"arrays_overlap", "arrays_overlap(ARRAY[1, 2], ARRAY[2, 3])", "1", "true"},
+		{
+			"zip", "CAST(zip(ARRAY[1, 2], ARRAY['a', 'b']) AS VARCHAR)",
+			`[{"\u00000":1,"\u00001":"a","\u0000row":["\u00000","\u00001"]},` +
+				`{"\u00000":2,"\u00001":"b","\u0000row":["\u00000","\u00001"]}]`,
+			`[{"\u00000":1,"\u00001":"a"},{"\u00000":2,"\u00001":"b"}]`,
+		},
+		{"sequence", "CAST(sequence(1, 3) AS VARCHAR)", "[1,2,3]", "[1,2,3]"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.athena, strings.TrimPrefix(athenaValue(t, tt.expr), "\x01"), "athena")
+			assert.Equal(t, tt.timestr, strings.TrimPrefix(timestreamValue(t, tt.expr), "\x01"), "timestream")
+		})
+	}
+}
+
 func TestEnginesKeepTheirOwnFunctionSemantics(t *testing.T) {
 	t.Parallel()
 

@@ -16,29 +16,11 @@ func TestEveryEngineFunctionHasReturnTypeRule(t *testing.T) {
 
 	registerTimestreamFuncs()
 
-	db, err := athena.OpenEngineDB()
-	require.NoError(t, err)
-
-	t.Cleanup(func() { _ = db.Close() })
-
-	rows, err := db.QueryContext(
-		t.Context(),
-		`SELECT DISTINCT name FROM pragma_function_list WHERE name LIKE 'athena\_%' ESCAPE '\'`,
-	)
-	require.NoError(t, err)
-
-	defer func() { _ = rows.Close() }()
-
 	names := map[string]bool{"create_time_series": true}
 
-	for rows.Next() {
-		var n string
-		require.NoError(t, rows.Scan(&n))
-
+	for _, n := range athena.EmbeddedFuncNames() {
 		names[strings.TrimPrefix(n, "athena_")] = true
 	}
-
-	require.NoError(t, rows.Err())
 
 	for _, f := range tsScalarFuncs() {
 		names[f.name] = true
