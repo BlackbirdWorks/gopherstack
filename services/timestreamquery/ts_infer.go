@@ -307,6 +307,8 @@ func (inf *inferrer) inferRowCtor(n *node, sc *scope) tsType {
 }
 
 func (inf *inferrer) inferOperator(n *node, sc *scope) tsType {
+	inf.markNaNOperands(n)
+
 	args := inf.inferAll(n.args, sc)
 	inf.bindParams(n.args, args)
 
@@ -322,6 +324,8 @@ func (inf *inferrer) inferOperator(n *node, sc *scope) tsType {
 
 	switch n.name {
 	case opAnd, "OR", "=", "<>", "!=", "<", ">", "<=", ">=", "IS DISTINCT":
+		inf.rewriteCompare(n, args[0], args[1])
+
 		return scalar(tyBoolean)
 	case "||":
 		return concatType(args[0], args[1])
@@ -336,6 +340,7 @@ func (inf *inferrer) inferOperator(n *node, sc *scope) tsType {
 	}
 
 	res := arithType(n.name, args[0], args[1])
+	inf.rewriteIntervalArith(n, args[0], args[1])
 	inf.rewriteArith(n, args[0], args[1], res)
 
 	return res

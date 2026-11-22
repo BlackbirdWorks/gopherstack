@@ -212,9 +212,9 @@ func (o *unloadOptions) setString(name, s string) error {
 		o.kmsKey = s
 	case "include_header":
 		switch strings.ToLower(s) {
-		case "true":
+		case kwTrue:
 			o.includeHeader = true
-		case "false":
+		case kwFalse:
 			o.includeHeader = false
 		default:
 			return unloadErr("option 'include_header' must be 'true' or 'false'")

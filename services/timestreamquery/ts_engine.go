@@ -54,7 +54,7 @@ func (b *InMemoryBackend) execute(
 func (b *InMemoryBackend) executeStatement(
 	ctx context.Context, query string, vars map[string]string, queryID string,
 ) (*resultSet, error) {
-	query = strings.TrimSpace(strings.TrimRight(strings.TrimSpace(stripSQLComments(query)), ";"))
+	query = normalizeQuery(query)
 	region := getRegion(ctx, b.defaultRegion)
 
 	switch firstWord(query) {

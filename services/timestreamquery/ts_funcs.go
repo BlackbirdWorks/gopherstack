@@ -3,6 +3,7 @@ package timestreamquery
 import (
 	"database/sql/driver"
 	"errors"
+	"slices"
 	"sync"
 	"time"
 
@@ -131,10 +132,8 @@ func toUnit(per func(time.Time) int64) func(*sqlitedriver.FunctionContext, []dri
 			return nil, nil
 		}
 
-		if txt, isText := textOf(args[0]); isText {
-			if ns, isInterval := parseIntervalText(txt); isInterval {
-				return per(time.Unix(0, ns).UTC()) - per(time.Unix(0, 0).UTC()), nil
-			}
+		if ns, isInterval := intervalNanos(args[0]); isInterval {
+			return per(time.Unix(0, ns).UTC()) - per(time.Unix(0, 0).UTC()), nil
 		}
 
 		t, ok := parseTSValue(args[0])
@@ -152,10 +151,27 @@ type scalarFunc struct {
 	impl  scalarImpl
 	name  string
 	nargs int32
+	// volatile keeps SQLite from evaluating a constant call ahead of the guard around it.
+	volatile bool
 }
 
 func scalarFn(name string, nargs int32, impl scalarImpl) scalarFunc {
 	return scalarFunc{name: name, nargs: nargs, impl: impl}
+}
+
+// raisingFn is scalarFn for a function that can fail the query, so it is evaluated only where the query reaches it.
+func raisingFn(name string, nargs int32, impl scalarImpl) scalarFunc {
+	return scalarFunc{name: name, nargs: nargs, impl: impl, volatile: true}
+}
+
+func registerScalar(f scalarFunc) {
+	if f.volatile {
+		sqlitedriver.MustRegisterScalarFunction(f.name, f.nargs, f.impl)
+
+		return
+	}
+
+	sqlitedriver.MustRegisterDeterministicScalarFunction(f.name, f.nargs, f.impl)
 }
 
 // tsScalarFuncs lists the scalar functions this package registers with the engine.
@@ -166,7 +182,7 @@ func tsScalarFuncs() []scalarFunc {
 		return int64(y)
 	})
 
-	return []scalarFunc{
+	return slices.Concat([]scalarFunc{
 		scalarFn("ts_bin", argsTwo, udfBin),
 		scalarFn("ts_ago", argsTwo, udfAgo),
 		scalarFn("ts_tsdiff", argsTwo, udfTimestampDiff),
@@ -184,11 +200,52 @@ func tsScalarFuncs() []scalarFunc {
 		scalarFn("interpolate_fill", argsThree, udfInterpolateFill),
 		scalarFn("derivative_linear", argsTwo, udfDerivative(false)),
 		scalarFn("non_negative_derivative_linear", argsTwo, udfDerivative(true)),
-		scalarFn("integral_trapezoidal", -1, udfIntegral),
+		raisingFn("integral_trapezoidal", -1, udfIntegral),
 		scalarFn("correlate_pearson", argsTwo, udfCorrelate(false)),
 		scalarFn("correlate_spearman", argsTwo, udfCorrelate(true)),
 		scalarFn("sequence", -1, udfSequence),
 		scalarFn("ts_series_json", 1, udfSeriesJSON),
+	}, tsTextFuncs(), tsArrayFuncs(), clockFuncs())
+}
+
+// withMaxArgs guards a variadic registration against calls with fewer than two or more than hi arguments.
+func withMaxArgs(hi int, impl scalarImpl) scalarImpl {
+	return func(c *fnCtx, args []driver.Value) (driver.Value, error) {
+		if len(args) < argsTwo || len(args) > hi {
+			return nil, evalError("wrong number of arguments")
+		}
+
+		return impl(c, args)
+	}
+}
+
+func tsTextFuncs() []scalarFunc {
+	return []scalarFunc{
+		raisingFn("from_base", argsTwo, udfFromBase),
+		raisingFn("to_base", argsTwo, udfToBase),
+		raisingFn("bitwise_not", 1, udfBitwiseNot),
+		raisingFn("bit_count", argsTwo, udfBitCount),
+		raisingFn("hamming_distance", argsTwo, udfHamming),
+		raisingFn("strrpos", -1, withMaxArgs(argsThree, positionOf(true))),
+		raisingFn("ts_strpos", -1, withMaxArgs(argsThree, positionOf(false))),
+		raisingFn("ts_replace", -1, withMaxArgs(argsThree, udfReplace)),
+		scalarFn("infinity", 0, udfInfinity),
+		scalarFn("nan", 0, func(*fnCtx, []driver.Value) (driver.Value, error) { return nanText, nil }),
+	}
+}
+
+func tsArrayFuncs() []scalarFunc {
+	return []scalarFunc{
+		raisingFn("array_intersect", argsTwo, setOp(func(inY bool) bool { return inY }, false)),
+		raisingFn("array_union", argsTwo, setOp(func(bool) bool { return true }, true)),
+		raisingFn("array_except", argsTwo, setOp(func(inY bool) bool { return !inY }, false)),
+		raisingFn("arrays_overlap", argsTwo, udfArraysOverlap),
+		raisingFn("repeat", argsTwo, udfRepeat),
+		raisingFn("zip", -1, withMaxArgs(maxZipArrays, udfZip)),
+		raisingFn("ts_reverse_array", 1, udfReverseArray),
+		raisingFn("ts_regexp_groups", argsTwo, udfRegexpGroups),
+		raisingFn("ts_regexp_splice", argsThree, udfRegexpSplice),
+		raisingFn("ts_concat_array", -1, udfConcatArrays),
 	}
 }
 
@@ -213,9 +270,11 @@ func registerTimestreamFuncs() {
 		registerUnnestModule()
 		registerArithFuncs()
 		registerCastFuncs()
+		registerSetAggs()
+		sqlitedriver.MustRegisterScalarFunction("shuffle", 1, udfShuffle)
 
 		for _, f := range tsScalarFuncs() {
-			sqlitedriver.MustRegisterDeterministicScalarFunction(f.name, f.nargs, f.impl)
+			registerScalar(f)
 		}
 
 		sqlitedriver.MustRegisterFunction("create_time_series", &sqlitedriver.FunctionImpl{

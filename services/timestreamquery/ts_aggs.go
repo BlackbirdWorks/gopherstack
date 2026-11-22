@@ -63,7 +63,7 @@ func arrayElem(v driver.Value) string {
 		return quoteJSON(x)
 	}
 
-	return "null"
+	return kwNull
 }
 
 func quoteJSON(s string) string {

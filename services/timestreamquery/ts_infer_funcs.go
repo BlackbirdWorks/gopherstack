@@ -191,7 +191,7 @@ func percentileRule(c *callCtx) tsType {
 func aggregateRules() map[string]funcRule {
 	return map[string]funcRule{
 		"max_by": nthRule(argsThree), "min_by": nthRule(argsThree), "max": nthRule(argsTwo), "min": nthRule(argsTwo),
-		"approx_percentile": percentileRule,
+		fnApproxPercentile: percentileRule,
 	}
 }
 
@@ -235,7 +235,9 @@ func bigintRules() map[string]funcRule {
 				"year month day day_of_month hour minute second millisecond quarter week week_of_year day_of_week dow "+
 				"day_of_year doy year_of_week yow nanosecond to_milliseconds to_nanoseconds date_diff regexp_count "+
 				"bitwise_and bitwise_or bitwise_xor bitwise_not bit_count crc32 row_number rank dense_rank ntile "+
-				"array_position extract width_bucket bitwise_and_agg bitwise_or_agg",
+				"array_position extract width_bucket bitwise_and_agg bitwise_or_agg ts_strpos ts_approx_distinct "+
+				"ts_time_hour ts_time_minute ts_time_second ts_time_millisecond ts_time_nanosecond "+
+				"ts_iv_hour ts_iv_minute ts_iv_second ts_iv_millisecond ts_iv_nanosecond ts_iv_day ts_time_diff",
 		),
 	)
 }
@@ -254,7 +256,7 @@ func varcharRules() map[string]funcRule {
 			"from_utf8 date_format format_datetime to_iso8601 json_format json_extract_scalar json_extract json_parse "+
 			"typeof to_base url_extract_fragment url_extract_host url_extract_parameter url_extract_path "+
 			"url_extract_protocol url_extract_query chr array_join format current_timezone concat_ws "+
-			"printf hex char quote group_concat string_agg listagg soundex json_array json_object"),
+			"printf hex char quote group_concat string_agg listagg soundex json_array json_object ts_replace"),
 		map[string]funcRule{"concat": concatRule},
 	)
 }
@@ -272,7 +274,13 @@ func temporalRules() map[string]funcRule {
 		ruleSet(fixed(tyDate), "current_date from_iso8601_date to_date date last_day_of_month"),
 		ruleSet(fixed(tyTime), "current_time localtime"),
 		ruleSet(fixed(tyIntervalDS), "parse_duration ts_tsdiff"),
-		map[string]funcRule{"date_trunc": same(1), "date_add": same(argsTwo), "bin": binRule, "ts_bin": binRule},
+		map[string]funcRule{
+			"date_trunc":  same(1),
+			"date_add":    same(argsTwo),
+			"ts_time_add": same(argsTwo),
+			"bin":         binRule,
+			"ts_bin":      binRule,
+		},
 	)
 }
 
@@ -288,7 +296,12 @@ func passThroughRules() map[string]funcRule {
 
 func collectionRules() map[string]funcRule {
 	return union(
-		ruleSet(same(0), "array_distinct array_sort array_remove slice reverse array_concat shuffle"),
+		ruleSet(same(0), "array_distinct array_sort array_remove slice reverse array_concat shuffle ts_reverse_array"),
+		ruleSet(superAll, "ts_concat_array"),
+		map[string]funcRule{
+			"ts_regexp_groups": func(*callCtx) tsType { return arrayOf(arrayOf(scalar(tyVarchar))) },
+			"ts_regexp_splice": fixed(tyVarchar),
+		},
 		ruleSet(superAll, "array_intersect array_union array_except"),
 		map[string]funcRule{"zip": zipRule, "repeat": arrayOfFirstArg},
 		ruleSet(arrayOfKind(tyVarchar), "split regexp_extract_all regexp_split"),

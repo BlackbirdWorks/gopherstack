@@ -142,6 +142,7 @@ func (p *sqlParser) parsePredicate() (*node, error) {
 			}
 
 			l = p.binary(t.text, l, r)
+			l.opStart, l.opEnd = t.start, t.end
 		case t.is("is"):
 			if l, err = p.parseIs(l); err != nil {
 				return nil, err
@@ -413,7 +414,16 @@ func (p *sqlParser) parsePrimary() (*node, error) {
 	case tkDuration:
 		p.pos++
 
-		return &node{kind: nLiteral, name: t.text, typ: scalar(tyIntervalDS), start: t.start, end: t.end}, nil
+		k := tyIntervalDS
+		if i := strings.IndexFunc(
+			t.text,
+			func(r rune) bool { return r < '0' || r > '9' },
+		); i >= 0 &&
+			isYearMonthUnit(t.text[i:]) {
+			k = tyIntervalYM
+		}
+
+		return &node{kind: nLiteral, name: t.text, typ: scalar(k), start: t.start, end: t.end}, nil
 	case tkString:
 		p.pos++
 
@@ -777,7 +787,7 @@ func (p *sqlParser) parseArrayCtor() (*node, error) {
 
 func isIntervalUnit(u string) bool {
 	switch strings.ToLower(u) {
-	case kwYear, kwMonth, "day", "hour", "minute", "second":
+	case kwYear, kwMonth, unitDay, unitHour, unitMinute, unitSecond:
 		return true
 	}
 

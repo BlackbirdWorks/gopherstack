@@ -168,7 +168,7 @@ func renderTimeOfDay(v any) Datum {
 		return renderText(v)
 	}
 
-	for _, l := range []string{"15:04:05.999999999", "15:04:05"} {
+	for _, l := range []string{layoutClockFrac, layoutClock} {
 		if t, err := time.Parse(l, s); err == nil {
 			return ScalarDatum(t.Format("15:04:05.000000000"))
 		}

@@ -142,8 +142,17 @@ func lexNumber(q string, i int) int {
 
 func isDurationUnit(w string) bool {
 	switch strings.ToLower(w) {
-	case "ns", "us", "ms", "s", "m", "h", "d", "nanosecond", "microsecond", "millisecond", "second", "minute",
-		"hour", "day", "nanoseconds", "microseconds", "milliseconds", "seconds", "minutes", "hours", "days":
+	case "ns", "us", "ms", "s", "m", "h", "d", unitNanosecond, "microsecond", unitMillisecond, unitSecond, unitMinute,
+		unitHour, unitDay, "nanoseconds", "microseconds", "milliseconds", "seconds", "minutes", "hours", "days":
+		return true
+	}
+
+	return isYearMonthUnit(w)
+}
+
+func isYearMonthUnit(w string) bool {
+	switch strings.ToLower(w) {
+	case "y", "year", "years", "month", "months":
 		return true
 	}
 

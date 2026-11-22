@@ -100,7 +100,7 @@ func (p *sqlParser) leave() { p.depth-- }
 
 func isReservedWord(lw string) bool {
 	switch lw {
-	case "from", "where", "group", "having", "order", "limit", "offset", "union", "intersect", "except", "on",
+	case "from", kwWhere, "group", kwHaving, "order", kwLimit, "offset", "union", "intersect", "except", "on",
 		"using", "join", "inner", "left", "right", "full", "cross", "natural", "window", "fetch", "as", "when",
 		"then", "else", "end", "and", "or", opNotLower, "is", "in", "between", "like", "select", "with", "over":
 		return true

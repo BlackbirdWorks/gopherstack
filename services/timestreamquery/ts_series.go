@@ -131,7 +131,7 @@ func encodeJSONScalar(v any) string {
 		return strconv.FormatInt(x, 10)
 	case float64:
 		if math.IsNaN(x) || math.IsInf(x, 0) {
-			return "null"
+			return kwNull
 		}
 
 		s := strconv.FormatFloat(x, 'g', -1, 64)
@@ -628,12 +628,19 @@ func udfSequence(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 
 func sequenceOfTimes(start time.Time, args []driver.Value) (driver.Value, error) {
 	stop, ok := parseTSValue(args[1])
-	if !ok || len(args) <= argsTwo {
+	if !ok {
 		return nil, errBadSeq
 	}
 
-	step, ok := intArg(args[argsTwo])
-	if !ok || step == 0 {
+	step := int64(hoursInDay * time.Hour)
+
+	if len(args) > argsTwo {
+		if step, ok = intArg(args[argsTwo]); !ok {
+			return nil, errBadSeq
+		}
+	}
+
+	if step == 0 {
 		return nil, errBadSeq
 	}
 
@@ -644,6 +651,9 @@ func sequenceOfInts(args []driver.Value) (driver.Value, error) {
 	lo, ok1 := intArg(args[0])
 	hi, ok2 := intArg(args[1])
 	step := int64(1)
+	if ok1 && ok2 && lo > hi {
+		step = -1
+	}
 
 	if len(args) > argsTwo {
 		var ok3 bool

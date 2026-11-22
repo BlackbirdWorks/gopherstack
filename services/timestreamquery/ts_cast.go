@@ -54,6 +54,16 @@ func udfCast(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 	return castValue(args[0], src, dst, try != 0)
 }
 
+// udfCastNoNaN is udfCast for a DOUBLE result that is not rendered or classified: NaN has no SQLite value, so NULL.
+func udfCastNoNaN(c *fnCtx, args []driver.Value) (driver.Value, error) {
+	v, err := udfCast(c, args)
+	if s, ok := v.(string); ok && s == nanText {
+		return nil, err
+	}
+
+	return v, err
+}
+
 func castValue(v driver.Value, src, dst string, try bool) (driver.Value, error) {
 	switch dst {
 	case kwInteger:
@@ -171,9 +181,9 @@ func castToBool(v driver.Value, src string, try bool) (driver.Value, error) {
 		s, _ := textOf(v)
 
 		switch strings.ToLower(s) {
-		case "true", "t", "1":
+		case kwTrue, "t", "1":
 			return int64(1), nil
-		case "false", "f", "0":
+		case kwFalse, "f", "0":
 			return int64(0), nil
 		}
 
@@ -244,7 +254,7 @@ func castToTemporal(v driver.Value, dst string, try bool) (driver.Value, error) 
 	s, _ := textOf(v)
 
 	if dst == colTime {
-		for _, l := range []string{"15:04:05.999999999", "15:04:05"} {
+		for _, l := range []string{layoutClockFrac, layoutClock} {
 			if t, err := time.Parse(l, strings.TrimSpace(s)); err == nil {
 				return t.Format("15:04:05.000000000"), nil
 			}
@@ -266,5 +276,6 @@ func castToTemporal(v driver.Value, dst string, try bool) (driver.Value, error) 
 }
 
 func registerCastFuncs() {
-	sqlitedriver.MustRegisterDeterministicScalarFunction("ts_cast", argsFour, udfCast)
+	sqlitedriver.MustRegisterScalarFunction("ts_cast", argsFour, udfCast)
+	sqlitedriver.MustRegisterScalarFunction("ts_castn", argsFour, udfCastNoNaN)
 }

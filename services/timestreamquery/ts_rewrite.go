@@ -13,6 +13,7 @@ var (
 	reMeasureCol  = regexp.MustCompile(`(?i)\bmeasure_value::(double|bigint|varchar|boolean|timestamp)\b`)
 	reDuration    = regexp.MustCompile(
 		`(?i)\b(\d+)(nanoseconds?|ns|microseconds?|us|milliseconds?|ms|seconds?|s|minutes?|m|hours?|h|days?|d)\b`)
+	reYearMonth = regexp.MustCompile(`(?i)\b(\d+)(years?|y|months?)\b`)
 	reSignedDur = regexp.MustCompile(
 		`(?i)([+\-])\s*(\d+)(nanoseconds?|ns|microseconds?|us|milliseconds?|ms|seconds?|s|minutes?|m|hours?|h|days?|d)\b`,
 	)
@@ -61,6 +62,8 @@ func durationNanos(n, unit string) string {
 // measure_value::T columns, @scheduled_runtime) into the Trino subset the SQLite
 // engine translates. String literals and quoted identifiers are left untouched.
 func rewriteTimestream(q string, now time.Time, vars map[string]string) string {
+	q = rewriteValuesAliases(q)
+	q = rewriteRegexpLambdas(q)
 	q = reTypedLiteral.ReplaceAllString(q, "CAST('$2' AS $1)")
 	q = reIntervalCall.ReplaceAllStringFunc(q, func(m string) string {
 		g := reIntervalCall.FindStringSubmatch(m)
@@ -144,6 +147,16 @@ func rewriteCode(seg, nowLit, dateLit, timeLit string, vars map[string]string) s
 	}
 
 	seg = reMeasureCol.ReplaceAllString(seg, `"measure_value::$1"`)
+	seg = reYearMonth.ReplaceAllStringFunc(seg, func(m string) string {
+		g := reYearMonth.FindStringSubmatch(m)
+		unit := "month"
+
+		if lw := strings.ToLower(g[2]); lw == "y" || strings.HasPrefix(lw, "year") {
+			unit = "year"
+		}
+
+		return "INTERVAL '" + g[1] + "' " + unit
+	})
 	seg = reSignedDur.ReplaceAllStringFunc(seg, func(m string) string {
 		g := reSignedDur.FindStringSubmatch(m)
 
