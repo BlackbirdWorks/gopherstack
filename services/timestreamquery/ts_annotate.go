@@ -12,6 +12,7 @@ type annotation struct {
 	cols        []outCol
 	unsupported []string
 	scans       []pruneScan
+	params      []outCol
 	ok          bool
 }
 
@@ -79,7 +80,10 @@ func buildAnnotation(q string, tables loadedSet, now time.Time, vars map[string]
 	cols := inf.inferQuery(qn, nil)
 
 	return annotation{
-		query: applyEdits(q, inf.edits), cols: cols, unsupported: inf.unsupported, scans: inf.scans, ok: true,
+		query: applyEdits(
+			q,
+			inf.edits,
+		), cols: cols, unsupported: inf.unsupported, scans: inf.scans, params: inf.params, ok: true,
 	}
 }
 

@@ -32,12 +32,14 @@ type inferrer struct {
 	tables      loadedSet
 	vars        map[string]string
 	rules       map[string]funcRule
-	scans       []pruneScan
 	now         time.Time
+	scans       []pruneScan
 	ctes        []map[string][]outCol
 	edits       []typedEdit
+	params      []outCol
 	unsupported []string
 	steps       int
+	tryDepth    int
 }
 
 const maxInferSteps = 200000
@@ -150,12 +152,12 @@ func (inf *inferrer) infer(n *node, sc *scope) tsType {
 	case nLiteral, nInterval:
 		return n.typ
 	case nTypedLit:
-		if n.typ.kind == tyTime {
-			inf.edit("'"+strings.ReplaceAll(n.name, "'", "''")+"'", n.start, n.end)
-		}
+		inf.rewriteTypedLiteral(n)
 
 		return n.typ
 	case nVar:
+		inf.noteParam(n.name)
+
 		if strings.EqualFold(n.name, "@scheduled_runtime") {
 			return scalar(tyTimestamp)
 		}
@@ -183,10 +185,14 @@ func (inf *inferrer) inferCompound(n *node, sc *scope) tsType {
 	case nCase:
 		return inf.inferCase(n, sc)
 	case nCast:
-		inf.infer(n.args[0], sc)
+		inf.rewriteCast(n, inf.infer(n.args[0], sc))
 
 		return n.typ
-	case nIsNull, nBetween, nInList, nLike:
+	case nBetween, nInList, nLike:
+		inf.bindParams(n.args, inf.inferAll(n.args, sc))
+
+		return scalar(tyBoolean)
+	case nIsNull:
 		inf.inferAll(n.args, sc)
 
 		return scalar(tyBoolean)
@@ -207,19 +213,36 @@ func (inf *inferrer) inferCompound(n *node, sc *scope) tsType {
 	case nRowCtor:
 		return inf.inferRowCtor(n, sc)
 	case nSubscript:
-		base := inf.infer(n.args[0], sc)
-		inf.infer(n.args[1], sc)
-
-		if base.kind == tyArray {
-			return *base.elem
-		}
-
-		return tsType{}
+		return inf.inferSubscript(n, sc)
 	case nField:
 		return fieldType(inf.infer(n.args[0], sc), n.name)
 	default:
 		return tsType{}
 	}
+}
+
+func (inf *inferrer) inferSubscript(n *node, sc *scope) tsType {
+	base := inf.infer(n.args[0], sc)
+	inf.infer(n.args[1], sc)
+
+	switch base.kind {
+	case tyArray:
+		return *base.elem
+	case tyRow:
+		return rowSubscript(base, n.args[1])
+	default:
+		return tsType{}
+	}
+}
+
+// rowSubscript types row[i] for an integer literal i, counting fields from one.
+func rowSubscript(row tsType, idx *node) tsType {
+	i, ok := atoiSafe(idx.name)
+	if idx.kind != nLiteral || !ok || i < 1 || i > len(row.fields) {
+		return tsType{}
+	}
+
+	return row.fields[i-1].typ
 }
 
 func (inf *inferrer) inferCase(n *node, sc *scope) tsType {
@@ -269,11 +292,14 @@ func (inf *inferrer) inferRowCtor(n *node, sc *scope) tsType {
 
 func (inf *inferrer) inferOperator(n *node, sc *scope) tsType {
 	args := inf.inferAll(n.args, sc)
+	inf.bindParams(n.args, args)
 
 	if n.kind == nUnary {
 		if n.name == opNot {
 			return scalar(tyBoolean)
 		}
+
+		inf.rewriteNegate(n, args[0])
 
 		return args[0]
 	}
@@ -293,7 +319,10 @@ func (inf *inferrer) inferOperator(n *node, sc *scope) tsType {
 		return scalar(tyIntervalDS)
 	}
 
-	return arithType(n.name, args[0], args[1])
+	res := arithType(n.name, args[0], args[1])
+	inf.rewriteArith(n, args[0], args[1], res)
+
+	return res
 }
 
 func concatType(a, b tsType) tsType {
@@ -634,6 +663,11 @@ func (inf *inferrer) inferCall(n *node, sc *scope) tsType {
 		return t
 	}
 
+	if lw == "try" {
+		inf.tryDepth++
+		defer func() { inf.tryDepth-- }()
+	}
+
 	args := inf.inferAll(n.args, sc)
 
 	if lw == "typeof" && len(args) == 1 && !n.over {
@@ -645,7 +679,10 @@ func (inf *inferrer) inferCall(n *node, sc *scope) tsType {
 		return inf.unsupportedf("function " + lw)
 	}
 
-	return rule(&callCtx{inf: inf, n: n, args: args})
+	res := rule(&callCtx{inf: inf, n: n, args: args})
+	inf.rewriteCheckedCall(lw, n, args)
+
+	return res
 }
 
 func (inf *inferrer) inferTypeof(n *node, arg tsType) tsType {
@@ -702,9 +739,35 @@ func (inf *inferrer) inferHigherOrder(lw string, n *node, sc *scope) (tsType, bo
 		}
 
 		return inf.inferReduce(n, sc), true
+	case "zip_with":
+		if len(n.args) != argsThree {
+			return tsType{}, false
+		}
+
+		return inf.inferZipWith(n, sc), true
+	case "regexp_replace":
+		if len(n.args) != argsThree || n.args[2].kind != nLambda {
+			return tsType{}, false
+		}
+
+		inf.inferAll(n.args[:argsTwo], sc)
+		inf.lambdaBody(n.args[2], sc, arrayOf(scalar(tyVarchar)))
+
+		return scalar(tyVarchar), true
 	}
 
 	return tsType{}, false
+}
+
+func (inf *inferrer) inferZipWith(n *node, sc *scope) tsType {
+	left, right := inf.infer(n.args[0], sc), inf.infer(n.args[1], sc)
+	body := inf.lambdaBody(n.args[2], sc, lambdaParam(left), lambdaParam(right))
+
+	if left.kind == tyArray && right.kind == tyArray && body.known() {
+		return arrayOf(body)
+	}
+
+	return tsType{}
 }
 
 func (inf *inferrer) higherOrderResult(lw string, n *node, subject, body tsType) tsType {

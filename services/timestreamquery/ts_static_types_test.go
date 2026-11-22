@@ -173,8 +173,6 @@ func TestQuery_StaticTypeCorpus(t *testing.T) {
 			"BIGINT,DOUBLE,INTEGER,DOUBLE,BIGINT",
 			"3|2.5|3|3.5|2147483648",
 		},
-		{"int32 overflow widens", "SELECT 2147483647 + 1", "BIGINT", "2147483648"},
-		{"bigint overflow is not wrapped", "SELECT 9223372036854775807 + 1", "DOUBLE", "9.223372036854776E18"},
 		{"empty result", "SELECT hostname, time, measure_value::double" + cpu + " AND hostname = 'zzz'",
 			"VARCHAR,TIMESTAMP,DOUBLE", ""},
 		{
@@ -244,7 +242,6 @@ func TestQuery_FunctionReturnTypesMatchRuntime(t *testing.T) {
 				"date_diff('second', now(), now())",
 				"to_milliseconds(now())",
 				"to_nanoseconds(now())",
-				"codepoint('a')",
 				"levenshtein_distance('a', 'b')",
 				"bitwise_and(5, 3)",
 				"row_number() OVER (ORDER BY time)",
@@ -256,6 +253,8 @@ func TestQuery_FunctionReturnTypesMatchRuntime(t *testing.T) {
 				"extract(year FROM now())",
 			},
 		},
+		{"INTEGER", reCorpusInt, []string{"codepoint('a')", "random(5)"}},
+		{"BIGINT", reCorpusInt, []string{"random(bigint '5')"}},
 		{"DOUBLE", reCorpusDbl, []string{
 			"avg(measure_value::double)", "stddev(measure_value::double)", "variance(measure_value::double)", "sqrt(4)",
 			"ln(1)", "exp(0)", "power(2, 3)", "to_unixtime(now())", "pi()", "rand()", "log10(100)", "sin(0)", "cbrt(8)",

@@ -39,9 +39,10 @@ families:
   route_matching: {status: ok, note: "X-Amz-Target prefix Timestream_20181101., Content-Type application/x-amz-json-1.0 (awsjson1.0) verified against serializers.go (awsAwsjson10_*). DescribeEndpoints wired for SDK endpoint-discovery (fetchOpQueryDiscoverEndpoint calls DescribeEndpoints first)."}
 gaps: []
 items_still_open:
-  - "Static type inference (ts_infer.go) types every select-list expression before execution, but a query using a construct it cannot parse or type keeps the older value-based column typing (and syntactic boolean/interval typing, ts_boolean.go) for the affected columns: positional ? and named @parameters (PrepareQuery), AT TIME ZONE, TABLESAMPLE, recursive CTEs, transform() over a timeseries (the engine has no implementation), and any function without a return-type rule (SQLite built-ins outside the Timestream function list); an empty result of such a column still reports VARCHAR"
-  - "Unverified against the service: integer literals are typed INTEGER when they fit 32 bits else BIGINT (supported-data-types.html lists int and bigint but not which a literal gets; the SDK ScalarType enum has INTEGER, appended after UNKNOWN, so the service does emit it for something, and no recorded real response in the repo or the documentation shows a literal's ColumnInfo), and typeof() prints array(T), row(name T, ...) and timeseries(T) for nested types where the page gives only the notations array[T,...], row(T,...) and timeseries[row(timestamp, T,...)]"
-  - "Integer overflow is not an error: a 32-bit INTEGER result that overflows is widened to BIGINT and a 64-bit overflow (SQLite promotes it to a float) is reported as DOUBLE, where the service fails the query; CAST(double AS bigint) truncates (SQLite) rather than rounding, and TRY_CAST of an unparsable string yields 0 rather than NULL"
+  - "Static type inference (ts_infer.go) types every select-list expression before execution; a query it cannot parse or type keeps the older value-based column typing (and syntactic boolean/interval typing, ts_boolean.go), an empty result of such a column reports VARCHAR, and the checked arithmetic and casts below do not apply to it (SQLite semantics: integer overflow widens, CAST(double AS bigint) truncates, TRY_CAST of an unparsable string yields 0, division by zero yields NULL). Remaining sites: positional ? markers (PrepareQuery reports them as param1.. VARCHAR; the PrepareQuery page documents only @identifier names); an @name in the select list or compared with another untyped operand (its type depends on a value no request supplies; PrepareQuery reports VARCHAR); lambdas outside filter, transform, reduce, zip_with, the *_match functions and the regexp_replace lambda; transform() over a timeseries (the engine has no implementation); map-typed functions (map, map_agg, map_keys, map_values, histogram); a row field name that does not exist and row[i] with a non-literal i; any function without a return-type rule (SQLite built-ins outside the Timestream function list)"
+  - "Unverified against the service: integer literals are typed INTEGER when they fit 32 bits else BIGINT (supported-data-types.html lists int and bigint but not which a literal gets; the SDK ScalarType enum has INTEGER, appended after UNKNOWN, and string-functions.html lists codepoint as integer, so the service emits it for something, but no recorded real response in the repo or the documentation shows a literal's ColumnInfo), and typeof() prints array(T), row(name T, ...) and timeseries(T) for nested types (array-functions.html writes output types as array(bigint), array(varchar), array(timestamp) and array(row), which is notation for function signatures, not typeof output; no page shows typeof of a row or timeseries)"
+  - "Checked arithmetic and casts: the error type (ValidationException) and message wording (\"bigint addition overflow: A + B\", \"Division by zero\", \"Cannot cast 'x' to BIGINT\", \"Out of range for integer: N\", \"Value cannot be cast to timestamp: x\") follow the Presto/Trino family from memory; no Timestream page quotes them. CAST(double AS bigint) rounds half away from zero on the same basis. try() maps a failure anywhere inside its argument to NULL for the failing operation, which differs from the family only when a NULL changes a surrounding coalesce or CASE"
+  - "Documented functions the engine does not implement (calls fail with 'Function not registered' or 'wrong number of arguments'; return-type rules exist): array_intersect, array_union, array_except, shuffle, repeat, zip, from_base, to_base, strrpos, bitwise_and_agg, bitwise_or_agg, skewness, regexp_replace with a lambda, max_by/min_by(x, y, n) and approx_percentile with weights; max(x, n), min(x, n) and approx_percentile(x, ARRAY[...]) run but return NULL instead of the documented array"
 
 structural_gaps:
   - "CreateScheduledQuery KmsKeyId is stored and echoed, but there is no at-rest encryption layer to apply it to."
@@ -106,6 +107,23 @@ Sources: supported-data-types.html (types), using-query-insights.html and optimi
 - QueryInsights is returned only for ENABLED_WITH_RATE_CONTROL (absent or DISABLED returns none), an unknown Mode is a ValidationException, and
   a second enabled Query within one second on the same region gets ThrottlingException (backend clock). Scheduled-query runs carry the same
   QueryTemporalRange/QuerySpatialCoverage; they are not rate limited. OutputBytes counts array, row and timeseries values.
+
+## Checked arithmetic, casts and parameters
+
+Sources: supported-data-types.html (int 32-bit, bigint 64-bit, double with Infinity and NaN functions), API_query_PrepareQuery.html ("Parameter names can
+be specified in the query string @ character followed by an identifier"; Parameters is a list of ParameterMapping), array-functions.html and
+string-functions.html (output types), mathematical-functions.html (e(), rand(), random() as double, random(n) "same as input").
+
+- When the static types of both operands are integral the rewriter emits ts_add/sub/mul/div/mod32|64 (ts_neg, ts_abs, mod() likewise, ts_sum for
+  SUM over an integral argument, windows included): overflow, and division or modulo by zero, fail the query; division truncates toward zero and
+  modulo follows the dividend. DOUBLE division and modulo go through ts_ddiv/ts_dmod (Infinity, -Infinity, NaN as the family does; NaN travels as
+  the text "NaN" because SQLite stores NaN as NULL); other DOUBLE arithmetic still runs natively. CAST/TRY_CAST between integer, bigint, double,
+  boolean, varchar and from varchar to timestamp/date/time go through ts_cast (ts_cast.go); typed literals such as bigint 'x' do too. try() marks
+  everything inside it non-failing. The functions return an error or NULL for NULL, text or otherwise unexpected arguments and never panic.
+- random(n) returns the argument's integer type, random()/rand() DOUBLE, e() is registered. codepoint() is INTEGER (string-functions.html).
+- PrepareQuery lists each distinct @identifier once, in order of first use, named without the "@"; the type is that of the typed operand it is
+  compared with (=, <>, <, >, <=, >=, BETWEEN, IN, LIKE) and @scheduled_runtime is TIMESTAMP. The Name form and the VARCHAR default for an
+  unconstrained parameter are not specified by the page.
 
 ## Emulator choices where the vendor is silent
 
@@ -749,3 +767,4 @@ composite partition key and was never derived from records.
 - SELECT * column order (dimensions in first-seen order, measure_name, time, measure_value::T sorted by type, multi attributes in first-seen order) is not published in the Developer Guide sample queries.
 - Scheduled query SNS notifications use lower camelCase keys and epoch-second times for the structures in scheduledqueries-notification.html (which gives field names and types only); RecentlyFailedRuns keeps the last 5 runs; ScheduledQueryExecutionRoleArn is never assumed (no STS role session in the emulator).
 - Scheduled query ARNs are scheduled-query/<name>-<12 hex characters>, and the error-report object key embeds that last segment (scheduledqueries-errorreport.html); names are unique per region.
+- WITH RECURSIVE, TABLESAMPLE and AT TIME ZONE are rejected with a syntax ValidationException: the SELECT page (supported-sql-constructs.SELECT.html) lists WITH without RECURSIVE and no TABLESAMPLE, and date-time-functions.html says Timestream uses UTC and lists no time zone conversion; neither page says the constructs are rejected, so the service's own response is unverified.

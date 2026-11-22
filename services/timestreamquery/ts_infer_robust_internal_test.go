@@ -99,6 +99,11 @@ func FuzzAnnotateQuery(f *testing.F) {
 		"SELECT 1", "SELECT a, count(*) FROM t WHERE time > ago(1h) GROUP BY a", "SELECT 'x' -- c",
 		"SELECT /* c */ CASE WHEN a THEN 1 END",
 		"WITH a AS (SELECT 1) SELECT * FROM a", "SELECT filter(ARRAY[1], x -> x > 0)", `SELECT "a--b"`,
+		"SELECT (1 + 2) * -(3 - 4) / 5 % 6", "SELECT CAST('x' AS bigint), TRY_CAST(1.5 AS integer), try(1 / 0)",
+		"SELECT abs(-1), sum(x), random(5), mod(7, 2) FROM t", "SELECT 'a'AS x, CAST('1'AS bigint)",
+		"SELECT zip_with(ARRAY[1], ARRAY[2], (a, b) -> a + b), regexp_replace('a', '(a)', x -> x[1])",
+		"SELECT ROW(1, 'a')[2] FROM t WHERE time > @start AND a BETWEEN @x AND @y AND b IN (@z, 1)",
+		"SELECT bigint '1' + integer '2', double '1.5' / 0, 1.0 % 0",
 	} {
 		f.Add(s)
 	}
