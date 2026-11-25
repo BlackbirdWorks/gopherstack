@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/services/s3"
 )
 
@@ -286,7 +287,7 @@ func TestListDirectoryBuckets(t *testing.T) {
 }
 
 // TestHandler_CreateBucket_AlreadyExists verifies that creating a bucket that
-// already exists returns either 204 (idempotent) or 409 Conflict.
+// already owned in us-east-1 succeeds with 200.
 func TestHandler_CreateBucket_AlreadyExists(t *testing.T) {
 	t.Parallel()
 
@@ -297,7 +298,7 @@ func TestHandler_CreateBucket_AlreadyExists(t *testing.T) {
 	rec := httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 
-	assert.Contains(t, []int{http.StatusNoContent, http.StatusConflict}, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
 // TestHandler_DeleteBucket_NotEmpty verifies that deleting a non-empty bucket
@@ -406,10 +407,10 @@ func TestHandler_CreateBucket_Errors(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:       "duplicate bucket returns 409",
+			name:       "duplicate bucket in us-east-1 returns 200",
 			bucket:     "bkt",
 			preCreate:  true,
-			wantStatus: http.StatusConflict,
+			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "invalid XML in body creates bucket with default region",
@@ -444,10 +445,14 @@ func TestHandler_CreateBucket_Errors(t *testing.T) {
 func TestHandler_CreateBucket_BucketAlreadyOwnedByYou_XMLResponse(t *testing.T) {
 	t.Parallel()
 
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "existing")
+	handler, _ := newTestHandler(t)
+	mustCreateBucketInRegion(t, handler, "existing", "eu-west-1")
 
 	req := httptest.NewRequest(http.MethodPut, "/existing", nil)
+	req = req.WithContext(awsmeta.Set(req.Context(), &awsmeta.Metadata{
+		Region:  "eu-west-1",
+		Account: awsmeta.DefaultAccount,
+	}))
 	rec := httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 
@@ -516,13 +521,13 @@ func TestHandler_CreateBucket(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
-			name:   "create duplicate bucket",
+			name:   "create duplicate bucket in us-east-1",
 			bucket: "existing",
 			setup: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
 				mustCreateBucket(t, b, "existing")
 			},
-			wantStatus: http.StatusConflict,
+			wantStatus: http.StatusOK,
 		},
 	}
 

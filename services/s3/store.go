@@ -57,6 +57,11 @@ type objectChecksums struct {
 	crc32, crc32c, sha1, sha256, crc64nvme, md5, sha512 *string
 }
 
+func (c *objectChecksums) any() bool {
+	return c.crc32 != nil || c.crc32c != nil || c.sha1 != nil || c.sha256 != nil ||
+		c.crc64nvme != nil || c.md5 != nil || c.sha512 != nil
+}
+
 func (c *objectChecksums) slot(algo string) **string {
 	switch algo {
 	case ChecksumCRC32:

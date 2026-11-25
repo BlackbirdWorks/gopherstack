@@ -15,6 +15,8 @@ var (
 	ErrNoSuchBucket            = awserr.New("NoSuchBucket", awserr.ErrNotFound)
 	ErrTooManyBuckets          = awserr.New("TooManyBuckets", awserr.ErrInvalidParameter)
 	ErrNoSuchKey               = awserr.New("NoSuchKey", awserr.ErrNotFound)
+	ErrNoSuchVersion           = awserr.New("NoSuchVersion", awserr.ErrNotFound)
+	ErrInvalidVersionID        = awserr.New(errInvalidArgument, awserr.ErrInvalidParameter)
 	ErrInvalidBucketName       = errors.New("InvalidBucketName")
 	ErrBucketNotEmpty          = errors.New(
 		"BucketNotEmpty: The bucket you tried to delete is not empty",
@@ -233,6 +235,12 @@ func coreErrorTableBucket() []s3ErrorEntry {
 			ErrNoSuchKey,
 			s3ErrorInfo{errNoSuchKey, "The specified key does not exist.", http.StatusNotFound},
 		},
+		{ErrNoSuchVersion, s3ErrorInfo{
+			"NoSuchVersion", "The specified version does not exist.", http.StatusNotFound,
+		}},
+		{ErrInvalidVersionID, s3ErrorInfo{
+			errInvalidArgument, "Invalid version id specified", http.StatusBadRequest,
+		}},
 		{ErrBucketAlreadyOwnedByYou, s3ErrorInfo{
 			"BucketAlreadyOwnedByYou",
 			"Your previous request to create the named bucket succeeded and you already own it.",
@@ -520,11 +528,9 @@ func configErrorTable() []s3ErrorEntry {
 func WriteError(ctx context.Context, w http.ResponseWriter, r *http.Request, err error) {
 	for _, e := range errorTable() {
 		if errors.Is(err, e.err) {
-			httputils.WriteS3ErrorResponse(
-				ctx, w, r,
-				ErrorResponse{Code: e.info.code, Message: e.info.message},
-				e.info.status,
-			)
+			resp := ErrorResponse{Code: e.info.code, Message: e.info.message}
+			applyVersionDetail(&resp, err)
+			httputils.WriteS3ErrorResponse(ctx, w, r, resp, e.info.status)
 
 			return
 		}
