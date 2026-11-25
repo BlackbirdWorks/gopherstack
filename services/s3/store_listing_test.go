@@ -406,11 +406,15 @@ func TestCreateBucket_GlobalUniqueness(t *testing.T) {
 
 	backend := newTestBackend(t)
 
-	// Create bucket in default region
-	mustCreateBucket(t, backend, "unique-bucket")
-
-	// Attempt to create the same bucket name again (even if in a different region via context)
 	_, err := backend.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{
+		Bucket: aws.String("unique-bucket"),
+		CreateBucketConfiguration: &types.CreateBucketConfiguration{
+			LocationConstraint: types.BucketLocationConstraintEuWest1,
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = backend.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{
 		Bucket: aws.String("unique-bucket"),
 	})
 	require.ErrorIs(

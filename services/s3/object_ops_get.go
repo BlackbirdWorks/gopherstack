@@ -217,7 +217,7 @@ func ifRangeMatches(r *http.Request, etag string, lastModified time.Time) bool {
 	}
 
 	if t, err := http.ParseTime(ifRange); err == nil {
-		return !lastModified.After(t)
+		return !modifiedAfter(lastModified, t)
 	}
 
 	return false
@@ -505,7 +505,7 @@ func checkConditionalHeaders(r *http.Request, etag string, lastModified time.Tim
 	}
 
 	if ifModSince := r.Header.Get("If-Modified-Since"); ifModSince != "" {
-		if t, err := http.ParseTime(ifModSince); err == nil && !lastModified.After(t) {
+		if t, err := http.ParseTime(ifModSince); err == nil && !modifiedAfter(lastModified, t) {
 			return http.StatusNotModified, false
 		}
 	}

@@ -59,8 +59,12 @@ func (b *InMemoryBackend) CreateBucket(
 	// caller → return BucketAlreadyOwnedByYou (not BucketAlreadyExists).
 	// Pending-delete buckets remain in the table and still block re-creation,
 	// matching real S3 behaviour (you must wait for deletion to complete).
-	if b.buckets.Has(bucketName) {
-		return nil, ErrBucketAlreadyOwnedByYou
+	if existing, ok := b.buckets.Get(bucketName); ok {
+		if !b.recreateOwnedBucketLocked(ctx, existing, region) {
+			return nil, ErrBucketAlreadyOwnedByYou
+		}
+
+		return &s3.CreateBucketOutput{Location: aws.String("/" + bucketName)}, nil
 	}
 
 	if limit.Reached(b.bucketCountLocked(awsmeta.Account(ctx))) {
@@ -114,6 +118,29 @@ func (b *InMemoryBackend) CreateBucket(
 	return &s3.CreateBucketOutput{
 		Location: aws.String("/" + bucketName),
 	}, nil
+}
+
+// recreateOwnedBucketLocked implements the us-east-1 legacy behaviour where
+// re-creating an owned bucket succeeds and resets its ACL. Reports false when
+// the 409 applies instead.
+func (b *InMemoryBackend) recreateOwnedBucketLocked(
+	ctx context.Context,
+	existing *StoredBucket,
+	region string,
+) bool {
+	if region != defaultRegionName || existing.Region != defaultRegionName || existing.DeletePending {
+		return false
+	}
+
+	if owner := existing.OwnerAccountID; owner != "" && owner != awsmeta.Account(ctx) {
+		return false
+	}
+
+	existing.mu.Lock("CreateBucket")
+	existing.ACL = ""
+	existing.mu.Unlock()
+
+	return true
 }
 
 func initialVersioning(objectLock bool) types.BucketVersioningStatus {
