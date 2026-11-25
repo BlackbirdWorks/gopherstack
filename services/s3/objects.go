@@ -400,7 +400,10 @@ func (b *InMemoryBackend) PutObject(
 
 	newVersion.RetentionMode, newVersion.RetainUntil, newVersion.LegalHold = lockMode, lockUntil, lockHold
 
-	newVersionID := b.saveObjectVersion(bucket, key, newVersion)
+	newVersionID, saveErr := b.saveObjectVersion(bucket, key, newVersion, input.IfMatch, input.IfNoneMatch)
+	if saveErr != nil {
+		return nil, saveErr
+	}
 
 	b.evictStaleNullTags(bucketName, key, newVersionID, input.Tagging)
 	b.storeObjectTags(input.Tagging, bucketName, key, newVersionID)
@@ -432,6 +435,7 @@ func (b *InMemoryBackend) PutObject(
 		ChecksumCRC64NVME: checksums.crc64nvme,
 		ChecksumMD5:       checksums.md5,
 		ChecksumSHA512:    checksums.sha512,
+		ChecksumType:      newVersion.ChecksumType,
 	}, nil
 }
 
@@ -450,7 +454,7 @@ func buildStoredObjectVersion(
 		sc = storageStandard
 	}
 
-	return &StoredObjectVersion{
+	ver := &StoredObjectVersion{
 		VersionID:               NullVersion,
 		Key:                     key,
 		Data:                    data,
@@ -484,6 +488,11 @@ func buildStoredObjectVersion(
 		IsLatest:                true,
 		ACL:                     string(input.ACL),
 	}
+	if checksums.any() {
+		ver.ChecksumType = types.ChecksumTypeFullObject
+	}
+
+	return ver
 }
 
 func (b *InMemoryBackend) prepareObjectData(
@@ -1220,9 +1229,14 @@ func (b *InMemoryBackend) saveObjectVersion(
 	bucket *StoredBucket,
 	key string,
 	ver *StoredObjectVersion,
-) string {
+	ifMatch, ifNoneMatch *string,
+) (string, error) {
 	bucket.mu.Lock("saveObjectVersion")
 	defer bucket.mu.Unlock()
+
+	if err := checkWritePreconditions(bucket.Objects[key], ifMatch, ifNoneMatch); err != nil {
+		return "", err
+	}
 
 	// Handle versioning
 	if ver.VersionID == NullVersion && bucket.Versioning == types.BucketVersioningStatusEnabled {
@@ -1251,7 +1265,32 @@ func (b *InMemoryBackend) saveObjectVersion(
 	obj.Versions[ver.VersionID] = ver
 	obj.LatestVersionID = ver.VersionID
 
-	return ver.VersionID
+	return ver.VersionID, nil
+}
+
+// checkWritePreconditions evaluates If-Match / If-None-Match against the live
+// latest version; callers hold the bucket write lock so check and write are atomic.
+func checkWritePreconditions(obj *StoredObject, ifMatch, ifNoneMatch *string) error {
+	match := strings.Trim(aws.ToString(ifMatch), `"`)
+	noneMatch := strings.Trim(aws.ToString(ifNoneMatch), `"`)
+	if match == "" && noneMatch == "" {
+		return nil
+	}
+
+	var current *StoredObjectVersion
+	if obj != nil {
+		obj.mu.RLock("checkWritePreconditions")
+		current = obj.Versions[obj.LatestVersionID]
+		obj.mu.RUnlock()
+	}
+
+	exists := current != nil && !current.Deleted
+	etag := ""
+	if exists {
+		etag = strings.Trim(current.ETag, `"`)
+	}
+
+	return evaluatePutPreconditions(match, noneMatch, etag, exists)
 }
 
 // computeObjectHashes snapshots the body while computing MD5 and S3 checksums.

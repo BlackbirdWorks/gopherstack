@@ -313,23 +313,7 @@ func (h *S3Handler) completeMultipartUpload(
 	}
 
 	out, err := h.Backend.CompleteMultipartUpload(
-		ctx,
-		&s3.CompleteMultipartUploadInput{
-			Bucket:          aws.String(bucketName),
-			Key:             aws.String(key),
-			UploadId:        aws.String(uploadID),
-			MultipartUpload: &types.CompletedMultipartUpload{Parts: sdkParts},
-			MpuObjectSize:   parseMpuObjectSize(r),
-			ChecksumType:    types.ChecksumType(r.Header.Get("X-Amz-Checksum-Type")),
-			ChecksumCRC32:   ptrconv.NilIfEmpty(r.Header.Get("X-Amz-Checksum-Crc32")),
-			ChecksumCRC32C:  ptrconv.NilIfEmpty(r.Header.Get("X-Amz-Checksum-Crc32c")),
-			ChecksumSHA1:    ptrconv.NilIfEmpty(r.Header.Get("X-Amz-Checksum-Sha1")),
-			ChecksumSHA256:  ptrconv.NilIfEmpty(r.Header.Get("X-Amz-Checksum-Sha256")),
-
-			ChecksumCRC64NVME: extractCRC64NVMEChecksum(r),
-			ChecksumMD5:       extractMD5Checksum(r),
-			ChecksumSHA512:    extractSHA512Checksum(r),
-		},
+		ctx, buildCompleteMultipartInput(r, bucketName, key, uploadID, sdkParts),
 	)
 	if err != nil {
 		WriteError(ctx, w, r, err)
@@ -575,4 +559,27 @@ func parseMpuObjectSize(r *http.Request) *int64 {
 	}
 
 	return &n
+}
+
+func buildCompleteMultipartInput(
+	r *http.Request, bucketName, key, uploadID string, parts []types.CompletedPart,
+) *s3.CompleteMultipartUploadInput {
+	return &s3.CompleteMultipartUploadInput{
+		Bucket:          aws.String(bucketName),
+		Key:             aws.String(key),
+		UploadId:        aws.String(uploadID),
+		MultipartUpload: &types.CompletedMultipartUpload{Parts: parts},
+		MpuObjectSize:   parseMpuObjectSize(r),
+		IfMatch:         ptrconv.NilIfEmpty(r.Header.Get("If-Match")),
+		IfNoneMatch:     ptrconv.NilIfEmpty(r.Header.Get("If-None-Match")),
+		ChecksumType:    types.ChecksumType(r.Header.Get("X-Amz-Checksum-Type")),
+		ChecksumCRC32:   ptrconv.NilIfEmpty(r.Header.Get("X-Amz-Checksum-Crc32")),
+		ChecksumCRC32C:  ptrconv.NilIfEmpty(r.Header.Get("X-Amz-Checksum-Crc32c")),
+		ChecksumSHA1:    ptrconv.NilIfEmpty(r.Header.Get("X-Amz-Checksum-Sha1")),
+		ChecksumSHA256:  ptrconv.NilIfEmpty(r.Header.Get("X-Amz-Checksum-Sha256")),
+
+		ChecksumCRC64NVME: extractCRC64NVMEChecksum(r),
+		ChecksumMD5:       extractMD5Checksum(r),
+		ChecksumSHA512:    extractSHA512Checksum(r),
+	}
 }

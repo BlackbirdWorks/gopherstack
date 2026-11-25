@@ -319,6 +319,7 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 
 	versionID, err := b.commitMultipartObject(
 		bucket, bucketName, key, assembled, tagging, sse, storageClass, acl, expires, headers,
+		input.IfMatch, input.IfNoneMatch,
 	)
 	if err != nil {
 		return nil, err
@@ -555,6 +556,26 @@ func (b *InMemoryBackend) compressBody(parts [][]byte) ([]byte, bool, error) {
 	}
 }
 
+// getOrCreateObjectChecked requires the bucket write lock.
+func getOrCreateObjectChecked(bucket *StoredBucket, key string, ifMatch, ifNoneMatch *string) (*StoredObject, error) {
+	obj, exists := bucket.Objects[key]
+	if err := checkWritePreconditions(obj, ifMatch, ifNoneMatch); err != nil {
+		return nil, err
+	}
+
+	if !exists {
+		obj = &StoredObject{
+			Key:      key,
+			Versions: make(map[string]*StoredObjectVersion),
+			mu:       lockmetrics.New("s3.object"),
+		}
+		bucket.Objects[key] = obj
+		bucket.indexInsert(key)
+	}
+
+	return obj, nil
+}
+
 // commitMultipartObject stores the assembled multipart data as an object version,
 // returning the new versionID. Acquires and releases bucket.mu internally.
 // tagging is an optional URL-encoded tag string to associate with the new version.
@@ -571,6 +592,7 @@ func (b *InMemoryBackend) commitMultipartObject(
 	acl string,
 	expires time.Time,
 	headers multipartObjectHeaders,
+	ifMatch, ifNoneMatch *string,
 ) (string, error) {
 	var obj *StoredObject
 	var newVersion *StoredObjectVersion
@@ -581,16 +603,8 @@ func (b *InMemoryBackend) commitMultipartObject(
 		bucket.mu.Lock(opCompleteMultipartUpload)
 		defer bucket.mu.Unlock()
 
-		var exists bool
-		obj, exists = bucket.Objects[key]
-		if !exists {
-			obj = &StoredObject{
-				Key:      key,
-				Versions: make(map[string]*StoredObjectVersion),
-				mu:       lockmetrics.New("s3.object"),
-			}
-			bucket.Objects[key] = obj
-			bucket.indexInsert(key)
+		if obj, err = getOrCreateObjectChecked(bucket, key, ifMatch, ifNoneMatch); err != nil {
+			return
 		}
 
 		versionID = NullVersion
