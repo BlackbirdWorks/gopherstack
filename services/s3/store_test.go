@@ -38,14 +38,12 @@ func TestCreateBucket(t *testing.T) {
 			setup:  func(_ *testing.T, _ *s3.InMemoryBackend) {},
 		},
 		{
-			name:   "create duplicate bucket",
+			name:   "recreate owned bucket in default region succeeds",
 			bucket: "my-bucket",
 			setup: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
 				mustCreateBucket(t, b, "my-bucket")
 			},
-			wantErr:   s3.ErrBucketAlreadyOwnedByYou,
-			expectErr: true,
 		},
 		{
 			// A bucket that has been deleted is pending janitor cleanup; it must
@@ -460,7 +458,7 @@ func TestVersioning(t *testing.T) {
 	}{
 		{name: "versioned put creates unique version IDs"},
 		{name: "get specific null version"},
-		{name: "get non-existent version returns error", wantErr: s3.ErrNoSuchKey, expectErr: true},
+		{name: "get malformed version returns error", wantErr: s3.ErrInvalidVersionID, expectErr: true},
 	}
 
 	for _, tt := range tests {
@@ -515,7 +513,7 @@ func TestVersioning(t *testing.T) {
 				data, _ := io.ReadAll(got.Body)
 				assert.Equal(t, "data", string(data))
 
-			case "get non-existent version returns error":
+			case "get malformed version returns error":
 				mustPutObject(t, backend, "bkt", "k", []byte("data"))
 
 				_, err := backend.GetObject(t.Context(), &sdk_s3.GetObjectInput{
@@ -572,7 +570,7 @@ func TestDeleteObject(t *testing.T) {
 			name:      "delete specific version not found is a no-op",
 			bucket:    "bkt",
 			key:       "k",
-			versionID: "bad-version",
+			versionID: "0123456789abcdef0123456789abcdef",
 			setup: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
 				mustCreateBucket(t, b, "bkt")

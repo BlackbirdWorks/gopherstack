@@ -298,27 +298,11 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 		return nil, ErrMpuObjectSizeMismatch
 	}
 
-	// 3. Atomically claim the upload: verify it is still present (wasn't aborted
-	// concurrently after step 1), mark it closed, and remove it from the index.
-	if claimErr := b.claimMultipartUpload(bucketName, uploadID); claimErr != nil {
-		return nil, claimErr
-	}
-
-	// 4. Update bucket/object state.
-	var bucket *StoredBucket
-	func() {
-		b.mu.RLock(opCompleteMultipartUpload)
-		defer b.mu.RUnlock()
-
-		bucket, err = b.getBucket(bucketName)
-	}()
-
-	if err != nil {
-		return nil, err
-	}
-
+	// 3. Claim the upload and commit the object in one critical section so a
+	// failed If-Match/If-None-Match leaves the upload intact (412, retryable).
 	versionID, err := b.commitMultipartObject(
-		bucket, bucketName, key, assembled, tagging, sse, storageClass, acl, expires, headers,
+		bucketName, uploadID, key, assembled, tagging, sse, storageClass, acl, expires, headers,
+		input.IfMatch, input.IfNoneMatch,
 	)
 	if err != nil {
 		return nil, err
@@ -338,36 +322,17 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 	return out, nil
 }
 
-// claimMultipartUpload atomically marks the upload as closed and removes it from
-// b.uploads under b.mu.Lock. Called by CompleteMultipartUpload after successful
-// assembly so that a concurrent AbortMultipartUpload cannot also succeed.
-func (b *InMemoryBackend) claimMultipartUpload(bucketName, uploadID string) error {
-	var err error
-
+// claimUploadLocked marks the upload closed (blocking UploadPart calls that
+// already hold its pointer) and removes it from the index. Caller holds b.mu.
+func (b *InMemoryBackend) claimUploadLocked(upload *StoredMultipartUpload) {
 	func() {
-		b.mu.Lock("CompleteMultipartUpload.claim")
-		defer b.mu.Unlock()
+		upload.mu.Lock("CompleteMultipartUpload.claim")
+		defer upload.mu.Unlock()
 
-		upload := b.getUpload(bucketName, uploadID)
-		if upload == nil {
-			err = ErrNoSuchUpload
-
-			return
-		}
-
-		// Mark closed while holding b.mu to block concurrent UploadPart calls that
-		// already hold a pointer to this upload struct.
-		func() {
-			upload.mu.Lock("CompleteMultipartUpload.claim")
-			defer upload.mu.Unlock()
-
-			upload.closed = true
-		}()
-
-		b.deleteUploadLocked(uploadID)
+		upload.closed = true
 	}()
 
-	return err
+	b.deleteUploadLocked(upload.UploadID)
 }
 
 // multipartAssemblyResult holds the results of assembleMultipartData.
@@ -555,6 +520,75 @@ func (b *InMemoryBackend) compressBody(parts [][]byte) ([]byte, bool, error) {
 	}
 }
 
+// getOrCreateObjectChecked requires the bucket write lock.
+func getOrCreateObjectChecked(bucket *StoredBucket, key string, ifMatch, ifNoneMatch *string) (*StoredObject, error) {
+	obj, exists := bucket.Objects[key]
+	if err := checkWritePreconditions(obj, ifMatch, ifNoneMatch); err != nil {
+		return nil, err
+	}
+
+	if !exists {
+		obj = &StoredObject{
+			Key:      key,
+			Versions: make(map[string]*StoredObjectVersion),
+			mu:       lockmetrics.New("s3.object"),
+		}
+		bucket.Objects[key] = obj
+		bucket.indexInsert(key)
+	}
+
+	return obj, nil
+}
+
+// sealMultipartBody encrypts the assembled body under SSE when the upload asked
+// for it. Runs before any lock so a failure cannot consume the upload.
+func sealMultipartBody(assembled multipartAssemblyResult, sse sseInfo) ([]byte, []byte, []byte, error) {
+	if sse.Algorithm == "" && sse.SSECAlgorithm == "" {
+		return assembled.compressedData, nil, nil, nil
+	}
+
+	body, dek, nonce, err := encryptWithSSE(assembled.compressedData, sse, sse.SSECKeyB64)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("commitMultipartObject: SSE encryption failed: %w", err)
+	}
+
+	return body, dek, nonce, nil
+}
+
+// claimUploadAndLockBucket checks the write preconditions and only then claims
+// the upload, so a 412 leaves it intact. Lock order is b.mu then bucket.mu (as
+// in DeleteBucket). On success it returns with bucket.mu held and b.mu released.
+func (b *InMemoryBackend) claimUploadAndLockBucket(
+	bucketName, uploadID, key string,
+	ifMatch, ifNoneMatch *string,
+) (*StoredBucket, *StoredObject, error) {
+	b.mu.Lock(opCompleteMultipartUpload)
+	defer b.mu.Unlock()
+
+	bucket, err := b.getBucket(bucketName)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	upload := b.getUpload(bucketName, uploadID)
+	if upload == nil {
+		return nil, nil, ErrNoSuchUpload
+	}
+
+	bucket.mu.Lock(opCompleteMultipartUpload)
+
+	obj, err := getOrCreateObjectChecked(bucket, key, ifMatch, ifNoneMatch)
+	if err != nil {
+		bucket.mu.Unlock()
+
+		return nil, nil, err
+	}
+
+	b.claimUploadLocked(upload)
+
+	return bucket, obj, nil
+}
+
 // commitMultipartObject stores the assembled multipart data as an object version,
 // returning the new versionID. Acquires and releases bucket.mu internally.
 // tagging is an optional URL-encoded tag string to associate with the new version.
@@ -562,8 +596,7 @@ func (b *InMemoryBackend) compressBody(parts [][]byte) ([]byte, bool, error) {
 // completed object is sealed under the same algorithm/key the caller chose at
 // CreateMultipartUpload time.
 func (b *InMemoryBackend) commitMultipartObject(
-	bucket *StoredBucket,
-	bucketName, key string,
+	bucketName, uploadID, key string,
 	assembled multipartAssemblyResult,
 	tagging string,
 	sse sseInfo,
@@ -571,51 +604,29 @@ func (b *InMemoryBackend) commitMultipartObject(
 	acl string,
 	expires time.Time,
 	headers multipartObjectHeaders,
+	ifMatch, ifNoneMatch *string,
 ) (string, error) {
+	storedBody, dek, nonce, err := sealMultipartBody(assembled, sse)
+	if err != nil {
+		return "", err
+	}
+
 	var obj *StoredObject
 	var newVersion *StoredObjectVersion
 	var versionID string
-	var err error
 
 	func() {
-		bucket.mu.Lock(opCompleteMultipartUpload)
-		defer bucket.mu.Unlock()
+		var bucket *StoredBucket
 
-		var exists bool
-		obj, exists = bucket.Objects[key]
-		if !exists {
-			obj = &StoredObject{
-				Key:      key,
-				Versions: make(map[string]*StoredObjectVersion),
-				mu:       lockmetrics.New("s3.object"),
-			}
-			bucket.Objects[key] = obj
-			bucket.indexInsert(key)
+		bucket, obj, err = b.claimUploadAndLockBucket(bucketName, uploadID, key, ifMatch, ifNoneMatch)
+		if err != nil {
+			return
 		}
+		defer bucket.mu.Unlock()
 
 		versionID = NullVersion
 		if bucket.Versioning == types.BucketVersioningStatusEnabled {
 			versionID = newObjectVersionID()
-		}
-
-		// Seal the assembled body under SSE if the session was created with it.
-		// On encryption failure we surface the error to the caller so it can be
-		// returned as a structured S3 error response rather than panicking the
-		// request goroutine.
-		storedBody := assembled.compressedData
-		var dek, nonce []byte
-		if sse.Algorithm != "" || sse.SSECAlgorithm != "" {
-			var encErr error
-			storedBody, dek, nonce, encErr = encryptWithSSE(
-				assembled.compressedData,
-				sse,
-				sse.SSECKeyB64,
-			)
-			if encErr != nil {
-				err = fmt.Errorf("commitMultipartObject: SSE encryption failed: %w", encErr)
-
-				return
-			}
 		}
 
 		newVersion = &StoredObjectVersion{

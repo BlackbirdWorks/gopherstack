@@ -30,6 +30,7 @@ func (h *S3Handler) setPutObjectResponseHeaders(w http.ResponseWriter, ver *s3.P
 		ChecksumCRC64NVME: ver.ChecksumCRC64NVME,
 		ChecksumMD5:       ver.ChecksumMD5,
 		ChecksumSHA512:    ver.ChecksumSHA512,
+		ChecksumType:      string(ver.ChecksumType),
 	}
 	h.setChecksumHeaders(w, details)
 	if ver.VersionId != nil && *ver.VersionId != NullVersion {
@@ -294,6 +295,8 @@ func buildPutObjectInput(
 		ChecksumMD5:       extra.md5,
 		ChecksumSHA512:    extra.sha512,
 		Tagging:           aws.String(r.Header.Get("X-Amz-Tagging")),
+		IfMatch:           ptrconv.NilIfEmpty(r.Header.Get("If-Match")),
+		IfNoneMatch:       ptrconv.NilIfEmpty(r.Header.Get("If-None-Match")),
 
 		ObjectLockMode:            types.ObjectLockMode(r.Header.Get("X-Amz-Object-Lock-Mode")),
 		ObjectLockRetainUntilDate: parseRetainUntilHeader(r),

@@ -57,8 +57,6 @@ func (h *S3Handler) headObject(
 		Key:       aws.String(key),
 		VersionId: vid,
 	})
-	var nsb *types.NoSuchBucket
-	var nsk *types.NoSuchKey
 	if errors.Is(err, ErrLatestDeleteMarker) {
 		// HEAD of a key whose latest version is a delete marker: 404 + header.
 		w.Header().Set("X-Amz-Delete-Marker", "true")
@@ -67,9 +65,8 @@ func (h *S3Handler) headObject(
 		return
 	}
 
-	if errors.As(err, &nsb) || errors.As(err, &nsk) ||
-		errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) {
-		w.WriteHeader(http.StatusNotFound)
+	if status := headLookupErrorStatus(err); status != 0 {
+		w.WriteHeader(status)
 
 		return
 	}
@@ -352,4 +349,21 @@ func (h *S3Handler) handleGetObjectAttributes(
 	}
 
 	httputils.WriteXML(ctx, w, http.StatusOK, out)
+}
+
+func headLookupErrorStatus(err error) int {
+	var nsb *types.NoSuchBucket
+	var nsk *types.NoSuchKey
+
+	switch {
+	case errors.As(err, &nsb), errors.As(err, &nsk),
+		errors.Is(err, ErrNoSuchBucket), errors.Is(err, ErrNoSuchKey):
+		return http.StatusNotFound
+	case errors.Is(err, ErrNoSuchVersion):
+		return http.StatusNotFound
+	case errors.Is(err, ErrInvalidVersionID):
+		return http.StatusBadRequest
+	default:
+		return 0
+	}
 }

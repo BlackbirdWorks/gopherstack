@@ -179,11 +179,17 @@ type Tag struct {
 }
 
 type ErrorResponse struct {
-	XMLName   xml.Name `xml:"Error"`
-	Code      string   `xml:"Code"`
-	Message   string   `xml:"Message"`
-	Resource  string   `xml:"Resource"`
-	RequestID string   `xml:"RequestId"`
+	XMLName xml.Name `xml:"Error"`
+	Code    string   `xml:"Code"`
+	Message string   `xml:"Message"`
+	// ArgumentName/ArgumentValue (InvalidArgument) and Key/VersionID
+	// (NoSuchVersion) are omitted when empty.
+	ArgumentName  string `xml:"ArgumentName,omitempty"`
+	ArgumentValue string `xml:"ArgumentValue,omitempty"`
+	Key           string `xml:"Key,omitempty"`
+	VersionID     string `xml:"VersionId,omitempty"`
+	Resource      string `xml:"Resource"`
+	RequestID     string `xml:"RequestId"`
 }
 
 // InvalidRangeError is the XML body S3 returns with a 416 response when a Range

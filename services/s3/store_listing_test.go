@@ -358,7 +358,7 @@ func TestDeleteObjects_Backend(t *testing.T) {
 			name:   "delete versioned objects",
 			bucket: "bkt",
 			objects: []types.ObjectIdentifier{
-				{Key: aws.String("k1"), VersionId: aws.String("v1")},
+				{Key: aws.String("k1"), VersionId: aws.String("0123456789abcdef0123456789abcdef")},
 			},
 			wantDeleted: 1,
 			setup: func(t *testing.T, b *s3.InMemoryBackend) {
@@ -406,11 +406,15 @@ func TestCreateBucket_GlobalUniqueness(t *testing.T) {
 
 	backend := newTestBackend(t)
 
-	// Create bucket in default region
-	mustCreateBucket(t, backend, "unique-bucket")
-
-	// Attempt to create the same bucket name again (even if in a different region via context)
 	_, err := backend.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{
+		Bucket: aws.String("unique-bucket"),
+		CreateBucketConfiguration: &types.CreateBucketConfiguration{
+			LocationConstraint: types.BucketLocationConstraintEuWest1,
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = backend.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{
 		Bucket: aws.String("unique-bucket"),
 	})
 	require.ErrorIs(
