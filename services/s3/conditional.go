@@ -52,7 +52,7 @@ func evaluatePreconditions(
 
 	// if-unmodified-since: fail 412 when modified after the given date.
 	if v := h.Get(params.ifUnmodifiedSince); v != "" {
-		if t, err := http.ParseTime(v); err == nil && lastModified.After(t) {
+		if t, err := http.ParseTime(v); err == nil && modifiedAfter(lastModified, t) {
 			return http.StatusPreconditionFailed, false
 		}
 	}
@@ -85,7 +85,7 @@ func evaluateCopySourceConditionals(
 
 	// if-modified-since: fail 412 when NOT modified after the given date (copy → 412).
 	if v := h.Get(params.ifModifiedSince); v != "" {
-		if t, err := http.ParseTime(v); err == nil && !lastModified.After(t) {
+		if t, err := http.ParseTime(v); err == nil && !modifiedAfter(lastModified, t) {
 			return http.StatusPreconditionFailed, false
 		}
 	}
@@ -158,7 +158,7 @@ func destinationIfUnmodifiedSinceFails(h http.Header, lastModified time.Time, ex
 
 	t, err := http.ParseTime(v)
 
-	return err == nil && (!exists || lastModified.After(t))
+	return err == nil && (!exists || modifiedAfter(lastModified, t))
 }
 
 // destinationIfNoneMatchFails evaluates DestinationIfNoneMatch. "*" is the
@@ -189,5 +189,11 @@ func destinationIfModifiedSinceFails(h http.Header, lastModified time.Time, exis
 
 	t, err := http.ParseTime(v)
 
-	return err == nil && (!exists || !lastModified.After(t))
+	return err == nil && (!exists || !modifiedAfter(lastModified, t))
+}
+
+// modifiedAfter compares at HTTP-date (whole second) precision; stored times
+// carry sub-second precision the header cannot express.
+func modifiedAfter(lastModified, t time.Time) bool {
+	return lastModified.Truncate(time.Second).After(t)
 }
