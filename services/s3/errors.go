@@ -528,11 +528,9 @@ func configErrorTable() []s3ErrorEntry {
 func WriteError(ctx context.Context, w http.ResponseWriter, r *http.Request, err error) {
 	for _, e := range errorTable() {
 		if errors.Is(err, e.err) {
-			httputils.WriteS3ErrorResponse(
-				ctx, w, r,
-				ErrorResponse{Code: e.info.code, Message: e.info.message},
-				e.info.status,
-			)
+			resp := ErrorResponse{Code: e.info.code, Message: e.info.message}
+			applyVersionDetail(&resp, err)
+			httputils.WriteS3ErrorResponse(ctx, w, r, resp, e.info.status)
 
 			return
 		}

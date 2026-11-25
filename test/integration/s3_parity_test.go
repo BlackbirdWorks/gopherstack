@@ -291,3 +291,59 @@ func TestIntegration_S3_Parity_ConditionalPutRace(t *testing.T) {
 		})
 	}
 }
+
+func TestIntegration_S3_Parity_CompleteMultipartLoserKeepsUpload(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createS3Client(t)
+	ctx := t.Context()
+
+	bucket := "mpucond-" + uuid.NewString()
+	_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
+	require.NoError(t, err)
+
+	create := func() (*string, []types.CompletedPart) {
+		created, createErr := client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
+			Bucket: aws.String(bucket), Key: aws.String("k"),
+		})
+		require.NoError(t, createErr)
+
+		part, partErr := client.UploadPart(ctx, &s3.UploadPartInput{
+			Bucket: aws.String(bucket), Key: aws.String("k"), UploadId: created.UploadId,
+			PartNumber: aws.Int32(1), Body: strings.NewReader("part"),
+		})
+		require.NoError(t, partErr)
+
+		return created.UploadId, []types.CompletedPart{{ETag: part.ETag, PartNumber: aws.Int32(1)}}
+	}
+
+	complete := func(id *string, parts []types.CompletedPart) error {
+		_, completeErr := client.CompleteMultipartUpload(ctx, &s3.CompleteMultipartUploadInput{
+			Bucket: aws.String(bucket), Key: aws.String("k"), UploadId: id,
+			IfNoneMatch:     aws.String("*"),
+			MultipartUpload: &types.CompletedMultipartUpload{Parts: parts},
+		})
+
+		return completeErr
+	}
+
+	winnerID, winnerParts := create()
+	loserID, loserParts := create()
+
+	require.NoError(t, complete(winnerID, winnerParts))
+
+	loseErr := complete(loserID, loserParts)
+	require.Error(t, loseErr)
+	assert.Equal(t, http.StatusPreconditionFailed, httpStatusOf(t, loseErr))
+
+	listed, err := client.ListParts(ctx, &s3.ListPartsInput{
+		Bucket: aws.String(bucket), Key: aws.String("k"), UploadId: loserID,
+	})
+	require.NoError(t, err)
+	assert.Len(t, listed.Parts, 1)
+
+	_, err = client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(bucket), Key: aws.String("k")})
+	require.NoError(t, err)
+
+	require.NoError(t, complete(loserID, loserParts))
+}

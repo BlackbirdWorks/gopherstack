@@ -294,7 +294,7 @@ func (b *InMemoryBackend) PutObjectACL(
 
 	ver, ok := obj.Versions[vid]
 	if !ok && versionID != "" {
-		return versionMissError(versionID)
+		return versionMissError(key, versionID)
 	}
 
 	if !ok || ver.Deleted {
@@ -339,7 +339,7 @@ func (b *InMemoryBackend) GetObjectACL(
 
 	ver, ok := obj.Versions[vid]
 	if !ok && versionID != "" {
-		return "", versionMissError(versionID)
+		return "", versionMissError(key, versionID)
 	}
 
 	if !ok || ver.Deleted {

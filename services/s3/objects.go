@@ -169,7 +169,7 @@ func (b *InMemoryBackend) GetObjectAttributes(
 
 	ver, ok := obj.Versions[vid]
 	if !ok && versionID != "" {
-		return nil, versionMissError(versionID)
+		return nil, versionMissError(key, versionID)
 	}
 
 	if !ok || ver.Deleted {
@@ -728,7 +728,7 @@ func resolveObjectVersion(
 	if versionID != nil && *versionID != "" {
 		v, ok := obj.Versions[*versionID]
 		if !ok {
-			return nil, versionMissError(*versionID)
+			return nil, versionMissError(obj.Key, *versionID)
 		}
 		ver = v
 	} else {
@@ -1027,7 +1027,7 @@ func (b *InMemoryBackend) HeadObject(
 			// Use provided version ID
 			v, ok := obj.Versions[*versionID]
 			if !ok {
-				headErr = versionMissError(*versionID)
+				headErr = versionMissError(key, *versionID)
 
 				return
 			}

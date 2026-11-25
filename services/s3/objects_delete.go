@@ -88,7 +88,7 @@ func (b *InMemoryBackend) deleteObjectLocked(
 	bypassGovernance bool,
 ) (*s3.DeleteObjectOutput, error) {
 	if versionID != nil && *versionID != "" && !isWellFormedVersionID(*versionID) {
-		return nil, ErrInvalidVersionID
+		return nil, &versionError{base: ErrInvalidVersionID, key: key, versionID: *versionID}
 	}
 
 	obj, exists := bucket.Objects[key]
@@ -361,9 +361,10 @@ func (b *InMemoryBackend) DeleteObjects(
 				}
 
 				out.Errors = append(out.Errors, types.Error{
-					Key:     obj.Key,
-					Code:    aws.String(code),
-					Message: aws.String(delErr.Error()),
+					Key:       obj.Key,
+					VersionId: obj.VersionId,
+					Code:      aws.String(code),
+					Message:   aws.String(delErr.Error()),
 				})
 
 				continue

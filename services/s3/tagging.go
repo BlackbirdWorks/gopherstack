@@ -41,7 +41,7 @@ func (b *InMemoryBackend) PutObjectTagging(
 		if versionID != nil && *versionID != "" {
 			v, ok := obj.Versions[*versionID]
 			if !ok {
-				return "", versionMissError(*versionID)
+				return "", versionMissError(key, *versionID)
 			}
 			ver = v
 		} else {
@@ -99,7 +99,7 @@ func (b *InMemoryBackend) GetObjectTagging(
 		if versionID != nil && *versionID != "" {
 			v, ok := obj.Versions[*versionID]
 			if !ok {
-				return "", versionMissError(*versionID)
+				return "", versionMissError(key, *versionID)
 			}
 
 			return v.VersionID, nil

@@ -249,7 +249,7 @@ func findObjectVersion(
 	if versionID != nil && *versionID != "" {
 		ver, ok := obj.Versions[*versionID]
 		if !ok {
-			return nil, versionMissError(*versionID)
+			return nil, versionMissError(key, *versionID)
 		}
 
 		if ver.Deleted {
