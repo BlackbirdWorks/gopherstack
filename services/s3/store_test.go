@@ -570,7 +570,7 @@ func TestDeleteObject(t *testing.T) {
 			name:      "delete specific version not found is a no-op",
 			bucket:    "bkt",
 			key:       "k",
-			versionID: "bad-version",
+			versionID: "0123456789abcdef0123456789abcdef",
 			setup: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
 				mustCreateBucket(t, b, "bkt")

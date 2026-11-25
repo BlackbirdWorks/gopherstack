@@ -358,7 +358,7 @@ func TestDeleteObjects_Backend(t *testing.T) {
 			name:   "delete versioned objects",
 			bucket: "bkt",
 			objects: []types.ObjectIdentifier{
-				{Key: aws.String("k1"), VersionId: aws.String("v1")},
+				{Key: aws.String("k1"), VersionId: aws.String("0123456789abcdef0123456789abcdef")},
 			},
 			wantDeleted: 1,
 			setup: func(t *testing.T, b *s3.InMemoryBackend) {

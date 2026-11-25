@@ -2,6 +2,7 @@ package s3
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -86,6 +87,10 @@ func (b *InMemoryBackend) deleteObjectLocked(
 	versionID *string,
 	bypassGovernance bool,
 ) (*s3.DeleteObjectOutput, error) {
+	if versionID != nil && *versionID != "" && !isWellFormedVersionID(*versionID) {
+		return nil, ErrInvalidVersionID
+	}
+
 	obj, exists := bucket.Objects[key]
 	if !exists {
 		// S3 spec: Delete on non-existent object is 204
@@ -350,9 +355,14 @@ func (b *InMemoryBackend) DeleteObjects(
 		for _, obj := range input.Delete.Objects {
 			deleted, tagKey, delErr := b.deleteSingleObject(bucket, bucketName, obj, bypassGovernance)
 			if delErr != nil {
+				code := "AccessDenied"
+				if errors.Is(delErr, ErrInvalidVersionID) {
+					code = "InvalidArgument"
+				}
+
 				out.Errors = append(out.Errors, types.Error{
 					Key:     obj.Key,
-					Code:    aws.String("AccessDenied"),
+					Code:    aws.String(code),
 					Message: aws.String(delErr.Error()),
 				})
 

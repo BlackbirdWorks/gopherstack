@@ -11,9 +11,13 @@ var versionIDPattern = regexp.MustCompile(
 // versionMissError classifies a versionId that matched no stored version:
 // malformed ids are InvalidArgument, well-formed absent ids are NoSuchVersion.
 func versionMissError(versionID string) error {
-	if versionID == NullVersion || versionIDPattern.MatchString(versionID) {
+	if isWellFormedVersionID(versionID) {
 		return ErrNoSuchVersion
 	}
 
 	return ErrInvalidVersionID
+}
+
+func isWellFormedVersionID(versionID string) bool {
+	return versionID == NullVersion || versionIDPattern.MatchString(versionID)
 }

@@ -116,3 +116,47 @@ func TestObjectReads_EmittedVersionIDsResolve(t *testing.T) {
 	serveS3Handler(handler, rec, req)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
+
+func TestDeleteObject_VersionID(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "del-ver-bucket")
+
+	_, err := backend.PutBucketVersioning(t.Context(), &sdk_s3.PutBucketVersioningInput{
+		Bucket:                  aws.String("del-ver-bucket"),
+		VersioningConfiguration: &types.VersioningConfiguration{Status: types.BucketVersioningStatusEnabled},
+	})
+	require.NoError(t, err)
+	mustPutObject(t, backend, "del-ver-bucket", "k", []byte("v"))
+
+	tests := []struct {
+		name       string
+		path       string
+		versionID  string
+		wantCode   string
+		wantStatus int
+	}{
+		{"malformed", "/del-ver-bucket/k", "garbage", "InvalidArgument", http.StatusBadRequest},
+		{"malformed missing key", "/del-ver-bucket/nokey", "garbage", "InvalidArgument", http.StatusBadRequest},
+		{"absent hex", "/del-ver-bucket/k", "0123456789abcdef0123456789abcdef", "", http.StatusNoContent},
+		{"absent aws style", "/del-ver-bucket/k", "3HL4kqtJlcpXroDTDmJ.rSpS_GYIzbCs", "", http.StatusNoContent},
+		{"null absent", "/del-ver-bucket/k", "null", "", http.StatusNoContent},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodDelete, tt.path+"?versionId="+tt.versionID, nil)
+			serveS3Handler(handler, rec, req)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantCode != "" {
+				assert.Contains(t, rec.Body.String(), "<Code>"+tt.wantCode+"</Code>")
+			}
+		})
+	}
+}
