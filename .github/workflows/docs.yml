@@ -2,6 +2,10 @@ name: Docs Site
 
 on:
   workflow_dispatch:
+  # TEMPORARY: deploy previews from the PR branch. Remove before merging.
+  push:
+    branches:
+      - docs/vitepress-site
 
 permissions: read-all
 
