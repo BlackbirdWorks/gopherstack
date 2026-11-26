@@ -4,6 +4,10 @@
 // audit coverage; it also builds a category-grouped service table and
 // injects it into the root README.md between marker comments.
 //
+// When invoked with -site <dir>, gendocs instead generates the VitePress
+// documentation site sources under <dir> without modifying README.md or
+// services/*/README.md.
+//
 // services/qldb and services/qldbsession have no PARITY.md (they're marked
 // REMOVED via hand-written README.md files) and are never touched beyond
 // being listed, as "Removed", in the root table.
@@ -11,6 +15,7 @@
 // Usage:
 //
 //	go run ./cmd/gendocs
+//	go run ./cmd/gendocs -site site -version v1.2.3
 //
 // Idempotent: running it twice against unchanged PARITY.md files produces no
 // further changes.
@@ -19,6 +24,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"log/slog"
 	"os"
@@ -41,6 +47,19 @@ func main() {
 	ctx := context.Background()
 	log := logger.NewLogger(slog.LevelInfo)
 
+	siteDir := flag.String("site", "", "output directory for VitePress doc site generation")
+	version := flag.String("version", "", "release version string shown in site metadata")
+	flag.Parse()
+
+	if *siteDir != "" {
+		if err := runSite(ctx, log, *siteDir, *version); err != nil {
+			log.ErrorContext(ctx, "gendocs site generation failed", "error", err)
+			os.Exit(1)
+		}
+
+		return
+	}
+
 	if err := run(ctx, log); err != nil {
 		log.ErrorContext(ctx, "gendocs failed", "error", err)
 		os.Exit(1)
@@ -56,23 +75,9 @@ func run(ctx context.Context, log *slog.Logger) error {
 		return err
 	}
 
-	entries := make([]summaryEntry, 0, len(slugs))
-	docs := make([]*ParityDoc, 0, len(slugs))
-	generated := 0
-
-	for _, slug := range slugs {
-		entry, doc, wrote, procErr := processService(slug)
-		if procErr != nil {
-			return procErr
-		}
-
-		entries = append(entries, entry)
-		if doc != nil {
-			docs = append(docs, doc)
-		}
-		if wrote {
-			generated++
-		}
+	entries, docs, generated, err := collectServices(slugs, true)
+	if err != nil {
+		return err
 	}
 
 	if tableErr := injectServiceTable(rootReadmePath, buildServiceTable(entries)); tableErr != nil {
@@ -97,6 +102,31 @@ func run(ctx context.Context, log *slog.Logger) error {
 	return nil
 }
 
+// collectServices discovers and parses every service under servicesDirName.
+// When writeReadmes is true, it writes each audited service's README.md.
+func collectServices(slugs []string, writeReadmes bool) ([]summaryEntry, []*ParityDoc, int, error) {
+	entries := make([]summaryEntry, 0, len(slugs))
+	docs := make([]*ParityDoc, 0, len(slugs))
+	generated := 0
+
+	for _, slug := range slugs {
+		entry, doc, wrote, procErr := processService(slug, writeReadmes)
+		if procErr != nil {
+			return nil, nil, 0, procErr
+		}
+
+		entries = append(entries, entry)
+		if doc != nil {
+			docs = append(docs, doc)
+		}
+		if wrote {
+			generated++
+		}
+	}
+
+	return entries, docs, generated, nil
+}
+
 // discoverServiceSlugs lists the immediate subdirectories of dir, sorted, as
 // service slugs. Stray files directly under services/ (e.g.
 // _PARITY_TEMPLATE.md) are skipped since they aren't service directories.
@@ -118,12 +148,9 @@ func discoverServiceSlugs(dir string) ([]string, error) {
 }
 
 // processService handles a single service slug: if it has a PARITY.md, it
-// parses that file, renders and writes services/<svc>/README.md, and returns
-// a table row, the parsed doc (so the caller can fold it into the badge
-// totals), and wrote=true. If it has no PARITY.md (qldb, qldbsession), it
-// returns a "Removed" row with a nil doc, without touching that service's
-// existing hand-written README.md.
-func processService(slug string) (summaryEntry, *ParityDoc, bool, error) {
+// parses that file, optionally renders and writes services/<svc>/README.md,
+// and returns a table row, the parsed doc, and wrote=true if written.
+func processService(slug string, writeReadme bool) (summaryEntry, *ParityDoc, bool, error) {
 	parityPath := filepath.Join(servicesDirName, slug, parityFileName)
 
 	if _, statErr := os.Stat(parityPath); statErr != nil {
@@ -139,14 +166,18 @@ func processService(slug string) (summaryEntry, *ParityDoc, bool, error) {
 		return summaryEntry{}, nil, false, parseErr
 	}
 
-	readmePath := filepath.Join(servicesDirName, slug, readmeFileName)
-	content := renderServiceReadme(slug, doc, guideExists(slug))
+	wrote := false
+	if writeReadme {
+		readmePath := filepath.Join(servicesDirName, slug, readmeFileName)
+		content := renderServiceReadme(slug, doc, guideExists(slug))
 
-	if writeErr := writeFileAtomic(readmePath, []byte(content)); writeErr != nil {
-		return summaryEntry{}, nil, false, fmt.Errorf("write %s: %w", readmePath, writeErr)
+		if writeErr := writeFileAtomic(readmePath, []byte(content)); writeErr != nil {
+			return summaryEntry{}, nil, false, fmt.Errorf("write %s: %w", readmePath, writeErr)
+		}
+		wrote = true
 	}
 
-	return newSummaryEntry(slug, doc), doc, true, nil
+	return newSummaryEntry(slug, doc), doc, wrote, nil
 }
 
 // logParseWarnings surfaces every parsed doc's Warnings via the structured
