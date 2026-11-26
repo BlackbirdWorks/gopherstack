@@ -3,7 +3,7 @@ layout: home
 
 hero:
   name: Gopherstack
-  text: 190+ AWS services. One Go binary. Milliseconds, not minutes.
+  text: 260+ AWS services. One Go binary. Milliseconds, not minutes.
   tagline: A lightweight, in-memory local AWS, Azure, and GCP emulator with real cross-service triggers, a built-in dashboard, and native LocalStack compatibility.
   image:
     src: /logo.png
@@ -61,7 +61,7 @@ Open the built-in web dashboard at `http://localhost:8000/dashboard`.
 
 ## Performance at a Glance
 
-Gopherstack keeps state in memory with **O(1) ARN indexing**, field-aligned structs, runtime `zstd`/`br`/`gzip` compression, and **Profile-Guided Optimization (`default.pgo`)** built directly into release binaries:
+Gopherstack is built in Go with in-memory backends so tests and local stacks start in milliseconds instead of waiting on Python workers or containers:
 
 | Metric | LocalStack | Gopherstack |
 |---|---|---|
@@ -70,7 +70,7 @@ Gopherstack keeps state in memory with **O(1) ARN indexing**, field-aligned stru
 | **Cold start** | 5–30 s | &lt;100 ms |
 | **Service loading** | Lazy / per-service | All services ready immediately |
 
-Read the [Performance Guide](/guide/performance) for architecture details and how to run `task bench`.
+Read the [Performance Guide](/guide/performance) for more details.
 
 ## Migrating from LocalStack
 

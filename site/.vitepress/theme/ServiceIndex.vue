@@ -6,6 +6,7 @@ import rawServices from '../generated/services.json'
 interface ServiceRecord {
   slug: string
   displayName: string
+  cloud: string
   category: string
   grade: string
   protocol: string
@@ -30,23 +31,56 @@ type SortKey = 'displayName' | 'category' | 'grade' | 'opsTotal' | 'knownGapsCou
 const services = rawServices as ServiceRecord[]
 
 const search = ref('')
+const selectedCloud = ref('All')
 const selectedCategory = ref('All')
 const selectedGrade = ref('All')
 const onlyWithGuide = ref(false)
 const sortKey = ref<SortKey>('displayName')
 const sortAsc = ref(true)
 
+const cloudTabs = computed(() => {
+  const counts = new Map<string, number>()
+  for (const s of services) {
+    counts.set(s.cloud, (counts.get(s.cloud) || 0) + 1)
+  }
+  const tabs = [{ name: 'All', count: services.length }]
+  for (const cloud of ['AWS', 'Azure', 'GCP', 'OCI']) {
+    const count = counts.get(cloud) || 0
+    if (count > 0) {
+      tabs.push({ name: cloud, count })
+    }
+  }
+  return tabs
+})
+
 const categories = computed(() => {
   const seen = new Set<string>()
   for (const s of services) {
-    seen.add(s.category)
+    if (selectedCloud.value === 'All' || s.cloud === selectedCloud.value) {
+      seen.add(s.category)
+    }
   }
   return ['All', ...Array.from(seen).sort((a, b) => a.localeCompare(b))]
 })
 
+function selectCloud(cloud: string) {
+  selectedCloud.value = cloud
+  if (selectedCategory.value !== 'All') {
+    const valid = services.some(
+      (s) => (cloud === 'All' || s.cloud === cloud) && s.category === selectedCategory.value
+    )
+    if (!valid) {
+      selectedCategory.value = 'All'
+    }
+  }
+}
+
 const filteredServices = computed(() => {
   const q = search.value.trim().toLowerCase()
   const list = services.filter((s) => {
+    if (selectedCloud.value !== 'All' && s.cloud !== selectedCloud.value) {
+      return false
+    }
     if (selectedCategory.value !== 'All' && s.category !== selectedCategory.value) {
       return false
     }
@@ -62,6 +96,7 @@ const filteredServices = computed(() => {
     return (
       s.displayName.toLowerCase().includes(q) ||
       s.slug.toLowerCase().includes(q) ||
+      s.cloud.toLowerCase().includes(q) ||
       s.category.toLowerCase().includes(q) ||
       s.protocol.toLowerCase().includes(q)
     )
@@ -106,6 +141,7 @@ function gradeClass(grade: string): string {
 
 function resetFilters() {
   search.value = ''
+  selectedCloud.value = 'All'
   selectedCategory.value = 'All'
   selectedGrade.value = 'All'
   onlyWithGuide.value = false
@@ -114,6 +150,21 @@ function resetFilters() {
 
 <template>
   <div class="gs-index">
+    <div class="gs-cloud-bar" role="group" aria-label="Filter by cloud provider">
+      <button
+        v-for="tab in cloudTabs"
+        :key="tab.name"
+        type="button"
+        class="gs-cloud-btn"
+        :class="{ active: selectedCloud === tab.name }"
+        :aria-pressed="selectedCloud === tab.name"
+        @click="selectCloud(tab.name)"
+      >
+        <span>{{ tab.name }}</span>
+        <span class="gs-cloud-count">{{ tab.count }}</span>
+      </button>
+    </div>
+
     <div class="gs-controls">
       <label class="gs-field">
         <span class="gs-field-label">Search</span>
@@ -147,7 +198,12 @@ function resetFilters() {
         <span>Has usage guide</span>
       </label>
 
-      <button v-if="search || selectedCategory !== 'All' || selectedGrade !== 'All' || onlyWithGuide" type="button" class="gs-reset" @click="resetFilters">
+      <button
+        v-if="search || selectedCloud !== 'All' || selectedCategory !== 'All' || selectedGrade !== 'All' || onlyWithGuide"
+        type="button"
+        class="gs-reset"
+        @click="resetFilters"
+      >
         Reset
       </button>
     </div>
@@ -223,12 +279,54 @@ function resetFilters() {
 </template>
 
 <style scoped>
+.gs-cloud-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 1.25rem 0 0.9rem;
+}
+
+.gs-cloud-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.42rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid var(--vp-c-border);
+  background: var(--vp-c-bg-soft);
+  color: var(--vp-c-text-1);
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.gs-cloud-btn:hover {
+  border-color: var(--vp-c-brand-1);
+  color: var(--vp-c-brand-1);
+}
+
+.gs-cloud-btn.active {
+  background: var(--vp-c-brand-1);
+  border-color: var(--vp-c-brand-1);
+  color: #ffffff;
+}
+
+.dark .gs-cloud-btn.active {
+  color: #0b1120;
+}
+
+.gs-cloud-count {
+  font-size: 0.76rem;
+  opacity: 0.82;
+}
+
 .gs-controls {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem 1rem;
   align-items: flex-end;
-  margin: 1.25rem 0 0.75rem;
+  margin: 0.5rem 0 0.75rem;
 }
 
 .gs-field {

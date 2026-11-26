@@ -15,12 +15,17 @@ const (
 	gradeRemoved     = "Removed"
 	maxInlineOpRows  = 500
 	serviceGuideKind = "service"
+	cloudAWS         = "AWS"
+	cloudAzure       = "Azure"
+	cloudGCP         = "GCP"
+	cloudOCI         = "OCI"
 )
 
 // siteServiceRecord is the JSON shape consumed by ServiceIndex.vue.
 type siteServiceRecord struct {
 	Slug                string `json:"slug"`
 	DisplayName         string `json:"displayName"`
+	Cloud               string `json:"cloud"`
 	Category            string `json:"category"`
 	Grade               string `json:"grade"`
 	Protocol            string `json:"protocol"`
@@ -40,17 +45,28 @@ type siteServiceRecord struct {
 	Removed             bool   `json:"removed"`
 }
 
+func cloudForCategory(category string) string {
+	switch category {
+	case cloudAzure, cloudGCP, cloudOCI:
+		return category
+	default:
+		return cloudAWS
+	}
+}
+
 // buildSiteServiceRecords builds sorted siteServiceRecord rows for every
 // discovered service slug.
 func buildSiteServiceRecords(entries []summaryEntry, docBySlug map[string]*ParityDoc) []siteServiceRecord {
 	records := make([]siteServiceRecord, 0, len(entries))
 
 	for _, e := range entries {
+		cloud := cloudForCategory(e.Category)
 		doc := docBySlug[e.Slug]
 		if doc == nil {
 			records = append(records, siteServiceRecord{
 				Slug:        e.Slug,
 				DisplayName: e.DisplayName,
+				Cloud:       cloud,
 				Category:    e.Category,
 				Grade:       gradeRemoved,
 				Removed:     true,
@@ -63,6 +79,7 @@ func buildSiteServiceRecords(entries []summaryEntry, docBySlug map[string]*Parit
 		records = append(records, siteServiceRecord{
 			Slug:                e.Slug,
 			DisplayName:         e.DisplayName,
+			Cloud:               cloud,
 			Category:            e.Category,
 			Grade:               doc.Overall,
 			Protocol:            doc.Protocol,

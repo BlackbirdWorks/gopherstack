@@ -69,6 +69,8 @@ func TestBuildSiteServiceRecords(t *testing.T) {
 	entries := []summaryEntry{
 		{Slug: "sqs", DisplayName: "SQS", Category: "Messaging & Integration"},
 		{Slug: "qldb", DisplayName: "QLDB", Category: "Database"},
+		{Slug: "azureblob", DisplayName: "Azure Blob Storage", Category: "Azure"},
+		{Slug: "gcpstorage", DisplayName: "Google Cloud Storage", Category: "GCP"},
 	}
 
 	docBySlug := map[string]*ParityDoc{
@@ -86,23 +88,33 @@ func TestBuildSiteServiceRecords(t *testing.T) {
 			ItemsStillOpen: []string{"TagQueue error shape"},
 			StructuralGaps: []string{"Cross-account KMS"},
 		},
+		"azureblob":  {Service: "azureblob", Overall: "A"},
+		"gcpstorage": {Service: "gcpstorage", Overall: "A"},
 	}
 
 	got := buildSiteServiceRecords(entries, docBySlug)
-	require.Len(t, got, 2)
+	require.Len(t, got, 4)
 
-	assert.Equal(t, "qldb", got[0].Slug)
-	assert.True(t, got[0].Removed)
-	assert.Equal(t, gradeRemoved, got[0].Grade)
+	assert.Equal(t, "azureblob", got[0].Slug)
+	assert.Equal(t, cloudAzure, got[0].Cloud)
 
-	assert.Equal(t, "sqs", got[1].Slug)
-	assert.False(t, got[1].Removed)
-	assert.Equal(t, "A", got[1].Grade)
-	assert.Equal(t, 2, got[1].OpsTotal)
-	assert.Equal(t, 1, got[1].OpsOK)
-	assert.Equal(t, 1, got[1].OpsPartial)
-	assert.Equal(t, 1, got[1].KnownGapsCount)
-	assert.Equal(t, 1, got[1].StructuralGapsCount)
+	assert.Equal(t, "gcpstorage", got[1].Slug)
+	assert.Equal(t, cloudGCP, got[1].Cloud)
+
+	assert.Equal(t, "qldb", got[2].Slug)
+	assert.Equal(t, cloudAWS, got[2].Cloud)
+	assert.True(t, got[2].Removed)
+	assert.Equal(t, gradeRemoved, got[2].Grade)
+
+	assert.Equal(t, "sqs", got[3].Slug)
+	assert.Equal(t, cloudAWS, got[3].Cloud)
+	assert.False(t, got[3].Removed)
+	assert.Equal(t, "A", got[3].Grade)
+	assert.Equal(t, 2, got[3].OpsTotal)
+	assert.Equal(t, 1, got[3].OpsOK)
+	assert.Equal(t, 1, got[3].OpsPartial)
+	assert.Equal(t, 1, got[3].KnownGapsCount)
+	assert.Equal(t, 1, got[3].StructuralGapsCount)
 }
 
 func TestRenderLimitationsPage(t *testing.T) {

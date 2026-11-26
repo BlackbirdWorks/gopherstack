@@ -455,22 +455,20 @@ func renderPerformancePage() string {
 	b.WriteString("| **Memory footprint** | 300 MB+ | ~30 MB |\n")
 	b.WriteString("| **Cold start** | 5–30 s | <100 ms |\n")
 	b.WriteString("| **Service startup** | Lazy / per-service init | All services ready immediately |\n\n")
-	b.WriteString("## Engineering Optimizations\n\n")
+	b.WriteString("## Why It's Fast\n\n")
 	b.WriteString(
-		"- **O(1) ARN indexing** — Tagging and resource lookups use a centralized ARN index so operations " +
-			"stay constant-time even with thousands of resources.\n",
+		"- **Single compiled Go binary** — Starts in under 100 ms with ~30 MB RAM, with no JVM, Python runtime, " +
+			"or external database to boot.\n",
 	)
 	b.WriteString(
-		"- **Memory optimization** — Struct field alignment (`fieldalignment`) and compact in-memory data " +
-			"structures minimize allocations and GC pressure.\n",
+		"- **In-memory by default** — API calls resolve directly in memory with zero disk or network round-trips " +
+			"(persistence is opt-in via `--persist`).\n",
 	)
 	b.WriteString(
-		"- **Profile-Guided Optimization (PGO)** — Release binaries are built with `default.pgo` captured " +
-			"from real multi-service workloads.\n",
+		"- **All services ready immediately** — No lazy service spin-up delays on your first SDK or CLI request.\n",
 	)
 	b.WriteString(
-		"- **Runtime response compression** — Dashboard assets and JSON responses (>= 1 KiB) negotiate " +
-			"`zstd`, `br`, or `gzip`, with embedded static assets compressed once and cached in memory.\n\n",
+		"- **Built for parallel CI** — Spin up isolated instances per test suite or container in milliseconds.\n\n",
 	)
 	b.WriteString("## Running Benchmarks\n\n")
 	b.WriteString("In-process service benchmarks live under `bench/` and per-service `*_bench_test.go` files:\n\n")
