@@ -64,6 +64,7 @@ const navItems: any[] = [
       { text: 'Limitations & Parity Gaps', link: '/limitations' },
       { text: 'Architecture', link: '/architecture/' },
       { text: 'Configuration', link: '/guide/configuration' },
+      { text: 'CLI commands', link: '/guide/cli' },
       { text: 'Engine Modes', link: '/guide/engines' },
       { text: 'Chaos Testing', link: '/guide/chaos' },
     ],

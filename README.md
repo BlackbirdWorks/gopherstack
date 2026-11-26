@@ -13,9 +13,6 @@
   <a href="https://www.codefactor.io/repository/github/blackbirdworks/gopherstack"><img src="https://www.codefactor.io/repository/github/blackbirdworks/gopherstack/badge" alt="CodeFactor"></a>
   <a href="https://scorecard.dev/viewer/?uri=github.com/BlackbirdWorks/gopherstack"><img src="https://api.scorecard.dev/projects/github.com/BlackbirdWorks/gopherstack/badge" alt="OpenSSF Scorecard"></a>
   <a href="https://pkg.go.dev/github.com/blackbirdworks/gopherstack"><img src="https://pkg.go.dev/badge/github.com/blackbirdworks/gopherstack.svg" alt="Go Reference"></a>
-</p>
-
-<p align="center">
   <a href="#services"><img src=".badges/operations.svg" alt="PARITY entries"></a>
   <a href="#services"><img src=".badges/services.svg" alt="AWS services"></a>
   <a href="#services"><img src=".badges/parity.svg" alt="parity"></a>
@@ -24,9 +21,6 @@
 </p>
 
 Gopherstack is an in-memory emulator for AWS, Azure, GCP and Oracle Cloud (OCI) APIs. Point an SDK, the AWS CLI, Terraform or CDK at `http://localhost:8000`. No cloud account is needed.
-
-> [!IMPORTANT]
-> This project is vibe coded.
 
 ## Quick start
 
@@ -39,18 +33,40 @@ aws --endpoint-url http://localhost:8000 dynamodb list-tables
 
 The dashboard is at <http://localhost:8000/dashboard>. Health check: `/_gopherstack/health`.
 
+> [!IMPORTANT]
+> This project is vibe coded.
+
 ## Install
 
-| Method | Command |
-|--------|---------|
-| Docker | `docker run -p 8000:8000 ghcr.io/blackbirdworks/gopherstack:latest` |
-| Release archive | `gopherstack_<version>_<OS>_<arch>` from [Releases](https://github.com/blackbirdworks/gopherstack/releases) (`.tar.gz`, `.zip` on Windows; linux, darwin, windows; amd64, arm64; no windows/arm64) |
-| Go | `go install github.com/blackbirdworks/gopherstack@latest` (Go 1.27+) |
-| Desktop app | `gopherstack-desktop_<version>_<OS>_<arch>` from Releases. Build with `task build-desktop` (needs CGO and webview libraries) |
-| Helm | `helm install gopherstack ./charts/gopherstack` |
-| Source | `git clone https://github.com/blackbirdworks/gopherstack && cd gopherstack && go run .` |
+**Docker**
 
-The binary also manages a local instance: `gopherstack start|stop|status|logs|reset|snapshot|pod|replicate|mcp`. Run `gopherstack --help` for every command and flag.
+```bash
+docker run -p 8000:8000 ghcr.io/blackbirdworks/gopherstack:latest
+```
+
+**Release archive**: download `gopherstack_<version>_<OS>_<arch>` from [Releases](https://github.com/blackbirdworks/gopherstack/releases). It is a `.tar.gz`, or a `.zip` on Windows. Builds exist for linux, darwin and windows on amd64 and arm64, except windows/arm64.
+
+**Go** (Go 1.27+)
+
+```bash
+go install github.com/blackbirdworks/gopherstack@latest
+```
+
+**Helm**
+
+```bash
+helm install gopherstack ./charts/gopherstack
+```
+
+**Source**
+
+```bash
+git clone https://github.com/blackbirdworks/gopherstack && cd gopherstack && go run .
+```
+
+**Desktop app**: `gopherstack-desktop_<version>_<OS>_<arch>` from Releases. Build it with `task build-desktop` (needs CGO and webview libraries).
+
+The binary also manages a local instance (`start`, `stop`, `status`, `logs`, `reset`, `snapshot`, `pod`, `replicate`, `mcp`). See [CLI commands](docs/cli.md), or run `gopherstack --help`.
 
 > [!NOTE]
 > Lambda images, ECS tasks and the `docker` engines need a Docker or Podman socket. Everything else runs without one. See [Docker](docs/docker.md).
@@ -68,6 +84,7 @@ Published at <https://gopherstack.blackbirdworks.dev>.
 | [Kubernetes](docs/kubernetes.md) | Helm chart |
 | [Testcontainers](docs/testcontainers.md) | Go, Python and Node modules |
 | [Configuration](docs/configuration.md) | Every flag and environment variable |
+| [CLI commands](docs/cli.md) | start, stop, status, logs, reset, snapshot, pod, replicate, mcp |
 | [Engines](docs/engines.md) | Container-backed engine modes |
 | [Persistence](docs/persistence.md) | State across restarts |
 | [Chaos](docs/chaos.md) | Fault injection |
@@ -81,11 +98,14 @@ Published at <https://gopherstack.blackbirdworks.dev>.
 <!-- BEGIN GENERATED SERVICES -->
 ## Services
 
-Every service links to its own page with a coverage breakdown — audited operations, known gaps, deferred items and resource-leak status — generated from that service's `PARITY.md` audit.
+Each service links to a page with its audited operations and known gaps, generated from its `PARITY.md`. Search and filter them all on the [docs site](https://gopherstack.blackbirdworks.dev/services/).
 
-**Parity** is the overall grade recorded by that service's most recent audit. **PARITY Entries** is the number of `ops:` entries audited in that service's PARITY.md -- a hand-grouped audit unit, not a raw operation count (one entry can name more than one real operation); a dash means the service is tracked by feature family instead. Run `task docs` to refresh this table.
+**Parity** is the grade from the latest audit. **PARITY Entries** counts the `ops:` entries in `PARITY.md` (not raw operations); a dash means the service is tracked by feature family.
 
-### Compute
+**266 services:** 169 A, 92 B, 3 C, 2 Removed.
+
+<details>
+<summary><strong>Compute</strong> (6 services)</summary>
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
@@ -96,7 +116,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Elastic Beanstalk](services/elasticbeanstalk/README.md) | A | 47 | 4 structural gaps |
 | [Lambda](services/lambda/README.md) | A | — | 11 families; 3 gaps; 11 structural gaps |
 
-### Containers
+</details>
+
+<details>
+<summary><strong>Containers</strong> (3 services)</summary>
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
@@ -104,7 +127,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [ECS](services/ecs/README.md) | A | 65 | 4 gaps; 5 structural gaps |
 | [EKS](services/eks/README.md) | A | 71 | 5 structural gaps; 1 deferred |
 
-### Storage
+</details>
+
+<details>
+<summary><strong>Storage</strong> (9 services)</summary>
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
@@ -118,7 +144,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [S3 Glacier](services/glacier/README.md) | A | 33 | clean |
 | [S3 Tables](services/s3tables/README.md) | A | 49 | clean |
 
-### Database
+</details>
+
+<details>
+<summary><strong>Database</strong> (15 services)</summary>
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
@@ -138,7 +167,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Timestream Query](services/timestreamquery/README.md) | A | 12 | 8 gaps; 1 structural gap |
 | [Timestream Write](services/timestreamwrite/README.md) | A | 19 | 1 structural gap |
 
-### Networking & Content Delivery
+</details>
+
+<details>
+<summary><strong>Networking & Content Delivery</strong> (16 services)</summary>
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
@@ -159,7 +191,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Route 53 Resolver](services/route53resolver/README.md) | A | 72 | 2 gaps; 1 structural gap; 1 deferred |
 | [VPC Lattice](services/vpclattice/README.md) | A | 73 | 3 structural gaps |
 
-### Messaging & Integration
+</details>
+
+<details>
+<summary><strong>Messaging & Integration</strong> (13 services)</summary>
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
@@ -177,7 +212,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Step Functions](services/stepfunctions/README.md) | A | 37 | 2 gaps; 1 structural gap |
 | [WorkMail](services/workmail/README.md) | A | 92 | 3 structural gaps |
 
-### Analytics
+</details>
+
+<details>
+<summary><strong>Analytics</strong> (16 services)</summary>
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
@@ -198,7 +236,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [OpenSearch](services/opensearch/README.md) | A | 19 | 3 gaps; 1 structural gap |
 | [QuickSight](services/quicksight/README.md) | A | 81 | 7 structural gaps |
 
-### Security
+</details>
+
+<details>
+<summary><strong>Security</strong> (13 services)</summary>
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
@@ -216,7 +257,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [WAF](services/waf/README.md) | A | 4 | 3 structural gaps |
 | [WAFv2](services/wafv2/README.md) | A | 59 | 2 structural gaps |
 
-### Identity & Access
+</details>
+
+<details>
+<summary><strong>Identity & Access</strong> (12 services)</summary>
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
@@ -233,7 +277,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [STS](services/sts/README.md) | A | 11 | 1 structural gap; 1 deferred |
 | [Sign-In](services/signin/README.md) | B | 11 | 1 gap; 1 structural gap |
 
-### Management & Governance
+</details>
+
+<details>
+<summary><strong>Management & Governance</strong> (18 services)</summary>
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
@@ -256,7 +303,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Resource Groups Tagging API](services/resourcegroupstaggingapi/README.md) | A | 9 | 2 structural gaps; 1 deferred |
 | [Systems Manager](services/ssm/README.md) | A | 105 | 14 structural gaps |
 
-### Developer Tools
+</details>
+
+<details>
+<summary><strong>Developer Tools</strong> (10 services)</summary>
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
@@ -271,7 +321,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Serverless Application Repository](services/serverlessrepo/README.md) | A | 14 | clean |
 | [X-Ray](services/xray/README.md) | A | 38 | 6 structural gaps; 1 deferred |
 
-### Machine Learning
+</details>
+
+<details>
+<summary><strong>Machine Learning</strong> (13 services)</summary>
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
@@ -289,7 +342,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Transcribe](services/transcribe/README.md) | A | 44 | 6 gaps; 2 structural gaps |
 | [Translate](services/translate/README.md) | A | 19 | 2 structural gaps |
 
-### Media
+</details>
+
+<details>
+<summary><strong>Media</strong> (6 services)</summary>
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
@@ -300,7 +356,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [MediaStore Data](services/mediastoredata/README.md) | A | 5 | 1 structural gap; 1 deferred |
 | [MediaTailor](services/mediatailor/README.md) | A | 48 | 2 structural gaps |
 
-### IoT
+</details>
+
+<details>
+<summary><strong>IoT</strong> (4 services)</summary>
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
@@ -309,7 +368,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [IoT Data Plane](services/iotdataplane/README.md) | A | 11 | 1 structural gap; 1 deferred |
 | [IoT Wireless](services/iotwireless/README.md) | A | 21 | 2 structural gaps |
 
-### Migration & Transfer
+</details>
+
+<details>
+<summary><strong>Migration & Transfer</strong> (3 services)</summary>
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
@@ -317,7 +379,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Database Migration Service](services/dms/README.md) | A | 97 | 3 gaps; 3 structural gaps |
 | [Transfer Family](services/transfer/README.md) | A | — | 20 families; 4 structural gaps |
 
-### Azure
+</details>
+
+<details>
+<summary><strong>Azure</strong> (17 services)</summary>
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
@@ -339,7 +404,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Azure Table Storage](services/azuretable/README.md) | C | 14 | 5 gaps; 1 deferred |
 | [Microsoft Graph](services/azuregraph/README.md) | B | 37 | 5 gaps |
 
-### GCP
+</details>
+
+<details>
+<summary><strong>GCP</strong> (29 services)</summary>
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
@@ -373,7 +441,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Memorystore for Redis](services/gcpredis/README.md) | B | 14 | 3 gaps |
 | [Workflows](services/gcpworkflows/README.md) | B | 15 | 1 gap |
 
-### OCI
+</details>
+
+<details>
+<summary><strong>OCI</strong> (21 services)</summary>
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
@@ -399,7 +470,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [OCI Streaming](services/ocistreaming/README.md) | B | 30 | 1 gap |
 | [OCI Vault](services/ocivault/README.md) | B | 62 | 2 gaps |
 
-### Other
+</details>
+
+<details>
+<summary><strong>Other</strong> (42 services)</summary>
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
@@ -445,6 +519,8 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Support](services/support/README.md) | A | 20 | 1 structural gap; 1 deferred |
 | [Timestreaminfluxdb](services/timestreaminfluxdb/README.md) | B | 24 | 2 gaps; 3 structural gaps |
 | [WorkSpaces](services/workspaces/README.md) | A | 34 | 1 gap; 2 structural gaps |
+
+</details>
 <!-- END GENERATED SERVICES -->
 
 ## Development

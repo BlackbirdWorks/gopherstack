@@ -350,6 +350,7 @@ func TestGenerateSiteIntegration(t *testing.T) {
 				"guide/quickstart.md",
 				"guide/migration.md",
 				"guide/configuration.md",
+				"guide/cli.md",
 				"guide/performance.md",
 				"architecture/index.md",
 				"examples/index.md",

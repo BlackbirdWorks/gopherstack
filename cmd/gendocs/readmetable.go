@@ -105,9 +105,11 @@ func notesCell(doc *ParityDoc) string {
 	return strings.Join(parts, "; ")
 }
 
-// buildServiceTable renders the full "## Services" section: a table per
-// category, in categoryOrder(), each sorted alphabetically by display name.
-// Categories with no entries are omitted.
+const servicesIndexURL = "https://gopherstack.blackbirdworks.dev/services/"
+
+// buildServiceTable renders the "## Services" section: an intro, a totals
+// line, then one collapsed block per category in categoryOrder(), each
+// sorted alphabetically by display name. Empty categories are omitted.
 func buildServiceTable(entries []summaryEntry) string {
 	byCategory := make(map[string][]summaryEntry, len(entries))
 	for _, e := range entries {
@@ -116,14 +118,13 @@ func buildServiceTable(entries []summaryEntry) string {
 
 	var b strings.Builder
 	b.WriteString("## Services\n\n")
-	b.WriteString("Every service links to its own page with a coverage breakdown — audited " +
-		"operations, known gaps, deferred items and resource-leak status — generated from that " +
-		"service's `PARITY.md` audit.\n\n")
-	b.WriteString("**Parity** is the overall grade recorded by that service's most recent " +
-		"audit. **PARITY Entries** is the number of `ops:` entries audited in that service's " +
-		"PARITY.md -- a hand-grouped audit unit, not a raw operation count (one entry can name " +
-		"more than one real operation); a dash means the service is tracked by feature family " +
-		"instead. Run `task docs` to refresh this table.\n\n")
+	b.WriteString("Each service links to a page with its audited operations and known gaps, " +
+		"generated from its `PARITY.md`. Search and filter them all on the " +
+		"[docs site](" + servicesIndexURL + ").\n\n")
+	b.WriteString("**Parity** is the grade from the latest audit. **PARITY Entries** counts the " +
+		"`ops:` entries in `PARITY.md` (not raw operations); a dash means the service is tracked " +
+		"by feature family.\n\n")
+	b.WriteString(totalsLine(entries) + "\n\n")
 
 	for _, cat := range categoryOrder() {
 		rows := byCategory[cat]
@@ -136,20 +137,48 @@ func buildServiceTable(entries []summaryEntry) string {
 	return strings.TrimRight(b.String(), "\n") + "\n"
 }
 
-// writeCategoryTable appends one "### <Category>" heading and its Markdown
-// table to b, sorting rows alphabetically by display name first.
+// totalsLine renders "N services: X A, Y B, Z Removed" from the entries.
+func totalsLine(entries []summaryEntry) string {
+	counts := make(map[string]int)
+	for _, e := range entries {
+		counts[normalizeGrade(e.Grade)]++
+	}
+
+	grades := make([]string, 0, len(counts))
+	for g := range counts {
+		grades = append(grades, g)
+	}
+	sort.Strings(grades)
+
+	parts := make([]string, 0, len(grades))
+	for _, g := range grades {
+		parts = append(parts, fmt.Sprintf("%d %s", counts[g], g))
+	}
+
+	return fmt.Sprintf("**%d services:** %s.", len(entries), strings.Join(parts, ", "))
+}
+
+// writeCategoryTable appends one collapsed <details> block holding the
+// category's table. The blank lines around the table are required for
+// GitHub to render it.
 func writeCategoryTable(b *strings.Builder, category string, rows []summaryEntry) {
 	sort.Slice(rows, func(i, j int) bool {
 		return rows[i].DisplayName < rows[j].DisplayName
 	})
 
-	b.WriteString("### " + category + "\n\n")
+	b.WriteString("<details>\n")
+	fmt.Fprintf(
+		b,
+		"<summary><strong>%s</strong> (%s)</summary>\n\n",
+		category,
+		plural(len(rows), "service", "services"),
+	)
 	b.WriteString("| Service | Parity | PARITY Entries | Notes |\n")
 	b.WriteString("|---|---|---|---|\n")
 	for _, e := range rows {
 		fmt.Fprintf(b, "| [%s](%s) | %s | %s | %s |\n", e.DisplayName, e.ReadmeLink, e.Grade, e.OpsCell, e.NotesCell)
 	}
-	b.WriteString("\n")
+	b.WriteString("\n</details>\n\n")
 }
 
 // injectServiceTable writes block into readmePath between

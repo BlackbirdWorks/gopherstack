@@ -80,6 +80,7 @@ func guideFiles() []guideFile {
 		{"docker.md", "Docker & Docker Compose"},
 		{"migration.md", "Migrating from LocalStack"},
 		{"configuration.md", "Configuration"},
+		{"cli.md", "CLI commands"},
 		{"engines.md", "Engine Modes"},
 		{"persistence.md", "Persistence"},
 		{"chaos.md", "Chaos Testing"},
@@ -413,6 +414,7 @@ func buildSidebarConfig(records []siteServiceRecord, examples []siteExample) map
 			Text: "Configuration & Features",
 			Items: []sidebarLink{
 				{Text: "Configuration", Link: "/guide/configuration"},
+				{Text: "CLI commands", Link: "/guide/cli"},
 				{Text: "Engine Modes", Link: "/guide/engines"},
 				{Text: "Persistence", Link: "/guide/persistence"},
 				{Text: "Chaos Testing", Link: "/guide/chaos"},
