@@ -71,6 +71,11 @@
   width: auto;
 }
 
+.VPSocialLink[aria-label='BlackbirdWorks'] svg {
+  width: 22px;
+  height: 22px;
+}
+
 .gs-stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
