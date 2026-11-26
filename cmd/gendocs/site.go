@@ -2,7 +2,8 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -503,7 +505,7 @@ func buildServicesSidebar(records []siteServiceRecord) []sidebarGroup {
 }
 
 func writeJSONFile(path string, v any) error {
-	data, err := json.MarshalIndent(v, "", "  ")
+	data, err := json.Marshal(v, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent("  "))
 	if err != nil {
 		return fmt.Errorf("marshal %s: %w", path, err)
 	}

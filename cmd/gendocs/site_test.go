@@ -1,10 +1,12 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -390,7 +392,7 @@ func TestGenerateSiteIntegration(t *testing.T) {
 			require.NoError(t, readErr)
 
 			var stats siteStats
-			require.NoError(t, json.Unmarshal(rawStats, &stats))
+			require.NoError(t, json.Unmarshal(rawStats, &stats, jsonx.V1()))
 			assert.Equal(t, "v1.99.0", stats.Version)
 			assert.Equal(t, len(entries), stats.TotalServices)
 			assert.Positive(t, stats.TotalOps)
