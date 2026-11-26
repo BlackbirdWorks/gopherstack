@@ -1,90 +1,70 @@
-# AzureQueue — Azure Queue Storage
+# Azure Queue Storage
 
-Gopherstack provides an in-memory Azure Queue Storage implementation (Azurite-compatible wire protocol) with full message lifecycle support: put/get/peek/update/delete, visibility timeouts, and TTL expiry.
+In-memory Azure Queue Storage with an Azurite-compatible wire protocol.
 
-## Supported Operations
+## Quick start
 
-| Operation | Description |
-|-----------|-------------|
-| `ListQueues` | List all queues in the account (single page, no pagination) |
-| `CreateQueue` | Create a new queue |
-| `DeleteQueue` | Delete a queue |
-| `PutMessage` | Enqueue a message (supports `visibilitytimeout`/`messagettl`) |
-| `GetMessages` | Dequeue up to 32 visible messages, hiding them until their visibility timeout elapses |
-| `PeekMessages` | Read messages without changing visibility or `PopReceipt` |
-| `DeleteMessage` | Delete a message by id + `popreceipt` |
-| `UpdateMessage` | Update a message's visibility timeout and/or body |
-| `ClearMessages` | Remove all messages from a queue |
+```bash
+curl -X PUT "http://localhost:10001/devstoreaccount1/my-queue"
 
-## Configuration
+curl -X POST "http://localhost:10001/devstoreaccount1/my-queue/messages" \
+    --data '<QueueMessage><MessageText>hello world</MessageText></QueueMessage>'
 
-Azure Queue runs on its own dedicated, synchronously-bound TCP port, separate from Azure Blob/Table, to avoid colliding with their identical `/<account>/<resource>` path shape.
+curl "http://localhost:10001/devstoreaccount1/my-queue/messages?numofmessages=1"
 
-| Setting | Default | Flag | Env var |
-|---|---|---|---|
-| Port | `10001` (Azurite's own Queue port) | `--azure-queue-port` | `AZURE_QUEUE_PORT` |
-
-Startup fails fast if the port is unavailable — there is no fallback pool.
-
-## Authentication
-
-Same well-known Azurite development account as Azure Blob:
-
-```text
-Account name: devstoreaccount1
-Account key:  Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==
+# id and popreceipt come from the get response
+curl -X DELETE "http://localhost:10001/devstoreaccount1/my-queue/messages/<id>?popreceipt=<popreceipt>"
 ```
 
-The `Authorization` header is parsed (SharedKey/SharedKeyLite) but **signature verification is not enforced** — any (or no) credentials are accepted. There is no `--azure-queue-validate-auth` flag.
-
-## Go SDK Example
+Go SDK:
 
 ```go
-import "github.com/Azure/azure-sdk-for-go/sdk/storage/azqueue"
-
 cred, _ := azqueue.NewSharedKeyCredential("devstoreaccount1",
     "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==")
-
 svc, _ := azqueue.NewServiceClientWithSharedKeyCredential(
     "http://localhost:10001/devstoreaccount1", cred, nil)
-
-ctx := context.Background()
 queue := svc.NewQueueClient("my-queue")
 _, _ = queue.Create(ctx, nil)
 _, _ = queue.EnqueueMessage(ctx, "hello world", nil)
 resp, _ := queue.DequeueMessages(ctx, nil)
 ```
 
-## curl Examples
+The account is path-style. The built-in account is Azurite's `devstoreaccount1` with its published development key.
 
-```bash
-# Create a queue
-curl -X PUT "http://localhost:10001/devstoreaccount1/my-queue"
+## Supported operations
 
-# Put a message
-curl -X POST "http://localhost:10001/devstoreaccount1/my-queue/messages" \
-    --data '<QueueMessage><MessageText>hello world</MessageText></QueueMessage>'
+| Operation | Notes |
+|-----------|-------|
+| `ListQueues` | `include=metadata`. No `prefix`, `marker` or `maxresults`: one page |
+| `CreateQueue` | Optional `x-ms-meta-*`. Same metadata on an existing queue returns 204, different metadata `409 QueueAlreadyExists`. Name rules are validated |
+| `QueueExists` | `GET` on the queue |
+| `DeleteQueue` | |
+| `SetQueueMetadata`, `GetQueueMetadata` | `GetQueueMetadata` returns `x-ms-approximate-messages-count` |
+| `PutMessage` | `visibilitytimeout`, `messagettl` |
+| `GetMessages` | Up to 32 visible messages (`numofmessages`); rotates the pop receipt and increments `DequeueCount` |
+| `PeekMessages` | `peekonly=true`; no visibility change |
+| `UpdateMessage` | Needs `popreceipt` and `visibilitytimeout`; an optional body replaces the text |
+| `DeleteMessage` | Needs `popreceipt`; a stale one is `400 PopReceiptMismatch` |
+| `ClearMessages` | |
+| `GetServiceProperties` | Always returns empty properties |
 
-# Get messages
-curl "http://localhost:10001/devstoreaccount1/my-queue/messages?numofmessages=1"
+## Configuration
 
-# Delete a message (id and popreceipt from the Get response)
-curl -X DELETE "http://localhost:10001/devstoreaccount1/my-queue/messages/<id>?popreceipt=<popreceipt>"
-```
+The queue service runs on its own TCP port. Startup fails if the port is taken.
 
-## Known Limitations
+| Flag | Env | Default |
+|------|-----|---------|
+| `--azure-queue-port` | `AZURE_QUEUE_PORT` | `10001` |
 
-- No queue metadata (`x-ms-meta-*`) support — `CreateQueue` on a pre-existing queue is always idempotent (204); `QueueAlreadyExists` (409) is unreachable.
-- `messagettl=-1` ("never expire") is modeled as a 100-year TTL, not true infinite retention.
-- `ListQueues` returns every result in one page — no prefix/marker/maxresults pagination.
-- No Set/Get Queue Metadata, no queue ACL / SAS-scoped access policies.
-- No poison-message / dead-letter handling — `DequeueCount` is tracked but nothing acts on it.
-- Visibility-timeout expiry is checked lazily at read time (Get/Peek), not proactively swept (functionally correct, but differs from TTL expiry, which a background janitor does sweep).
-- Auth verification is not enforced (see Authentication above).
+## Differences from Azure
 
-## More
+> [!WARNING]
+> Signatures are never verified. The `Authorization` header is parsed, and any credentials, or none, are accepted.
 
-- [Service README](../../services/azurequeue/README.md)
-- [Full parity audit](../../services/azurequeue/PARITY.md)
-- [AZURE.md](../../AZURE.md) — overall Azure support plan and milestones
-- [All services](../../README.md#services)
+- `messagettl=-1` ("never expire") is stored as a 100-year TTL.
+- `ListQueues` ignores `prefix`, `marker` and `maxresults`.
+- Set/Get Queue ACL is not routed. SAS tokens are not verified.
+- Set Queue Service Properties and Get Queue Service Stats are not routed. `GetServiceProperties` returns an empty body.
+- `DequeueCount` is tracked. Azure has no server-side poison queue either, so nothing acts on it.
+
+See also the [service parity audit](../../services/azurequeue/PARITY.md) and [AZURE.md](../../AZURE.md).

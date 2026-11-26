@@ -9,18 +9,17 @@
 | --- | --- |
 | PARITY entries audited | 13 (12 ok, 1 partial) |
 | Feature families | 5 (4 ok, 1 partial) |
-| Known gaps | 6 |
+| Known gaps | 5 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- messagettl=-1 (Azure's 'never expire' sentinel) is modeled as a 100-year TTL, not true infinite retention.
-- List Queues returns every result in one page; no prefix/marker/maxresults pagination.
-- No queue ACL (Set/Get Queue ACL / SAS-scoped access policies). Queue creation time is not exposed: it is not part of the Azure Queue REST surface.
-- No poison-message / dead-letter handling -- DequeueCount is tracked and returned but nothing acts on it (contrast services/sqs's DLQ).
-- Visibility-timeout expiry is checked lazily at read time (Get/Peek Messages), not proactively swept -- functionally correct (a message becomes visible again exactly when TimeNextVisible passes, regardless of sweep timing) but differs from message-TTL expiry, which the Janitor does proactively sweep.
-- Auth verification is not enforced -- see families.auth. pkgs/azureauth.VerifySharedKey exists and is unit-tested but checkAuth does not call it yet. All gaps above are intentional MVP scope per AZURE.md's M1 entry (see AZURE.md section 8), not oversights.
+- Put Message messagettl=-1 (never expire) is stored as a 100-year TTL (messages.go neverExpireTTL), not true infinite retention.
+- List Queues ignores prefix/marker/maxresults and returns every queue in one page with an empty NextMarker (handler.go handleAccountLevel).
+- Set/Get Queue ACL (comp=acl) is not routed, so SAS-scoped stored access policies cannot be created or read (contrast services/azuretable's table_acl.go).
+- Set Queue Service Properties and Get Queue Service Stats are not routed; Get Service Properties always returns an empty StorageServiceProperties.
+- Shared Key and SAS signatures are never verified: checkAuth only parses the Authorization header; pkgs/azureauth.VerifySharedKey is not called (services/azurefile does call it).
 
 ### Deferred
 

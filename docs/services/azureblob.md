@@ -1,97 +1,67 @@
-# AzureBlob — Azure Blob Storage
+# Azure Blob Storage
 
-Gopherstack provides an in-memory Azure Blob Storage implementation (Azurite-compatible wire protocol) with container/blob CRUD, metadata, content properties, public access levels, hierarchical listing, snapshots, access tiers, and single-range downloads.
+In-memory Azure Blob Storage with an Azurite-compatible wire protocol. Block, append and page blobs, blob index tags, leases and snapshots.
 
-## Supported Operations
-
-| Operation | Description |
-|-----------|-------------|
-| `ListContainers` | List all containers in the account (`include=metadata`; single page) |
-| `CreateContainer` | Create a container with optional `x-ms-meta-*` and `x-ms-blob-public-access` |
-| `DeleteContainer` | Delete a container |
-| `GetContainerProperties` | Container ETag, metadata and public-access level (`GET`/`HEAD`) |
-| `SetContainerMetadata` / `GetContainerACL` / `SetContainerACL` | Container metadata, public access level and stored access policies |
-| `ListBlobs` | List blobs with `prefix`, `delimiter` (`BlobPrefix`), `maxresults` + `marker`, `include=snapshots,metadata` |
-| `PutBlob` | Upload a blob (BlockBlob only) with metadata, content properties and `x-ms-access-tier` |
-| `GetBlob` | Download a blob or `?snapshot=` (single `Range` or `x-ms-range`); archived blobs return 409 |
-| `GetBlobProperties` / `GetBlobMetadata` | Properties and `x-ms-meta-*` via `HEAD` / `?comp=metadata` |
-| `SetBlobProperties` / `SetBlobMetadata` / `SetBlobTier` | Persisted content properties, metadata and Hot/Cool/Cold/Archive tier |
-| `SnapshotBlob` / `CopyBlob` | `?comp=snapshot`; same-account synchronous copy via `x-ms-copy-source` |
-| `DeleteBlob` | Delete a blob or one `?snapshot=`; `x-ms-delete-snapshots` include/only |
-
-## Configuration
-
-Azure Blob runs on its own dedicated, synchronously-bound TCP port — it is never multiplexed onto the shared AWS single-port router, since its `/<account>/<container>/<blob>` path shape would collide with Azure Queue/Table's identical shape.
-
-| Setting | Default | Flag | Env var |
-|---|---|---|---|
-| Port | `10000` (Azurite's own Blob port) | `--azure-blob-port` | `AZURE_BLOB_PORT` |
-| Enforce public access | `false` | `--azure-blob-enforce-public-access` | `AZURE_BLOB_ENFORCE_PUBLIC_ACCESS` |
-
-Startup fails fast if the port is unavailable — there is no fallback pool.
-
-## Authentication
-
-Gopherstack accepts Azurite's published well-known development storage account by default:
-
-```text
-Account name: devstoreaccount1
-Account key:  Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==
-```
-
-The `Authorization` header is parsed (SharedKey/SharedKeyLite) but **signature verification is not enforced** — any (or no) credentials are accepted. There is no `--azure-blob-validate-auth` flag; this differs from Cosmos DB, which does offer opt-in enforcement.
-
-## Go SDK Example
-
-```go
-import "github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
-
-cred, _ := azblob.NewSharedKeyCredential("devstoreaccount1",
-    "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==")
-
-// Path-style addressing: account name is the first path segment.
-client, _ := azblob.NewClientWithSharedKeyCredential(
-    "http://localhost:10000/devstoreaccount1", cred, nil)
-
-ctx := context.Background()
-_, _ = client.CreateContainer(ctx, "my-container", nil)
-_, _ = client.UploadBuffer(ctx, "my-container", "hello.txt", []byte("hello"), nil)
-resp, _ := client.DownloadStream(ctx, "my-container", "hello.txt", nil)
-```
-
-## curl Examples
+## Quick start
 
 ```bash
-# Create a container
 curl -X PUT "http://localhost:10000/devstoreaccount1/my-container?restype=container"
 
-# Upload a blob (BlockBlob)
 curl -X PUT "http://localhost:10000/devstoreaccount1/my-container/hello.txt" \
-    -H "x-ms-blob-type: BlockBlob" \
-    -H "x-ms-version: 2020-10-02" \
+    -H "x-ms-blob-type: BlockBlob" -H "x-ms-version: 2020-10-02" \
     --data-binary "hello world"
 
-# List blobs
 curl "http://localhost:10000/devstoreaccount1/my-container?restype=container&comp=list"
-
-# Download a blob
 curl "http://localhost:10000/devstoreaccount1/my-container/hello.txt"
 ```
 
-## Known Limitations
+Go SDK:
 
-- No Put Block / Put Block List — only whole-body single-request BlockBlob uploads (no large-object multipart upload).
-- No conditional-header support (`If-Match`/`If-None-Match`/`If-Modified-Since`/`If-Unmodified-Since`) on any operation.
-- Copy Blob is same-account and synchronous only (no cross-account or URL sources).
-- No blob versions, soft-delete, or leases; Archive rehydration is instantaneous.
-- `ListContainers` returns every container in one page — no prefix/marker/maxresults.
-- Anonymous requests honour container public-access levels only with `--azure-blob-enforce-public-access` (`AZURE_BLOB_ENFORCE_PUBLIC_ACCESS`); by default unsigned requests are unrestricted.
-- `GetBlob` supports a single range via `Range` or `x-ms-range` (the latter takes precedence when both are sent, matching real Azure); multi-range requests (`bytes=0-1,3-4`) are rejected rather than served.
-- Auth verification is not enforced (see Authentication above).
+```go
+cred, _ := azblob.NewSharedKeyCredential("devstoreaccount1",
+    "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==")
+client, _ := azblob.NewClientWithSharedKeyCredential(
+    "http://localhost:10000/devstoreaccount1", cred, nil)
+_, _ = client.CreateContainer(ctx, "my-container", nil)
+_, _ = client.UploadBuffer(ctx, "my-container", "hello.txt", []byte("hello"), nil)
+```
 
-## More
+The account is path-style: the account name is the first path segment. The built-in account is Azurite's `devstoreaccount1` with its published development key.
 
-- [Service README](../../services/azureblob/README.md)
-- [Full parity audit](../../services/azureblob/PARITY.md)
-- [AZURE.md](../../AZURE.md) — overall Azure support plan and milestones
-- [All services](../../README.md#services)
+## Supported operations
+
+| Area | Operations |
+|------|------------|
+| Account | `ListContainers` (`prefix`, `marker`, `maxresults`, `include=metadata`), `GetServiceProperties`, `SetServiceProperties`, `FindBlobsByTags` |
+| Containers | `CreateContainer`, `DeleteContainer`, `GetContainerProperties`, `SetContainerMetadata`, `GetContainerACL`, `SetContainerACL`, `LeaseContainer` |
+| Blobs | `PutBlob`, `GetBlob`, `DeleteBlob`, `ListBlobs`, `GetBlobProperties`, `SetBlobProperties`, `GetBlobMetadata`, `SetBlobMetadata`, `SetBlobTier`, `SnapshotBlob`, `CopyBlob`, `AbortCopyBlob`, `UndeleteBlob`, `LeaseBlob` |
+| Block blobs | `PutBlock`, `PutBlockFromURL`, `PutBlockList`, `GetBlockList` |
+| Append blobs | `AppendBlock` |
+| Page blobs | `PutPage`, `GetPageRanges` |
+| Tags | `SetBlobTags`, `GetBlobTags` |
+
+`ListBlobs` supports `prefix`, `delimiter`, `maxresults`, `marker` and `include=snapshots,metadata`. `GetBlob` accepts one range through `Range` or `x-ms-range` (`x-ms-range` wins). Multi-range requests are rejected.
+
+## Configuration
+
+Blob runs on its own TCP port, not the shared AWS router. Startup fails if the port is taken.
+
+| Flag | Env | Default | Purpose |
+|------|-----|---------|---------|
+| `--azure-blob-port` | `AZURE_BLOB_PORT` | `10000` | Listener port |
+| `--azure-blob-enforce-public-access` | `AZURE_BLOB_ENFORCE_PUBLIC_ACCESS` | `false` | Reject anonymous requests the container's public-access level does not allow |
+| `--azure-blob-verify-signatures` | `AZURE_BLOB_VERIFY_SIGNATURES` | `false` | Verify SharedKey and SAS credentials (signature, validity window, IP, protocol, permissions, stored access policy) |
+| `--azure-blob-account-keys` | `AZURE_BLOB_ACCOUNT_KEYS` | none | `account=base64key` pairs used when verification is on. The development account is always known |
+| `--azure-blob-allow-external-copy` | `AZURE_BLOB_ALLOW_EXTERNAL_COPY` | `false` | Let `CopyBlob` fetch non-loopback source URLs |
+
+## Differences from Azure
+
+> [!WARNING]
+> Signatures are not verified by default. Any credentials, or none, are accepted. Turn on `--azure-blob-verify-signatures` to check them.
+
+- Blob versions (`x-ms-version-id`, `include=versions`) are not modelled.
+- `CopyBlob` always completes synchronously, so `AbortCopyBlob` has nothing to abort. Incremental Copy, Append Block From URL and Put Page From URL are not implemented.
+- User delegation SAS and bearer tokens are not verified.
+- Page blobs: sequence-number actions and conditions, Get Page Ranges Diff and blobs above 256 MiB are not supported.
+
+See also the [service parity audit](../../services/azureblob/PARITY.md) and [AZURE.md](../../AZURE.md).

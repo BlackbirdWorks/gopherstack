@@ -30,15 +30,14 @@ families:
   persistence: {status: ok, note: "Snapshot version 2 (bumped from 1 -- see Notes). Edm.Int64 is snapshotted as a decimal string, not a bare JSON number: a float64 number loses precision above 2^53, corrupting large Int64 values across a save/restore cycle. Entity identity within a table is keyed by entityCompositeKey (a {PartitionKey, RowKey} struct, persisted via MarshalText as a JSON string array), not a NUL-delimited string, closing a key-collision class where two different (PartitionKey, RowKey) pairs could hash to the same delimited string. Restore initializes a table's Entities map when the snapshot carries \"Entities\": null (legal JSON, decodes to a nil map) rather than leaving it nil, which would panic the first time anything inserts into it."}
   routing_isolation: {status: ok, note: "Runs on its own dedicated *http.Server, bound synchronously in StartWorker to a fixed port (default 10002 via --azure-table-port/AZURE_TABLE_PORT, matching Azurite's own Table service port; no fallback pool -- fails fast if unavailable, mirroring services/azureblob and services/azurequeue). cli.go's reserveFixedServicePorts additionally reserves this port in the shared PortAlloc pool since 10002 sits inside --port-range-start/--port-range-end's own default range."}
   observability: {status: ok, note: "StartWorker wraps its Echo handler with telemetry.WrapEchoHandler so ExtractOperation/ExtractResource feed Prometheus metrics. InMemoryBackend uses *lockmetrics.RWMutex instead of raw sync.RWMutex, matching repo convention."}
-gaps:
-  - "$select is honored for custom properties, but PartitionKey/RowKey/Timestamp are always returned regardless of the $select list (real Table Storage honors $select literally for these too); documented deviation chosen for simplicity and because every SDK round-trip needs the key properties anyway."
-  - "No SAS support: stored access policies are persisted but not enforced."
-  - "No queue-style janitor: Table Storage entities have no TTL/expiry concept, so there is nothing to sweep (this is a deliberate scope decision, not an oversight -- see provider.go's Provider doc comment)."
-  - "Auth verification is not enforced -- see families.auth."
-  All gaps above are intentional MVP scope per AZURE.md's M2 entry (see AZURE.md section 8), not oversights.
+items_still_open:
+  - "$select always returns PartitionKey/RowKey/Timestamp even when not listed; real Table Storage honors $select literally (pkgs/odatatable/codec.go EncodeEntity)."
+  - "List Tables ignores $filter (table_ops.go listTables reads only $top and NextTableName)."
+  - "SAS tokens are not parsed or enforced; stored access policies set via Set Table ACL are persisted but never applied."
+  - "Set Table Service Properties and Get Table Service Stats are not routed; Get Service Properties always returns an empty StorageServiceProperties."
+  - "Shared Key signatures are never verified: checkAuth only parses the Authorization header."
+structural_gaps: []
 deferred:
-  - "Batch (POST /<account>/$batch, multipart/mixed changesets) is explicitly out of scope for this milestone -- returns a clean 501 NotImplemented rather than attempting a partial implementation. Matches services/azureblob's M0 multipart-upload deferral pattern."
-  - "Continuation-token pagination for List Tables/Query Entities (see gaps)."
   - "Initial implementation pass (2026-09-04): seeded this service from scratch per AZURE.md M2 (see AZURE.md section 8). Structurally mirrors services/azurequeue's M1 implementation and PARITY.md format; no prior audit history to reconcile."
 leaks: {status: clean, note: "The dedicated *http.Server started by StartWorker is stopped by Shutdown via srv.Shutdown(ctx) (falling back to srv.Close() on a graceful-shutdown error, both logged), mirroring services/azurequeue and cli.go's own top-level server lifecycle. No background goroutines beyond the listener itself -- there is no janitor (see gaps)."}
 ---

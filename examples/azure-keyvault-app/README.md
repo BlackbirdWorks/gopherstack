@@ -1,23 +1,30 @@
 # azure-keyvault-app
 
-A small Go app that behaves like a real Azure workload: it reads its configuration from a Key Vault **secret**, signs the payload from that config with a Key Vault **key** (RS256, the private key never leaves the vault), then verifies the signature both through Key Vault and locally with the public key. A tampered payload is checked to be rejected.
+A Go app reads its config from a Key Vault secret, signs it with a Key Vault key (RS256), and verifies the signature.
 
-Uses the real `azsecrets` and `azkeys` SDKs against gopherstack's Key Vault listener (HTTPS, default port `10004`). Vaults are auto-created on first use, addressed as `https://localhost:10004/vaults/<name>`.
+## What it shows
+
+- Real `azsecrets` and `azkeys` SDK clients against the Key Vault listener (HTTPS, port `10004`).
+- Vaults are created on first use at `https://localhost:10004/vaults/<name>`.
+- The signature is checked through Key Vault and locally with the public key. A tampered payload must be rejected.
 
 ## Prerequisites
 
-- A Go toolchain (the app has its own `go.mod`; dependencies are the same versions as the root module).
-- `curl`.
-- Gopherstack running with the Key Vault port reachable: `docker-compose up -d` here, or `go run ../..` from the repo root.
+- Docker, Go, `curl`, `openssl`.
 
-## Running
+## Run
 
 ```bash
-docker-compose up -d
+docker compose up -d --build
 ./demo.sh
 ```
 
-Override the endpoint with `KEYVAULT_URL` (default `https://localhost:10004/vaults/demo-vault`).
+Without Docker, run `go run .` in the repo root instead of the first command.
+
+| Variable | Default |
+|----------|---------|
+| `KEYVAULT_URL` | `https://localhost:10004/vaults/demo-vault` |
+| `KEYVAULT_CA_FILE` | Unset. `demo.sh` fetches the listener certificate into a temp file. |
 
 ## Expected output
 
@@ -28,16 +35,16 @@ signature verified by Key Vault and locally; tampered payload rejected
 PASS: azure-keyvault-app (secret read, payload signed, signature verified)
 ```
 
-The script exits non-zero with a `FAIL:` line otherwise. Re-running is safe: each run stores a new secret version and key version.
+Failures print `FAIL:` and exit non-zero. Re-running is safe: each run adds a new secret version and key version.
 
-## Notes
+> [!WARNING]
+> With `KEYVAULT_CA_FILE` unset, `demo.sh` pins whatever certificate the listener presents on first connect. That is trust-on-first-use. For a stricter setup, start Gopherstack with `--azure-keyvault-tls-cert` and `--azure-keyvault-tls-key`, and point `KEYVAULT_CA_FILE` at that certificate.
 
-- TLS is verified. The app trusts only the PEM certificate in `KEYVAULT_CA_FILE` (used as the sole root pool). The generated self-signed listener certificate covers `localhost`, `127.0.0.1` and `::1`, so keep `localhost` in `KEYVAULT_URL`.
-- If `KEYVAULT_CA_FILE` is unset, `demo.sh` fetches the certificate the listener presents on first connect (`openssl s_client`) into a temp file and pins it. That is trust-on-first-use, acceptable only for a local emulator. To avoid it, start gopherstack with your own certificate (`--azure-keyvault-tls-cert` / `--azure-keyvault-tls-key`) and set `KEYVAULT_CA_FILE` to that CA or certificate PEM.
-- The credential is a fixed dev token; the emulator does not validate bearer tokens.
+> [!NOTE]
+> Keep `localhost` in `KEYVAULT_URL`. The generated certificate covers `localhost`, `127.0.0.1` and `::1`. The listener accepts any bearer token unless started with `--azure-keyvault-validate-tokens`.
 
-## Teardown
+## Clean up
 
 ```bash
-docker-compose down -v
+docker compose down -v
 ```
