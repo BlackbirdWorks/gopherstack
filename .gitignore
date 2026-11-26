@@ -106,3 +106,16 @@ checkpoint.md
 .ua/intermediate/*
 !.ua/intermediate/scan-result.json
 .ua/diff-overlay.json
+
+# VitePress documentation site (generated at build time by cmd/gendocs -site)
+site/node_modules/
+site/.vitepress/dist/
+site/.vitepress/cache/
+site/.vitepress/generated/
+site/public/logo.png
+site/public/favicon.png
+site/services/
+site/guide/
+site/architecture/
+site/examples/
+site/limitations.md
