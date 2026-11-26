@@ -11,8 +11,7 @@
 // this package's shape (AAD claims: iss/aud/appid/tid/oid/sub/ver, not
 // Cognito's cognito:username/token_use) is different enough that sharing
 // code would mean threading AAD-specific special cases through Cognito's
-// file instead of owning a small, purpose-built package. See AZURE.md
-// section 10.5.
+// file instead of owning a small, purpose-built package.
 //
 // services/azurearm is the first consumer (M7); services/keyvault (M11) is
 // expected to reuse it for its own dev-mode bearer-token auth.
@@ -51,8 +50,7 @@ const DefaultTokenExpirySeconds = 3599
 // running service instance (see services/azurearm/token.go); its RSA keypair
 // is generated once at startup and is not persisted across restarts --
 // tokens issued before a restart no longer validate against the new key,
-// which is acceptable because validation itself is opt-in and off by default
-// (AZURE.md section 10.5).
+// which is acceptable because validation itself is opt-in and off by default.
 type Issuer struct {
 	key       func() (*rsa.PrivateKey, error)
 	keyID     string
@@ -83,7 +81,7 @@ func NewIssuer() (*Issuer, error) {
 }
 
 // ClientCredentialsClaims are the AAD v2.0-shaped claims this package
-// stamps into every issued token (AZURE.md section 10.5's claim list).
+// stamps into every issued token.
 type ClientCredentialsClaims struct {
 	Issuer   string // https://<host>/<tenant>/v2.0
 	Audience string // requested scope's resource, e.g. https://management.azure.com

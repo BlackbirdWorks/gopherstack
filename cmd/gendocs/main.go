@@ -46,13 +46,14 @@ const (
 func main() {
 	ctx := context.Background()
 	log := logger.NewLogger(slog.LevelInfo)
+	ctx = logger.Save(ctx, log)
 
 	siteDir := flag.String("site", "", "output directory for VitePress doc site generation")
 	version := flag.String("version", "", "release version string shown in site metadata")
 	flag.Parse()
 
 	if *siteDir != "" {
-		if err := runSite(ctx, log, *siteDir, *version); err != nil {
+		if err := runSite(ctx, *siteDir, *version); err != nil {
 			log.ErrorContext(ctx, "gendocs site generation failed", "error", err)
 			os.Exit(1)
 		}

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -10,15 +11,14 @@ import (
 )
 
 const (
-	gradeA           = "A"
-	gradeB           = "B"
-	gradeRemoved     = "Removed"
-	maxInlineOpRows  = 500
-	serviceGuideKind = "service"
-	cloudAWS         = "AWS"
-	cloudAzure       = "Azure"
-	cloudGCP         = "GCP"
-	cloudOCI         = "OCI"
+	gradeA          = "A"
+	gradeB          = "B"
+	gradeRemoved    = "Removed"
+	maxInlineOpRows = 500
+	cloudAWS        = "AWS"
+	cloudAzure      = "Azure"
+	cloudGCP        = "GCP"
+	cloudOCI        = "OCI"
 )
 
 // siteServiceRecord is the JSON shape consumed by ServiceIndex.vue.
@@ -92,7 +92,7 @@ func buildSiteServiceRecords(entries []summaryEntry, docBySlug map[string]*Parit
 			OpsGap:              ot.gap,
 			OpsDeferred:         ot.deferred,
 			FamiliesTotal:       len(doc.Families),
-			KnownGapsCount:      len(doc.openItems()),
+			KnownGapsCount:      len(doc.ItemsStillOpen),
 			StructuralGapsCount: len(doc.StructuralGaps),
 			DeferredCount:       len(doc.Deferred),
 			HasGuide:            guideExists(e.Slug),
@@ -140,28 +140,17 @@ func renderServiceIndexPage(totalServices, auditedServices int) string {
 	var b strings.Builder
 
 	b.WriteString("---\ntitle: Service Index\n")
-	b.WriteString("description: Searchable index of all AWS, Azure, and GCP services emulated by Gopherstack.\n")
+	b.WriteString("description: Index of every service Gopherstack emulates, with parity grades.\n")
 	b.WriteString("aside: false\n---\n\n")
 	b.WriteString("# Service Index\n\n")
-	fmt.Fprintf(&b,
-		"Gopherstack includes **%d services** (%d audited against `PARITY.md` manifests, "+
-			"plus removed legacy placeholders). Filter by category, parity grade, or protocol below, "+
-			"or click any service to view its audited operations, known gaps, and usage guide.\n\n",
-		totalServices, auditedServices,
-	)
+	fmt.Fprintf(&b, "- %d services, %d with a `PARITY.md` audit.\n", totalServices, auditedServices)
+	b.WriteString("- Filter by cloud, category, grade or protocol.\n")
+	b.WriteString("- Each service page lists audited operations and open gaps.\n\n")
 	b.WriteString("<ServiceIndex />\n\n")
-	b.WriteString("## Parity Grades\n\n")
-	b.WriteString("| Grade | Meaning |\n| --- | --- |\n")
-	b.WriteString(
-		"| **A** | Core operations, error shapes, state transitions, and persistence are audited and passing. |\n",
-	)
-	b.WriteString(
-		"| **B** | Functional coverage with tracked gaps listed on the service page and [Limitations](/limitations). |\n",
-	)
-	b.WriteString(
-		"| **Removed** | Deprecated by AWS and removed from Gopherstack " +
-			"(see [Limitations](/limitations#removed-services)). |\n",
-	)
+	b.WriteString("## Grades\n\n")
+	b.WriteString("- **A, B, C**: the `overall:` grade in the service's `PARITY.md`. ")
+	b.WriteString("Open items are listed on the service page and in [Limitations](/limitations).\n")
+	b.WriteString("- **Removed**: no longer emulated. See [Limitations](/limitations#removed-services).\n")
 
 	return b.String()
 }
@@ -173,7 +162,7 @@ func renderSiteServicePage(entry summaryEntry, doc *ParityDoc) (string, error) {
 	}
 
 	var b strings.Builder
-	desc := fmt.Sprintf("Gopherstack %s (%s) — Parity Grade %s.", entry.DisplayName, entry.Category, doc.Overall)
+	desc := fmt.Sprintf("%s (%s): parity grade %s.", entry.DisplayName, entry.Category, doc.Overall)
 
 	b.WriteString("---\n")
 	b.WriteString("title: " + escapeYAMLString(entry.DisplayName) + "\n")
@@ -192,10 +181,10 @@ func renderSiteServicePage(entry summaryEntry, doc *ParityDoc) (string, error) {
 
 	b.WriteString("## Parity & Coverage\n\n")
 	b.WriteString("| Metric | Value |\n| --- | --- |\n")
-	writeCoverageRows(&b, doc)
+	writeCoverageRows(&b, doc, len(doc.ItemsStillOpen))
 	b.WriteString("\n")
 
-	writeSiteGapList(&b, "Known Gaps", doc.openItems(), "")
+	writeSiteGapList(&b, "Known Gaps", doc.ItemsStillOpen, "")
 	writeSiteGapList(
 		&b,
 		"Structural Gaps",
@@ -219,7 +208,7 @@ func renderRemovedServicePage(entry summaryEntry) (string, error) {
 	}
 
 	body := stripLeadingH1(string(raw))
-	body = sanitizeMarkdownForVitePress(body, serviceGuideKind)
+	body = sanitizeMarkdownForVitePress(body, path.Join(servicesDirName, entry.Slug))
 
 	var b strings.Builder
 	b.WriteString("---\n")
@@ -227,7 +216,7 @@ func renderRemovedServicePage(entry summaryEntry) (string, error) {
 	b.WriteString("description: " + escapeYAMLString(entry.DisplayName+" has been removed from Gopherstack.") + "\n")
 	b.WriteString("---\n\n")
 	b.WriteString("# " + entry.DisplayName + " (Removed)\n\n")
-	b.WriteString("::: warning Removed Service\n")
+	b.WriteString("::: warning Removed\n")
 	b.WriteString(strings.TrimSpace(body) + "\n")
 	b.WriteString(":::\n\n")
 	b.WriteString("[Back to Service Index](/services/)\n")
@@ -248,7 +237,7 @@ func appendServiceGuide(b *strings.Builder, slug string) error {
 	}
 
 	body := stripLeadingH1(string(raw))
-	body = sanitizeMarkdownForVitePress(body, serviceGuideKind)
+	body = sanitizeMarkdownForVitePress(body, docsServicesDir)
 	body = strings.TrimSpace(body)
 	if body == "" {
 		return nil
@@ -281,7 +270,7 @@ func writeSiteGapList(b *strings.Builder, heading string, items []string, note s
 func writeSiteOperationsSection(b *strings.Builder, doc *ParityDoc) {
 	if len(doc.Ops) > 0 {
 		b.WriteString("## Audited Operations\n\n")
-		fmt.Fprintf(b, "<details>\n<summary>View %d audited PARITY operation entries</summary>\n\n", len(doc.Ops))
+		fmt.Fprintf(b, "<details>\n<summary>%d audited operations</summary>\n\n", len(doc.Ops))
 		b.WriteString("| Operation | Wire | Errors | State | Persist |\n")
 		b.WriteString("| --- | --- | --- | --- | --- |\n")
 
@@ -296,7 +285,7 @@ func writeSiteOperationsSection(b *strings.Builder, doc *ParityDoc) {
 			)
 		}
 		if len(doc.Ops) > limit {
-			fmt.Fprintf(b, "\n*Showing %d of %d entries — see `PARITY.md` on GitHub for the full list.*\n",
+			fmt.Fprintf(b, "\nShowing %d of %d entries. See `PARITY.md` on GitHub for the rest.\n",
 				limit, len(doc.Ops))
 		}
 		b.WriteString("\n</details>\n\n")
@@ -340,14 +329,12 @@ func renderLimitationsPage(entries []summaryEntry, docBySlug map[string]*ParityD
 	var b strings.Builder
 
 	b.WriteString("---\ntitle: Limitations & Parity Gaps\n")
-	b.WriteString(
-		"description: Platform design boundaries, metadata-only services, and open parity gaps across Gopherstack.\n",
-	)
+	b.WriteString("description: Platform limits and open parity gaps, generated from each service's PARITY.md.\n")
 	b.WriteString("---\n\n")
 	b.WriteString("# Limitations & Parity Gaps\n\n")
-	b.WriteString("Gopherstack prioritizes sub-100 ms cold starts, low memory usage, and high-fidelity AWS wire " +
-		"protocols. Because it runs as an in-memory emulator rather than real cloud infrastructure, " +
-		"keep the following architectural boundaries and per-service gaps in mind.\n\n")
+	b.WriteString("> [!WARNING]\n")
+	b.WriteString("> Gopherstack is an in-memory emulator, not AWS. IAM policies are not evaluated unless ")
+	b.WriteString("`--enforce-iam` is set.\n\n")
 
 	writePlatformBoundaries(&b)
 	writeOpenGapsSummary(&b, entries, docBySlug)
@@ -358,38 +345,20 @@ func renderLimitationsPage(entries []summaryEntry, docBySlug map[string]*ParityD
 }
 
 func writePlatformBoundaries(b *strings.Builder) {
-	b.WriteString("## Platform & Architectural Boundaries\n\n")
-	b.WriteString("| Area | Behaviour & Limitation |\n| --- | --- |\n")
-	b.WriteString(
-		"| **In-memory state by default** | State lives in memory unless `--persist` / `PERSIST=true` is enabled " +
-			"(debounced JSON snapshots on disk). |\n",
-	)
-	b.WriteString(
-		"| **Single-port HTTP routing** | All services share port `8000` (plus `4566` with `--localstack-compat`). " +
-			"Transparent per-service DNS/proxy injection is not used unless `--dns-addr` is enabled. |\n",
-	)
-	b.WriteString(
-		"| **Container runtime for Lambda & engines** | Zip/image Lambda execution and `docker` engine modes " +
-			"require a reachable Docker or Podman socket (`--engines auto` probes once at startup). |\n",
-	)
-	b.WriteString(
-		"| **Metadata-only control planes** | Services such as RDS, Redshift, and Aurora DSQL default to " +
-			"metadata-only stubs unless switched to a container-backed engine where supported " +
-			"(see [Engine Modes](/guide/engines)). |\n",
-	)
-	b.WriteString(
-		"| **LocalStack features not replicated** | LocalStack Cloud Pods, LocalStack extensions, " +
-			"`/health` (collides with S3 bucket `health`), and `/_aws/lambda/runtimes` are omitted. " +
-			"See [Migrating from LocalStack](/guide/migration). |\n",
-	)
-	b.WriteString(
-		"| **IAM enforcement is opt-in** | Requests succeed without policy evaluation unless `--enforce-iam` " +
-			"(`GOPHERSTACK_ENFORCE_IAM=true`) is set. |\n",
-	)
-	b.WriteString(
-		"| **Desktop binaries** | `gopherstack-desktop` release archives are currently unsigned; " +
-			"macOS requires right-click → Open on first launch. |\n\n",
-	)
+	b.WriteString("## Platform\n\n")
+	b.WriteString("- **State**: in memory. `--persist` (`PERSIST=true`) writes snapshots to disk.\n")
+	b.WriteString("- **Ports**: all services share port `8000`. `--localstack-compat` also listens on `4566`.\n")
+	b.WriteString("- **Endpoints**: per-service DNS or proxy injection is off. ")
+	b.WriteString("Set `--dns-addr` to enable the embedded DNS server.\n")
+	b.WriteString("- **Containers**: Lambda and the `docker` engine modes need a reachable Docker or Podman socket. ")
+	b.WriteString("See [Engine Modes](/guide/engines).\n")
+	b.WriteString("- **Stub engines**: container-backed services such as RDS run as in-memory metadata ")
+	b.WriteString("unless you switch their engine.\n")
+	b.WriteString("- **IAM**: not enforced by default. `--enforce-iam` (`GOPHERSTACK_ENFORCE_IAM=true`) turns it on.\n")
+	b.WriteString("- **LocalStack**: not provided: `/health`, `/_aws/sns/*`, `/_aws/dynamodb/expired`, ")
+	b.WriteString("in-process extensions. See [Migrating from LocalStack](/guide/migration).\n\n")
+	b.WriteString("> [!NOTE]\n")
+	b.WriteString("> `gopherstack-desktop` release archives are unsigned. macOS asks for approval on first launch.\n\n")
 }
 
 func writeOpenGapsSummary(b *strings.Builder, entries []summaryEntry, docBySlug map[string]*ParityDoc) {
@@ -406,7 +375,7 @@ func writeOpenGapsSummary(b *strings.Builder, entries []summaryEntry, docBySlug 
 		if doc == nil {
 			continue
 		}
-		items := doc.openItems()
+		items := doc.ItemsStillOpen
 		if len(items) == 0 {
 			continue
 		}
@@ -418,16 +387,12 @@ func writeOpenGapsSummary(b *strings.Builder, entries []summaryEntry, docBySlug 
 		return withGaps[i].entry.DisplayName < withGaps[j].entry.DisplayName
 	})
 
-	b.WriteString("## Open Parity Gaps by Service\n\n")
-	fmt.Fprintf(
-		b,
-		"Generated automatically from `services/*/PARITY.md`: **%d open gap(s)** across **%d service(s)**.\n\n",
-		totalGaps,
-		len(withGaps),
-	)
+	b.WriteString("## Open Gaps\n\n")
+	fmt.Fprintf(b, "%s across %s, from `items_still_open:` in `services/*/PARITY.md`.\n\n",
+		plural(totalGaps, "open gap", "open gaps"), plural(len(withGaps), "service", "services"))
 
 	if len(withGaps) == 0 {
-		b.WriteString("No open parity gaps are currently recorded.\n\n")
+		b.WriteString("None recorded.\n\n")
 
 		return
 	}
@@ -467,12 +432,11 @@ func writeStructuralGapsSummary(b *strings.Builder, entries []summaryEntry, docB
 		return rows[i].entry.DisplayName < rows[j].entry.DisplayName
 	})
 
-	b.WriteString("## Structural Gaps (Cannot Be Emulated)\n\n")
+	b.WriteString("## Structural Gaps\n\n")
 	fmt.Fprintf(b,
-		"Across **%d services**, **%d structural gap(s)** represent external cloud dependencies "+
-			"(real internet traffic, billing/settlement systems, proprietary ML inference, or physical hardware) "+
-			"that cannot exist in a local emulator. They do not block a Grade **A**.\n\n",
-		len(rows), total,
+		"%s across %s. These need real traffic, billing systems, ML inference or hardware, "+
+			"so they cannot be emulated. They do not block grade A.\n\n",
+		plural(total, "structural gap", "structural gaps"), plural(len(rows), "service", "services"),
 	)
 
 	if len(rows) == 0 {
@@ -505,7 +469,7 @@ func writeRemovedServicesSummary(b *strings.Builder, entries []summaryEntry, doc
 	})
 
 	b.WriteString("## Removed Services\n\n")
-	b.WriteString("The following deprecated AWS services were removed from Gopherstack:\n\n")
+	b.WriteString("These services are no longer emulated:\n\n")
 	for _, r := range removed {
 		fmt.Fprintf(b, "- [%s](/services/%s) (`services/%s`)\n", r.DisplayName, r.Slug, r.Slug)
 	}

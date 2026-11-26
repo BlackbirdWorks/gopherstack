@@ -4,8 +4,7 @@
 // properties on Microsoft.ServiceBus queue/topic/subscription resources.
 // Extracted from services/azureservicebus (M5) when services/azurearm (M9)
 // became a second caller needing the exact same logic -- mirroring
-// pkgs/odatatable's earlier extraction for the same reason (AZURE.md
-// section 9's M6 milestone).
+// pkgs/odatatable's earlier extraction for the same reason.
 package iso8601
 
 import (

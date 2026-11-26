@@ -1,22 +1,21 @@
 package main
 
 import (
+	"path"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 )
 
 const (
 	githubRepoBase   = "https://github.com/BlackbirdWorks/gopherstack"
-	fenceTriple      = "```"
-	fenceTilde       = "~~~"
 	mdLinkMatchCount = 3
-	serviceLinkParts = 2
 	mdExt            = ".md"
 	routeServices    = "/services/"
 	routeArch        = "/architecture/"
 	routeGuide       = "/guide/"
-	kindGuide        = "guide"
-	kindArch         = "arch"
+	routeExamples    = "/examples/"
 )
 
 // knownHTMLTags lists HTML tag names that are valid in VitePress Markdown
@@ -41,58 +40,80 @@ var placeholderTagRe = regexp.MustCompile(`<([A-Za-z][A-Za-z0-9_.-]*)>`)
 var mdLinkRe = regexp.MustCompile(`\[([^\]]+)\]\(([^)\s]+)\)`)
 
 // sanitizeMarkdownForVitePress prepares repository Markdown for VitePress/Vue
-// compilation by rewriting internal links and escaping un-fenced Vue mustache
-// delimiters and placeholder angle-bracket tags.
-func sanitizeMarkdownForVitePress(content, sourceKind string) string {
+// compilation: it rewrites relative links (resolved against srcDir, the
+// repo-relative directory holding the source file) and escapes un-fenced Vue
+// mustache delimiters and placeholder angle-bracket tags.
+func sanitizeMarkdownForVitePress(content, srcDir string) string {
 	lines := strings.Split(content, "\n")
 	out := make([]string, 0, len(lines))
-	inFence := false
-	fenceChar := ""
+
+	var open fence
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if isFenceToggle(trimmed, inFence, fenceChar) {
-			if !inFence {
-				inFence = true
-				fenceChar = fencePrefix(trimmed)
-			} else {
-				inFence = false
-				fenceChar = ""
+		if open.n > 0 {
+			if open.closedBy(trimmed) {
+				open = fence{}
 			}
 			out = append(out, line)
 
 			continue
 		}
 
-		if inFence {
+		if f, ok := parseFenceOpen(trimmed); ok {
+			open = f
 			out = append(out, line)
 
 			continue
 		}
 
-		rewritten := rewriteMarkdownLinks(line, sourceKind)
-		out = append(out, sanitizeInlineProse(rewritten))
+		out = append(out, sanitizeInlineProse(rewriteMarkdownLinks(line, srcDir)))
 	}
 
 	return strings.Join(out, "\n")
 }
 
-// isFenceToggle reports whether trimmed opens or closes a fenced code block.
-func isFenceToggle(trimmed string, inFence bool, activeFence string) bool {
-	if !inFence {
-		return strings.HasPrefix(trimmed, fenceTriple) || strings.HasPrefix(trimmed, fenceTilde)
-	}
-
-	return strings.HasPrefix(trimmed, activeFence)
+// fence is an open fenced code block: its marker byte and opening length.
+type fence struct {
+	char byte
+	n    int
 }
 
-// fencePrefix returns the fence marker prefix ("```" or "~~~") of trimmed.
-func fencePrefix(trimmed string) string {
-	if strings.HasPrefix(trimmed, fenceTilde) {
-		return fenceTilde
+const minFenceLen = 3
+
+// parseFenceOpen reports whether trimmed opens a CommonMark fenced code block.
+func parseFenceOpen(trimmed string) (fence, bool) {
+	if trimmed == "" || (trimmed[0] != '`' && trimmed[0] != '~') {
+		return fence{}, false
 	}
 
-	return fenceTriple
+	n := fenceRun(trimmed, trimmed[0])
+	if n < minFenceLen {
+		return fence{}, false
+	}
+
+	if trimmed[0] == '`' && strings.Contains(trimmed[n:], "`") {
+		return fence{}, false
+	}
+
+	return fence{char: trimmed[0], n: n}, true
+}
+
+// closedBy reports whether trimmed closes f: the same marker, at least as
+// long as the opener, and nothing after it.
+func (f fence) closedBy(trimmed string) bool {
+	n := fenceRun(trimmed, f.char)
+
+	return n >= f.n && n == len(trimmed)
+}
+
+func fenceRun(s string, c byte) int {
+	n := 0
+	for n < len(s) && s[n] == c {
+		n++
+	}
+
+	return n
 }
 
 // sanitizeInlineProse escapes Vue template syntax ({{, }}, and non-HTML
@@ -162,77 +183,138 @@ func escapeVueText(segment string) string {
 	})
 }
 
-// rewriteMarkdownLinks translates repository-relative Markdown links into
-// clean VitePress routes or GitHub source links based on sourceKind
-// ("guide", "arch", "service", or "example").
-func rewriteMarkdownLinks(line, sourceKind string) string {
-	return mdLinkRe.ReplaceAllStringFunc(line, func(full string) string {
+// rewriteMarkdownLinks rewrites relative Markdown links outside inline code
+// spans to site routes or GitHub URLs, resolving them against srcDir.
+func rewriteMarkdownLinks(line, srcDir string) string {
+	if !strings.Contains(line, "](") {
+		return line
+	}
+
+	masked, spans := maskCodeSpans(line)
+	masked = mdLinkRe.ReplaceAllStringFunc(masked, func(full string) string {
 		m := mdLinkRe.FindStringSubmatch(full)
-		if len(m) != mdLinkMatchCount {
+		if len(m) != mdLinkMatchCount || isExternalOrAnchor(m[2]) {
 			return full
 		}
 
-		label, target := m[1], m[2]
-		if isExternalOrAnchor(target) {
-			return full
-		}
-
-		rewritten := resolveSiteLink(target, sourceKind)
-
-		return "[" + label + "](" + rewritten + ")"
+		return "[" + m[1] + "](" + resolveSiteLink(m[2], srcDir) + ")"
 	})
+
+	for i, span := range spans {
+		masked = strings.Replace(masked, codeSpanMark(i), span, 1)
+	}
+
+	return masked
 }
 
-// isExternalOrAnchor reports whether target is an HTTP URL, mailto, or hash anchor.
-func isExternalOrAnchor(target string) bool {
-	return strings.HasPrefix(target, "http://") ||
-		strings.HasPrefix(target, "https://") ||
-		strings.HasPrefix(target, "mailto:") ||
-		strings.HasPrefix(target, "#")
+func codeSpanMark(i int) string {
+	return "\x00" + strconv.Itoa(i) + "\x00"
 }
 
-// resolveSiteLink maps a relative docs/ or examples/ target to a site route or
-// GitHub blob URL so VitePress never encounters broken relative .md links.
-func resolveSiteLink(target, sourceKind string) string {
-	pathPart, anchor := splitAnchor(target)
+// maskCodeSpans swaps inline code spans for placeholders so link rewriting
+// cannot touch their contents.
+func maskCodeSpans(line string) (string, []string) {
+	var (
+		b     strings.Builder
+		spans []string
+	)
 
-	if mapped, ok := mapDirectTarget(pathPart, sourceKind); ok {
-		return mapped + anchor
-	}
+	for i := 0; i < len(line); {
+		if line[i] != '`' {
+			b.WriteByte(line[i])
+			i++
 
-	if strings.HasPrefix(pathPart, "../../services/") {
-		return mapServiceRelativeLink(pathPart) + anchor
-	}
-
-	if after, ok := strings.CutPrefix(pathPart, "../../docs/services/"); ok {
-		return mapDocsServiceLink(after) + anchor
-	}
-
-	if after, ok := strings.CutPrefix(pathPart, "../architecture/"); ok {
-		return mapArchTarget(after) + anchor
-	}
-
-	if after, ok := strings.CutPrefix(pathPart, "architecture/"); ok {
-		return mapArchTarget(after) + anchor
-	}
-
-	if after, ok := strings.CutPrefix(pathPart, "../"); ok && sourceKind == kindGuide {
-		return githubRepoBase + "/blob/main/" + after + anchor
-	}
-
-	if pathPart == "../../AZURE.md" {
-		return githubRepoBase + "/blob/main/AZURE.md" + anchor
-	}
-
-	if strings.HasPrefix(pathPart, "../../README.md") {
-		if anchor == "#services" {
-			return routeServices
+			continue
 		}
 
-		return "/" + anchor
+		end := findClosingBacktick(line, i)
+		b.WriteString(codeSpanMark(len(spans)))
+		spans = append(spans, line[i:end])
+		i = end
 	}
 
-	return target
+	return b.String(), spans
+}
+
+var schemeRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*:`)
+
+// isExternalOrAnchor reports whether target has a URL scheme, is rooted, or
+// is a hash anchor.
+func isExternalOrAnchor(target string) bool {
+	return schemeRe.MatchString(target) ||
+		strings.HasPrefix(target, "#") ||
+		strings.HasPrefix(target, "/")
+}
+
+// resolveSiteLink maps a link relative to srcDir onto a generated site route,
+// or a GitHub URL for repository files that have no page.
+func resolveSiteLink(target, srcDir string) string {
+	pathPart, anchor := splitAnchor(target)
+	if pathPart == "" {
+		return target
+	}
+
+	isDir := strings.HasSuffix(pathPart, "/")
+	repoPath := path.Join(srcDir, pathPart)
+	if repoPath == ".." || strings.HasPrefix(repoPath, "../") {
+		return target
+	}
+
+	if repoPath == readmeFileName && anchor == "#services" {
+		return routeServices
+	}
+
+	if route, ok := repoPathRoute(repoPath); ok {
+		return route + anchor
+	}
+
+	kind := "blob"
+	if isDir {
+		kind = "tree"
+	}
+
+	return githubRepoBase + "/" + kind + "/main/" + repoPath + anchor
+}
+
+func staticRepoRoutes() map[string]string {
+	return map[string]string{
+		readmeFileName:  "/",
+		docsServicesDir: routeServices,
+		servicesDirName: routeServices,
+		docsArchDirName: routeArch,
+		path.Join(docsArchDirName, readmeFileName): routeArch,
+		examplesDirName: routeExamples,
+		path.Join(examplesDirName, readmeFileName): routeExamples,
+	}
+}
+
+// repoPathRoute returns the site route generated for a repo path, if any.
+func repoPathRoute(p string) (string, bool) {
+	if route, ok := staticRepoRoutes()[p]; ok {
+		return route, true
+	}
+
+	dir, file := path.Split(p)
+	dir = strings.TrimSuffix(dir, "/")
+	name, isMD := strings.CutSuffix(file, mdExt)
+	if !isMD {
+		return "", false
+	}
+
+	switch {
+	case dir == docsServicesDir:
+		return routeServices + name, true
+	case dir == docsArchDirName && slices.Contains(archDocNames(), file):
+		return routeArch + name, true
+	case dir == docsDirName && slices.Contains(guideDocNames(), file):
+		return routeGuide + name, true
+	case file == readmeFileName && path.Dir(dir) == servicesDirName:
+		return routeServices + path.Base(dir), true
+	case file == readmeFileName && path.Dir(dir) == examplesDirName:
+		return routeExamples + path.Base(dir), true
+	}
+
+	return "", false
 }
 
 func splitAnchor(target string) (string, string) {
@@ -241,56 +323,6 @@ func splitAnchor(target string) (string, string) {
 	}
 
 	return target, ""
-}
-
-func mapDirectTarget(pathPart, sourceKind string) (string, bool) {
-	switch sourceKind {
-	case kindGuide:
-		switch pathPart {
-		case "services/", "services":
-			return routeServices, true
-		case "architecture/", "architecture":
-			return routeArch, true
-		}
-		if strings.HasSuffix(pathPart, mdExt) && !strings.Contains(pathPart, "/") {
-			return routeGuide + strings.TrimSuffix(pathPart, mdExt), true
-		}
-	case kindArch:
-		if pathPart == readmeFileName {
-			return routeArch, true
-		}
-		if strings.HasSuffix(pathPart, mdExt) && !strings.Contains(pathPart, "/") {
-			return routeArch + strings.TrimSuffix(pathPart, mdExt), true
-		}
-	}
-
-	return "", false
-}
-
-func mapArchTarget(name string) string {
-	if name == "" || name == readmeFileName {
-		return routeArch
-	}
-
-	return routeArch + strings.TrimSuffix(name, mdExt)
-}
-
-func mapDocsServiceLink(name string) string {
-	if name == "" {
-		return routeServices
-	}
-
-	return routeServices + strings.TrimSuffix(name, mdExt)
-}
-
-func mapServiceRelativeLink(pathPart string) string {
-	rest := strings.TrimPrefix(pathPart, "../../services/")
-	parts := strings.SplitN(rest, "/", serviceLinkParts)
-	if len(parts) == serviceLinkParts && parts[1] == readmeFileName {
-		return routeServices + parts[0]
-	}
-
-	return githubRepoBase + "/blob/main/services/" + rest
 }
 
 // stripLeadingH1 removes the first top-level "# Title" heading (and immediate

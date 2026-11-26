@@ -3,12 +3,15 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"log/slog"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
@@ -58,12 +61,72 @@ type docPageSpec struct {
 	Src   string
 	Dest  string
 	Title string
-	Kind  string
+}
+
+type guideFile struct {
+	file  string
+	title string
+}
+
+type archFile struct {
+	src   string
+	dest  string
+	title string
+}
+
+func guideFiles() []guideFile {
+	return []guideFile{
+		{"quickstart.md", "Quickstart"},
+		{"docker.md", "Docker & Docker Compose"},
+		{"migration.md", "Migrating from LocalStack"},
+		{"configuration.md", "Configuration"},
+		{"engines.md", "Engine Modes"},
+		{"persistence.md", "Persistence"},
+		{"chaos.md", "Chaos Testing"},
+		{"security-groups.md", "Security Groups"},
+		{"app-inspector.md", "App Inspector"},
+		{"iam-policy-stream.md", "IAM Policy Stream"},
+		{"pinned-ids.md", "Pinned Resource IDs"},
+		{"testcontainers.md", "Testcontainers"},
+		{"kubernetes.md", "Kubernetes"},
+		{"extensions.md", "Extensions"},
+		{"mcp.md", "MCP Server"},
+		{"replicator.md", "Replicator"},
+	}
+}
+
+func archFiles() []archFile {
+	return []archFile{
+		{"README.md", "index.md", "Architecture Overview"},
+		{"dns.md", "dns.md", "Embedded DNS"},
+		{"elasticache.md", "elasticache.md", "ElastiCache Engine Modes"},
+		{"lambda.md", "lambda.md", "Lambda Runtime"},
+	}
+}
+
+func guideDocNames() []string {
+	files := guideFiles()
+	names := make([]string, 0, len(files))
+	for _, g := range files {
+		names = append(names, g.file)
+	}
+
+	return names
+}
+
+func archDocNames() []string {
+	files := archFiles()
+	names := make([]string, 0, len(files))
+	for _, a := range files {
+		names = append(names, a.src)
+	}
+
+	return names
 }
 
 // runSite generates the VitePress documentation site sources under siteDir
 // without mutating tracked repository docs.
-func runSite(ctx context.Context, log *slog.Logger, siteDir, version string) error {
+func runSite(ctx context.Context, siteDir, version string) error {
 	slugs, err := discoverServiceSlugs(servicesDirName)
 	if err != nil {
 		return err
@@ -74,24 +137,26 @@ func runSite(ctx context.Context, log *slog.Logger, siteDir, version string) err
 		return err
 	}
 
-	logParseWarnings(ctx, log, docs)
+	logParseWarnings(ctx, logger.Load(ctx), docs)
 	if warnErr := checkParseWarnings(docs); warnErr != nil {
 		return warnErr
 	}
 
-	return generateSite(ctx, log, siteDir, version, entries, docs)
+	return generateSite(ctx, siteDir, version, entries, docs)
 }
 
 // generateSite writes all generated assets, JSON data, guides, service pages,
 // limitations, and examples into siteDir.
 func generateSite(
 	ctx context.Context,
-	log *slog.Logger,
 	siteDir, version string,
 	entries []summaryEntry,
 	docs []*ParityDoc,
 ) error {
 	cleanSiteDir := filepath.Clean(siteDir)
+	if err := validateSiteDir(cleanSiteDir); err != nil {
+		return err
+	}
 
 	docBySlug := make(map[string]*ParityDoc, len(docs))
 	for _, d := range docs {
@@ -101,6 +166,10 @@ func generateSite(
 	examples, err := discoverExamples(examplesDirName)
 	if err != nil {
 		return err
+	}
+
+	if cleanErr := removeGeneratedDirs(cleanSiteDir); cleanErr != nil {
+		return cleanErr
 	}
 
 	if assetErr := copySiteAssets(cleanSiteDir); assetErr != nil {
@@ -128,12 +197,100 @@ func generateSite(
 		return exErr
 	}
 
-	log.InfoContext(ctx, "vitepress site generated",
+	logger.Load(ctx).InfoContext(ctx, "vitepress site generated",
 		"site_dir", cleanSiteDir,
 		"services", len(entries),
 		"examples", len(examples),
 		"version", version,
 	)
+
+	return nil
+}
+
+var errSiteDirOverlap = errors.New("site output directory overlaps repository sources")
+
+// validateSiteDir rejects output directories that would overwrite or delete
+// repository sources the generator reads, including through symlinks.
+func validateSiteDir(siteDir string) error {
+	site, err := resolveReal(siteDir)
+	if err != nil {
+		return err
+	}
+
+	root, err := resolveReal(".")
+	if err != nil {
+		return err
+	}
+
+	if pathWithin(root, site) {
+		return fmt.Errorf("%w: %s contains the repository root", errSiteDirOverlap, siteDir)
+	}
+
+	sources := []string{
+		docsDirName, examplesDirName, servicesDirName,
+		filepath.Dir(logoSrcPath), filepath.Dir(faviconSrcPath),
+	}
+	for _, src := range sources {
+		resolved, resolveErr := resolveReal(src)
+		if resolveErr != nil {
+			return resolveErr
+		}
+
+		if pathWithin(site, resolved) || pathWithin(resolved, site) {
+			return fmt.Errorf("%w: %s overlaps %s", errSiteDirOverlap, siteDir, src)
+		}
+	}
+
+	return nil
+}
+
+// resolveReal returns an absolute path with symlinks resolved in its longest
+// existing prefix.
+func resolveReal(p string) (string, error) {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return "", fmt.Errorf("abs %s: %w", p, err)
+	}
+
+	existing, rest := abs, ""
+	for {
+		if _, statErr := os.Lstat(existing); statErr == nil {
+			break
+		}
+
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			return abs, nil
+		}
+
+		rest = filepath.Join(filepath.Base(existing), rest)
+		existing = parent
+	}
+
+	resolved, err := filepath.EvalSymlinks(existing)
+	if err != nil {
+		return "", fmt.Errorf("resolve %s: %w", existing, err)
+	}
+
+	return filepath.Join(resolved, rest), nil
+}
+
+// pathWithin reports whether child equals parent or lies beneath it.
+func pathWithin(child, parent string) bool {
+	rel, err := filepath.Rel(parent, child)
+
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// removeGeneratedDirs deletes the generator-owned page trees so pages whose
+// sources disappeared do not survive regeneration.
+func removeGeneratedDirs(siteDir string) error {
+	for _, name := range []string{"services", "guide", "architecture", examplesDirName} {
+		dir := filepath.Join(siteDir, name)
+		if err := os.RemoveAll(dir); err != nil {
+			return fmt.Errorf("remove %s: %w", dir, err)
+		}
+	}
 
 	return nil
 }
@@ -255,6 +412,7 @@ func buildSidebarConfig(records []siteServiceRecord, examples []siteExample) map
 		{
 			Text: "Configuration & Features",
 			Items: []sidebarLink{
+				{Text: "Configuration", Link: "/guide/configuration"},
 				{Text: "Engine Modes", Link: "/guide/engines"},
 				{Text: "Persistence", Link: "/guide/persistence"},
 				{Text: "Chaos Testing", Link: "/guide/chaos"},
@@ -373,53 +531,19 @@ func writeGuideAndArchPages(siteDir string) error {
 }
 
 func guideAndArchDocSpecs(guideDir, archDir string) []docPageSpec {
-	guideFiles := []struct {
-		file  string
-		title string
-	}{
-		{"quickstart.md", "Quickstart"},
-		{"docker.md", "Docker & Docker Compose"},
-		{"migration.md", "Migrating from LocalStack"},
-		{"engines.md", "Engine Modes"},
-		{"persistence.md", "Persistence"},
-		{"chaos.md", "Chaos Testing"},
-		{"security-groups.md", "Security Groups"},
-		{"app-inspector.md", "App Inspector"},
-		{"iam-policy-stream.md", "IAM Policy Stream"},
-		{"pinned-ids.md", "Pinned Resource IDs"},
-		{"testcontainers.md", "Testcontainers"},
-		{"kubernetes.md", "Kubernetes"},
-		{"extensions.md", "Extensions"},
-		{"mcp.md", "MCP Server"},
-		{"replicator.md", "Replicator"},
-	}
-
-	archFiles := []struct {
-		src   string
-		dest  string
-		title string
-	}{
-		{"README.md", "index.md", "Architecture Overview"},
-		{"dns.md", "dns.md", "Embedded DNS"},
-		{"elasticache.md", "elasticache.md", "ElastiCache Engine Modes"},
-		{"lambda.md", "lambda.md", "Lambda Runtime"},
-	}
-
-	specs := make([]docPageSpec, 0, len(guideFiles)+len(archFiles))
-	for _, gf := range guideFiles {
+	specs := make([]docPageSpec, 0, len(guideFiles())+len(archFiles()))
+	for _, gf := range guideFiles() {
 		specs = append(specs, docPageSpec{
 			Src:   filepath.Join(docsDirName, gf.file),
 			Dest:  filepath.Join(guideDir, gf.file),
 			Title: gf.title,
-			Kind:  kindGuide,
 		})
 	}
-	for _, af := range archFiles {
+	for _, af := range archFiles() {
 		specs = append(specs, docPageSpec{
 			Src:   filepath.Join(docsArchDirName, af.src),
 			Dest:  filepath.Join(archDir, af.dest),
 			Title: af.title,
-			Kind:  kindArch,
 		})
 	}
 
@@ -432,49 +556,34 @@ func copyTransformedDoc(spec docPageSpec) error {
 		return fmt.Errorf("read %s: %w", spec.Src, err)
 	}
 
-	body := sanitizeMarkdownForVitePress(string(raw), spec.Kind)
+	body := sanitizeMarkdownForVitePress(string(raw), filepath.ToSlash(filepath.Dir(spec.Src)))
 	title := extractMarkdownTitle(string(raw), spec.Title)
 	out := "---\ntitle: " + escapeYAMLString(title) + "\n---\n\n" + body
 
 	return writeFileAtomic(spec.Dest, []byte(out))
 }
 
-// renderPerformancePage builds the curated Performance & Benchmarks page.
+// renderPerformancePage builds the Performance page.
 func renderPerformancePage() string {
 	var b strings.Builder
 
 	b.WriteString("---\ntitle: Performance\n")
-	b.WriteString("description: How Gopherstack achieves sub-100 ms cold starts and ~30 MB memory footprint in Go.\n")
-	b.WriteString("---\n\n")
+	b.WriteString("description: How to run the Gopherstack benchmarks.\n---\n\n")
 	b.WriteString("# Performance\n\n")
-	b.WriteString("Gopherstack is written in pure Go as a single binary with in-memory backends, " +
-		"designed for fast local iteration and parallel CI test suites.\n\n")
-	b.WriteString("## At a Glance\n\n")
-	b.WriteString("| Metric | LocalStack | Gopherstack |\n| --- | --- | --- |\n")
-	b.WriteString("| **Runtime** | Python | Single Go binary |\n")
-	b.WriteString("| **Memory footprint** | 300 MB+ | ~30 MB |\n")
-	b.WriteString("| **Cold start** | 5–30 s | <100 ms |\n")
-	b.WriteString("| **Service startup** | Lazy / per-service init | All services ready immediately |\n\n")
-	b.WriteString("## Why It's Fast\n\n")
-	b.WriteString(
-		"- **Single compiled Go binary** — Starts in under 100 ms with ~30 MB RAM, with no JVM, Python runtime, " +
-			"or external database to boot.\n",
-	)
-	b.WriteString(
-		"- **In-memory by default** — API calls resolve directly in memory with zero disk or network round-trips " +
-			"(persistence is opt-in via `--persist`).\n",
-	)
-	b.WriteString(
-		"- **All services ready immediately** — No lazy service spin-up delays on your first SDK or CLI request.\n",
-	)
-	b.WriteString(
-		"- **Built for parallel CI** — Spin up isolated instances per test suite or container in milliseconds.\n\n",
-	)
-	b.WriteString("## Running Benchmarks\n\n")
-	b.WriteString("In-process service benchmarks live under `bench/` and per-service `*_bench_test.go` files:\n\n")
-	b.WriteString("```bash\n# Run all Go benchmarks across the repository\ntask bench\n\n")
-	b.WriteString("# Run core backend benchmarks (S3, SQS, DynamoDB, KMS, Secrets Manager)\n")
-	b.WriteString("go test -bench=. -benchmem ./bench/\n")
+	b.WriteString("- Single Go binary. Services run in-process with in-memory state.\n")
+	b.WriteString("- Persistence is off by default. `--persist` writes snapshots to disk.\n")
+	b.WriteString("- No per-service startup step: services register when the server starts.\n\n")
+	b.WriteString("> [!NOTE]\n")
+	b.WriteString("> This site publishes no startup-time, memory or LocalStack comparison figures. ")
+	b.WriteString("Measure on your own hardware.\n\n")
+	b.WriteString("## Benchmarks\n\n")
+	b.WriteString("Baseline results and profiling notes: ")
+	b.WriteString("[`bench/README.md`](" + githubRepoBase + "/blob/main/bench/README.md).\n\n")
+	b.WriteString("```bash\n# All benchmarks\ntask bench\n\n")
+	b.WriteString("# S3, SQS, DynamoDB, KMS and Secrets Manager backends\n")
+	b.WriteString("go test -bench=. -benchmem ./bench/\n\n")
+	b.WriteString("# Full request path through the router\n")
+	b.WriteString("go test -run '^$' -bench 'BenchmarkE2E_' -benchmem -cpu=4 ./internal/app/\n")
 	b.WriteString("```\n")
 
 	return b.String()
@@ -521,7 +630,7 @@ func discoverExamples(dir string) ([]siteExample, error) {
 }
 
 func defaultExamplePurpose(slug string) string {
-	return "Runnable end-to-end example for `" + slug + "`."
+	return "Example: `" + slug + "`."
 }
 
 // parseExamplesTable parses the "| `slug` | Purpose | Tools Required |" table
@@ -592,13 +701,13 @@ func writeSingleExamplePage(exOutDir string, ex siteExample) error {
 
 	title := extractMarkdownTitle(string(raw), ex.Slug)
 	body := stripLeadingH1(string(raw))
-	body = sanitizeMarkdownForVitePress(body, "example")
+	body = sanitizeMarkdownForVitePress(body, path.Join(examplesDirName, ex.Slug))
 
 	var b strings.Builder
 	b.WriteString("---\ntitle: " + escapeYAMLString(title) + "\n")
 	b.WriteString("description: " + escapeYAMLString(ex.Purpose) + "\n---\n\n")
 	b.WriteString("# " + title + "\n\n")
-	fmt.Fprintf(&b, "[View source on GitHub](%s/tree/main/examples/%s) · [All Examples](/examples/)\n\n",
+	fmt.Fprintf(&b, "[Source on GitHub](%s/tree/main/examples/%s) · [All examples](/examples/)\n\n",
 		githubRepoBase, ex.Slug)
 	b.WriteString(strings.TrimSpace(body) + "\n")
 
@@ -609,18 +718,12 @@ func renderExamplesIndexPage(examples []siteExample) string {
 	var b strings.Builder
 
 	b.WriteString("---\ntitle: Examples\n")
-	b.WriteString("description: Runnable end-to-end multi-service examples for Gopherstack.\n---\n\n")
+	b.WriteString("description: Runnable multi-service examples.\n---\n\n")
 	b.WriteString("# Examples\n\n")
-	b.WriteString("Complete, runnable examples live in [`examples/`](" + githubRepoBase + "/tree/main/examples) " +
-		"— demonstrating serverless workflows, event-driven pipelines, OpenTofu provisioning, " +
-		"Docker-backed EC2/Lambda, ElastiCache Valkey, and Azure services.\n\n")
-	b.WriteString("## Running an Example\n\n")
-	b.WriteString(
-		"```bash\ncd examples/kinesis-lambda-aggregator\n" +
-			"docker compose up -d\n./demo.sh\n\n# Tear down when finished\ndocker compose down -v\n```\n\n",
-	)
-	b.WriteString("## Available Examples\n\n")
-	b.WriteString("| Example | Purpose | Tools Required | Source |\n")
+	b.WriteString("Source: [`examples/`](" + githubRepoBase + "/tree/main/examples). ")
+	b.WriteString("Most examples ship a `docker-compose.yml` and a `demo.sh`; check each README.\n\n")
+	b.WriteString("```bash\ncd examples/<name>\ndocker compose up -d\n./demo.sh\ndocker compose down -v\n```\n\n")
+	b.WriteString("| Example | Purpose | Requires | Source |\n")
 	b.WriteString("| --- | --- | --- | --- |\n")
 
 	for _, ex := range examples {

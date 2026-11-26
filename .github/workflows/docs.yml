@@ -2,10 +2,6 @@ name: Docs Site
 
 on:
   workflow_dispatch:
-  # TEMPORARY: deploy previews from the PR branch. Remove before merging.
-  push:
-    branches:
-      - docs/vitepress-site
 
 permissions: read-all
 
@@ -55,12 +51,7 @@ jobs:
           DOCS_BASE: ${{ vars.DOCS_BASE || '/' }}
         run: npm --prefix site run build
 
-      - name: Write CNAME if configured
-        if: ${{ vars.DOCS_CNAME != '' }}
-        env:
-          DOCS_CNAME: ${{ vars.DOCS_CNAME }}
-        run: printf '%s\n' "$DOCS_CNAME" > site/.vitepress/dist/CNAME
-
+      # Custom domain: set it in repo Settings > Pages. A CNAME file is ignored for Actions deployments.
       - name: Configure Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 

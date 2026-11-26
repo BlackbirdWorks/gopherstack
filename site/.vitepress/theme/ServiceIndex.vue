@@ -26,7 +26,23 @@ interface ServiceRecord {
   removed: boolean
 }
 
-type SortKey = 'displayName' | 'category' | 'grade' | 'opsTotal' | 'knownGapsCount'
+type SortKey = 'displayName' | 'category' | 'grade' | 'entries' | 'knownGapsCount'
+
+const sortOptions: { key: SortKey; label: string }[] = [
+  { key: 'displayName', label: 'Service' },
+  { key: 'category', label: 'Category' },
+  { key: 'grade', label: 'Grade' },
+  { key: 'entries', label: 'PARITY entries' },
+  { key: 'knownGapsCount', label: 'Open gaps' },
+]
+
+function entryCount(s: ServiceRecord): number {
+  return s.opsTotal > 0 ? s.opsTotal : s.familiesTotal
+}
+
+function sortValue(s: ServiceRecord, key: SortKey): number | string {
+  return key === 'entries' ? entryCount(s) : s[key]
+}
 
 const services = rawServices as ServiceRecord[]
 
@@ -51,6 +67,11 @@ const cloudTabs = computed(() => {
     }
   }
   return tabs
+})
+
+const grades = computed(() => {
+  const seen = new Set(services.map((s) => s.grade))
+  return ['All', ...Array.from(seen).sort((a, b) => a.localeCompare(b))]
 })
 
 const categories = computed(() => {
@@ -104,8 +125,8 @@ const filteredServices = computed(() => {
 
   return list.sort((a, b) => {
     const dir = sortAsc.value ? 1 : -1
-    const av = a[sortKey.value]
-    const bv = b[sortKey.value]
+    const av = sortValue(a, sortKey.value)
+    const bv = sortValue(b, sortKey.value)
     if (typeof av === 'number' && typeof bv === 'number') {
       return (av - bv) * dir
     }
@@ -122,6 +143,11 @@ function toggleSort(key: SortKey) {
   sortAsc.value = key === 'displayName' || key === 'category' || key === 'grade'
 }
 
+function setSortKey(key: SortKey) {
+  sortKey.value = key
+  sortAsc.value = key === 'displayName' || key === 'category' || key === 'grade'
+}
+
 function sortIndicator(key: SortKey): string {
   if (sortKey.value !== key) {
     return ''
@@ -133,10 +159,13 @@ function gradeClass(grade: string): string {
   if (grade === 'Removed') {
     return 'gs-grade gs-grade-removed'
   }
+  if (grade.startsWith('A')) {
+    return 'gs-grade gs-grade-a'
+  }
   if (grade.startsWith('B')) {
     return 'gs-grade gs-grade-b'
   }
-  return 'gs-grade gs-grade-a'
+  return 'gs-grade gs-grade-c'
 }
 
 function resetFilters() {
@@ -171,7 +200,7 @@ function resetFilters() {
         <input
           v-model="search"
           type="search"
-          placeholder="Filter by name, slug, protocol, or category…"
+          placeholder="Name, slug, protocol or category"
           class="gs-input"
         />
       </label>
@@ -186,12 +215,31 @@ function resetFilters() {
       <label class="gs-field">
         <span class="gs-field-label">Grade</span>
         <select v-model="selectedGrade" class="gs-select">
-          <option value="All">All</option>
-          <option value="A">A</option>
-          <option value="B">B</option>
-          <option value="Removed">Removed</option>
+          <option v-for="g in grades" :key="g" :value="g">{{ g }}</option>
         </select>
       </label>
+
+      <div class="gs-field gs-sort-field">
+        <label class="gs-field-label" for="gs-sort-key">Sort by</label>
+        <div class="gs-sort-row">
+          <select
+            id="gs-sort-key"
+            class="gs-select"
+            :value="sortKey"
+            @change="setSortKey(($event.target as HTMLSelectElement).value as SortKey)"
+          >
+            <option v-for="o in sortOptions" :key="o.key" :value="o.key">{{ o.label }}</option>
+          </select>
+          <button
+            type="button"
+            class="gs-reset"
+            :aria-label="sortAsc ? 'Ascending, switch to descending' : 'Descending, switch to ascending'"
+            @click="sortAsc = !sortAsc"
+          >
+            {{ sortAsc ? '↑' : '↓' }}
+          </button>
+        </div>
+      </div>
 
       <label class="gs-checkbox">
         <input v-model="onlyWithGuide" type="checkbox" />
@@ -215,7 +263,7 @@ function resetFilters() {
     <div tabindex="0" role="region" aria-labelledby="service-index-caption" class="gs-table-wrapper">
       <table class="gs-table">
         <caption id="service-index-caption" class="sr-only">
-          Gopherstack supported AWS and cloud services index
+          Emulated services
         </caption>
         <thead>
           <tr>
@@ -235,8 +283,8 @@ function resetFilters() {
               </button>
             </th>
             <th scope="col">
-              <button type="button" class="gs-sort-btn" @click="toggleSort('opsTotal')">
-                PARITY Entries{{ sortIndicator('opsTotal') }}
+              <button type="button" class="gs-sort-btn" @click="toggleSort('entries')">
+                PARITY Entries{{ sortIndicator('entries') }}
               </button>
             </th>
             <th scope="col">Protocol</th>
@@ -425,6 +473,15 @@ function resetFilters() {
   z-index: 1;
   background: var(--vp-c-bg);
   font-weight: 600;
+}
+
+.gs-sort-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.gs-sort-row .gs-select {
+  flex: 1 1 auto;
 }
 
 .gs-sort-btn {

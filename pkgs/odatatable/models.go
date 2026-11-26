@@ -4,9 +4,9 @@
 // grammar), differing only in auth and endpoint/path conventions, which stay
 // in each caller's own service package. This engine was originally written
 // (and is still wire-tested end to end) as part of services/azuretable;
-// AZURE.md section 9's M6 milestone extracted it here so services/cosmosdb's
-// Table API could import the same engine instead of depending on
-// services/azuretable directly, or duplicating its logic. services/azuretable
+// it was later extracted here so services/cosmosdb's Table API could import
+// the same engine instead of depending on services/azuretable directly, or
+// duplicating its logic. services/azuretable
 // itself now re-exports this package's types/functions under its historical
 // names so its own public API and tests are unaffected by the move.
 //

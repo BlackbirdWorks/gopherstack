@@ -4943,13 +4943,11 @@ func wireSSOAndRedshiftData(byName map[string]service.Registerable) {
 func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// Wire the shared Azure Storage virtual-hosted listener to Blob/Queue/
 	// Table's already-initialized handlers, so it can delegate to them (see
-	// services/azurestoragevhost's package doc comment and AZURE.md section
-	// 10.8).
+	// services/azurestoragevhost's package doc comment).
 	wireAzureStorageVHost(byName["AzureBlob"], byName["AzureQueue"], byName["AzureTable"], byName["AzureStorageVHost"])
 
 	// Wire ARM's Microsoft.ServiceBus resource provider to
-	// services/azureservicebus's already-initialized handler (AZURE.md
-	// section 10.10's M9 entry).
+	// services/azureservicebus's already-initialized handler.
 	wireAzureARMAndEventGrid(byName)
 
 	// Wire CloudWatch → Firehose so a PutMetricStream/CreateMetricStream
@@ -14132,8 +14130,7 @@ func wireEC2DNS(ec2Reg service.Registerable, dns ec2backend.DNSRegistrar) {
 // wireAzureStorageVHost gives the shared Azure Storage virtual-hosted
 // listener (services/azurestoragevhost) references to Blob/Queue/Table's
 // already-initialized handlers, so it can delegate virtual-hosted-style
-// requests to them (see that package's doc comment and AZURE.md section
-// 10.8). A missing/wrong-typed dependency is a silent no-op, same as every
+// requests to them (see that package's doc comment). A missing/wrong-typed dependency is a silent no-op, same as every
 // other wire* helper in this file -- the vhost listener's own Handler()
 // returns 400 for any service that never got wired.
 func wireAzureStorageVHost(blobReg, queueReg, tableReg, vhostReg service.Registerable) {
@@ -14158,7 +14155,7 @@ func wireAzureStorageVHost(blobReg, queueReg, tableReg, vhostReg service.Registe
 // wireAzureARMResourceProviders gives ARM's registered Microsoft.ServiceBus
 // resource provider a real ServiceBusEntities adapter over
 // services/azureservicebus's already-constructed Handler, replacing its
-// no-op default (AZURE.md section 10.10's M9 entry). This can't be wired at
+// no-op default. This can't be wired at
 // azurearm.Provider.Init time the way StorageAccountsProvider is (M7's
 // pattern assumes the adapter is known at CLI-config-construction time) --
 // ServiceBus's real backend is a sibling service's already-constructed

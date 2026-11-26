@@ -92,7 +92,7 @@ func (a *schedSageMakerAdapter) StartPipelineExecution(
 // azurearm's primitive-typed calls into azureservicebus.EntityConfig -- see
 // azurearm/interfaces.go's ServiceBusEntities doc comment for why azurearm
 // itself never imports azureservicebus directly. Wired by cli.go's
-// wireAzureARMResourceProviders (AZURE.md section 10.10's M9 entry).
+// wireAzureARMResourceProviders.
 type azureServiceBusEntitiesAdapter struct {
 	backend azureservicebus.StorageBackend
 }

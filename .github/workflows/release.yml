@@ -385,7 +385,12 @@ jobs:
           cache-dependency-path: site/package-lock.json
 
       - name: Generate documentation site sources
-        run: go run ./cmd/gendocs -site site -version "$TAG"
+        run: |
+          if [ ! -f site/package.json ]; then
+            echo "::error::$TAG predates the docs site; run this job from a newer tag"
+            exit 1
+          fi
+          go run ./cmd/gendocs -site site -version "$TAG"
 
       - name: Install site dependencies
         run: npm --prefix site ci
@@ -395,12 +400,7 @@ jobs:
           DOCS_BASE: ${{ vars.DOCS_BASE || '/' }}
         run: npm --prefix site run build
 
-      - name: Write CNAME if configured
-        if: ${{ vars.DOCS_CNAME != '' }}
-        env:
-          DOCS_CNAME: ${{ vars.DOCS_CNAME }}
-        run: printf '%s\n' "$DOCS_CNAME" > site/.vitepress/dist/CNAME
-
+      # Custom domain: set it in repo Settings > Pages. A CNAME file is ignored for Actions deployments.
       - name: Configure Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 

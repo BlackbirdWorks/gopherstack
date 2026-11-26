@@ -17,7 +17,7 @@ import (
 // PortRangeEnd's own default range (10000-10100). Without reserving it,
 // PortAlloc could still hand that same port number to an unrelated caller,
 // which would only surface later as a confusing address-in-use failure. See
-// AZURE.md section 10.7 and pkgs/portalloc.Allocator.Reserve's doc comment.
+// pkgs/portalloc.Allocator.Reserve's doc comment.
 func TestReserveFixedServicePorts_AzureARM(t *testing.T) {
 	t.Parallel()
 

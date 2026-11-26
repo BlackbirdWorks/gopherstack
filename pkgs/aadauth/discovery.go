@@ -3,7 +3,7 @@ package aadauth
 // OpenIDConfiguration is the document served from
 // /{tenant}/v2.0/.well-known/openid-configuration -- azidentity/go-azure-sdk
 // fetch this during AAD instance/authority discovery before requesting a
-// token (AZURE.md section 10.1).
+// token.
 type OpenIDConfiguration struct {
 	Issuer                string   `json:"issuer"`
 	AuthorizationEndpoint string   `json:"authorization_endpoint"`

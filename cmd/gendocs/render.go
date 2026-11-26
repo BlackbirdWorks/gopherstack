@@ -26,7 +26,7 @@ func renderServiceReadme(slug string, doc *ParityDoc, hasGuide bool) string {
 	b.WriteString(renderHeaderLine(doc) + "\n\n")
 	b.WriteString("## Coverage\n\n")
 	b.WriteString("| Metric | Value |\n| --- | --- |\n")
-	writeCoverageRows(&b, doc)
+	writeCoverageRows(&b, doc, len(doc.openItems()))
 	b.WriteString("\n")
 
 	writeKnownGaps(&b, doc.openItems())
@@ -72,7 +72,7 @@ func renderHeaderLine(doc *ParityDoc) string {
 // entries and Feature families rows are each omitted when the source
 // PARITY.md has no corresponding block, since some services audit purely
 // by op and others purely by family.
-func writeCoverageRows(b *strings.Builder, doc *ParityDoc) {
+func writeCoverageRows(b *strings.Builder, doc *ParityDoc, gapCount int) {
 	if len(doc.Ops) > 0 {
 		t := doc.opsTally()
 		fmt.Fprintf(b, "| PARITY entries audited | %d (%s) |\n", t.total(), t.String())
@@ -84,8 +84,8 @@ func writeCoverageRows(b *strings.Builder, doc *ParityDoc) {
 	}
 
 	gapsCell := "none"
-	if openItems := doc.openItems(); len(openItems) > 0 {
-		gapsCell = strconv.Itoa(len(openItems))
+	if gapCount > 0 {
+		gapsCell = strconv.Itoa(gapCount)
 	}
 	b.WriteString("| Known gaps | " + gapsCell + " |\n")
 

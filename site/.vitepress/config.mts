@@ -2,10 +2,47 @@ import { defineConfig } from 'vitepress'
 import { withMermaid } from 'vitepress-plugin-mermaid'
 import sidebar from './generated/sidebar.json' with { type: 'json' }
 import stats from './generated/stats.json' with { type: 'json' }
+import services from './generated/services.json' with { type: 'json' }
+import { execFileSync } from 'node:child_process'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const base = process.env.DOCS_BASE || '/'
 
 const releasesUrl = 'https://github.com/BlackbirdWorks/gopherstack/releases'
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
+const releaseTag = /^v\d+\.\d+\.\d+$/.test(stats.version) ? stats.version : ''
+const removedSlugs = new Set(services.filter((s) => s.removed).map((s) => s.slug))
+
+function sourcePath(filePath: string): string {
+  if (filePath === 'index.md') return 'site/index.md'
+  if (filePath === 'limitations.md' || filePath === 'services/index.md') return 'cmd/gendocs/site_pages.go'
+  if (filePath === 'guide/performance.md') return 'cmd/gendocs/site.go'
+  if (filePath.startsWith('guide/')) return `docs/${filePath.slice('guide/'.length)}`
+  if (filePath === 'architecture/index.md') return 'docs/architecture/README.md'
+  if (filePath.startsWith('architecture/')) return `docs/${filePath}`
+  if (filePath.startsWith('services/')) {
+    const slug = filePath.slice('services/'.length).replace(/\.md$/, '')
+    return removedSlugs.has(slug) ? `services/${slug}/README.md` : `services/${slug}/PARITY.md`
+  }
+  if (filePath === 'examples/index.md') return 'examples/README.md'
+  if (filePath.startsWith('examples/')) {
+    return `examples/${filePath.slice('examples/'.length).replace(/\.md$/, '')}/README.md`
+  }
+  return filePath
+}
+
+function lastCommitMs(source: string): number | undefined {
+  try {
+    const out = execFileSync('git', ['log', '-1', '--format=%ct', '--', source], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    }).trim()
+    return out ? Number(out) * 1000 : undefined
+  } catch {
+    return undefined
+  }
+}
 
 const navItems: any[] = [
   {
@@ -26,18 +63,17 @@ const navItems: any[] = [
     items: [
       { text: 'Limitations & Parity Gaps', link: '/limitations' },
       { text: 'Architecture', link: '/architecture/' },
+      { text: 'Configuration', link: '/guide/configuration' },
       { text: 'Engine Modes', link: '/guide/engines' },
       { text: 'Chaos Testing', link: '/guide/chaos' },
     ],
   },
   {
-    text: stats.version || 'Releases',
+    text: releaseTag || 'Releases',
     items: [
       {
         text: 'Release notes',
-        link: stats.version
-          ? `${releasesUrl}/tag/${encodeURIComponent(stats.version)}`
-          : releasesUrl,
+        link: releaseTag ? `${releasesUrl}/tag/${releaseTag}` : releasesUrl,
       },
       { text: 'All releases', link: releasesUrl },
       { text: 'BlackbirdWorks', link: 'https://blackbirdworks.dev' },
@@ -66,10 +102,16 @@ const blackbirdLogoSvg =
 export default withMermaid(
   defineConfig({
     title: 'Gopherstack',
-    description: `${stats.totalServices}+ AWS & cloud services in a single Go binary. Milliseconds, not minutes.`,
+    description: `${stats.totalServices} AWS, Azure, GCP and OCI services in one Go binary.`,
     base,
     cleanUrls: true,
     lastUpdated: true,
+    transformPageData(pageData) {
+      const source = sourcePath(pageData.relativePath)
+      pageData.frontmatter.editSource = source
+      const ms = lastCommitMs(source)
+      if (ms) pageData.lastUpdated = ms
+    },
     ignoreDeadLinks: [/^https?:\/\/localhost/],
 
     head: [
@@ -82,7 +124,7 @@ export default withMermaid(
         'meta',
         {
           property: 'og:description',
-          content: `${stats.totalServices}+ AWS & cloud services in a single Go binary. Milliseconds, not minutes.`,
+          content: `${stats.totalServices} AWS, Azure, GCP and OCI services in one Go binary.`,
         },
       ],
       ['meta', { property: 'og:image', content: 'https://gopherstack.blackbirdworks.dev/logo.png' }],
@@ -100,26 +142,8 @@ export default withMermaid(
       },
 
       editLink: {
-        pattern: ({ filePath }) => {
-          const baseEdit = 'https://github.com/BlackbirdWorks/gopherstack/edit/main/'
-          if (filePath === 'index.md') return `${baseEdit}site/index.md`
-          if (filePath === 'limitations.md') return `${baseEdit}cmd/gendocs/site_pages.go`
-          if (filePath === 'guide/performance.md') return `${baseEdit}cmd/gendocs/site.go`
-          if (filePath.startsWith('guide/')) return `${baseEdit}docs/${filePath.slice('guide/'.length)}`
-          if (filePath === 'architecture/index.md') return `${baseEdit}docs/architecture/README.md`
-          if (filePath.startsWith('architecture/')) return `${baseEdit}docs/${filePath}`
-          if (filePath === 'services/index.md') return `${baseEdit}cmd/gendocs/site_pages.go`
-          if (filePath.startsWith('services/')) {
-            const slug = filePath.slice('services/'.length).replace(/\.md$/, '')
-            return `${baseEdit}services/${slug}/PARITY.md`
-          }
-          if (filePath === 'examples/index.md') return `${baseEdit}examples/README.md`
-          if (filePath.startsWith('examples/')) {
-            const slug = filePath.slice('examples/'.length).replace(/\.md$/, '')
-            return `${baseEdit}examples/${slug}/README.md`
-          }
-          return `${baseEdit}${filePath}`
-        },
+        pattern: ({ frontmatter, filePath }) =>
+          `https://github.com/BlackbirdWorks/gopherstack/edit/main/${frontmatter.editSource || filePath}`,
         text: 'Edit source on GitHub',
       },
 
