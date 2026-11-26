@@ -1,60 +1,36 @@
 # Secrets Manager
 
-Full in-memory Secrets Manager implementation with versioning, rotation, and tagging.
+In-memory Secrets Manager with versions and staging labels, rotation, replication, resource policies and tags. Secrets survive restarts with `--persist`.
 
-## Supported Operations
-
-| Operation | Description |
-|-----------|-------------|
-| `CreateSecret` | Create a new secret (string or binary) |
-| `GetSecretValue` | Retrieve the current or a specific version of a secret |
-| `PutSecretValue` | Store a new version of a secret |
-| `UpdateSecret` | Update secret metadata or value |
-| `DescribeSecret` | Get secret metadata and version list |
-| `ListSecrets` | List all secrets with optional filters |
-| `DeleteSecret` | Mark a secret for deletion (with optional recovery window) |
-| `RestoreSecret` | Cancel a pending deletion |
-| `RotateSecret` | Trigger secret rotation (calls a Lambda rotator) |
-| `TagResource` | Add tags to a secret |
-| `UntagResource` | Remove tags from a secret |
-
-## AWS CLI Examples
+## Quick start
 
 ```bash
-# Create a string secret
-aws --endpoint-url http://localhost:8000 secretsmanager create-secret \
-    --name my-db-password \
-    --secret-string "supersecret"
+export AWS_ENDPOINT_URL=http://localhost:8000
 
-# Create a JSON secret
-aws --endpoint-url http://localhost:8000 secretsmanager create-secret \
-    --name my-db-config \
-    --secret-string '{"username":"admin","password":"s3cr3t","host":"localhost"}'
-
-# Get the secret value
-aws --endpoint-url http://localhost:8000 secretsmanager get-secret-value \
-    --secret-id my-db-password
-
-# Update the secret value
-aws --endpoint-url http://localhost:8000 secretsmanager put-secret-value \
-    --secret-id my-db-password \
-    --secret-string "newpassword"
-
-# List secrets
-aws --endpoint-url http://localhost:8000 secretsmanager list-secrets
-
-# Delete a secret (immediate, no recovery window)
-aws --endpoint-url http://localhost:8000 secretsmanager delete-secret \
-    --secret-id my-db-password \
-    --force-delete-without-recovery
+aws secretsmanager create-secret --name my-db-config \
+    --secret-string '{"username":"admin","password":"s3cr3t"}'
+aws secretsmanager get-secret-value --secret-id my-db-config
+aws secretsmanager put-secret-value --secret-id my-db-config --secret-string "new"
+aws secretsmanager list-secrets
+aws secretsmanager delete-secret --secret-id my-db-config --force-delete-without-recovery
 ```
 
-## Known Limitations
+## Supported operations
 
-- `RotateSecret` supports `RotationRules`; automatic background rotation is schedule-driven and only invokes Lambda if Lambda is running and a rotation function is configured.
-- Resource-based policies are not implemented.
-- Cross-account replication is not supported.
+| Area | Operations |
+|------|------------|
+| Secrets | `CreateSecret`, `DescribeSecret`, `ListSecrets`, `UpdateSecret`, `DeleteSecret`, `RestoreSecret` |
+| Values and versions | `GetSecretValue`, `BatchGetSecretValue`, `PutSecretValue`, `ListSecretVersionIds`, `UpdateSecretVersionStage`, `GetRandomPassword` |
+| Rotation | `RotateSecret`, `CancelRotateSecret` |
+| Replication | `ReplicateSecretToRegions`, `RemoveRegionsFromReplication`, `StopReplicationToReplica` |
+| Resource policies | `PutResourcePolicy`, `GetResourcePolicy`, `DeleteResourcePolicy`, `ValidateResourcePolicy` |
+| Tags | `TagResource`, `UntagResource` |
 
-## Persistence
+## Behaviour
 
-Secrets Manager participates in Gopherstack's snapshot persistence. With `--persist` or `PERSIST=true`, all secrets survive restarts.
+- `RotateSecret` runs the four-step Lambda rotation and moves `AWSPENDING` to `AWSCURRENT`. It needs the Lambda service and a configured rotation function. Scheduled rotation follows `RotationRules`.
+
+## Differences from AWS
+
+> [!NOTE]
+> `PutSecretValue` `RotationToken` is not validated: there is no cross-account or assumed-role rotation identity to check it against.

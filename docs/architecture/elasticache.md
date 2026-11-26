@@ -1,91 +1,49 @@
-# ElastiCache Engine Modes
+# ElastiCache engine modes
 
-Gopherstack supports three engine modes for ElastiCache, controlled by the `--elasticache-engine` flag or `ELASTICACHE_ENGINE` environment variable.
+`--elasticache-engine` (`ELASTICACHE_ENGINE`) selects `embedded` (default), `stub` or `docker`. MemoryDB has the same modes via `--memorydb-engine`.
 
-## `embedded` (default)
+| Mode | Data plane | Use when |
+|------|-----------|----------|
+| `embedded` | In-process [miniredis](https://github.com/alicebob/miniredis) | Tests that need a real Redis connection |
+| `stub` | None. The endpoint does not accept connections | You only need the control plane (for example IaC tests) |
+| `docker` | Real Redis or Valkey containers | You need Lua, modules, ACLs, TLS or cluster slots |
 
-A real Redis-compatible server ([miniredis](https://github.com/alicebob/miniredis)) is started in-process when the first cluster is created.
+## embedded
 
-**When to use:** Integration tests that need a real Redis connection — real data can be read and written.
+Each cluster gets a miniredis server on a port from `PORT_RANGE_START`-`PORT_RANGE_END` (default 10000-10100). All [miniredis commands](https://github.com/alicebob/miniredis#implemented-commands) work.
 
-```bash
-gopherstack --elasticache-engine embedded
-```
-
-Each cluster gets a port allocated from the port range (`PORT_RANGE_START`–`PORT_RANGE_END`, default 10000–10100). The endpoint is returned in `DescribeCacheClusters`.
-
-### Connecting to the embedded Redis
+`DescribeCacheClusters` returns a synthetic AWS-style hostname (`<id>.<suffix>.<region>.cache.amazonaws.com`) and the port. The hostname resolves only if you enable the [embedded DNS](dns.md). Without DNS, connect to `localhost` on the returned port.
 
 ```bash
-# Get the endpoint
-ENDPOINT=$(aws --endpoint-url http://localhost:8000 elasticache describe-cache-clusters \
-    --cache-cluster-id my-redis \
-    --show-cache-node-info \
-    --query 'CacheClusters[0].CacheNodes[0].Endpoint' --output json)
+aws --endpoint-url http://localhost:8000 elasticache describe-cache-clusters \
+    --cache-cluster-id my-redis --show-cache-node-info \
+    --query 'CacheClusters[0].CacheNodes[0].Endpoint'
 
-HOST=$(echo "$ENDPOINT" | jq -r '.Address')
-PORT=$(echo "$ENDPOINT" | jq -r '.Port')
-
-redis-cli -h "$HOST" -p "$PORT" ping
-# PONG
+redis-cli -h localhost -p <Port> ping    # PONG
 ```
 
-### Supported Redis commands
+> [!NOTE]
+> In `embedded` mode replication groups are not simulated. Members of a group share the primary's server.
 
-All [miniredis-supported commands](https://github.com/alicebob/miniredis#implemented-commands) are available: GET/SET, HGET/HSET, LPUSH/LPOP, EXPIRE, TTL, SUBSCRIBE/PUBLISH, and many more.
+## docker
 
-## `stub`
+Containers start through the container runtime (Docker or Podman). Images are `redis:<major>.<minor>-alpine`, or `valkey/valkey:<major>.<minor>-alpine` for Valkey. Ports come from the port allocator.
 
-The API layer records cluster metadata but no Redis server is started. All ElastiCache API calls succeed, but the returned endpoint does not accept Redis connections.
+- Standalone clusters: one container.
+- Replication groups without cluster mode: one primary plus replicas wired with `REPLICAOF`. `PrimaryEndpoint` targets the primary, `ReaderEndpoint` the first replica.
+- Cluster-mode groups: `NumNodeGroups x (1 + replicas)` containers with `cluster-enabled yes`, formed into a real cluster over the 16384-slot map (`NodeGroupConfiguration.Slots` is honoured). Nodes announce `127.0.0.1`, or `ELASTICACHE_HOST` if set, so `MOVED` redirects reach the host. Each node has its own port in `NodeGroupMembers[].ReadEndpoint`.
+- `TransitEncryptionEnabled` serves TLS only, with certificates from the emulator CA. Mode `preferred` serves plaintext.
+- `AuthToken` protects the `default` user. RBAC users and user groups become `ACL SETUSER` accounts on every node and are re-synced when users, groups or replication groups change.
+- `CreateSnapshot` reads each primary's RDB. `SnapshotName` seeds new primaries from it.
 
-**When to use:** When you only need the control-plane API (e.g. to test IaC code that creates clusters) and do not need a real Redis connection.
-
-```bash
-gopherstack --elasticache-engine stub
-```
-
-## `docker`
-
-Real Redis (or Valkey) containers run the data plane, started through the container runtime (Docker or Podman):
-
-- Standalone cache clusters get one container.
-- Replication groups without cluster mode get one primary plus replicas wired with `REPLICAOF`; `PrimaryEndpoint` targets the primary and `ReaderEndpoint` the first replica.
-- Cluster-mode groups launch `NumNodeGroups x (1 + replicas)` containers with `cluster-enabled yes`, form a real cluster (`CLUSTER MEET`/`ADDSLOTSRANGE`/`REPLICATE`) over the 16384-slot map (`NodeGroupConfiguration.Slots` is honoured), and announce `127.0.0.1` (or `ELASTICACHE_HOST`) as the hostname so `MOVED` redirects reach the host. Every node has its own port in `NodeGroupMembers[].ReadEndpoint`.
-- `TransitEncryptionEnabled` serves TLS only (certificates from the emulator CA, `InMemoryBackend.DockerCAPEM()`); mode `preferred` serves plaintext.
-- `AuthToken` protects the `default` user; RBAC users and user groups become `ACL SETUSER` accounts on every node, re-synced on user, user group and replication group changes.
-- `CreateSnapshot` reads each node group primary's RDB; `SnapshotName` seeds the new primaries from it.
-
-**When to use:** When you need the full Redis stack (Lua, modules, ACLs, TLS, cluster slots) that miniredis does not support.
-
-```bash
-gopherstack --elasticache-engine docker
-```
-
-Requires a container runtime. Images are `redis:7.x-alpine` (`valkey/valkey:8.x-alpine` for Valkey). Ports come from the port allocator range.
-
-## Configuration reference
-
-| Flag | Env Var | Default | Description |
-|------|---------|---------|-------------|
-| `--elasticache-engine` | `ELASTICACHE_ENGINE` | `embedded` | Engine mode: `embedded`, `stub`, or `docker` |
-| `--port-range-start` | `PORT_RANGE_START` | `10000` | Start of port range for resource endpoints |
-| `--port-range-end` | `PORT_RANGE_END` | `10100` | End (exclusive) of port range |
-
-## Replication groups
-
-`CreateReplicationGroup` and `DescribeReplicationGroups` are supported in all modes. In `embedded` mode, a single miniredis instance is started regardless of `NumCacheClusters`; true replication is not simulated.
-
-## Example: testing with Elasticache
+## Test from Go
 
 ```go
-// In your test setup, read the endpoint from Gopherstack
-clusterOut, _ := elasticacheClient.DescribeCacheClusters(ctx, &elasticache.DescribeCacheClustersInput{
-    CacheClusterId:     aws.String("test-cluster"),
-    ShowCacheNodeInfo:  aws.Bool(true),
+out, _ := client.DescribeCacheClusters(ctx, &elasticache.DescribeCacheClustersInput{
+    CacheClusterId:    aws.String("test-cluster"),
+    ShowCacheNodeInfo: aws.Bool(true),
 })
-endpoint := clusterOut.CacheClusters[0].CacheNodes[0].Endpoint
-redisAddr := fmt.Sprintf("%s:%d", *endpoint.Address, *endpoint.Port)
-
-rdb := redis.NewClient(&redis.Options{Addr: redisAddr})
+ep := out.CacheClusters[0].CacheNodes[0].Endpoint
+rdb := redis.NewClient(&redis.Options{Addr: fmt.Sprintf("localhost:%d", *ep.Port)})
 rdb.Set(ctx, "key", "value", 0)
 ```

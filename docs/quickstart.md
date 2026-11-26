@@ -1,161 +1,105 @@
 # Quickstart
 
-Get Gopherstack running locally in under two minutes and start using it as an AWS endpoint.
+## Install
 
-## Prerequisites
+| Method | Command |
+|--------|---------|
+| `go install` (Go 1.27+) | `go install github.com/blackbirdworks/gopherstack@latest` |
+| Binary | Download the archive for your OS from [GitHub Releases](https://github.com/blackbirdworks/gopherstack/releases/latest) |
+| Docker | `docker run --rm -p 8000:8000 ghcr.io/blackbirdworks/gopherstack:latest` |
 
-- [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) — for interacting with the mock services
-- Go 1.21+ (for `go install`) **or** a pre-built binary (see below)
-- Docker (optional, required for Lambda image-based functions only)
+Release archives cover linux, darwin and windows on amd64 and arm64 (no windows/arm64). See [Docker](docker.md) for Compose.
 
-## Installation
+You also need [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html). Docker is needed only for features that launch containers (Lambda images, the `docker` [engines](engines.md)).
 
-### Option 1 — `go install`
+## Start
 
 ```bash
-go install github.com/blackbirdworks/gopherstack@latest
+gopherstack          # listens on :8000
+gopherstack health   # prints "ok" when the server is healthy
 ```
 
-### Option 2 — Pre-built binary
+`gopherstack start` runs the server in a container (or a background process with `--host`). `stop`, `status`, `logs` and `reset` manage that instance.
 
-Download the latest release for your platform from [GitHub Releases](https://github.com/blackbirdworks/gopherstack/releases/latest):
+## Use the AWS CLI
+
+Set any credentials and a region, or the CLI will not sign requests:
 
 ```bash
-# Linux / macOS (amd64)
-curl -sSfL https://github.com/blackbirdworks/gopherstack/releases/latest/download/gopherstack_linux_amd64.tar.gz | tar xz
-chmod +x gopherstack && mv gopherstack /usr/local/bin/
-
-# macOS (Apple Silicon)
-curl -sSfL https://github.com/blackbirdworks/gopherstack/releases/latest/download/gopherstack_darwin_arm64.tar.gz | tar xz
-chmod +x gopherstack && mv gopherstack /usr/local/bin/
+export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_DEFAULT_REGION=us-east-1
 ```
 
-### Option 3 — Docker
-
 ```bash
-docker run --rm -p 8000:8000 ghcr.io/blackbirdworks/gopherstack:latest
-```
-
-See [docker.md](docker.md) for a full Docker Compose setup.
-
-## Start the server
-
-```bash
-gopherstack
-# INFO starting server addr=:8000 region=us-east-1
-```
-
-The server is ready when you see the startup log. It listens on port `8000` by default.
-
-```bash
-# Verify it is running
-gopherstack health
-# OK
-```
-
-## First commands with the AWS CLI
-
-Gopherstack speaks the native AWS wire protocol — no SDK changes needed, just point the CLI at `http://localhost:8000`.
-
-```bash
-# S3
 aws --endpoint-url http://localhost:8000 s3 mb s3://my-bucket
-aws --endpoint-url http://localhost:8000 s3 cp README.md s3://my-bucket/
-aws --endpoint-url http://localhost:8000 s3 ls s3://my-bucket/
-
-# SQS
 aws --endpoint-url http://localhost:8000 sqs create-queue --queue-name my-queue
-aws --endpoint-url http://localhost:8000 sqs send-message \
-    --queue-url http://localhost:8000/000000000000/my-queue \
-    --message-body "hello"
-
-# DynamoDB
 aws --endpoint-url http://localhost:8000 dynamodb create-table \
     --table-name Users \
     --attribute-definitions AttributeName=UserId,AttributeType=S \
     --key-schema AttributeName=UserId,KeyType=HASH \
     --billing-mode PAY_PER_REQUEST
-
-# STS (always returns the mock account)
 aws --endpoint-url http://localhost:8000 sts get-caller-identity
 ```
 
-## Skip typing `--endpoint-url` with `awsgs`
+### Skip `--endpoint-url`
 
-Install the `awsgs` wrapper to avoid repeating `--endpoint-url` on every command:
-
-```bash
-go install github.com/blackbirdworks/gopherstack/cmd/awsgs@latest
-```
-
-Then replace `aws` with `awsgs`:
-
-```bash
-awsgs s3 mb s3://my-bucket
-awsgs sqs create-queue --queue-name my-queue
-awsgs dynamodb list-tables
-```
-
-`awsgs` injects `--endpoint-url http://localhost:8000` automatically. Override the port with `--awsgs-port` or `AWSGS_PORT`:
-
-```bash
-awsgs --awsgs-port 9000 s3 ls
-AWSGS_PORT=9000 awsgs dynamodb list-tables
-```
-
-## Using AWS environment variables
-
-AWS CLI uses `AWS_ENDPOINT_URL` (v2.13+) as a global endpoint override — no wrapper needed:
+AWS CLI v2.13+ honours a global endpoint variable:
 
 ```bash
 export AWS_ENDPOINT_URL=http://localhost:8000
-export AWS_ACCESS_KEY_ID=test
-export AWS_SECRET_ACCESS_KEY=test
-export AWS_DEFAULT_REGION=us-east-1
-
 aws s3 ls
-aws dynamodb list-tables
 ```
+
+Or use the `awsgs` wrapper. It injects `--endpoint-url` unless you pass one.
+
+```bash
+go install github.com/blackbirdworks/gopherstack/cmd/awsgs@latest
+awsgs s3 mb s3://my-bucket
+awsgs --awsgs-port 9000 s3 ls     # or AWSGS_PORT=9000 (GOPHERSTACK_PORT is the fallback)
+```
+
+`--awsgs-host` overrides the host.
 
 ## Dashboard
 
-A web dashboard is available at [http://localhost:8000/dashboard](http://localhost:8000/dashboard) for browsing S3 buckets, DynamoDB tables, queues, and service metrics.
+[http://localhost:8000/dashboard](http://localhost:8000/dashboard)
 
-## Configuration reference
+## Configuration
 
-All options can be set as CLI flags or environment variables:
+Every flag has an environment variable. Common ones:
 
-| Flag | Env Var | Default | Description |
+| Flag | Env var | Default | Description |
 |------|---------|---------|-------------|
-| `--port` | `PORT` | `8000` | HTTP server port |
-| `--region` | `REGION` | `us-east-1` | Default AWS region |
-| `--account-id` | `ACCOUNT_ID` | `000000000000` | Mock AWS account ID |
-| `--log-level` | `LOG_LEVEL` | `info` | Log level (`debug`, `info`, `warn`, `error`) |
-| `--persist` | `PERSIST` | `false` | Enable snapshot persistence across restarts |
-| `--data-dir` | `GOPHERSTACK_DATA_DIR` | `~/.gopherstack/data` | Persistence data directory |
-| `--demo` | `DEMO` | `false` | Load demo data on startup |
-| `--latency-ms` | `LATENCY_MS` | `0` | Inject random latency per request (ms) |
-| `--elasticache-engine` | `ELASTICACHE_ENGINE` | `embedded` | ElastiCache engine: `embedded`, `stub`, `docker` |
-| `--opensearch-engine` | `OPENSEARCH_ENGINE` | `stub` | OpenSearch engine: `stub`, `docker` |
-| `--dns-addr` | `DNS_ADDR` | `` | Enable embedded DNS on this address (e.g. `:10053`) |
-| `--dns-resolve-ip` | `DNS_RESOLVE_IP` | `127.0.0.1` | IP synthetic hostnames resolve to |
+| `--port` | `PORT` | `8000` | HTTP port |
+| `--region` | `REGION` | `us-east-1` | Region (also reads `AWS_DEFAULT_REGION`, `AWS_REGION`) |
+| `--account-id` | `ACCOUNT_ID` | `000000000000` | Account ID used in ARNs |
+| `--log-level` | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
+| `--persist` | `PERSIST` | `false` | Save and restore state across restarts |
+| `--data-dir` | `GOPHERSTACK_DATA_DIR` | `~/.gopherstack/data`, or `/data` in a container | Persistence directory |
+| `--demo` | `DEMO` | `false` | Load demo data |
+| `--latency-ms` | `LATENCY_MS` | `0` | Random latency in `[0,N)` ms per request |
+| `--s3-bucket` | `S3_BUCKETS` | | Buckets to create at startup (repeatable or comma-separated) |
+| `--tls` | `TLS` | `false` | Serve HTTPS; self-signed cert unless `--tls-cert`/`--tls-key` are set |
+| `--dns-addr` | `DNS_ADDR` | | Enable embedded [DNS](architecture/dns.md), e.g. `:10053` |
+| `--dns-resolve-ip` | `DNS_RESOLVE_IP` | `127.0.0.1` | IP that synthetic hostnames resolve to |
+| `--elasticache-engine` | `ELASTICACHE_ENGINE` | `embedded` | `embedded`, `stub`, `docker` |
+| `--opensearch-engine` | `OPENSEARCH_ENGINE` | `stub` | `stub`, `docker` |
+
+`gopherstack --help` lists every flag; the full reference is [Configuration](configuration.md). Per-service engine flags are in [Engines](engines.md).
 
 ## Persistence
-
-Start with `--persist` (or `PERSIST=true`) to save state across restarts:
 
 ```bash
 gopherstack --persist
 ```
 
-State is saved to `~/.gopherstack/data/` on macOS/Linux or `/data/` in container environments. A debounced snapshot is taken 500 ms after each mutation.
+State is snapshotted 500 ms after the last mutation. See [Persistence](persistence.md).
 
-## Pods (named, versioned state snapshots)
+## Pods
 
-A pod is a named series of full-emulator snapshots. Each save creates a new version (zip with `manifest.json` plus one JSON snapshot per service, the same data `POST /_gopherstack/snapshot` returns).
+A pod is a named series of full-emulator snapshots. Each save adds a version: a zip holding `manifest.json` and one JSON snapshot per service.
 
 ```bash
-gopherstack pod save demo -m "seeded users"        # new version, all services
+gopherstack pod save demo -m "seeded users"        # all services
 gopherstack pod save demo --services s3,dynamodb   # subset
 gopherstack pod list
 gopherstack pod versions demo
@@ -163,18 +107,36 @@ gopherstack pod inspect demo --version 1
 gopherstack pod load demo                          # latest, strategy=overwrite
 gopherstack pod load demo --version 1 --strategy service-merge
 gopherstack pod delete demo --version 1            # omit --version to delete the pod
-gopherstack --pod-autoload demo:1                  # load at startup (name[:version])
+gopherstack --pod-autoload demo:1                  # load at startup
 ```
 
-`overwrite` resets every service, then restores the pod; `service-merge` replaces only the services present in the pod and leaves the rest untouched. Account/region-level merge is not supported.
+| Strategy | Effect |
+|----------|--------|
+| `overwrite` | Reset every service, then restore the pod |
+| `service-merge` | Replace only the services in the pod |
 
-Pods live in `<data-dir>/pods` by default (`--pod-dir`). To use an S3-compatible remote set `--pod-s3-bucket` (plus `--pod-s3-prefix`, `--pod-s3-endpoint`, `--pod-s3-region`, `--pod-s3-access-key`/`--pod-s3-secret-key`, `--pod-s3-path-style`); with no endpoint it targets real AWS S3 using the default credential chain. The `pod` subcommands call a running instance (`--endpoint`, default `http://localhost:8000`).
+`pod load --merge` merges per account and region instead of replacing whole services. For autoload, `--pod-merge-strategy` (`GOPHERSTACK_POD_MERGE_STRATEGY`) also accepts `account-region-merge`.
 
-HTTP API: `GET /_gopherstack/pods`, `POST|GET|DELETE /_gopherstack/pods/{name}` (POST body `{"message","services"}`; DELETE takes `?version=`), `GET /_gopherstack/pods/{name}/versions/{version|latest}`, `POST /_gopherstack/pods/{name}/load?version=&strategy=&services=`.
+Pods are stored in `<data-dir>/pods` (`--pod-dir`). For an S3 store set `--pod-s3-bucket`, plus `--pod-s3-prefix`, `--pod-s3-endpoint`, `--pod-s3-region`, `--pod-s3-access-key`, `--pod-s3-secret-key`, `--pod-s3-path-style`. Without an endpoint it uses real AWS S3 and the default credential chain.
 
-## Next steps
+The `pod` subcommands call a running server (`--endpoint`, `GOPHERSTACK_ENDPOINT`, default `http://localhost:8000`).
 
-- [docker.md](docker.md) — Docker Compose setup for CI/CD
-- [migration.md](migration.md) — Migrating from LocalStack
-- [docs/services/](services/) — Per-service documentation
-- [docs/architecture/](architecture/) — Internals and advanced configuration
+HTTP API:
+
+| Method and path | Purpose |
+|-----------------|---------|
+| `GET /_gopherstack/pods` | List pods |
+| `POST /_gopherstack/pods/{name}` | Save; body `{"message","services"}` |
+| `GET /_gopherstack/pods/{name}` | List versions |
+| `DELETE /_gopherstack/pods/{name}` | Delete; `?version=` for one version |
+| `GET /_gopherstack/pods/{name}/versions/{version\|latest}` | Inspect |
+| `POST /_gopherstack/pods/{name}/load?version=&strategy=&services=&merge=` | Load |
+
+`POST /_gopherstack/snapshot` returns the raw per-service snapshot data.
+
+## Next
+
+- [Docker](docker.md)
+- [Migrating from LocalStack](migration.md)
+- [Services](services/)
+- [Architecture](architecture/)

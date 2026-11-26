@@ -1,93 +1,66 @@
-# IAM — Identity and Access Management
+# IAM
 
-In-memory IAM implementation covering users, roles, policies, groups, access keys, and instance profiles.
-Optionally enforces policies against every AWS API call when `--enforce-iam` / `GOPHERSTACK_ENFORCE_IAM=true` is set.
+In-memory IAM. Optional policy enforcement on every API call.
 
-## Supported Operations
-
-| Operation | Description |
-|-----------|-------------|
-| `CreateUser` | Create an IAM user |
-| `GetUser` | Get user details |
-| `ListUsers` | List all users |
-| `DeleteUser` | Delete an IAM user |
-| `CreateRole` | Create an IAM role with a trust policy |
-| `GetRole` | Get role details |
-| `ListRoles` | List all roles |
-| `DeleteRole` | Delete an IAM role |
-| `CreatePolicy` | Create a managed policy |
-| `GetPolicy` | Get policy metadata |
-| `GetPolicyVersion` | Get the document for a specific policy version |
-| `ListPolicies` | List managed policies |
-| `DeletePolicy` | Delete a managed policy |
-| `AttachUserPolicy` | Attach a managed policy to a user |
-| `AttachRolePolicy` | Attach a managed policy to a role |
-| `DetachRolePolicy` | Detach a managed policy from a role |
-| `ListAttachedUserPolicies` | List managed policies attached to a user |
-| `ListAttachedRolePolicies` | List managed policies attached to a role |
-| `ListRolePolicies` | List inline policies for a role |
-| `CreateGroup` | Create an IAM group |
-| `DeleteGroup` | Delete an IAM group |
-| `AddUserToGroup` | Add a user to a group |
-| `CreateAccessKey` | Create an access key for a user |
-| `DeleteAccessKey` | Delete an access key |
-| `ListAccessKeys` | List access keys for a user |
-| `CreateInstanceProfile` | Create an EC2 instance profile |
-| `DeleteInstanceProfile` | Delete an instance profile |
-| `ListInstanceProfiles` | List instance profiles |
-| `TagRole` | Add tags to a role |
-| `UntagRole` | Remove tags from a role |
-| `ListRoleTags` | List tags on a role |
-| `TagPolicy` | Add tags to a policy |
-| `UntagPolicy` | Remove tags from a policy |
-| `ListPolicyTags` | List tags on a policy |
-| `TagUser` | Add tags to a user |
-| `UntagUser` | Remove tags from a user |
-| `ListUserTags` | List tags on a user |
-
-## AWS CLI Examples
+## Quick start
 
 ```bash
-# Create a role
-aws --endpoint-url http://localhost:8000 iam create-role \
-    --role-name MyRole \
-    --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
+export AWS_ENDPOINT_URL=http://localhost:8000
 
-# Create and attach a policy
-aws --endpoint-url http://localhost:8000 iam create-policy \
-    --policy-name MyPolicy \
-    --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:*","Resource":"*"}]}'
+aws iam create-role --role-name MyRole --assume-role-policy-document \
+  '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
 
-aws --endpoint-url http://localhost:8000 iam attach-role-policy \
-    --role-name MyRole \
+aws iam create-policy --policy-name MyPolicy --policy-document \
+  '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:*","Resource":"*"}]}'
+
+aws iam attach-role-policy --role-name MyRole \
     --policy-arn arn:aws:iam::000000000000:policy/MyPolicy
 
-# Create a user and access key
-aws --endpoint-url http://localhost:8000 iam create-user --user-name alice
-aws --endpoint-url http://localhost:8000 iam create-access-key --user-name alice
-
-# List roles
-aws --endpoint-url http://localhost:8000 iam list-roles
+aws iam create-user --user-name alice
+aws iam create-access-key --user-name alice
 ```
 
-## Known Limitations
+## Supported operations
 
-- SCP (Service Control Policies) and permission boundaries are not implemented.
-- MFA devices are not supported.
-- Cross-account trust and federated identities are not evaluated.
+Most families have the usual `Create`, `Get`, `List`, `Update`, `Delete`, `Tag` and `Untag` operations.
 
-## Policy Enforcement (optional)
+| Area | Operations |
+|------|------------|
+| Users, groups, roles | `CreateUser`, `CreateGroup`, `CreateRole`, `AddUserToGroup`, `RemoveUserFromGroup`, `ListGroupsForUser`, `UpdateAssumeRolePolicy`, `UpdateRoleDescription`, `Put/DeleteRolePermissionsBoundary`, `Put/DeleteUserPermissionsBoundary`, and their Get/List/Update/Delete counterparts |
+| Managed policies | `CreatePolicy`, `CreatePolicyVersion`, `SetDefaultPolicyVersion`, `ListPolicyVersions`, `ListEntitiesForPolicy`, `Attach/Detach{User,Group,Role}Policy`, `ListAttached*Policies` |
+| Inline policies | `Put/Get/Delete/List{User,Group,Role}Policy` |
+| Credentials | `CreateAccessKey`, `UpdateAccessKey`, `GetAccessKeyLastUsed`, `CreateLoginProfile`, `ChangePassword`, `Upload/Delete/List/UpdateSSHPublicKey`, `Upload/Delete/List/UpdateSigningCertificate`, `CreateServiceSpecificCredential`, `ResetServiceSpecificCredential` |
+| MFA | `CreateVirtualMFADevice`, `EnableMFADevice`, `DeactivateMFADevice`, `ResyncMFADevice`, `ListMFADevices`, `ListVirtualMFADevices` |
+| Instance profiles | `CreateInstanceProfile`, `AddRoleToInstanceProfile`, `RemoveRoleFromInstanceProfile`, `ListInstanceProfilesForRole`, `Get/Delete/List` |
+| Identity providers | OpenID Connect and SAML providers: `Create/Get/Delete/List`, `AddClientIDToOpenIDConnectProvider`, `RemoveClientIDFromOpenIDConnectProvider`, `UpdateOpenIDConnectProviderThumbprint`, `UpdateSAMLProvider` |
+| Certificates | `UploadServerCertificate`, `Get/Delete/List/UpdateServerCertificate` |
+| Service-linked roles | `CreateServiceLinkedRole`, `DeleteServiceLinkedRole`, `GetServiceLinkedRoleDeletionStatus` |
+| Account | `CreateAccountAlias`, `DeleteAccountAlias`, `ListAccountAliases`, `Get/Update/DeleteAccountPasswordPolicy`, `GetAccountSummary`, `GetAccountProperties`, `PutAccountProperties`, `GetAccountAuthorizationDetails`, `SetSecurityTokenServicePreferences` |
+| Reports | `GenerateCredentialReport`, `GetCredentialReport`, `GenerateServiceLastAccessedDetails`, `GetServiceLastAccessedDetails`, `GetServiceLastAccessedDetailsWithEntities`, `ListPoliciesGrantingServiceAccess`, `GenerateOrganizationsAccessReport`, `GetOrganizationsAccessReport` |
+| Simulation | `SimulateCustomPolicy`, `SimulatePrincipalPolicy`, `GetContextKeysForCustomPolicy`, `GetContextKeysForPrincipalPolicy` |
+| Organizations integration | `Enable/DisableOrganizationsRootCredentialsManagement`, `Enable/DisableOrganizationsRootSessions`, `ListOrganizationsFeatures` |
+| Outbound federation | `Enable/DisableOutboundWebIdentityFederation`, `GetOutboundWebIdentityFederationInfo` |
+| Delegation requests | `Create/Get/List/Update/Accept/Reject/AssociateDelegationRequest`, `SendDelegationToken`, `AcquireRole` |
+| Role templates | `GetRoleTemplateVersion` |
 
-Start Gopherstack with `--enforce-iam` (or `GOPHERSTACK_ENFORCE_IAM=true`) to activate policy enforcement.
-Every incoming AWS API call is evaluated against the caller's attached IAM policies before dispatch.
+## Policy enforcement
 
-Supported features:
-- **Allow / Deny** effects with explicit deny winning
-- **Action wildcards** — `s3:*`, `dynamodb:Get*`, etc.
-- **Resource wildcards** — `arn:aws:s3:::my-bucket/*`
-- **NotAction / NotResource** — negated action and resource matching
-- **Condition operators** — `StringEquals`, `StringLike`, `IpAddress`, `ArnLike`, `Bool`, `Null`, and more with `...IfExists` variants
-- **Policy variables** — `${aws:username}`, `${aws:userid}`, `${aws:sourceip}`
-- **Resource-based policies** — S3 bucket policies and SQS queue policies are evaluated alongside identity policies
+Off by default: every call succeeds regardless of attached policies. Turn it on to evaluate each request against the caller's policies before dispatch.
 
-When enforcement is off (default), all API calls succeed regardless of attached policies so existing tooling is unaffected.
+| Flag | Env | Default | Purpose |
+|------|-----|---------|---------|
+| `--enforce-iam` | `GOPHERSTACK_ENFORCE_IAM`, `ENFORCE_IAM` | `false` | Evaluate and deny |
+| `--iam-enforce-scps` | `GOPHERSTACK_IAM_ENFORCE_SCPS` | `true` | With enforcement on, also evaluate Organizations SCPs for member-account principals |
+| `--iam-audit` | `GOPHERSTACK_IAM_AUDIT`, `IAM_SOFT_MODE` | `false` | Evaluate and record each request in the IAM Policy Stream, never deny |
+
+Evaluated: `Allow`/`Deny` (explicit deny wins), action and resource wildcards, `NotAction`/`NotResource`, condition operators (string, `Bool`, `Null`, IP address, ARN, numeric, `ForAllValues`/`ForAnyValue`, `IfExists`) and policy variables such as `${aws:username}`.
+
+## Differences from AWS
+
+> [!WARNING]
+> Enforcement is single-account. The emulator's STS `GetSessionToken` mints root sessions only for the default (management) account, so a member-account root session cannot be created through the SDK.
+
+- RCPs do not apply to KMS keys and Secrets Manager secrets named by ID or name. Those backends hold one account's resources, owned by the default account. RCPs apply when the request names a member-account ARN.
+- Access advisor `Granularity=ACTION_LEVEL` is not supported: it needs real per-action usage tracking.
+- Role templates have no create or list operation in the SDK. Property values are untyped.
+- The `aws_iam_security_token_service_preferences` Terraform resource fails a Terraform Core state-consistency check with provider v5.100.0. The operation itself works.

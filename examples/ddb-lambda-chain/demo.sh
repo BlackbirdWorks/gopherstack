@@ -8,6 +8,9 @@
 #
 #   put chain-1 -> stream -> lambda -> put chain-2 -> stream -> lambda -> chain-3
 #
+# Gopherstack injects the credentials, region and AWS_ENDPOINT_URL; the first two
+# are reserved keys and cannot be set in the function environment.
+#
 # Exercises the real DynamoDB Streams -> Lambda event-source-mapping plumbing
 # inside gopherstack (Docker-run Go Lambda), not isolated API mocks.
 #
@@ -17,13 +20,15 @@ set -eu
 
 AWS="aws --endpoint-url ${ENDPOINT:-http://localhost:8000} --region us-east-1 --no-cli-pager --output json"
 FUNC=chain-fn
-ROLE_ARN="arn:aws:iam::000000000000:role/chain-fn-role"
+ROLE_NAME=chain-fn-role
+ROLE_ARN="arn:aws:iam::000000000000:role/$ROLE_NAME"
 TABLES="chain-1 chain-2 chain-3"
 WORK="$(mktemp -d)"
 
 cleanup() {
   for t in $TABLES; do $AWS dynamodb delete-table --table-name "$t" >/dev/null 2>&1 || true; done
   $AWS lambda delete-function --function-name "$FUNC" >/dev/null 2>&1 || true
+  $AWS iam delete-role --role-name "$ROLE_NAME" >/dev/null 2>&1 || true
   rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -53,6 +58,15 @@ for t in $TABLES; do
 done
 
 echo ""
+echo "=== Creating the execution role ==="
+# Gopherstack issues the function's credentials by assuming this role as
+# lambda.amazonaws.com; if the role is missing the function gets none.
+$AWS iam create-role --role-name "$ROLE_NAME" \
+  --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}' \
+  >/dev/null
+echo "  created role $ROLE_NAME"
+
+echo ""
 echo "=== Creating the Lambda function ==="
 # package-type Zip is explicit so the bootstrap zip isn't misread as an image.
 $AWS lambda create-function \
@@ -62,8 +76,7 @@ $AWS lambda create-function \
   --role "$ROLE_ARN" \
   --handler bootstrap \
   --zip-file "fileb://$WORK/function.zip" \
-  --environment "Variables={AWS_ENDPOINT_URL=${LAMBDA_ENDPOINT:-http://host.docker.internal:8000},AWS_ACCESS_KEY_ID=test,AWS_SECRET_ACCESS_KEY=test,AWS_DEFAULT_REGION=us-east-1}" \
-  >/dev/null
+    >/dev/null
 echo "  created function $FUNC"
 
 echo ""

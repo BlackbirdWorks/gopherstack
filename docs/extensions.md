@@ -1,57 +1,55 @@
 # Extensions
 
-Extensions are out-of-process plugins (any language, or a container image) that add
-endpoints and hooks to a running gopherstack. They are the gopherstack analogue of
-LocalStack Pro extensions. There is no in-process plugin loading.
+Extensions are out-of-process plugins (any language, or a container image) that add endpoints and hooks to a running Gopherstack. There is no in-process plugin loading.
 
 ## Declaring extensions
 
-```
-gopherstack --extensions-config ext.yaml        # or GOPHERSTACK_EXTENSIONS_CONFIG
-gopherstack --extension hello="./hello --flag"  # repeatable; name=command args
+```bash
+gopherstack --extensions-config ext.yaml         # env GOPHERSTACK_EXTENSIONS_CONFIG
+gopherstack --extension hello="./hello --flag"   # repeatable; env GOPHERSTACK_EXTENSIONS
 gopherstack --extension box=image:ghcr.io/me/box:1
 ```
 
 ```yaml
-fail_open: true        # default for request hooks (true)
+fail_open: true          # default for request hooks
 hook_timeout: 5s
 extensions:
-  - name: hello
-    command: [./hello]          # or image: + args:
+  - name: hello          # [A-Za-z0-9._-]+
+    command: [./hello]   # exactly one of command or image
+    # image: ghcr.io/me/box:1
+    # args: []
     env: {FOO: bar}
-    port: 0                     # 0 = pick a free loopback port
-    restart: on-failure         # never | on-failure | always
+    port: 0                # 0 = free loopback port
+    restart: on-failure    # never | on-failure (default) | always
     max_restarts: 5
     restart_backoff: 1s
-    start_timeout: 30s          # time allowed to register
-    health_path: /health        # empty = TCP dial on the port
+    start_timeout: 30s     # time allowed to register
+    health_path: /health   # must start with /; empty = TCP dial on the port
     health_interval: 10s
+    health_timeout: 2s
     health_failures: 3
-    allow_override: false       # may shadow built-in services
-    control_url: ""             # containers: URL of gopherstack as seen from inside
+    allow_override: false  # may shadow built-in services
+    control_url: ""        # containers: Gopherstack URL as seen from inside
 ```
 
-Container extensions need a reachable control URL; on Linux set `control_url` to the
-docker bridge gateway (for example `http://172.17.0.1:8000`) or use Docker Desktop's
-`host.docker.internal` (the default is `http://127.0.0.1:<port>`, which only works for
-host processes). Container ports are published on `127.0.0.1:<port>`.
+Values shown are the defaults.
+
+Container extensions need a reachable `control_url`. The default, `http://127.0.0.1:<port>`, only works for host processes. On Linux use the Docker bridge gateway (for example `http://172.17.0.1:8000`); on Docker Desktop use `http://host.docker.internal:8000`. Container ports are published on `127.0.0.1:<port>`.
 
 ## Environment given to an extension
 
 | Variable | Meaning |
 | --- | --- |
-| `GOPHERSTACK_EXTENSION_NAME` | declared name |
-| `GOPHERSTACK_EXTENSION_TOKEN` | per-spawn secret for the control API (redacted from captured output) |
-| `GOPHERSTACK_EXTENSION_PORT` | port the extension must listen on (127.0.0.1) |
-| `GOPHERSTACK_CONTROL_URL` | gopherstack base URL |
+| `GOPHERSTACK_EXTENSION_NAME` | Declared name |
+| `GOPHERSTACK_EXTENSION_TOKEN` | Per-spawn secret for the control API. Redacted from captured output |
+| `GOPHERSTACK_EXTENSION_PORT` | Port to listen on (127.0.0.1) |
+| `GOPHERSTACK_CONTROL_URL` | Gopherstack base URL |
 
-The token changes on every (re)start. It is never returned by the API or logged.
+The token changes on every (re)start and is never returned by the API or logged.
 
 ## Registration
 
-After listening, the extension calls `POST /_gopherstack/extensions/register` with
-`Authorization: Bearer $GOPHERSTACK_EXTENSION_TOKEN`. Process extensions must call from
-loopback.
+Once listening, the extension calls `POST /_gopherstack/extensions/register` with `Authorization: Bearer $GOPHERSTACK_EXTENSION_TOKEN`. Process extensions must call from loopback.
 
 ```json
 {
@@ -74,62 +72,61 @@ loopback.
 }
 ```
 
-`endpoint` is optional (defaults to `http://127.0.0.1:<port>`) and must be loopback.
-Claims may not overlap `/_gopherstack`, and two extensions cannot claim the same prefix,
-host or target. A path prefix of `/` requires `allow_override`.
+- `endpoint` is optional (default `http://127.0.0.1:<port>`) and must be loopback.
+- Claims may not overlap `/_gopherstack`. Two extensions cannot claim the same prefix, host or target.
+- A path prefix of `/` requires `allow_override`.
 
 ### Routes
 
-Matching requests are reverse-proxied to the extension with path, query, headers, body
-and Host preserved. A built-in service that already matched wins, except the S3
-catch-all, unless the extension sets `allow_override: true`. While an extension is
-unhealthy its routes answer `503`.
+Matching requests are reverse-proxied with path, query, headers, body and Host preserved. A built-in service that already matched wins (except the S3 catch-all) unless the extension sets `allow_override: true`. While an extension is unhealthy, its routes answer `503`.
 
 ### Lifecycle hooks
 
-gopherstack POSTs `{"event": "...", "extension": "..."}` to the hook path:
-`on_startup` right after registration, `on_ready` once the listener accepts
-connections (or at registration if already ready), `on_shutdown` before extensions are
-stopped. Failures are logged and ignored.
+Gopherstack POSTs `{"event": "...", "extension": "..."}` to the hook path:
+
+| Hook | When |
+| --- | --- |
+| `on_startup` | Right after registration |
+| `on_ready` | When the listener accepts connections (or at registration if already ready) |
+| `on_shutdown` | Before extensions are stopped |
+
+Failures are logged and ignored.
 
 ### Request hooks
 
-For requests handled by a listed built-in service (`*` for all), gopherstack POSTs JSON
-to `pre` before and `post` after the service runs:
+For requests handled by a listed built-in service (`*` for all), Gopherstack POSTs to `pre` before and `post` after the service runs:
 
 ```json
 {"phase": "pre", "extension": "x", "service": "S3", "method": "PUT", "path": "/b/k",
  "query": "", "headers": {}, "body": "<base64>", "body_truncated": false}
 ```
 
-`post` additionally carries `status`, `response_headers` and `response_body`.
+`post` also carries `status`, `response_headers` and `response_body`.
 
-A `pre` reply may be empty, `{"set_headers": {...}}` to add request headers, or
-`{"respond": {"status": 403, "headers": {}, "body": "<base64>"}}` to answer directly.
-A `post` reply may set `status`, `set_headers` and `body` (base64) to rewrite the
-response. Bodies over 4 MiB are not sent (`body_truncated`). Timeouts and errors are
-fail-open by default; with `fail_open: false` the client gets `502`. Services that
-stream (event streams, websockets) should not use `post` hooks, which buffer the response.
+| Reply | Effect |
+| --- | --- |
+| `pre`: empty | Continue |
+| `pre`: `{"set_headers": {...}}` | Add request headers |
+| `pre`: `{"respond": {"status": 403, "headers": {}, "body": "<base64>"}}` | Answer directly |
+| `post`: `status`, `set_headers`, `body` (base64) | Rewrite the response |
+
+Bodies over 4 MiB are not sent (`body_truncated`). Timeouts and errors are fail-open by default; with `fail_open: false` the client gets `502`.
+
+> [!WARNING]
+> `post` hooks buffer the whole response. Do not use them on streaming services (event streams, websockets).
 
 ## Management
 
-`GET /_gopherstack/extensions` lists name, type (`process`/`container`), status
-(`starting`, `ready`, `unhealthy`, `restarting`, `failed`, `stopped`), restarts, last
-error, endpoint and the accepted registration. The same list is served at
-`GET /_localstack/extensions` as a compatibility alias; LocalStack itself has no public
-HTTP API for extensions, so only the list is aliased.
+`GET /_gopherstack/extensions` lists name, type (`process` or `container`), status (`starting`, `ready`, `unhealthy`, `restarting`, `failed`, `stopped`), restarts, last error, endpoint and the accepted registration. `GET /_localstack/extensions` serves the same list.
 
 | Endpoint | Purpose |
 | --- | --- |
-| `POST /_gopherstack/extensions/{name}/restart` | recycle a running extension, or relaunch a failed/stopped one (resets its restart count) |
-| `GET /_gopherstack/extensions/{name}/output` | last 500 captured stdout/stderr lines of a process extension, token redacted |
+| `POST /_gopherstack/extensions/{name}/restart` | Recycle a running extension, or relaunch a failed or stopped one (resets its restart count) |
+| `GET /_gopherstack/extensions/{name}/output` | Last 500 stdout/stderr lines of a process extension, token redacted |
 
-Both are loopback-only and never expose the extension token. Container extensions have no
-captured output. The dashboard's Extensions page (Settings & Resilience) uses these.
+Both are loopback-only. Container extensions have no captured output. The dashboard's Extensions page uses these.
 
-Process extensions run in their own process group; stopping one signals the whole group
-(`SIGTERM`, then `SIGKILL` after 5s), so `sh -c` and `go run` wrappers leave no orphans.
-On Windows only the direct child is terminated.
+Process extensions run in their own process group. Stopping one sends `SIGTERM` to the group, then `SIGKILL` after 5 s, so `sh -c` and `go run` wrappers leave no orphans. On Windows only the direct child is terminated.
 
 ## Example
 

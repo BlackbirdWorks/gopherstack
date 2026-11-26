@@ -1,44 +1,41 @@
-# S3 server access logging example
+# s3-access-logs
 
-This example demonstrates gopherstack simulating S3 server access logging:
-requests against one bucket asynchronously write AWS-style log records into a
-separate target bucket.
+Requests against one bucket write S3 server access log records into a second bucket.
 
-## Architecture
+## What it shows
 
-```text
-┌──────────────┐       s3api get-object        ┌─────────────────────┐
-│ demo.sh      │ ────────────────────────────► │ source S3 bucket    │
-│ aws-cli      │                               │ app-upload-source   │
-└──────┬───────┘                               └──────────┬──────────┘
-       │                                                   │
-       │ list/get log object                               │ server access log dispatch
-       ▼                                                   ▼
-┌──────────────────────────────┐              ┌────────────────────────────┐
-│ log S3 bucket                │ ◄─────────── │ gopherstack access logger  │
-│ app-upload-access-logs/access│              └────────────────────────────┘
-└──────────────────────────────┘
+1. Create `app-upload-source` and `app-upload-access-logs`.
+2. Enable server access logging on the source bucket, with the `access/` prefix.
+3. Upload `incoming/order-1001.json` and read it back. The read produces a `REST.GET.OBJECT` record.
+4. Poll the log bucket until a log object appears.
+5. Download it and check that it names the source bucket, the object key and status `200`.
+
+## Prerequisites
+
+- Docker, AWS CLI v2.
+
+## Run
+
+```bash
+docker compose up -d --build
+export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_DEFAULT_REGION=us-east-1
+./demo.sh
 ```
 
-## What the demo does
+Set `ENDPOINT` to use a server other than `http://localhost:8000`.
 
-1. Creates a source bucket and a target log bucket.
-2. Enables server access logging on the source bucket.
-3. Uploads a JSON order document to the source bucket.
-4. Reads the object back to produce a `REST.GET.OBJECT` access-log record.
-5. Polls the log bucket until the access log object appears.
-6. Downloads the log record and verifies it names the source bucket and object.
+## Expected output
 
-## Run it
+Ends with:
 
-```sh
-cd examples/s3-access-logs
-docker compose up --build --abort-on-container-exit
-docker compose down --remove-orphans
 ```
-
-Expected output ends with:
-
-```text
 === SUCCESS: S3 wrote realistic server access logs to the target bucket ===
+```
+
+If no log object appears, the script prints `ERROR: no access log object appeared` and exits 1. It deletes both buckets on exit.
+
+## Clean up
+
+```bash
+docker compose down -v
 ```

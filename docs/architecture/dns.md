@@ -1,182 +1,107 @@
-# DNS Setup
+# DNS
 
-Gopherstack includes an optional embedded DNS server. When enabled, services that create network-addressable resources (RDS, Redshift, ElastiCache, OpenSearch) automatically register synthetic hostnames that resolve to a configurable IP address.
+An optional embedded DNS server (UDP and TCP, built on `miekg/dns`) gives AWS-style hostnames for emulated resources, and can optionally take over the real AWS endpoint names.
 
-## Enabling the DNS server
-
-```bash
-gopherstack --dns-addr :10053
-```
-
-Or with an environment variable:
+## Enable
 
 ```bash
-DNS_ADDR=:10053 gopherstack
+gopherstack --dns-addr :10053     # or DNS_ADDR=:10053
 ```
 
-The server binds to the specified address (UDP + TCP). An empty `--dns-addr` (the default) disables the DNS server entirely.
+An empty `--dns-addr` (default) disables the server.
 
-## Configuration
+| Flag | Env var | Default | Meaning |
+|------|---------|---------|---------|
+| `--dns-addr` | `DNS_ADDR` | empty (disabled) | Listen address |
+| `--dns-resolve-ip` | `DNS_RESOLVE_IP` | `127.0.0.1` | IP that registered hostnames resolve to |
 
-| Flag | Env Var | Default | Description |
-|------|---------|---------|-------------|
-| `--dns-addr` | `DNS_ADDR` | `` (disabled) | Address for the embedded DNS server (e.g. `:10053`) |
-| `--dns-resolve-ip` | `DNS_RESOLVE_IP` | `127.0.0.1` | IP address synthetic hostnames resolve to |
+## Registered hostnames
 
-## Hostname formats
+Resources that have an endpoint register an AWS-style name, which resolves to `--dns-resolve-ip`. Names are removed when the resource is deleted.
 
-Each service uses a predictable hostname format:
+| Service | Hostname |
+|---------|----------|
+| RDS | `<id>.<account>.<region>.rds.amazonaws.com` |
+| Redshift | `<id>.<account>.<region>.redshift.amazonaws.com` |
+| ElastiCache | `<id>.<suffix>.<region>.cache.amazonaws.com` (serverless: `<name>.serverless.<suffix>.<region>.cache.amazonaws.com`) |
+| Elasticsearch | `search-<name>-<account>.<region>.es.amazonaws.com` |
 
-| Service | Format | Example |
-|---------|--------|---------|
-| RDS | `<identifier>.gopherstack.internal` | `my-db.gopherstack.internal` |
-| Redshift | `<identifier>.gopherstack.internal` | `my-cluster.gopherstack.internal` |
-| ElastiCache | `<cluster-id>.gopherstack.internal` | `my-redis.gopherstack.internal` |
-| OpenSearch | `<domain>.gopherstack.internal` | `my-search.gopherstack.internal` |
+OpenSearch, Lambda function URLs, EC2, Route 53 records, Cloud Map and Route 53 Resolver also register names. The exact name is on the resource (for example the `Endpoint` returned by `DescribeDBInstances`).
 
-All hostnames resolve to the `DNS_RESOLVE_IP` (default `127.0.0.1`).
+> [!NOTE]
+> With the default `stub` engines no database process runs behind the name. Use the `docker` engine (see the Engine modes guide) for a real server, or point `--dns-resolve-ip` at another address.
 
-## Forwarding `.gopherstack.internal` to Gopherstack
+## Resolving from your shell
 
-To make hostnames resolve in your local shell, configure your OS resolver to forward the `.gopherstack.internal` zone to `127.0.0.1:10053`.
+Forward the zone to the embedded server. Replace `rds.amazonaws.com` with the zone of the service you use.
 
-### dnsmasq (Linux / macOS with Homebrew)
-
-Add to `/etc/dnsmasq.conf` (or `/usr/local/etc/dnsmasq.conf` on macOS):
+dnsmasq:
 
 ```
-server=/gopherstack.internal/127.0.0.1#10053
+server=/rds.amazonaws.com/127.0.0.1#10053
 ```
 
-Restart dnsmasq:
-
-```bash
-sudo systemctl restart dnsmasq    # Linux
-brew services restart dnsmasq     # macOS
-```
-
-### systemd-resolved (Ubuntu / Debian)
-
-Create `/etc/systemd/resolved.conf.d/gopherstack.conf`:
+systemd-resolved (`/etc/systemd/resolved.conf.d/gopherstack.conf`, then `sudo systemctl restart systemd-resolved`):
 
 ```ini
 [Resolve]
-DNS=127.0.0.53
-Domains=~gopherstack.internal
-```
-
-Add a `resolved` drop-in for the stub zone:
-
-```bash
-sudo mkdir -p /etc/systemd/resolved.conf.d
-sudo tee /etc/systemd/resolved.conf.d/gopherstack.conf > /dev/null << 'EOF'
-[Resolve]
 DNS=127.0.0.1:10053
-Domains=~gopherstack.internal
-EOF
-sudo systemctl restart systemd-resolved
+Domains=~rds.amazonaws.com
 ```
 
-### macOS — `/etc/resolver/`
+macOS (`/etc/resolver/rds.amazonaws.com`):
 
-```bash
-sudo mkdir -p /etc/resolver
-sudo tee /etc/resolver/gopherstack.internal > /dev/null << 'EOF'
+```
 nameserver 127.0.0.1
 port 10053
-EOF
 ```
 
-Flush the DNS cache:
+Test:
 
 ```bash
-sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder
+dig @127.0.0.1 -p 10053 my-db.000000000000.us-east-1.rds.amazonaws.com A
 ```
-
-### Test resolution
-
-```bash
-dig @127.0.0.1 -p 10053 my-db.gopherstack.internal A
-# Should return 127.0.0.1
-
-# After configuring OS resolver:
-nslookup my-db.gopherstack.internal
-# Should return 127.0.0.1
-```
-
-## Usage example with RDS
-
-```bash
-# Start Gopherstack with DNS
-gopherstack --dns-addr :10053
-
-# Create a DB instance
-aws --endpoint-url http://localhost:8000 rds create-db-instance \
-    --db-instance-identifier my-db \
-    --db-instance-class db.t3.micro \
-    --engine postgres \
-    --master-username admin \
-    --master-user-password password \
-    --allocated-storage 20
-
-# The endpoint hostname is now registered in DNS
-# With OS resolver configured:
-psql -h my-db.gopherstack.internal -U admin
-```
-
-> **Note:** RDS and Redshift in Gopherstack are metadata-only stubs; no real database process is started at the resolved address. To test actual database connectivity, run a real PostgreSQL/MySQL container separately and point your DNS entry at its address using `--dns-resolve-ip`.
 
 ## Transparent endpoint injection
 
-Unmodified SDKs and CLIs that target real `*.amazonaws.com` endpoints (no
-`endpoint_url`) can reach Gopherstack, like LocalStack's DNS + transparent
-injection.
+Lets unmodified SDKs and CLIs that target real `*.amazonaws.com` endpoints (no `endpoint_url`) reach Gopherstack.
 
 ```bash
 sudo gopherstack --transparent-dns --transparent-ca-dir ~/.gopherstack/ca
 ```
 
-| Flag | Default | Meaning |
-|---|---|---|
-| `--transparent-dns` | off | Resolve `*.amazonaws.com`, `*.amazonaws.com.cn`, `*.api.aws`, `*.on.aws` (Lambda function URLs) to `--dns-resolve-ip`; forward every other name upstream. Listens on `--dns-addr` (default `:53`). |
-| `--transparent-https-addr` | `:443` | HTTPS listener for those names; certificates are issued per SNI from the CA. |
-| `--transparent-http-addr` | off | Optional plain-HTTP listener (e.g. `:80`) so `http://s3.amazonaws.com` URLs work without TLS; a bind failure logs a warning and startup continues. |
-| `--transparent-dns-skip` | none | Names/zones that still resolve upstream (e.g. `sts.amazonaws.com` for real credentials). |
-| `--transparent-dns-upstream` | `/etc/resolv.conf` | Upstream resolvers (`host:port`). |
-| `--transparent-ca-dir` | ephemeral | Persist the CA so you trust it once. |
-| `--transparent-container-dns` | `--dns-resolve-ip` if not loopback | DNS IP given to spawned containers. |
+| Flag | Env var | Default | Meaning |
+|---|---|---|---|
+| `--transparent-dns` | `TRANSPARENT_DNS` | off | Resolve `*.amazonaws.com`, `*.amazonaws.com.cn`, `*.api.aws` and `*.on.aws` (Lambda function URLs) to `--dns-resolve-ip`. Other names are forwarded upstream. Listens on `--dns-addr`, default `:53` |
+| `--transparent-https-addr` | `TRANSPARENT_HTTPS_ADDR` | `:443` | HTTPS listener for those names. Certificates are issued per SNI from the CA |
+| `--transparent-http-addr` | `TRANSPARENT_HTTP_ADDR` | off | Optional plain-HTTP listener (for example `:80`) so `http://s3.amazonaws.com` works |
+| `--transparent-dns-skip` | `TRANSPARENT_DNS_SKIP` | none | Names or zones that still resolve upstream (for example `sts.amazonaws.com` for real credentials) |
+| `--transparent-dns-skip-patterns` | `TRANSPARENT_DNS_SKIP_PATTERNS` | none | Regexes (whole name) that resolve upstream |
+| `--transparent-dns-upstream` | `TRANSPARENT_DNS_UPSTREAM` | `/etc/resolv.conf` | Upstream resolvers, `host:port` |
+| `--transparent-ca-dir` | `TRANSPARENT_CA_DIR` | ephemeral | Persist the CA so you trust it once |
+| `--transparent-container-dns` | `TRANSPARENT_CONTAINER_DNS` | `--dns-resolve-ip`, if not loopback | DNS IP given to spawned containers |
+| `--transparent-container-ca-path` | `TRANSPARENT_CONTAINER_CA_PATH` | | CA PEM path visible to the Docker daemon. Required when Gopherstack runs in Docker |
+| `--transparent-disable-injection` | `TRANSPARENT_DISABLE_ENDPOINT_INJECTION` | off | Force injection off even with `--transparent-dns` |
 
-Point the client at the DNS server (`resolvectl dns <iface> 127.0.0.1`, or
-`/etc/resolv.conf`), then trust the CA, downloadable from
-`http://localhost:<port>/_gopherstack/ca.pem` (or `<ca-dir>/ca.pem`):
+Point the client at the DNS server (`resolvectl dns <iface> 127.0.0.1`, or `/etc/resolv.conf`), then trust the CA. Download it from `http://localhost:<port>/_gopherstack/ca.pem`, or read `<ca-dir>/ca.pem`.
 
 ```bash
-export AWS_CA_BUNDLE=$PWD/ca.pem          # AWS CLI / SDKs
+export AWS_CA_BUNDLE=$PWD/ca.pem          # AWS CLI, SDKs
 export REQUESTS_CA_BUNDLE=$PWD/ca.pem     # Python requests
 export NODE_EXTRA_CA_CERTS=$PWD/ca.pem    # Node.js
 keytool -importcert -noprompt -alias gopherstack -file ca.pem \
   -keystore $JAVA_HOME/lib/security/cacerts -storepass changeit   # Java
 ```
 
-Requests route by wire shape (target header, path, form action) exactly as with
-`endpoint_url`; S3 virtual-hosted names such as `bucket.s3.us-west-2.amazonaws.com`
-are recognised without extra configuration. The DNS answers every name under the
-AWS zones and the per-SNI certificates carry a one-label wildcard on the parent
-zone, so these S3 hostnames also work, dual-stack (`s3.dualstack.<region>`) and
-FIPS (`s3-fips.<region>`, `s3-accesspoint-fips`, `s3-control-fips`) variants included:
+Requests route by wire shape (target header, path, form action), as with `endpoint_url`. S3 virtual-hosted names such as `bucket.s3.us-west-2.amazonaws.com` work without extra configuration, including dual-stack (`s3.dualstack.<region>`) and FIPS (`s3-fips.<region>`, `s3-accesspoint-fips`, `s3-control-fips`) variants. Special S3 hostnames are mapped on the transparent listeners only (`pkgs/transparent` `S3HostRouter`):
 
 | Hostname | Dispatch |
 |----------|----------|
-| `<name>-<account>.s3-accesspoint.<region>.amazonaws.com` | Access point resolved via S3 Control, request served as path-style on its bucket (`NoSuchAccessPoint` 404 if unknown). |
-| `<bucket>.s3-website[-.]<region>.amazonaws.com` | GET served by the website handler (`/_gopherstack/website/<bucket>/...`) when website serving is registered. |
-| `<account>.s3-control.<region>.amazonaws.com` | S3 Control (`/v20180820/...`), account taken from the host when `x-amz-account-id` is absent. |
+| `<name>-<account>.s3-accesspoint.<region>.amazonaws.com` | Access point resolved via S3 Control and served path-style on its bucket. Unknown: `NoSuchAccessPoint` 404 |
+| `<bucket>.s3-website[-.]<region>.amazonaws.com` | GET served by the website handler (`/_gopherstack/website/<bucket>/...`) when website serving is registered |
+| `<account>.s3-control.<region>.amazonaws.com` | S3 Control (`/v20180820/...`). Account comes from the host if `x-amz-account-id` is absent |
 
-The host-to-path mapping runs in front of the router on the transparent
-listeners only (`pkgs/transparent` `S3HostRouter`).
+Spawned engine containers (Lambda, CodeBuild, ECS, RDS, ...) get `--dns` pointing at the embedded DNS, the CA at `/etc/gopherstack/ca.pem`, and `AWS_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS` and `CURL_CA_BUNDLE` set.
 
-Spawned engine containers (Lambda, CodeBuild, ECS, RDS, ...) get `--dns`
-pointing at the embedded DNS, the CA mounted at `/etc/gopherstack/ca.pem`, and
-`AWS_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS` and
-`CURL_CA_BUNDLE` set. Containers cannot use a loopback DNS: set
-`--dns-resolve-ip` (or `--transparent-container-dns`) to a host IP reachable from
-the container network, and make the DNS server listen on port 53.
+> [!IMPORTANT]
+> Containers cannot use a loopback DNS. Set `--dns-resolve-ip` (or `--transparent-container-dns`) to a host IP reachable from the container network, and make the DNS server listen on port 53.

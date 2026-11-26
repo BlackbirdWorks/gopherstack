@@ -19,16 +19,12 @@ exports.handler = async (event) => {
   }
   
   // For $default or specific action (echoing back to the connection)
-  const endpoint = process.env.ENDPOINT_URL || `http://host.docker.internal:8000`; // For local Gopherstack testing
+  const endpoint = process.env.AWS_ENDPOINT_URL; // injected by Gopherstack
 
   // Using Management API to post back to the connection
   const client = new ApiGatewayManagementApiClient({
     region: 'us-east-1',
-    endpoint: endpoint,
-    credentials: {
-      accessKeyId: 'test',
-      secretAccessKey: 'test'
-    }
+    endpoint: endpoint
   });
 
   try {

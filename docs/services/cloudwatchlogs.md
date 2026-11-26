@@ -1,63 +1,62 @@
 # CloudWatch Logs
 
-In-memory CloudWatch Logs implementation supporting log groups, streams, and log events with filtering.
+In-memory CloudWatch Logs with log groups and streams, Logs Insights queries, filters, deliveries, transformers and scheduled queries.
 
-## Supported Operations
-
-| Operation | Description |
-|-----------|-------------|
-| `CreateLogGroup` | Create a log group |
-| `DeleteLogGroup` | Delete a log group and all its streams |
-| `DescribeLogGroups` | List log groups with optional prefix filter |
-| `CreateLogStream` | Create a log stream in a group |
-| `DescribeLogStreams` | List log streams in a group |
-| `PutLogEvents` | Write log events to a stream |
-| `GetLogEvents` | Read log events from a stream |
-| `FilterLogEvents` | Search log events across streams in a group |
-| `PutRetentionPolicy` | Set log retention in days |
-| `DeleteRetentionPolicy` | Remove retention policy |
-| `TagLogGroup` | Add tags to a log group (legacy API) |
-| `UntagLogGroup` | Remove tags from a log group (legacy API) |
-| `ListTagsLogGroup` | List tags on a log group (legacy API) |
-| `ListTagsForResource` | List tags on a log group (new API) |
-
-## AWS CLI Examples
+## Quick start
 
 ```bash
-# Create a log group
-aws --endpoint-url http://localhost:8000 logs create-log-group \
-    --log-group-name /myapp/application
+export AWS_ENDPOINT_URL=http://localhost:8000
 
-# Create a log stream
-aws --endpoint-url http://localhost:8000 logs create-log-stream \
-    --log-group-name /myapp/application \
+aws logs create-log-group --log-group-name /myapp/application
+aws logs create-log-stream --log-group-name /myapp/application \
     --log-stream-name 2024/01/01/instance-1
-
-# Put log events
-aws --endpoint-url http://localhost:8000 logs put-log-events \
-    --log-group-name /myapp/application \
+aws logs put-log-events --log-group-name /myapp/application \
     --log-stream-name 2024/01/01/instance-1 \
     --log-events '[{"timestamp":1704067200000,"message":"App started"}]'
-
-# Get log events
-aws --endpoint-url http://localhost:8000 logs get-log-events \
-    --log-group-name /myapp/application \
+aws logs get-log-events --log-group-name /myapp/application \
     --log-stream-name 2024/01/01/instance-1
-
-# Filter log events by pattern
-aws --endpoint-url http://localhost:8000 logs filter-log-events \
-    --log-group-name /myapp/application \
-    --filter-pattern "ERROR"
-
-# Set retention policy
-aws --endpoint-url http://localhost:8000 logs put-retention-policy \
-    --log-group-name /myapp/application \
-    --retention-in-days 30
+aws logs filter-log-events --log-group-name /myapp/application --filter-pattern "ERROR"
+aws logs put-retention-policy --log-group-name /myapp/application --retention-in-days 30
 ```
 
-## Known Limitations
+## Supported operations
 
-- Log event retention is stored but not enforced; events are not automatically purged.
-- CloudWatch Logs Insights query language (`StartQuery`, `GetQueryResults`) is not implemented.
-- Log metric filters are not supported.
-- Cross-account log sharing is not available.
+| Area | Operations |
+|------|------------|
+| Groups and streams | `CreateLogGroup`, `DeleteLogGroup`, `DescribeLogGroups`, `ListLogGroups`, `CreateLogStream`, `DeleteLogStream`, `DescribeLogStreams`, `PutLogGroupDeletionProtection`, `AssociateKmsKey`, `DisassociateKmsKey` |
+| Events | `PutLogEvents`, `GetLogEvents`, `FilterLogEvents`, `GetLogRecord`, `GetLogObject`, `StartLiveTail` |
+| Retention and tags | `PutRetentionPolicy`, `DeleteRetentionPolicy`, `TagLogGroup`, `UntagLogGroup`, `ListTagsLogGroup`, `TagResource`, `UntagResource`, `ListTagsForResource` |
+| Logs Insights | `StartQuery`, `GetQueryResults`, `StopQuery`, `DescribeQueries`, `GetLogGroupFields`, `GetLogFields`, `ListLogGroupsForQuery`, `Put/Describe/DeleteQueryDefinition` |
+| Scheduled queries | `Create/Get/Update/Delete/ListScheduledQuery`, `GetScheduledQueryHistory` |
+| Metric filters | `PutMetricFilter`, `DescribeMetricFilters`, `DeleteMetricFilter`, `TestMetricFilter` |
+| Subscription filters | `PutSubscriptionFilter`, `DescribeSubscriptionFilters`, `DeleteSubscriptionFilter` |
+| Export and import | `CreateExportTask`, `DescribeExportTasks`, `CancelExportTask`, `CreateImportTask`, `DescribeImportTasks`, `DescribeImportTaskBatches`, `CancelImportTask` |
+| Deliveries | delivery sources, destinations, destination policies, `CreateDelivery`, `GetDelivery`, `DescribeDeliveries`, `DeleteDelivery`, `UpdateDeliveryConfiguration` |
+| Cross-account destinations | `PutDestination`, `PutDestinationPolicy`, `DescribeDestinations`, `DeleteDestination` |
+| Account and resource policies | `Put/Describe/DeleteAccountPolicy`, `Put/Describe/DeleteResourcePolicy` |
+| Data protection and indexing | `Put/Get/DeleteDataProtectionPolicy`, `Put/Describe/DeleteIndexPolicy`, `DescribeFieldIndexes`, `DescribeConfigurationTemplates` |
+| Transformers | `PutTransformer`, `GetTransformer`, `DeleteTransformer`, `TestTransformer` |
+| Anomaly detection | `CreateLogAnomalyDetector`, `GetLogAnomalyDetector`, `ListLogAnomalyDetectors`, `UpdateLogAnomalyDetector`, `DeleteLogAnomalyDetector`, `ListAnomalies`, `UpdateAnomaly` |
+| Integrations | `PutIntegration`, `GetIntegration`, `ListIntegrations`, `DeleteIntegration`, S3 table integration source association |
+| Lookup tables | `Create/Get/Update/Delete/DescribeLookupTable(s)` |
+| Other | `PutSyslogConfiguration`, `ListSyslogConfigurations`, `DeleteSyslogConfiguration`, `Get/PutStorageTierPolicy`, `PutBearerTokenAuthentication`, `ListAggregateLogGroupSummaries` |
+
+## Configuration
+
+| Env | Default | Purpose |
+|-----|---------|---------|
+| `CLOUDWATCHLOGS_JANITOR_INTERVAL` | `1m` | Janitor tick |
+| `CLOUDWATCHLOGS_MAX_RETENTION_DAYS` | `14` | Retention for groups with no retention policy |
+
+## Differences from AWS
+
+> [!WARNING]
+> Retention is enforced. The janitor deletes events past the group's `retentionInDays`. A group with no policy keeps events for `CLOUDWATCHLOGS_MAX_RETENTION_DAYS` (14 by default), where AWS keeps them forever.
+
+- Logs Insights runs the Logs Insights QL engine only. `QueryLanguage` SQL and PPL are not honoured.
+- Anomaly `Histogram`, `LogSamples`, `PatternString` and `PatternTokens` are never derived from log content: there is no pattern-detection engine.
+- `IncludeLinkedAccounts` has no effect (no cross-account links). `DataSources`, `FieldIndexNames` and `LogGroup.DataProtectionStatus` are not modelled.
+- `DescribeConfigurationTemplates` and `DescribeFieldIndexes` always return an empty list.
+- Scheduled query runs do not simulate delivery, so `Destinations` is always empty.
+- `DeliverySource.Status` and `StatusReason` are not modelled.
+- S3 table integration associations are all top-level and `ACTIVE`.

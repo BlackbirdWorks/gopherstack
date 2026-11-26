@@ -1,70 +1,54 @@
 # Step Functions
 
-In-memory Step Functions implementation with full ASL (Amazon States Language) execution, including Parallel states, Map states, Wait states, and retry/catch logic.
+In-memory Step Functions that runs Amazon States Language (ASL) definitions, with JSONPath and JSONata, Parallel and Map (including distributed Map) states, activities, versions and aliases.
 
-## Supported Operations
-
-| Operation | Description |
-|-----------|-------------|
-| `CreateStateMachine` | Create a state machine from an ASL definition |
-| `DeleteStateMachine` | Delete a state machine |
-| `ListStateMachines` | List all state machines |
-| `DescribeStateMachine` | Get state machine definition and metadata |
-| `UpdateStateMachine` | Update the ASL definition or role |
-| `StartExecution` | Start a new execution |
-| `StopExecution` | Stop a running execution |
-| `DescribeExecution` | Get execution status and input/output |
-| `ListExecutions` | List executions for a state machine |
-| `GetExecutionHistory` | Get the full event history of an execution |
-| `ListTagsForResource` | List tags on a state machine |
-| `TagResource` | Add tags |
-| `UntagResource` | Remove tags |
-
-## AWS CLI Examples
+## Quick start
 
 ```bash
-# Create a simple state machine
-aws --endpoint-url http://localhost:8000 stepfunctions create-state-machine \
-    --name my-workflow \
+export AWS_ENDPOINT_URL=http://localhost:8000
+
+aws stepfunctions create-state-machine --name my-workflow \
     --role-arn arn:aws:iam::000000000000:role/sfn-role \
-    --definition '{
-        "Comment": "A simple pass-through",
-        "StartAt": "Hello",
-        "States": {
-            "Hello": {"Type": "Pass", "End": true}
-        }
-    }'
+    --definition '{"StartAt":"Hello","States":{"Hello":{"Type":"Pass","End":true}}}'
 
-# Start an execution
-EXEC_ARN=$(aws --endpoint-url http://localhost:8000 stepfunctions start-execution \
+EXEC_ARN=$(aws stepfunctions start-execution \
     --state-machine-arn arn:aws:states:us-east-1:000000000000:stateMachine:my-workflow \
-    --input '{"key":"value"}' \
-    --query executionArn --output text)
+    --input '{"key":"value"}' --query executionArn --output text)
 
-# Get execution status
-aws --endpoint-url http://localhost:8000 stepfunctions describe-execution \
-    --execution-arn "$EXEC_ARN"
-
-# Get execution history
-aws --endpoint-url http://localhost:8000 stepfunctions get-execution-history \
-    --execution-arn "$EXEC_ARN"
-
-# List executions
-aws --endpoint-url http://localhost:8000 stepfunctions list-executions \
-    --state-machine-arn arn:aws:states:us-east-1:000000000000:stateMachine:my-workflow
+aws stepfunctions describe-execution --execution-arn "$EXEC_ARN"
+aws stepfunctions get-execution-history --execution-arn "$EXEC_ARN"
 ```
 
-## Supported ASL Features
+## Supported operations
 
-- **State types**: Pass, Task, Choice, Wait, Succeed, Fail, Parallel, Map
-- **Task integrations**: SQS (`sendMessage`), SNS (`publish`), DynamoDB (`putItem`, `getItem`, `updateItem`, `deleteItem`)
-- **Error handling**: `Retry` with `IntervalSeconds`, `MaxAttempts`, `BackoffRate`; `Catch` with result path
-- **Data transformations**: `InputPath`, `OutputPath`, `ResultPath`, `Parameters`, `ResultSelector`
-- **Choice rules**: String/numeric/boolean comparisons, `And`/`Or`/`Not` operators, reference path operators
+| Area | Operations |
+|------|------------|
+| State machines | `CreateStateMachine`, `DescribeStateMachine`, `ListStateMachines`, `UpdateStateMachine`, `DeleteStateMachine`, `ValidateStateMachineDefinition`, `TestState` |
+| Versions and aliases | `PublishStateMachineVersion`, `ListStateMachineVersions`, `DeleteStateMachineVersion`, `CreateStateMachineAlias`, `DescribeStateMachineAlias`, `ListStateMachineAliases`, `UpdateStateMachineAlias`, `DeleteStateMachineAlias` |
+| Executions | `StartExecution`, `StartSyncExecution` (Express only), `StopExecution`, `DescribeExecution`, `DescribeStateMachineForExecution`, `ListExecutions`, `GetExecutionHistory`, `RedriveExecution` |
+| Map runs | `DescribeMapRun`, `ListMapRuns`, `UpdateMapRun` |
+| Activities and callbacks | `CreateActivity`, `DescribeActivity`, `ListActivities`, `DeleteActivity`, `GetActivityTask`, `SendTaskSuccess`, `SendTaskFailure`, `SendTaskHeartbeat` |
+| Tags | `TagResource`, `UntagResource`, `ListTagsForResource` |
 
-## Known Limitations
+ASL features:
 
-- Lambda task integration requires the Lambda service to be running.
-- Activity tasks are not supported.
-- Express workflows behave identically to Standard workflows (no high-throughput mode).
-- `heartbeatSeconds` is accepted but not enforced.
+- State types: Pass, Task, Choice, Wait, Succeed, Fail, Parallel, Map.
+- `Retry` and `Catch`, path processing (`InputPath`, `OutputPath`, `ResultPath`, `Parameters`, `ResultSelector`), intrinsic functions, JSONata expressions.
+- Task integrations: optimized integrations such as Lambda, SQS, SNS, DynamoDB, ECS, Glue, Athena, API Gateway and EventBridge, plus `aws-sdk:<service>:<action>`. The `.sync` and `.waitForTaskToken` patterns are supported.
+
+## Configuration
+
+| Flag | Env | Default | Purpose |
+|------|-----|---------|---------|
+| `--stepfunctions-execution-retention` | `SFN_EXECUTION_RETENTION` | `24h` | How long execution history is kept |
+| `--stepfunctions-janitor-interval` | `SFN_JANITOR_INTERVAL` | `1m` | Janitor tick |
+| `--stepfunctions-task-token-ttl` | `SFN_TASK_TOKEN_TTL` | `1h` | Lifetime of an unreceived task token |
+| `--stepfunctions-jsonata-map-object-items` | `SFN_JSONATA_MAP_OBJECT_ITEMS` | `true` | Accept an object as a JSONata Map `Items` value (AWS documents arrays only) |
+
+## Differences from AWS
+
+> [!NOTE]
+> Integrations outside the built-in table are not implemented: Bedrock optimized integrations other than `invokeModel`, and `aws-sdk` integrations for services outside the built-in service table.
+
+- `ExecutionThrottled` is never emitted: there is no account-level `StartExecution` throttling.
+- Under `--enforce-iam`, some service-initiated calls are not checked against a customer role: Firehose delivery roles, CloudWatch Logs subscription-filter roles, IoT rule action roles, SNS `SubscriptionRoleArn`, Step Functions activity paths and Scheduler DLQ sends.

@@ -17,12 +17,6 @@ variable "provider_endpoint" {
   default     = "http://localhost:8000"
 }
 
-variable "lambda_endpoint" {
-  description = "AWS API endpoint URL for the Lambda function"
-  type        = string
-  default     = "http://localhost:8000"
-}
-
 provider "aws" {
   region                      = "us-east-1"
   access_key                  = "test"
@@ -74,15 +68,6 @@ resource "aws_lambda_function" "processor" {
   runtime          = "provided.al2"
   filename         = data.archive_file.lambda_zip.output_path
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
-
-  environment {
-    variables = {
-      AWS_ENDPOINT_URL = var.lambda_endpoint
-      AWS_ACCESS_KEY_ID = "test"
-      AWS_SECRET_ACCESS_KEY = "test"
-      AWS_DEFAULT_REGION = "us-east-1"
-    }
-  }
 }
 
 # 5. Grant S3 permission to invoke the Lambda

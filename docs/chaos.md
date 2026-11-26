@@ -1,117 +1,71 @@
-# Chaos Testing
+# Chaos testing
 
-Gopherstack includes a built-in Chaos Testing API that allows you to inject faults and simulate network degradation (latency and jitter) against your AWS clients. 
+The chaos middleware evaluates every AWS request. With no rules or effects configured it does nothing. Configure it at runtime through `/_gopherstack/chaos`.
 
-The chaos middleware is **always enabled** and evaluates every incoming AWS SDK request, but it does nothing by default. You can configure faults dynamically at runtime using the Chaos API mounted at `/_gopherstack/chaos`.
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /query` | Faults, effects and recent activity together |
+| `GET /faults` | Current fault rules |
+| `POST /faults` | Replace all rules |
+| `PATCH /faults` | Append rules |
+| `DELETE /faults` | Remove matching rules (body: rules to remove) |
+| `DELETE /faults/by-index` | Remove one rule; body `{"index": N}` |
+| `POST /faults/clear` | Clear all rules |
+| `GET /effects` | Current network effects |
+| `POST /effects` | Set network effects |
+| `POST /effects/reset` | Reset effects to zero |
+| `GET /activity` | Recent injected faults, newest first (last 100) |
+| `GET /targets` | Discovered services, operations and regions you can target |
 
-## Network Effects
+All paths are under `/_gopherstack/chaos`. A LocalStack-compatible subset is at `/_localstack/chaos/faults` and `/_localstack/chaos/effects`; see [Migration](migration.md#localstack-internal-endpoints).
 
-You can simulate network latency and jitter across all requests. This is useful for testing client timeouts and retry behavior.
+## Network effects
 
-### `POST /_gopherstack/chaos/effects`
-
-Update the network effects configuration.
-
-**Request Body:**
 ```json
-{
-  "latency": 100,
-  "jitter": 50,
-  "latencyRange": {
-    "min": 50,
-    "max": 200
-  }
-}
+{"latency": 100, "jitter": 50, "latencyRange": {"min": 50, "max": 200}}
 ```
 
-- `latency`: Base latency added to every request (in milliseconds).
-- `jitter`: Random additional latency between `0` and `jitter` (in milliseconds).
-- `latencyRange`: Random additional latency between `min` and `max` (in milliseconds).
+All fields are optional, in milliseconds. Total delay = `latency` + random `0..jitter` + random `min..max`. Effects supersede `--latency-ms` while any field is non-zero.
 
-All fields are optional.
+## Fault rules
 
-### `POST /_gopherstack/chaos/effects/reset`
-
-Resets all network effects back to zero.
-
-## Fault Injection
-
-You can inject specific HTTP errors (like 503 Service Unavailable or 400 ThrottlingException) for particular services, operations, or regions.
-
-### `POST /_gopherstack/chaos/faults`
-
-Replaces the entire fault configuration.
-
-**Request Body:**
-```json
-[
-  {
-    "service": "dynamodb",
-    "operation": "PutItem",
-    "region": "us-east-1",
-    "probability": 0.5,
-    "error": {
-      "code": "ProvisionedThroughputExceededException",
-      "statusCode": 400
-    }
-  },
-  {
-    "service": "s3",
-    "probability": 1.0,
-    "error": {
-      "code": "ServiceUnavailable",
-      "statusCode": 503
-    }
-  }
-]
-```
-
-- **Matching Fields**: `service`, `operation`, `region`. If omitted, the rule matches any request.
-- `probability`: Float between `0.0` and `1.0`. A value of `0` is treated as `1.0` (always fire).
-- `error`: Custom HTTP error. Defaults to 503 `ServiceUnavailable` if not provided.
-
-### Effect rules: `dynamodb:transaction-conflict`
-
-A rule with an `effect` is not an HTTP error; the owning service applies it. `dynamodb:transaction-conflict` makes the targeted DynamoDB items behave as if an unfinished `TransactWriteItems` held them, so the documented conflict errors fire (`TransactionConflictException` for `PutItem`/`UpdateItem`/`DeleteItem`, `TransactionCanceledException` with `TransactionConflict` reasons for transactions, `UnprocessedItems` for `BatchWriteItem`). `GetItem` is never affected. Without a rule, DynamoDB still raises these errors when requests genuinely overlap.
+`POST /faults` takes an array:
 
 ```json
 [
-  {
-    "effect": "dynamodb:transaction-conflict",
-    "operation": "PutItem",
-    "target": {"table": "orders", "key": {"pk": "order-1"}},
-    "probability": 0.3,
-    "holdOps": 2,
-    "holdMs": 500
-  }
+  {"service": "dynamodb", "operation": "PutItem", "region": "us-east-1",
+   "probability": 0.5,
+   "error": {"code": "ProvisionedThroughputExceededException", "statusCode": 400}},
+  {"service": "s3", "error": {"code": "ServiceUnavailable", "statusCode": 503}}
 ]
 ```
 
-- `target.table` / `target.key` narrow the rule (key values are the scalar string form of the key attributes); `operation` and `region` work as for other rules.
-- `holdOps`: after the first forced conflict on an item, the next N operations on it conflict too. `holdMs`: the same for N milliseconds.
+| Field | Meaning |
+| --- | --- |
+| `service`, `operation`, `region` | Match fields. An omitted field matches anything |
+| `probability` | `0.0` to `1.0`. Omitted always fires; an explicit `0` never fires |
+| `error` | `code` and `statusCode`. Default: 503 `ServiceUnavailable` |
 
-### Other Fault Endpoints
+### `dynamodb:transaction-conflict`
 
-- `GET /_gopherstack/chaos/faults`: Returns current fault rules.
-- `PATCH /_gopherstack/chaos/faults`: Appends rules to the existing configuration.
-- `DELETE /_gopherstack/chaos/faults`: Removes matching rules.
-- `POST /_gopherstack/chaos/faults/clear`: Clears all fault rules.
-- `DELETE /_gopherstack/chaos/faults/by-index`: Removes a fault rule by index.
+A rule with `effect` is applied by the owning service instead of returning an HTTP error. This one makes targeted DynamoDB items behave as if an unfinished `TransactWriteItems` held them:
 
-## Activity Log
+- `PutItem`, `UpdateItem`, `DeleteItem` fail with `TransactionConflictException`.
+- Transactions fail with `TransactionCanceledException` and `TransactionConflict` reasons.
+- `BatchWriteItem` returns `UnprocessedItems`.
+- `GetItem` is never affected.
 
-The chaos middleware records fault injection events up to a maximum of 100 recent entries.
+Without a rule, DynamoDB still raises these errors when requests genuinely overlap.
 
-- `GET /_gopherstack/chaos/activity`: Returns recent fault injection events in reverse-chronological order.
+```json
+[{"effect": "dynamodb:transaction-conflict", "operation": "PutItem",
+  "target": {"table": "orders", "key": {"pk": "order-1"}},
+  "probability": 0.3, "holdOps": 2, "holdMs": 500}]
+```
 
-## State Query
+- `target.table` and `target.key` narrow the rule. Key values use the scalar string form of the key attributes.
+- `holdOps`: after the first forced conflict on an item, the next N operations on it also conflict. `holdMs`: the same for N milliseconds.
 
-- `GET /_gopherstack/chaos/query`: Returns the combined state of faults, effects, and recent activity.
+## Fault Injection Service
 
-## AWS Fault Injection Service (FIS)
-
-Gopherstack's Chaos testing integrates natively with the mock AWS Fault Injection Service (FIS). When you run FIS experiments with `aws:fis:inject-api-*` actions, Gopherstack automatically translates them into chaos rules during the experiment and cleans them up afterward.
-
-## Discoverable Targets
-
-- `GET /_gopherstack/chaos/targets`: Returns auto-discovered injectable targets (services, operations, regions) available for fault injection.
+Running a FIS experiment with `aws:fis:inject-api-*` actions creates chaos rules for its duration and removes them afterwards.

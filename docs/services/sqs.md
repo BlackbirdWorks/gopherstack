@@ -1,74 +1,48 @@
-# SQS — Simple Queue Service
+# SQS
 
-Full in-memory SQS implementation supporting standard queues, FIFO queues, visibility timeouts, dead-letter queues, and batch operations.
+In-memory SQS with standard and FIFO queues, long polling, dead-letter queues and message move tasks.
 
-## Supported Operations
-
-| Operation | Description |
-|-----------|-------------|
-| `CreateQueue` | Create a new standard or FIFO queue |
-| `DeleteQueue` | Delete a queue and all its messages |
-| `ListQueues` | List queues with optional name prefix filter |
-| `GetQueueUrl` | Look up the URL for a queue by name |
-| `GetQueueAttributes` | Get queue attributes (depth, ARN, visibility timeout, etc.) |
-| `SetQueueAttributes` | Update queue attributes |
-| `SendMessage` | Enqueue a single message |
-| `ReceiveMessage` | Receive up to 10 messages (long-polling supported) |
-| `DeleteMessage` | Delete a message by receipt handle |
-| `ChangeMessageVisibility` | Extend or reset a message's visibility timeout |
-| `SendMessageBatch` | Enqueue up to 10 messages in one request |
-| `DeleteMessageBatch` | Delete up to 10 messages in one request |
-| `ChangeMessageVisibilityBatch` | Change visibility for up to 10 messages |
-| `PurgeQueue` | Delete all messages in a queue |
-| `TagQueue` | Add tags to a queue |
-| `UntagQueue` | Remove tags from a queue |
-| `ListQueueTags` | List all tags on a queue |
-| `ListDeadLetterSourceQueues` | List all queues whose RedrivePolicy points to a given DLQ |
-
-## AWS CLI Examples
+## Quick start
 
 ```bash
-# Create a standard queue
-aws --endpoint-url http://localhost:8000 sqs create-queue --queue-name my-queue
+export AWS_ENDPOINT_URL=http://localhost:8000
 
-# Create a FIFO queue
-aws --endpoint-url http://localhost:8000 sqs create-queue \
-    --queue-name my-queue.fifo \
+aws sqs create-queue --queue-name my-queue
+aws sqs create-queue --queue-name my-queue.fifo \
     --attributes FifoQueue=true,ContentBasedDeduplication=true
 
-# Send a message
-aws --endpoint-url http://localhost:8000 sqs send-message \
-    --queue-url http://localhost:8000/000000000000/my-queue \
-    --message-body "Hello, world!"
-
-# Receive messages
-aws --endpoint-url http://localhost:8000 sqs receive-message \
-    --queue-url http://localhost:8000/000000000000/my-queue \
-    --max-number-of-messages 5
-
-# Delete a message
-aws --endpoint-url http://localhost:8000 sqs delete-message \
-    --queue-url http://localhost:8000/000000000000/my-queue \
-    --receipt-handle "<receipt-handle>"
-
-# Get queue depth
-aws --endpoint-url http://localhost:8000 sqs get-queue-attributes \
-    --queue-url http://localhost:8000/000000000000/my-queue \
-    --attribute-names ApproximateNumberOfMessages
-
-# Purge a queue
-aws --endpoint-url http://localhost:8000 sqs purge-queue \
-    --queue-url http://localhost:8000/000000000000/my-queue
+URL=$(aws sqs get-queue-url --queue-name my-queue --query QueueUrl --output text)
+aws sqs send-message --queue-url "$URL" --message-body "hello"
+aws sqs receive-message --queue-url "$URL" --max-number-of-messages 5 --wait-time-seconds 5
+aws sqs delete-message --queue-url "$URL" --receipt-handle "<receipt-handle>"
+aws sqs get-queue-attributes --queue-url "$URL" --attribute-names ApproximateNumberOfMessages
+aws sqs purge-queue --queue-url "$URL"
 ```
 
-## Known Limitations
+## Supported operations
 
-- Long-polling (`WaitTimeSeconds > 0`) is supported but uses a short-poll with a sleep rather than true blocking.
-- Message retention period is not enforced; messages persist until explicitly deleted or the queue is purged.
-- SNS-SQS subscription fan-out is supported when both services are wired together in Gopherstack.
+| Area | Operations |
+|------|------------|
+| Queues | `CreateQueue`, `DeleteQueue`, `ListQueues`, `GetQueueUrl`, `GetQueueAttributes`, `SetQueueAttributes`, `PurgeQueue` |
+| Messages | `SendMessage`, `SendMessageBatch`, `ReceiveMessage`, `DeleteMessage`, `DeleteMessageBatch` |
+| Visibility | `ChangeMessageVisibility`, `ChangeMessageVisibilityBatch` |
+| Dead-letter | `ListDeadLetterSourceQueues` |
+| Move tasks | `StartMessageMoveTask`, `CancelMessageMoveTask`, `ListMessageMoveTasks` |
+| Permissions | `AddPermission`, `RemovePermission` |
+| Tags | `TagQueue`, `UntagQueue`, `ListQueueTags` |
+
+SNS topics can deliver to SQS queues when both services run (the default).
 
 ## Configuration
 
-| Flag | Env Var | Default | Description |
-|------|---------|---------|-------------|
-| `--sqs-visibility-timeout` | `SQS_VISIBILITY_TIMEOUT` | `30` | Default visibility timeout in seconds |
+| Flag | Env | Default | Purpose |
+|------|-----|---------|---------|
+| `--sqs-disable-purge-cooldown` | `GOPHERSTACK_SQS_DISABLE_PURGE_COOLDOWN` | `false` | Allow `PurgeQueue` within 60 s of the previous purge |
+| `--sqs-disable-recently-deleted-wait` | `GOPHERSTACK_SQS_DISABLE_RECENTLY_DELETED_COOLDOWN` | `false` | Allow recreating a queue within 60 s of deleting it |
+| `--sqs-disable-message-retention` | `GOPHERSTACK_SQS_DISABLE_MESSAGE_RETENTION` | `false` | Never expire messages by `MessageRetentionPeriod` |
+| `--sqs-disable-cloudwatch-metrics` | `SQS_DISABLE_CLOUDWATCH_METRICS`, `GOPHERSTACK_SQS_DISABLE_CLOUDWATCH_METRICS` | `false` | Do not publish `AWS/SQS` metrics to CloudWatch |
+
+## Differences from AWS
+
+> [!NOTE]
+> SSE attributes (`SqsManagedSseEnabled`, `KmsMasterKeyId`, `KmsDataKeyReusePeriodSeconds`) are validated and returned, but messages are never encrypted and no KMS data keys are used.

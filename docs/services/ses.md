@@ -1,43 +1,60 @@
-# SES — Simple Email Service
+# SES
 
-Stub SES implementation for email sending and identity management. Emails are accepted and acknowledged but not actually sent.
+In-memory SES (v1 API) with identities, templates, configuration sets, receipt rules and a mailbox simulator. SES v2 is a separate service on the same port.
 
-## Supported Operations
-
-| Operation | Description |
-|-----------|-------------|
-| `SendEmail` | Send a formatted email (accepted, not delivered) |
-| `SendRawEmail` | Send a raw MIME message (accepted, not delivered) |
-| `VerifyEmailIdentity` | Register an email address as verified |
-| `ListIdentities` | List verified email addresses and domains |
-| `GetIdentityVerificationAttributes` | Get verification status |
-| `DeleteIdentity` | Remove a verified identity |
-
-## AWS CLI Examples
+## Quick start
 
 ```bash
-# Verify an email identity
-aws --endpoint-url http://localhost:8000 ses verify-email-identity \
-    --email-address test@example.com
+export AWS_ENDPOINT_URL=http://localhost:8000
 
-# List verified identities
-aws --endpoint-url http://localhost:8000 ses list-identities
-
-# Send an email
-aws --endpoint-url http://localhost:8000 ses send-email \
-    --from sender@example.com \
-    --destination '{"ToAddresses":["recipient@example.com"]}' \
-    --message '{"Subject":{"Data":"Test","Charset":"UTF-8"},"Body":{"Text":{"Data":"Hello!","Charset":"UTF-8"}}}'
-
-# Get verification attributes
-aws --endpoint-url http://localhost:8000 ses get-identity-verification-attributes \
-    --identities test@example.com
+aws ses verify-email-identity --email-address test@example.com
+aws ses list-identities
+aws ses send-email --from test@example.com \
+    --destination '{"ToAddresses":["success@simulator.amazonses.com"]}' \
+    --message '{"Subject":{"Data":"Test"},"Body":{"Text":{"Data":"Hello"}}}'
+aws ses get-identity-verification-attributes --identities test@example.com
 ```
 
-## Known Limitations
+Sent messages are kept in memory (`SES_EMAIL_TTL`, 24h by default, at most 10000). `GET /_aws/ses` returns them in LocalStack's per-message shape, and `DELETE /_aws/ses` clears them.
 
-- Emails are accepted and return a `MessageId` but are **never actually sent**.
-- Email sending quotas and bounce/complaint handling are not implemented.
-- SES v2 API is not supported; only the legacy v1 API is implemented.
-- Configuration sets, event destinations, and suppression lists are not available.
-- Domain verification and DKIM setup are accepted but not enforced.
+## Supported operations
+
+| Area | Operations |
+|------|------------|
+| Sending | `SendEmail`, `SendRawEmail`, `SendTemplatedEmail`, `SendBulkTemplatedEmail`, `SendBounce`, `SendCustomVerificationEmail` |
+| Identities | `VerifyEmailIdentity`, `VerifyEmailAddress`, `VerifyDomainIdentity`, `VerifyDomainDkim`, `ListIdentities`, `ListVerifiedEmailAddresses`, `DeleteIdentity`, `DeleteVerifiedEmailAddress`, `GetIdentityVerificationAttributes`, `GetIdentityDkimAttributes`, `GetIdentityMailFromDomainAttributes`, `GetIdentityNotificationAttributes` |
+| Identity settings | `SetIdentityDkimEnabled`, `SetIdentityFeedbackForwardingEnabled`, `SetIdentityHeadersInNotificationsEnabled`, `SetIdentityMailFromDomain`, `SetIdentityNotificationTopic`, `PutIdentityPolicy`, `GetIdentityPolicies`, `ListIdentityPolicies`, `DeleteIdentityPolicy` |
+| Templates | `CreateTemplate`, `GetTemplate`, `ListTemplates`, `UpdateTemplate`, `DeleteTemplate`, `TestRenderTemplate`, custom verification email templates |
+| Configuration sets | create, describe, list, delete, event destinations (create, update, delete), tracking options, `PutConfigurationSetDeliveryOptions`, `UpdateConfigurationSetSendingEnabled`, `UpdateConfigurationSetReputationMetricsEnabled` |
+| Receipt rules | rule sets (create, clone, delete, list, describe, reorder, set active), rules (create, update, delete, describe, set position), receipt filters |
+| Account | `GetSendQuota`, `GetSendStatistics`, `GetAccountSendingEnabled`, `UpdateAccountSendingEnabled` |
+
+## Behaviour
+
+- Mailbox simulator addresses: `success@`, `bounce@`, `ooto@`, `complaint@` and `suppressionlist@` at `simulator.amazonses.com`, with an optional `+label`. Bounces and complaints produce notifications.
+- Configuration-set SNS event destinations and identity notification topics publish `Send`, `Delivery`, `Bounce` and `Complaint` events.
+- Real relay: when `SMTP_HOST` is set (optional `SMTP_USER`, `SMTP_PASS`; port 25 unless given), accepted messages are also relayed over SMTP. Delivery is asynchronous and failures are only logged. Simulator recipients are never relayed.
+- Inbound mail: set `SES_INBOUND_ENABLED=true` to run an SMTP listener that applies the active receipt rule set. It supports STARTTLS with a self-signed certificate and refuses unverified recipients, or ones no enabled rule matches, with `550`. Rule actions: AddHeader, S3, SNS, Lambda, Bounce and Stop.
+
+## Configuration
+
+| Env | Default | Purpose |
+|-----|---------|---------|
+| `SES_EMAIL_TTL` | `24h` | How long sent emails are kept |
+| `SES_JANITOR_INTERVAL` | `1m` | Janitor tick |
+| `SES_INBOUND_ENABLED` | `false` | Run the inbound SMTP listener |
+| `SES_INBOUND_ADDR` | `127.0.0.1:2525` | Inbound listen address |
+| `SES_INBOUND_REGIONS` | none | Extra per-region listeners as `region=host:port,...` |
+| `SES_INBOUND_MAX_SIZE` | `41943040` | Maximum inbound message size in bytes |
+| `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` | none | Relay target for real delivery |
+
+## Differences from AWS
+
+> [!NOTE]
+> Messages are not delivered anywhere unless `SMTP_HOST` is set.
+
+- The sender must be a verified identity, or `MessageRejected` is returned. The sandbox rule that recipients must be verified is not enforced.
+- A missing template variable renders the literal `{{var}}` instead of failing with `MissingRenderingAttribute`.
+- `GetSendStatistics` `Rejects` is always 0: there is no content scanner.
+- `FromArn` and `TemplateArn` are accepted but not acted on.
+- `SendBounce` is addressed to the bounced recipients: there is no inbound mailbox to resolve the original sender.

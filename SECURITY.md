@@ -1,18 +1,13 @@
 # Security Policy
 
-## Supported Versions
+## Supported versions
 
-Please use the latest version of Gopherstack to ensure you have all security updates and patches. We currently provide security updates for the following versions:
+Only the latest release receives security fixes.
 
-| Version | Supported          |
-| ------- | ------------------ |
-| >= 7.0.x| :white_check_mark: |
-| < 7.0.0 | :x:                |
+## Reporting a vulnerability
 
-## Reporting a Vulnerability
+Do not open a public GitHub issue for a vulnerability.
 
-If you discover a security vulnerability within Gopherstack, please DO NOT report it by creating a public GitHub issue. 
+Email `security@blackbirdworks.com`, or use GitHub's private vulnerability reporting if it is enabled on the repository.
 
-Instead, please send an email to `security@blackbirdworks.com` or use GitHub's private vulnerability reporting feature if enabled. All security vulnerabilities will be promptly addressed.
-
-We will endeavor to respond to your report within 48 hours and keep you informed of our progress towards a fix and announcement.
+We aim to reply within 48 hours and to keep you updated until a fix is released.

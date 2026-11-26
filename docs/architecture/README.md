@@ -1,148 +1,95 @@
-# Architecture Overview
+# Architecture overview
 
-Gopherstack is a single Go binary that implements the AWS wire protocol for over 25 services. All state is kept in memory with optional disk persistence.
-
-## Design principles
-
-- **Single binary** — all services run in one process; no containers, no databases, no external dependencies (except Docker for Lambda).
-- **Native wire protocol** — every service speaks the exact same JSON/XML/form-encoded protocol as the real AWS SDK, so any AWS SDK works without modification.
-- **In-memory by default** — startup is sub-100 ms and teardown is instant. Persistence is opt-in.
-- **Production-shaped** — the same service interfaces, ARN formats, and pagination patterns as real AWS, so code that works locally works in production.
+Gopherstack is one Go binary that serves AWS, Azure, GCP and OCI emulators. State is in memory; persistence is opt-in. Every service speaks the real wire protocol of its API (JSON, query, REST-XML, REST-JSON, CBOR), so unmodified SDKs work.
 
 ## Request routing
 
-Gopherstack uses [Echo](https://echo.labstack.com/) as the HTTP server. Each service registers a `Registerable` handler that implements:
+HTTP is served by [Echo](https://echo.labstack.com/). Each service implements `service.Registerable`:
 
 ```go
-type Registerable interface {
-    RouteMatcher() Matcher       // decides whether this request belongs to this service
-    MatchPriority() int          // higher = matched first (breaks ties)
-    ExtractOperation(*echo.Context) string  // human-readable op name for metrics/logs
-    Handle(*echo.Context) error  // processes the request
+type Service interface {
+    Name() string
+    Handler() echo.HandlerFunc
+    RouteMatcher() Matcher                  // does this request belong to me?
+    GetSupportedOperations() []string
 }
+type ResourceObserver interface {
+    ExtractOperation(c *echo.Context) string
+    ExtractResource(c *echo.Context) string
+}
+// Registerable = Service + ResourceObserver + MatchPriority() int
 ```
 
-On every incoming request the registry walks all registered handlers in priority order and calls `RouteMatcher()`. The first match wins. This allows services to share a single port without URL-prefix collisions (e.g. S3 path-style vs. virtual-hosted style).
+The registry sorts services by `MatchPriority()`, highest first, and the first `RouteMatcher` that returns true wins. A prebuilt index keyed on request prefixes (`X-Amz-Target`, path) means a request only visits services whose gates could match.
 
-Priority constants (lower number = higher priority):
-- `PriorityHeaderExact` — matched by exact `X-Amz-Target` value
-- `PriorityTargetPrefixed` — matched by `X-Amz-Target` prefix
-- `PriorityPathSubdomain` — matched by URL path or form field
-- `PriorityFallback` — last resort
+Priorities (`pkgs/service/priorities.go`):
 
-### Telemetry wrapping
+| Constant | Value | For |
+|----------|-------|-----|
+| `PriorityHeaderExact` | 100 | Exact `X-Amz-Target` prefix |
+| `PriorityHeaderPartial` | 95 | Partial header prefix (Lambda, KMS, Secrets Manager) |
+| `PriorityFormEncoded` | 90 | STS form-encoded POST |
+| `PriorityPathVersioned` | 85 | Versioned path prefix (S3 Control); also DocumentDB and Neptune form requests |
+| `PriorityFormRDS` | 84 | RDS query protocol |
+| `PriorityFormRedshift` | 83 | Redshift query protocol |
+| `PriorityPathSubdomain` | 82 | Path-prefix matchers (OpenSearch, ElastiCache) |
+| `PriorityFormStandard` | 80 | Standard form-encoded query protocol (EC2, IAM, SES) |
+| `PriorityTargetPrefixed` | 75 | Versioned `X-Amz-Target` prefix (Kinesis) |
+| `PriorityPathUI` | 50 | Dashboard and UI paths |
+| `PriorityCatchAll` | 0 | S3 |
 
-Every handler is wrapped with `WrapEchoHandler` which:
-1. Injects the service name into the logger context (`logger.AddAttrs`).
-2. Records a Prometheus counter and histogram for every operation.
-3. Logs the operation name, duration, and any errors.
+Each handler is wrapped by `telemetry.WrapEchoHandler`. It adds the service name to the logger context, records Prometheus metrics (`operations_total`, `operation_duration_seconds`) and logs operation, duration and errors. Global middleware (CORS, request ID, latency injection) wraps the handler.
 
-Global middlewares (e.g. CORS, request ID, latency injection) run outside the telemetry timer.
+## Backends and locking
 
-## In-memory backends
+Each service has an in-memory backend holding its state in Go maps behind one coarse lock per backend. AWS operations are cross-map transactions and snapshots need one consistent view.
 
-Each service has an `InMemoryBackend` (or `InMemoryDB` for DynamoDB) that stores state in Go maps protected by `sync.RWMutex`. Backends are created at startup and shared for the lifetime of the process.
+## Persistence
 
-### Persistence
-
-Backends that implement the `Persistable` interface:
+Backends implement `persistence.Persistable`:
 
 ```go
 type Persistable interface {
-    Snapshot() []byte    // serialize current state to JSON
-    Restore([]byte) error // restore state from JSON
+    Snapshot(ctx context.Context) []byte   // JSON
+    Restore(ctx context.Context, data []byte) error
 }
 ```
 
-When `--persist` (`PERSIST=true`) is set:
-1. At startup, `Manager.RestoreAll` loads snapshots from disk and calls `Restore`.
-2. On any mutation, `Manager.Notify(serviceName)` triggers a 500 ms debounced `Snapshot` + write to the `FileStore`.
-3. On SIGTERM/SIGINT, `Manager.SaveAll` writes all pending snapshots synchronously before exit.
-
-Snapshots are stored in `~/.gopherstack/data/<service>/snapshot` (or `/data/` in containers).
+With `--persist`, the persistence manager restores snapshots at startup, snapshots a service 500 ms after its last mutation, and saves everything on SIGTERM/SIGINT. Files are `<data-dir>/<service>/snapshot.json`; the data dir defaults to `~/.gopherstack/data`, or `/data` in containers. Other modes are in the Persistence guide.
 
 ## Regions
 
-One process can serve several regions. The shared middleware resolves the request region from the SigV4
-credential scope, then `X-Amz-Region`, then the configured default, and stores it on the context
-(`awsmeta.Region(ctx)`).
+One process serves many regions. The region comes from the SigV4 credential scope, then the `X-Amz-Region` header, then the configured default (`awsmeta.Region(ctx)`).
 
-- **Global by AWS definition** (no region key): IAM, Route 53, CloudFront, Organizations, STS global endpoint, WAF classic, ECR Public (AWS serves it only from us-east-1), Network Manager and Global Accelerator (global services homed in us-west-2; their ARNs carry no region).
-  S3 bucket names are globally unique, but each bucket has a region.
-- **Regional with per-request keys**: ssm, cloudwatchlogs, memorydb, sqs, sns, dynamodb, kms, kinesis, elb, firehose, acm, acmpca, batch,
-  codepipeline, dms, elasticbeanstalk, emr, kinesisanalyticsv2, sagemaker, route53resolver, elasticsearch, codeartifact, codeconnections,
-  codestarconnections, databrew, directoryservice, identitystore, dynamodbstreams, kinesisanalytics, mediastore, mediastoredata, mwaa, networkmonitor, resourcegroups, rolesanywhere,
-  textract, workmail, rdsdata, redshiftdata, timestreamquery, and most others.
-- **Regional via sibling handlers**: s3control, lightsail, glue, ecr, ec2, ecs, autoscaling, cloudformation, elbv2, codedeploy, lambda,
-  eks, mq, redshift (and Serverless), opensearch, appsync, ses, apprunner, codebuild, emrserverless, guardduty, securityhub, xray,
-  transfer, awsconfig, applicationautoscaling, dax, vpclattice, cloudtrail, fsx, accessanalyzer, amplify, apigatewaymanagementapi, appconfig,
-  appconfigdata, appmesh, appstream, bedrock, bedrockagent, bedrockruntime, cleanrooms, comprehend, datasync, detective, directconnect, dlm,
-  glacier, grafana, inspector2, iotanalytics, iotdataplane, iotwireless, kafkaconnect, kinesisvideo, lakeformation, macie2, managedblockchain, mediaconvert, medialive,
-  mediapackage, mediatailor, mgn, omics, opsworks, outposts, personalize, pinpoint, polly, quicksight, ram, rekognition, resiliencehub,
-  s3tables, sagemakerruntime, serverlessrepo, ssoadmin (Identity Center instances are regional), swf, timestreamwrite, transcribe, translate,
-  verifiedpermissions, workspaces and others build one sibling handler per extra region (`pkgs/regionpeers`); snapshots add an optional `regions` key.
-- **Cross-service calls follow the originating resource's region**: SQS and CloudWatch Logs publish metrics to the CloudWatch
-  of the emitting queue or log group's region; Step Functions, Scheduler and the tagging bridge reach the ECS (and Glue)
-  backend of the ARN or execution region via `regionpeers.Backend`. Auto Scaling launches and terminates instances in its own
-  region's EC2 (the group passes its region on the context), registers ELBv2 targets in the target group ARN's region (as does
-  ECS), and CloudWatch alarm scaling actions run the policy in the policy ARN's region. CloudFormation builds one resource
-  creator per region (`ServiceBackends.forRegion`) so every resource lands in the stack's region; CodeDeploy resolves EC2
-  targets in the deployment group's region. The tagging bridge lists the request region and resolves Tag/Untag by ARN region for
-  Athena, Glue, ECR, Backup, CodeCommit, Cloud Map, Lightsail, Cognito, SESv2 and CodeDeploy. Lambda invocations from SNS, SQS
-  event source mappings, EventBridge, Step Functions, IoT, Firehose, CloudWatch Logs, S3, Cognito and API Gateway resolve the
-  function by its ARN region (else the request region); every region's Lambda shares one container runtime and runs its own
-  event source poller. Classic ELB and Firehose read the region from the shared request metadata, so Auto Scaling, SNS,
-  EventBridge, Pipes, IoT and CloudWatch Logs reach the right region's load balancer or delivery stream. Grafana accepts EC2
-  resources of any region, MGN uses its own region's EC2, Resilience Hub resolves EC2 source ARNs by region, and the Lightsail
-  CloudFormation export creates the stack in its own region. OpenSearch is per region: a Firehose domain-ARN destination indexes into the domain of the ARN's region. Lambda MQ event source
-  mappings find the broker in the broker ARN's region (MQ and EKS siblings share the home docker runtime and bounded port
-  allocator), AppSync resolvers call DynamoDB in the data source's region (else the API's) and Lambda in the function ARN's region
-  (else the API's), and GraphQL requests find their API by id across regions. WAFv2 keys REGIONAL resources by the request region
-  (no siblings; CLOUDFRONT scope stays global, as AWS requires US East for it). RDS, DocumentDB, Neptune, Kafka, Scheduler, Pipes
-  and Cognito Identity already isolate regions internally.
-  CodePipeline Build, Invoke and Deploy actions call CodeBuild, Lambda and CodeDeploy in the pipeline's region, CloudTrail records
-  each captured management event in the region the call targeted, and Application Auto Scaling checks DynamoDB tables in its own
-  region. The tagging bridge also follows the region for App Runner, EMR Serverless, GuardDuty, Security Hub, X-Ray, Transfer, Config,
-  Application Auto Scaling, DAX and VPC Lattice.
-  AppConfig deployments publish into the AppConfig Data backend of the deployment's region, API Gateway v2 registers each WebSocket
-  connection with the Management API of the API's region, and IoT rule actions write to the IoT Analytics channel and read the IoT
-  Data Plane shadow of the rule's region (all regions share the one MQTT broker). Direct Connect gateways, associations and proposals are account-global and always served by the home backend. The tagging bridge also follows the region for Access
-  Analyzer, AppConfig, App Mesh, AppStream, Clean Rooms, Comprehend, DataSync, Detective, Direct Connect, DLM, Grafana and Inspector.
-  RDS Data finds the Aurora cluster in the region its ARN names, Timestream Query mirrors scheduled-query tags into the Timestream
-  Write backend of the ARN's region, Redshift Data runs Firehose COPY statements in the delivery stream's region, and SageMaker Runtime
-  validates endpoints through the SageMaker backend of the request region. CloudFormation provisions Kafka Connect, Kinesis Video, Macie,
-  SWF and Resilience Hub resources in the stack's region. The tagging bridge also follows the region for Macie, Managed Blockchain,
-  MediaConvert, MediaPackage, MediaTailor, OpsWorks, Personalize, Pinpoint, RAM, Rekognition, S3 Tables, Identity Center, SWF, Timestream
-  Write, Transcribe, Translate, Verified Permissions, MGN, Outposts and Resilience Hub. QLDB and QLDB Session are removed (AWS end of support).
-- **Targets and sources follow the ARN's region** (2026-10-04): Scheduler, Pipes, EventBridge, S3 notifications, SNS dead-letter queues and Step Functions
-  reach the SQS queue, Kinesis stream, event bus, log group or SageMaker pipeline of the ARN (Step Functions: the execution) region. EventBridge `PutEvents`
-  accepts a bus ARN, and a domain-endpoint Host selects the OpenSearch domain's region. The dashboard AppConfig Data and API Gateway Management API
-  endpoints take `?region=`.
-- **Per-region defaults and iterators** (2026-10-04): EventBridge has a `default` bus in every region, S3 event payloads and S3 to EventBridge events use the bucket's region, SSM policy events use the parameter's region, DynamoDB Streams shard iterators carry the stream's region (Pipes and Lambda ESM sources read any region), and IoT SQS and Kinesis rule actions use the rule's region.
-- **Still single-region per process**: services not listed in `region_isolation_cases_test.go` (same-named resources in two
-  regions collide); a `knownCollision` case there fails once such a service is fixed.
+Services handle regions in one of three ways:
 
-## DNS server
+- **Global.** No region key (IAM, Route 53, CloudFront, Organizations, ...).
+- **Regional with per-request keys.** The backend keys its resources by region.
+- **Regional via sibling handlers.** Single-region handlers get one lazily built sibling per extra region (`pkgs/regionpeers`, at most 64 per service). Snapshots carry an optional `regions` key.
 
-An optional embedded DNS server (based on `miekg/dns`) can be enabled with `--dns-addr :10053`. Services that create network-addressable resources (RDS, Redshift, ElastiCache, OpenSearch) automatically register/deregister synthetic hostnames when resources are created/deleted.
+Cross-service calls follow the region of the originating resource or of the target ARN: for example SQS metrics go to the CloudWatch of the queue's region, and Lambda invocations resolve the function by its ARN region.
 
-See [dns.md](dns.md) for configuration and OS integration.
+The authoritative per-service list is the isolation test manifest in `internal/app/region_isolation_cases_*_test.go`. A case marked `knownCollision` is a service that is still single-region per process: same-named resources in two regions collide. The test fails once such a service is fixed.
+
+## DNS
+
+An optional embedded DNS server registers AWS-style hostnames for resources and can take over real AWS endpoint names. See [DNS](dns.md).
 
 ## Service integrations
 
-Some services are wired together at startup:
+Wired in-process at startup, with no network hop:
 
-- **SNS → SQS**: SNS fan-out delivers to subscribed SQS queues in-process.
-- **EventBridge → Lambda/SQS/SNS**: Target invocations happen in the same process.
-- **Step Functions → SQS/SNS/DynamoDB**: Task integrations call the in-process backends.
-- **Lambda ESM → SQS**: Event source mappings poll the SQS backend and invoke Lambda containers.
+- SNS fan-out to subscribed SQS queues.
+- EventBridge targets: Lambda, SQS, SNS.
+- Step Functions task integrations: SQS, SNS, DynamoDB.
+- Lambda event source mappings poll SQS, Kinesis and DynamoDB Streams, then invoke functions.
 
 ## Port allocator
 
-Services that open their own TCP ports (ElastiCache `embedded`, OpenSearch `docker`, RDS `docker`) use a shared `portalloc.Allocator` that assigns ports from the configured range (`PORT_RANGE_START`–`PORT_RANGE_END`, default 10000–10100).
+Services that open their own TCP ports (ElastiCache `embedded`, Lambda runtimes and function URLs, and the `docker` engines such as RDS, Kafka and MQ) take ports from a shared `portalloc.Allocator`. The range is `PORT_RANGE_START` to `PORT_RANGE_END` (default 10000 to 10100, end exclusive). Dedicated Azure, GCP and OCI listeners use fixed ports instead (see the Kubernetes guide).
 
-## Further reading
+## More
 
-- [ElastiCache engine modes](elasticache.md)
-- [DNS setup](dns.md)
+- [ElastiCache engines](elasticache.md)
+- [DNS](dns.md)
 - [Lambda runtime](lambda.md)
