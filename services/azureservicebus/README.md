@@ -9,15 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 25 (22 ok, 3 partial) |
 | Feature families | 10 (8 ok, 1 partial, 1 deferred) |
-| Known gaps | 3 |
+| Known gaps | 4 |
 | Deferred items | 4 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- AMQP bodies are flattened: amqp-value and sequence bodies are stored as bytes and returned as a data section; application property types survive in memory but are strings after a persistence restore or when set through REST. See families.amqp_transport.
-- No SQL-filter rule evaluation for subscriptions -- every subscription is effectively TrueFilter (match-all). See families.filter_evaluation.
-- Client dead-letter and PeekMessages use emulator-extension REST shapes (BrokerProperties DeadLetterReason on the Unlock PUT; GET .../messages); the AMQP plane now does both natively. All gaps above are intentional MVP scope per AZURE.md section 9's M5 entry (or, for DeadLetter, a deliberate pause pending human input), not oversights.
+- Subscription rules are not modeled: SqlFilter/CorrelationFilter in CreateSubscription bodies are discarded, there is no /subscriptions/<name>/rules route, and every subscription behaves as TrueFilter (handler.go createSubscription).
+- AMQP bodies are flattened: amqp-value and sequence bodies are stored as bytes and returned as a data section; application property types survive in memory but are strings after a persistence restore or when set through REST.
+- AMQP transactions, resume of unsettled state across reconnects, WebSocket transport and SASL EXTERNAL are not implemented (no transaction coordinator in amqp_*.go).
+- List Queues/Topics/Subscriptions ignore $skip/$top and return every entity in one page.
 
 ### Deferred
 

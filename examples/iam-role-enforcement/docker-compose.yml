@@ -1,9 +1,13 @@
 services:
   gopherstack:
-    image: blackbirdworks/gopherstack:latest
+    build: ../..
     ports:
       - "8000:8000"
     environment:
       - ENFORCE_IAM=true
-      - AWS_DEFAULT_REGION=us-east-1
-      - ACCOUNT_ID=000000000000
+    healthcheck:
+      test: ["CMD", "./gopherstack", "health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s

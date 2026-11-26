@@ -1,64 +1,46 @@
-# SNS — Simple Notification Service
+# SNS
 
-Full in-memory SNS implementation with topic management, HTTP/HTTPS/SQS/Lambda subscriptions, and message fan-out.
+In-memory SNS with standard and FIFO topics, subscriptions, filter policies, platform applications and the SMS sandbox.
 
-## Supported Operations
-
-| Operation | Description |
-|-----------|-------------|
-| `CreateTopic` | Create a new topic (standard or FIFO) |
-| `DeleteTopic` | Delete a topic and all its subscriptions |
-| `ListTopics` | List all topics |
-| `GetTopicAttributes` | Get topic attributes (ARN, display name, etc.) |
-| `SetTopicAttributes` | Update topic attributes |
-| `Subscribe` | Subscribe an endpoint to a topic |
-| `ConfirmSubscription` | Confirm a pending subscription |
-| `Unsubscribe` | Remove a subscription |
-| `ListSubscriptions` | List all subscriptions |
-| `ListSubscriptionsByTopic` | List subscriptions for a specific topic |
-| `Publish` | Publish a message to a topic |
-| `PublishBatch` | Publish up to 10 messages in one request |
-| `GetSubscriptionAttributes` | Get attributes of a subscription |
-| `ListTagsForResource` | List tags on a topic |
-| `TagResource` | Add tags to a topic |
-| `UntagResource` | Remove tags from a topic |
-
-## AWS CLI Examples
+## Quick start
 
 ```bash
-# Create a topic
-aws --endpoint-url http://localhost:8000 sns create-topic --name my-topic
+export AWS_ENDPOINT_URL=http://localhost:8000
 
-# Subscribe an SQS queue to the topic
-aws --endpoint-url http://localhost:8000 sns subscribe \
+aws sns create-topic --name my-topic
+aws sns subscribe \
     --topic-arn arn:aws:sns:us-east-1:000000000000:my-topic \
     --protocol sqs \
     --notification-endpoint arn:aws:sqs:us-east-1:000000000000:my-queue
-
-# Publish a message
-aws --endpoint-url http://localhost:8000 sns publish \
+aws sns publish \
     --topic-arn arn:aws:sns:us-east-1:000000000000:my-topic \
-    --message "Hello, subscribers!"
-
-# Publish with subject and attributes
-aws --endpoint-url http://localhost:8000 sns publish \
-    --topic-arn arn:aws:sns:us-east-1:000000000000:my-topic \
-    --subject "Test notification" \
-    --message "Event payload" \
+    --subject "Test" --message "Event payload" \
     --message-attributes '{"EventType":{"DataType":"String","StringValue":"OrderPlaced"}}'
-
-# List subscriptions for a topic
-aws --endpoint-url http://localhost:8000 sns list-subscriptions-by-topic \
+aws sns list-subscriptions-by-topic \
     --topic-arn arn:aws:sns:us-east-1:000000000000:my-topic
 ```
 
-## Known Limitations
+## Supported operations
 
-- HTTP/HTTPS endpoint delivery is attempted but subscription confirmation is automatic (no real webhook call).
-- Email and SMS protocols are accepted but messages are not actually sent.
-- Message filtering policies are stored but not fully evaluated during fan-out.
-- SNS FIFO topics are accepted but strict ordering guarantees are not enforced.
+| Area | Operations |
+|------|------------|
+| Topics | `CreateTopic`, `DeleteTopic`, `ListTopics`, `GetTopicAttributes`, `SetTopicAttributes`, `GetDataProtectionPolicy`, `PutDataProtectionPolicy` |
+| Subscriptions | `Subscribe`, `ConfirmSubscription`, `Unsubscribe`, `ListSubscriptions`, `ListSubscriptionsByTopic`, `GetSubscriptionAttributes`, `SetSubscriptionAttributes` |
+| Publishing | `Publish`, `PublishBatch` |
+| Permissions | `AddPermission`, `RemovePermission` |
+| Tags | `TagResource`, `UntagResource`, `ListTagsForResource` |
+| Platform applications | `CreatePlatformApplication`, `DeletePlatformApplication`, `ListPlatformApplications`, `GetPlatformApplicationAttributes`, `SetPlatformApplicationAttributes`, `CreatePlatformEndpoint`, `DeleteEndpoint`, `GetEndpointAttributes`, `SetEndpointAttributes`, `ListEndpointsByPlatformApplication` |
+| SMS | `GetSMSAttributes`, `SetSMSAttributes`, `CheckIfPhoneNumberIsOptedOut`, `ListPhoneNumbersOptedOut`, `OptInPhoneNumber`, `ListOriginationNumbers` |
+| SMS sandbox | `CreateSMSSandboxPhoneNumber`, `VerifySMSSandboxPhoneNumber`, `DeleteSMSSandboxPhoneNumber`, `ListSMSSandboxPhoneNumbers`, `GetSMSSandboxAccountStatus` |
 
-## Configuration
+## Behaviour
 
-No additional configuration required. SNS runs on the main Gopherstack port.
+- `sqs`, `lambda`, `firehose` and mobile-push (`application`) subscriptions are confirmed on creation.
+- `http`, `https`, `email` and `email-json` subscriptions stay pending until `ConfirmSubscription` is called with the token. HTTP(S) endpoints receive a `SubscriptionConfirmation` message carrying a `SubscribeURL`.
+- Filter policies are evaluated on fan-out, on message attributes or on the body (`FilterPolicyScope=MessageBody`).
+- Delivery-status logging uses the `*SuccessFeedbackRoleArn` and `*FailureFeedbackRoleArn` topic attributes.
+
+## Differences from AWS
+
+> [!NOTE]
+> `SMSMonthToDateSpentUSD` and `SMSSuccessRate` are not emitted. They need per-country SMS pricing and carrier receipts.

@@ -1,56 +1,48 @@
 # azure-services
 
-Demonstrates gopherstack's Azure support — Azure Blob Storage, Azure Queue Storage, Azure Table Storage, and Azure Cosmos DB (Core/SQL API) — all four running side-by-side in one gopherstack instance, each on its own dedicated port.
+Blob, Queue and Table Storage plus Cosmos DB (SQL API), all in one Gopherstack instance, driven with `curl`.
 
-## What this demonstrates
+## What it shows
 
-- Azure Blob Storage (port `10000`): create a container, upload a blob, list/download it, then clean up.
-- Azure Queue Storage (port `10001`): create a queue, enqueue a message, dequeue it, delete it, then clean up.
-- Azure Table Storage (port `10002`): create a table, insert an entity, read it back, then clean up.
-- Azure Cosmos DB (port `8081`): the mandatory database-account root call every real Cosmos SDK makes first, then create a database/container/document, run a parameterized SQL query, then clean up.
+| Service | Port | Steps |
+|---------|------|-------|
+| Blob Storage | `10000` | create container, upload, list, download, delete |
+| Queue Storage | `10001` | create queue, enqueue, dequeue, delete message, delete queue |
+| Table Storage | `10002` | create table, insert entity, read it back, delete |
+| Cosmos DB | `8081` | account root call, create database, container and document, parameterized SQL query, delete |
 
-All four requests use plain `curl` with no credentials — auth verification is off by default for every Azure service in gopherstack (see [`docs/services/`](../../docs/services/) for each service's auth stance), so no SharedKey signing or Cosmos master-key HMAC is required to talk to them locally.
+No credentials are sent. Auth verification is off by default for every Azure service, so no SharedKey signing or Cosmos master key is needed. See [`docs/services/`](../../docs/services/).
 
 ## Prerequisites
 
-- **Docker** (for `docker-compose up`), or a local Go toolchain to run gopherstack directly from the repo root.
-- **curl**, plus the POSIX text utilities `grep`, `head`, and `sed` (used to pull the pop receipt out of the Queue response). No Azure SDKs or `az` CLI needed.
+- Docker (or Go), `curl`, `grep`, `head`, `sed`.
 
-## Running
+## Run
 
 ```bash
-cd examples/azure-services
-docker-compose up -d
+docker compose up -d --build
 ./demo.sh
 ```
 
-Or, without Docker:
-
-```bash
-go run ../.. --azure-blob-port 10000 --azure-queue-port 10001 --azure-table-port 10002 --cosmosdb-port 8081 &
-./demo.sh
-```
+Without Docker, run `go run .` in the repo root instead of the first command.
 
 ## Expected output
 
-The script echoes each step and its response, ending with:
+The script prints each step and ends with:
 
 ```
 === All four Azure services exercised successfully ===
 ```
 
-Any non-2xx response from a step causes the script to exit non-zero with a `FAILED: <step> returned HTTP <status>` message.
+A non-2xx response prints `FAILED: <step> returned HTTP <status>` and exits non-zero.
 
-## Teardown
+## Clean up
 
 ```bash
-docker-compose down -v
+docker compose down -v
 ```
 
-## More
+## See also
 
-- [docs/services/azureblob.md](../../docs/services/azureblob.md)
-- [docs/services/azurequeue.md](../../docs/services/azurequeue.md)
-- [docs/services/azuretable.md](../../docs/services/azuretable.md)
-- [docs/services/cosmosdb.md](../../docs/services/cosmosdb.md)
-- [AZURE.md](../../AZURE.md) — overall Azure support plan and milestones
+- [Blob](../../docs/services/azureblob.md), [Queue](../../docs/services/azurequeue.md), [Table](../../docs/services/azuretable.md), [Cosmos DB](../../docs/services/cosmosdb.md)
+- [AZURE.md](../../AZURE.md)

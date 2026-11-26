@@ -16,6 +16,6 @@ services:
       retries: 5
       start_period: 3s
     environment:
-      - LAMBDA_DOCKER_HOST=host.docker.internal
+      - LAMBDA_DOCKER_HOST=${LAMBDA_DOCKER_HOST:-172.17.0.1}
       - TMPDIR=/tmp/gopherstack-lambda
 

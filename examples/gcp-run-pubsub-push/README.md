@@ -1,29 +1,30 @@
 # gcp-run-pubsub-push
 
-A Cloud Run service receiving Pub/Sub **push** deliveries:
+A Cloud Run service receives Pub/Sub push messages.
 
-1. `demo.sh` builds a tiny Go HTTP service (`service/`, a static binary in a `FROM scratch` image, no registry access needed).
-2. `driver deploy` creates it as a Cloud Run service through the Cloud Run gRPC API (port `8126`). Gopherstack starts the image in Docker and fronts it with its HTTP ingress (port `8127`, hosts like `push-receiver-<hash>-us-central1.localhost:8127`).
-3. The driver creates a Pub/Sub topic and a **push subscription** whose endpoint is the service's `/push` URL (Pub/Sub gRPC, port `8085`).
+## What it shows
+
+1. `demo.sh` builds a small Go HTTP service (`service/`) into a `FROM scratch` image.
+2. `driver deploy` creates it as a Cloud Run service over gRPC (port `8126`). Gopherstack starts the image in Docker and fronts it with an HTTP ingress on port `8127`, host `push-receiver-<hash>-us-central1.localhost:8127`.
+3. The driver creates a Pub/Sub topic and a push subscription pointing at the service's `/push` URL (Pub/Sub gRPC, port `8085`).
 4. `driver publish 3` publishes three messages. Gopherstack POSTs them to the service, which logs each one.
-5. The script checks the service's `GET /messages` and the container's `docker logs`, then deletes the service, subscription and topic.
+5. The script checks `GET /messages` and `docker logs`, then deletes the service, subscription and topic.
 
-Cloud Run and Pub/Sub are gRPC-only in gopherstack, so the driver uses the official `cloud.google.com/go/run` and `cloud.google.com/go/pubsub/v2` clients (own `go.mod`, same versions as the root module). No credentials are used.
+Cloud Run and Pub/Sub are gRPC-only, so the driver uses `cloud.google.com/go/run` and `cloud.google.com/go/pubsub/v2`. No credentials are used.
 
 ## Prerequisites
 
-- **Docker** (to build the image and for gopherstack's Cloud Run runtime).
-- A Go toolchain, and `curl`.
-- Gopherstack running **on the host** with access to the Docker socket, so the Cloud Run containers' published ports are reachable: from the repo root, `go run .`. There is deliberately no `docker-compose.yml` here.
+- Docker (the image build and the Cloud Run runtime), Go, `curl`.
+- Gopherstack running on the host with access to the Docker socket. There is no `docker-compose.yml`, so the published container ports stay reachable from the host.
 
-## Running
+## Run
 
 ```bash
-go run ../..   # in another terminal
+go run ../..     # in another terminal
 ./demo.sh
 ```
 
-Override addresses with `RUN_ADDR`, `PUBSUB_ADDR` and `RUN_INGRESS_ADDR` if you moved the ports.
+Override `RUN_ADDR` (`localhost:8126`), `PUBSUB_ADDR` (`localhost:8085`) and `RUN_INGRESS_ADDR` (`localhost:8127`) if you moved the ports.
 
 ## Expected output
 
@@ -40,8 +41,11 @@ service /messages: [{"id":"...","data":"order-1",...}, ...]
 PASS: gcp-run-pubsub-push (3 Pub/Sub messages pushed to the Cloud Run service and logged)
 ```
 
-The script exits non-zero with a `FAIL:` line otherwise. Re-running is safe: it recreates the service, topic and subscription.
+Failures print `FAIL:` and exit non-zero. Re-running is safe: it recreates the service, topic and subscription.
 
-## Notes
+> [!NOTE]
+> `*.localhost` names resolve to loopback on most systems. If yours does not, add the printed host to `/etc/hosts`.
 
-`*.localhost` names resolve to loopback on most systems (glibc/systemd-resolved, macOS). If yours does not, add the printed host to `/etc/hosts`.
+## Clean up
+
+`demo.sh` removes the service, subscription and topic on exit. Stop the Gopherstack process yourself.

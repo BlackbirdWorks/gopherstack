@@ -9,21 +9,20 @@
 | --- | --- |
 | PARITY entries audited | 14 (13 ok, 1 partial) |
 | Feature families | 8 (7 ok, 1 partial) |
-| Known gaps | 4 |
-| Deferred items | 3 |
+| Known gaps | 5 |
+| Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- $select is honored for custom properties, but PartitionKey/RowKey/Timestamp are always returned regardless of the $select list (real Table Storage honors $select literally for these too); documented deviation chosen for simplicity and because every SDK round-trip needs the key properties anyway.
-- No SAS support: stored access policies are persisted but not enforced.
-- No queue-style janitor: Table Storage entities have no TTL/expiry concept, so there is nothing to sweep (this is a deliberate scope decision, not an oversight -- see provider.go's Provider doc comment).
-- Auth verification is not enforced -- see families.auth. All gaps above are intentional MVP scope per AZURE.md's M2 entry (see AZURE.md section 8), not oversights.
+- $select always returns PartitionKey/RowKey/Timestamp even when not listed; real Table Storage honors $select literally (pkgs/odatatable/codec.go EncodeEntity).
+- List Tables ignores $filter (table_ops.go listTables reads only $top and NextTableName).
+- SAS tokens are not parsed or enforced; stored access policies set via Set Table ACL are persisted but never applied.
+- Set Table Service Properties and Get Table Service Stats are not routed; Get Service Properties always returns an empty StorageServiceProperties.
+- Shared Key signatures are never verified: checkAuth only parses the Authorization header.
 
 ### Deferred
 
-- Batch (POST /<account>/$batch, multipart/mixed changesets) is explicitly out of scope for this milestone -- returns a clean 501 NotImplemented rather than attempting a partial implementation. Matches services/azureblob's M0 multipart-upload deferral pattern.
-- Continuation-token pagination for List Tables/Query Entities (see gaps).
 - Initial implementation pass (2026-09-04): seeded this service from scratch per AZURE.md M2 (see AZURE.md section 8). Structurally mirrors services/azurequeue's M1 implementation and PARITY.md format; no prior audit history to reconcile.
 
 ## More

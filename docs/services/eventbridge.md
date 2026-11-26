@@ -1,65 +1,50 @@
 # EventBridge
 
-In-memory EventBridge implementation with event buses, rules, targets, and event routing.
+In-memory EventBridge with event buses, rules, targets, archives and replays, connections and API destinations, global endpoints, partner event sources, and the Schemas registry.
 
-## Supported Operations
-
-| Operation | Description |
-|-----------|-------------|
-| `CreateEventBus` | Create a custom event bus |
-| `DeleteEventBus` | Delete a custom event bus |
-| `ListEventBuses` | List all event buses |
-| `DescribeEventBus` | Get details of an event bus |
-| `PutRule` | Create or update a rule on an event bus |
-| `DeleteRule` | Delete a rule |
-| `ListRules` | List rules on an event bus |
-| `DescribeRule` | Get rule details |
-| `EnableRule` | Enable a disabled rule |
-| `DisableRule` | Disable a rule |
-| `PutTargets` | Add or update targets for a rule |
-| `RemoveTargets` | Remove targets from a rule |
-| `ListTargetsByRule` | List targets for a rule |
-| `PutEvents` | Publish events to an event bus |
-| `ListTagsForResource` | List tags on a rule or event bus |
-| `TagResource` | Add tags |
-| `UntagResource` | Remove tags |
-
-## AWS CLI Examples
+## Quick start
 
 ```bash
-# Create a custom event bus
-aws --endpoint-url http://localhost:8000 events create-event-bus \
-    --name my-bus
+export AWS_ENDPOINT_URL=http://localhost:8000
 
-# Create a rule to match all events from a source
-aws --endpoint-url http://localhost:8000 events put-rule \
-    --name my-rule \
-    --event-bus-name my-bus \
-    --event-pattern '{"source":["myapp.orders"]}' \
-    --state ENABLED
-
-# Add an SQS queue as a target
-aws --endpoint-url http://localhost:8000 events put-targets \
-    --rule my-rule \
-    --event-bus-name my-bus \
+aws events create-event-bus --name my-bus
+aws events put-rule --name my-rule --event-bus-name my-bus \
+    --event-pattern '{"source":["myapp.orders"]}' --state ENABLED
+aws events put-targets --rule my-rule --event-bus-name my-bus \
     --targets '[{"Id":"1","Arn":"arn:aws:sqs:us-east-1:000000000000:my-queue"}]'
-
-# Publish an event
-aws --endpoint-url http://localhost:8000 events put-events \
-    --entries '[{
-        "EventBusName":"my-bus",
-        "Source":"myapp.orders",
-        "DetailType":"OrderPlaced",
-        "Detail":"{\"orderId\":\"123\"}"
-    }]'
-
-# List rules
-aws --endpoint-url http://localhost:8000 events list-rules \
-    --event-bus-name my-bus
+aws events put-events --entries '[{
+    "EventBusName":"my-bus","Source":"myapp.orders",
+    "DetailType":"OrderPlaced","Detail":"{\"orderId\":\"123\"}"}]'
+aws events list-rules --event-bus-name my-bus
 ```
 
-## Known Limitations
+## Supported operations
 
-- Event pattern matching supports `source`, `detail-type`, and basic `detail` field matching. Complex JSONPath conditions may not be fully evaluated.
-- Target invocation (Lambda, SQS, SNS, etc.) is performed synchronously in-process when services are wired together. HTTP and Kinesis targets are not supported.
-- EventBridge Pipes and EventBridge Scheduler are separate services.
+| Area | Operations |
+|------|------------|
+| Event buses | `CreateEventBus`, `DescribeEventBus`, `ListEventBuses`, `UpdateEventBus`, `DeleteEventBus`, `PutPermission`, `RemovePermission` |
+| Rules | `PutRule`, `DescribeRule`, `ListRules`, `EnableRule`, `DisableRule`, `DeleteRule`, `TestEventPattern` |
+| Targets | `PutTargets`, `RemoveTargets`, `ListTargetsByRule`, `ListRuleNamesByTarget` |
+| Events | `PutEvents`, `PutPartnerEvents` |
+| Archives and replays | `Create/Describe/List/Update/DeleteArchive`, `StartReplay`, `DescribeReplay`, `ListReplays`, `CancelReplay` |
+| Connections and API destinations | `Create/Describe/List/Update/DeleteConnection`, `DeauthorizeConnection`, `Create/Describe/List/Update/DeleteApiDestination` |
+| Global endpoints | `Create/Describe/List/Update/DeleteEndpoint` |
+| Partner event sources | `Create/Describe/List/DeletePartnerEventSource`, `ListPartnerEventSourceAccounts`, `ActivateEventSource`, `DeactivateEventSource`, `DescribeEventSource`, `ListEventSources` |
+| Tags | `TagResource`, `UntagResource`, `ListTagsForResource` |
+| Schemas registry | `Create/Describe/List/Update/DeleteRegistry`, `Create/Describe/List/Update/Delete/SearchSchema(s)`, `ListSchemaVersions`, `DeleteSchemaVersion`, `GetDiscoveredSchema`, `PutCodeBinding`, `DescribeCodeBinding`, `GetCodeBindingSource`, `ExportSchema`, discoverer CRUD with `StartDiscoverer` and `StopDiscoverer`, `Get/Put/DeleteResourcePolicy` |
+
+Rule targets delivered in-process: Lambda, SQS, SNS, Kinesis, Step Functions, ECS, Batch, CloudWatch Logs, other event buses (same account, cross-bus and cross-region), API destinations, API Gateway, Systems Manager, AppSync, CodeBuild, CodePipeline, Redshift and SageMaker.
+
+## Configuration
+
+| Env | Default | Purpose |
+|-----|---------|---------|
+| `EVENTBRIDGE_ALLOW_SCHEDULE_ON_CUSTOM_BUS` | `false` | Accept scheduled rules on custom buses (AWS allows them only on the default bus) |
+
+## Differences from AWS
+
+> [!NOTE]
+> The backend models one account. A target event bus in another account cannot be resolved, so that delivery is dropped.
+
+- Inspector is not a deliverable target. Such ARNs log `unsupported target ARN type`.
+- `ThrottledRules` and `PutEventsApproximateThrottledCount` are never emitted: no invocation or `PutEvents` throttle limits apply.

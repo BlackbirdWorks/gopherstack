@@ -1,27 +1,32 @@
 # azure-servicebus-cosmos-worker
 
-A queue-driven worker plus a change-feed reader:
+A Go worker moves orders from a Service Bus queue into Cosmos DB. A second command reads them back from the change feed.
 
-1. `demo.sh` sends three JSON orders to an Azure Service Bus queue.
-2. `worker` peek-locks each message, upserts the order into Cosmos DB (partition key `/customer`) with the real `azcosmos` SDK, then completes the message. Malformed messages are abandoned so Service Bus redelivers them and eventually dead-letters them.
-3. `feed` reads the Cosmos DB **change feed** from the beginning with `ReadChangeFeed` and prints each new document until it is caught up.
+## What it shows
 
-Ports: Service Bus `10003`, Cosmos DB `8081`. The Service Bus calls use the Brokered Messaging REST API with `net/http`, because the official `azservicebus` SDK speaks only AMQP, which gopherstack does not serve. Cosmos uses its well-known public emulator master key (no real credentials).
+1. `demo.sh` sends three JSON orders to the queue `orders`.
+2. `worker` peek-locks each message, upserts it into Cosmos DB (partition key `/customer`) with the `azcosmos` SDK, then completes it. Malformed messages are abandoned so Service Bus redelivers them and eventually dead-letters them.
+3. `feed` reads the Cosmos DB change feed from the beginning with `ReadChangeFeed` and prints each document.
+
+| Service | Port |
+|---------|------|
+| Service Bus (REST) | `10003` |
+| Cosmos DB | `8081` |
+
+Service Bus calls use the Brokered Messaging REST API over `net/http`, not the `azservicebus` SDK. Gopherstack also serves AMQP 1.0 on `5672` (plain) and `5671` (TLS), but the compose file publishes neither. Cosmos DB uses the public emulator master key.
 
 ## Prerequisites
 
-- A Go toolchain (the example has its own `go.mod`, using the same dependency versions as the root module).
-- `curl`.
-- Gopherstack running: `docker-compose up -d` here, or `go run ../..` from the repo root.
+- Docker, Go, `curl`.
 
-## Running
+## Run
 
 ```bash
-docker-compose up -d
+docker compose up -d --build
 ./demo.sh
 ```
 
-Override endpoints with `SERVICEBUS_URL` and `COSMOS_URL`.
+Without Docker, run `go run .` in the repo root instead of the first command. Override endpoints with `SERVICEBUS_URL` and `COSMOS_URL`.
 
 ## Expected output
 
@@ -38,14 +43,13 @@ feed reader saw 3 document(s)
 PASS: azure-servicebus-cosmos-worker (3 messages consumed, stored and seen in the change feed)
 ```
 
-The script exits non-zero with a `FAIL:` line on any problem. It is idempotent: the queue is recreated and orders are upserted by id, so re-runs show the same three documents.
+Failures print `FAIL:` and exit non-zero. Re-running is safe: the queue is recreated and orders are upserted by id.
 
-## Notes
+> [!NOTE]
+> The emulated change feed has one partition range and reports creates and updates only, not deletes.
 
-The emulator's change feed has one partition range and reports only creates and updates (no deletes).
-
-## Teardown
+## Clean up
 
 ```bash
-docker-compose down -v
+docker compose down -v
 ```

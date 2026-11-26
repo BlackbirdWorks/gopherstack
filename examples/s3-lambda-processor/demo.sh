@@ -41,7 +41,7 @@ else
 fi
 
 $TF init
-$TF apply -auto-approve -var="provider_endpoint=$ENDPOINT" -var="lambda_endpoint=${LAMBDA_ENDPOINT:-http://host.docker.internal:8000}"
+$TF apply -auto-approve -var="provider_endpoint=$ENDPOINT"
 
 echo ""
 echo "=== Uploading object to S3 ==="
@@ -74,7 +74,7 @@ for container in $(curl -s --unix-socket /var/run/docker.sock http://localhost/c
 done
 
 echo "=== Lambda Logs ==="
-for i in {1..10}; do
+for i in $(seq 1 10); do
     aws logs filter-log-events --log-group-name /aws/lambda/s3-processor --endpoint-url "$ENDPOINT" 2>/dev/null && break
     sleep 2
 done

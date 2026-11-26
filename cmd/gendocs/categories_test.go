@@ -9,8 +9,7 @@ import (
 
 // TestDisplayName_Azure proves the four Azure services (M0-M3) get curated
 // display names instead of falling back to titleCaseSlug's ugly
-// run-together capitalization (e.g. "Azureblob", "Cosmosdb") -- see AZURE.md
-// section 7's M4 docs-polish entry.
+// run-together capitalization (e.g. "Azureblob", "Cosmosdb").
 func TestDisplayName_Azure(t *testing.T) {
 	t.Parallel()
 

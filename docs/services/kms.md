@@ -1,67 +1,49 @@
-# KMS — Key Management Service
+# KMS
 
-In-memory KMS implementation with symmetric key creation, encryption, decryption, data key generation, and key rotation status.
+In-memory KMS with symmetric, asymmetric and HMAC keys, aliases, grants, rotation, key import and custom key stores.
 
-## Supported Operations
-
-| Operation | Description |
-|-----------|-------------|
-| `CreateKey` | Create a new symmetric KMS key |
-| `DescribeKey` | Get key metadata |
-| `ListKeys` | List all keys |
-| `EnableKey` | Re-enable a disabled key |
-| `DisableKey` | Disable a key (operations will fail) |
-| `ScheduleKeyDeletion` | Schedule key deletion with a waiting period |
-| `CancelKeyDeletion` | Cancel a pending key deletion |
-| `Encrypt` | Encrypt plaintext using a KMS key |
-| `Decrypt` | Decrypt ciphertext |
-| `ReEncrypt` | Re-encrypt ciphertext under a different key |
-| `GenerateDataKey` | Generate a data key (plaintext + encrypted copy) |
-| `GenerateDataKeyWithoutPlaintext` | Generate an encrypted data key only |
-| `EnableKeyRotation` | Enable automatic key rotation |
-| `DisableKeyRotation` | Disable automatic key rotation |
-| `GetKeyRotationStatus` | Check if rotation is enabled |
-| `CreateAlias` | Create an alias for a key |
-| `DeleteAlias` | Delete an alias |
-| `ListAliases` | List all aliases |
-| `CreateGrant` | Create a key grant (stored, not enforced) |
-
-## AWS CLI Examples
+## Quick start
 
 ```bash
-# Create a key
-aws --endpoint-url http://localhost:8000 kms create-key \
-    --description "My encryption key"
+export AWS_ENDPOINT_URL=http://localhost:8000
 
-# Encrypt data
-aws --endpoint-url http://localhost:8000 kms encrypt \
-    --key-id arn:aws:kms:us-east-1:000000000000:key/<key-id> \
-    --plaintext "SGVsbG8gV29ybGQ=" \
+KEY=$(aws kms create-key --description "My key" --query KeyMetadata.KeyId --output text)
+aws kms create-alias --alias-name alias/my-key --target-key-id "$KEY"
+aws kms encrypt --key-id alias/my-key --plaintext "SGVsbG8=" \
     --query CiphertextBlob --output text
-
-# Decrypt data
-aws --endpoint-url http://localhost:8000 kms decrypt \
-    --ciphertext-blob fileb://ciphertext.bin \
-    --query Plaintext --output text
-
-# Generate a data key for envelope encryption
-aws --endpoint-url http://localhost:8000 kms generate-data-key \
-    --key-id arn:aws:kms:us-east-1:000000000000:key/<key-id> \
-    --key-spec AES_256
-
-# Create an alias
-aws --endpoint-url http://localhost:8000 kms create-alias \
-    --alias-name alias/my-key \
-    --target-key-id <key-id>
-
-# List keys
-aws --endpoint-url http://localhost:8000 kms list-keys
+aws kms generate-data-key --key-id alias/my-key --key-spec AES_256
+aws kms enable-key-rotation --key-id "$KEY"
 ```
 
-## Known Limitations
+## Supported operations
 
-- Asymmetric keys and HMAC keys are not supported; only `SYMMETRIC_DEFAULT` (AES-256-GCM) is implemented.
-- Key grants are stored but not enforced (all callers can use all keys).
-- Automatic key rotation does not actually re-encrypt existing ciphertext.
-- KMS key policies are not evaluated.
-- AWS-managed keys (`aws/s3`, `aws/rds`, etc.) are not pre-created; create them manually if needed.
+| Area | Operations |
+|------|------------|
+| Keys | `CreateKey`, `DescribeKey`, `ListKeys`, `EnableKey`, `DisableKey`, `ScheduleKeyDeletion`, `CancelKeyDeletion`, `UpdateKeyDescription`, `ReplicateKey`, `UpdatePrimaryRegion`, `GetKeyLastUsage` |
+| Crypto | `Encrypt`, `Decrypt`, `ReEncrypt`, `GenerateDataKey`, `GenerateDataKeyWithoutPlaintext`, `GenerateDataKeyPair`, `GenerateDataKeyPairWithoutPlaintext`, `GenerateRandom`, `Sign`, `Verify`, `GetPublicKey`, `DeriveSharedSecret`, `GenerateMac`, `VerifyMac` |
+| Rotation | `EnableKeyRotation`, `DisableKeyRotation`, `GetKeyRotationStatus`, `RotateKeyOnDemand`, `ListKeyRotations` |
+| Key material | `GetParametersForImport`, `ImportKeyMaterial`, `DeleteImportedKeyMaterial` |
+| Aliases | `CreateAlias`, `UpdateAlias`, `DeleteAlias`, `ListAliases` |
+| Grants | `CreateGrant`, `ListGrants`, `ListRetirableGrants`, `RetireGrant`, `RevokeGrant` |
+| Key policy | `PutKeyPolicy`, `GetKeyPolicy`, `ListKeyPolicies` |
+| Tags | `TagResource`, `UntagResource`, `ListResourceTags` |
+| Custom key stores | `CreateCustomKeyStore`, `UpdateCustomKeyStore`, `DeleteCustomKeyStore`, `DescribeCustomKeyStores`, `ConnectCustomKeyStore`, `DisconnectCustomKeyStore` |
+
+## Behaviour
+
+- AWS managed keys (`alias/aws/s3`, `alias/aws/dynamodb`, ...) are created on first reference, as on AWS.
+- `ScheduleKeyDeletion` enforces the 7-30 day window. A janitor purges keys past their deletion date and runs automatic rotations that are due.
+
+## Configuration
+
+| Env | Default | Purpose |
+|-----|---------|---------|
+| `KMS_JANITOR_INTERVAL` | `1m` | Janitor tick |
+
+## Differences from AWS
+
+> [!WARNING]
+> IAM enforcement (`--enforce-iam`) evaluates identity and key policies only. Grants are not an authorization source there, so a grantee with no policy allow is denied.
+
+- External key store proxies are never contacted. The `Xks*` and VPC endpoint service errors are not produced.
+- `ListKeyRotations` omits multi-generation key-material fields.

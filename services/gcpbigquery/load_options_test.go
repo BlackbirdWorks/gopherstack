@@ -130,8 +130,7 @@ func TestLoadSchemaUpdateOptions(t *testing.T) {
 					},
 				},
 			}))
-			_, err = env.client.Query("INSERT su.t (id) VALUES (1)").Run(t.Context())
-			require.NoError(t, err)
+			env.exec(t, "INSERT su.t (id) VALUES (1)")
 
 			env.objects.data["b/in.csv"] = []byte("2,x\n")
 			if len(tt.schema) == 1 {

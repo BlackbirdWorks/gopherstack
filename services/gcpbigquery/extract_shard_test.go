@@ -131,9 +131,7 @@ func TestExtractCSVOptions(t *testing.T) {
 
 			env := newSDK(t)
 			ds := env.dataset(t, "ex")
-			_, err := env.client.Query("CREATE TABLE ex.src AS SELECT 1 AS id, 'a' AS s UNION ALL SELECT 2, 'b'").
-				Run(t.Context())
-			require.NoError(t, err)
+			env.exec(t, "CREATE TABLE ex.src AS SELECT 1 AS id, 'a' AS s UNION ALL SELECT 2, 'b'")
 
 			ref := bigquery.NewGCSReference("gs://b/x.csv")
 			tt.mutate(ref)
@@ -164,8 +162,7 @@ func TestAvroExtractRoundTrip(t *testing.T) {
 			ddl := "CREATE TABLE av.src AS SELECT 1 AS id, 'a' AS s, 1.5 AS f, TRUE AS b, DATE '2024-01-02' AS d, " +
 				"TIMESTAMP '2024-01-02 03:04:05+00' AS ts, NUMERIC '1.25' AS n UNION ALL " +
 				"SELECT 2, NULL, 2.5, FALSE, DATE '2024-02-03', TIMESTAMP '2024-02-03 00:00:01+00', NUMERIC '3'"
-			_, err := env.client.Query(ddl).Run(t.Context())
-			require.NoError(t, err)
+			env.exec(t, ddl)
 
 			ref := bigquery.NewGCSReference("gs://b/p.avro")
 			ref.DestinationFormat = bigquery.Avro
@@ -204,15 +201,14 @@ func TestExtractURILimit(t *testing.T) {
 
 			env := newSDK(t)
 			ds := env.dataset(t, "ex")
-			_, err := env.client.Query("CREATE TABLE ex.src AS SELECT 1 AS id").Run(t.Context())
-			require.NoError(t, err)
+			env.exec(t, "CREATE TABLE ex.src AS SELECT 1 AS id")
 
 			uris := make([]string, tt.uris)
 			for i := range uris {
 				uris[i] = "gs://b/o" + strconv.Itoa(i) + "-*.csv"
 			}
 
-			_, err = ds.Table("src").ExtractorTo(bigquery.NewGCSReference(uris...)).Run(t.Context())
+			_, err := ds.Table("src").ExtractorTo(bigquery.NewGCSReference(uris...)).Run(t.Context())
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
 

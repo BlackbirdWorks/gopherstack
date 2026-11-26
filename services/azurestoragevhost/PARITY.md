@@ -11,9 +11,7 @@ ops:
   Delegation: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Rewrites r.URL.Path to prepend /{account} and calls straight into the wired *azureblob.Handler/*azurequeue.Handler/*azuretable.Handler's own Handler() -- zero duplicated business logic, same backend instances as the path-style listeners. If a service isn't wired (nil), returns 400 rather than panicking (TestHandler_UnwiredServiceIs400)."}
 families:
   wiring: {status: ok, note: "cli.go's wireAzureStorageVHost type-asserts the three already-constructed path-style Handlers and assigns them onto the vhost Handler's Blob/Queue/Table fields post-construction, mirroring the existing wireSNSToSQS-style cross-service wiring pattern -- no second set of backend instances is ever created."}
-gaps:
-  - "This package owns no state of its own (Reset/Snapshot/Restore are no-ops); a snapshot/restore cycle on the wired services fully covers vhost-visible data too, so nothing is missing here specifically -- listed for completeness since most services have real persist behavior to audit."
-  - "GetSupportedOperations() returns nil (no dedicated metrics-op enum); ExtractOperation/ExtractResource parse the Host header only for basic request-metrics labeling, not the fine-grained per-op accounting the wrapped services' own handlers already do internally once delegated to."
+items_still_open: []
 structural_gaps: []
 deferred:
   - "M8 initial implementation (AZURE.md section 10.8 finding (9)). No prior audit passes to report."

@@ -17,8 +17,8 @@ import (
 // default port (10002) sits inside PortRangeStart/PortRangeEnd's own default
 // range (10000-10100). Without reserving it, PortAlloc could still hand that
 // same port number to an unrelated caller (e.g. ElastiCache), which would
-// only surface later as a confusing address-in-use failure. See AZURE.md
-// section 4 and pkgs/portalloc.Allocator.Reserve's doc comment.
+// only surface later as a confusing address-in-use failure. See
+// pkgs/portalloc.Allocator.Reserve's doc comment.
 func TestReserveFixedServicePorts_AzureTable(t *testing.T) {
 	t.Parallel()
 

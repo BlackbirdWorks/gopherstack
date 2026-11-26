@@ -3,9 +3,8 @@
 //
 // It is lifted out of cli.go's original generateSelfSignedCert (used by the
 // main port's opt-in TLS mode) so that services/azurearm -- which must serve
-// its ARM/AAD-discovery listener over HTTPS unconditionally, see AZURE.md
-// section 10.8 -- can share the exact same cert-generation logic instead of
-// duplicating it. cli.go now calls GenerateSelfSignedCert instead of
+// its ARM/AAD-discovery listener over HTTPS unconditionally -- can share the
+// exact same cert-generation logic instead of duplicating it. cli.go now calls GenerateSelfSignedCert instead of
 // defining its own copy.
 package devtls
 

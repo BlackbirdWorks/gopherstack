@@ -1,29 +1,32 @@
 # gcp-bigquery-gcs-load
 
-The classic batch-load path on Google Cloud, against gopherstack:
+Upload a CSV to Cloud Storage, load it into BigQuery, and query it.
 
-1. Upload `sales.csv` to a Cloud Storage bucket (`gs://sales-lake/in/sales.csv`).
-2. Run a BigQuery **load job** (`gs://` URI, CSV, explicit schema, header row skipped) into `sales.orders`. BigQuery reads the object from the Cloud Storage emulator.
+## What it shows
+
+1. Upload `sales.csv` to `gs://sales-lake/in/sales.csv`.
+2. Run a BigQuery load job (`gs://` URI, CSV, explicit schema, header row skipped) into `sales.orders`. BigQuery reads the object from the Cloud Storage emulator.
 3. Run an aggregate query and print the result.
 
-Ports: Cloud Storage `4443`, BigQuery `9050`. No credentials are used (`WithoutAuthentication`).
+| Service | Port |
+|---------|------|
+| Cloud Storage | `4443` |
+| BigQuery | `9050` |
 
-The app is plain Go on the official `cloud.google.com/go/storage` and `cloud.google.com/go/bigquery` clients (own `go.mod`, same versions as the root module, so it builds offline from the module cache). The `google` Terraform/OpenTofu provider can create the same bucket and dataset (see `test/terraform/gcp`), but it needs a network download of the provider, so this example stays Go-only.
+The app uses the official `cloud.google.com/go/storage` and `cloud.google.com/go/bigquery` clients with no authentication.
 
 ## Prerequisites
 
-- A Go toolchain.
-- `curl`.
-- Gopherstack running: `docker-compose up -d` here, or `go run ../..` from the repo root.
+- Docker, Go, `curl`.
 
-## Running
+## Run
 
 ```bash
-docker-compose up -d
+docker compose up -d --build
 ./demo.sh
 ```
 
-Override endpoints with `GCS_URL` and `BIGQUERY_URL`.
+Without Docker, run `go run .` in the repo root instead of the first command. Override endpoints with `GCS_URL` and `BIGQUERY_URL`.
 
 ## Expected output
 
@@ -38,10 +41,10 @@ query returned 3 region(s)
 PASS: gcp-bigquery-gcs-load (CSV in GCS loaded into BigQuery, aggregate verified)
 ```
 
-The script exits non-zero with a `FAIL:` line otherwise. Re-running is safe (the table is truncated on each load).
+Failures print `FAIL:` and exit non-zero. Re-running is safe: the table is truncated on each load.
 
-## Teardown
+## Clean up
 
 ```bash
-docker-compose down -v
+docker compose down -v
 ```

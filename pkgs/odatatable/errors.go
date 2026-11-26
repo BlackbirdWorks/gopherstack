@@ -6,10 +6,10 @@ import "errors"
 // were originally services/azuretable's own sentinel errors; they moved here
 // verbatim (message text aside) when services/azuretable's entity CRUD/
 // $filter logic was extracted into this package so services/cosmosdb's Table
-// API (see AZURE.md section 9's M6) could import the same engine instead of
-// duplicating it. services/azuretable re-exports every one of these as a
-// package-level var of the same name for backward compatibility with its
-// existing exported API and tests.
+// API could import the same engine instead of duplicating it.
+// services/azuretable re-exports every one of these as a package-level var of
+// the same name for backward compatibility with its existing exported API and
+// tests.
 var (
 	ErrTableNotFound       = errors.New("odatatable: table not found")
 	ErrTableAlreadyExists  = errors.New("odatatable: table already exists")

@@ -1,128 +1,94 @@
-# Lambda Runtime
+# Lambda runtime
 
-Gopherstack implements the [AWS Lambda Runtime API](https://docs.aws.amazon.com/lambda/latest/dg/runtimes-api.html) for Docker image-based functions.
+Functions run in containers and talk to Gopherstack over the [Lambda Runtime API](https://docs.aws.amazon.com/lambda/latest/dg/runtimes-api.html). Both `Zip` and `Image` package types are supported. Zip functions are mounted into an AWS runtime base image. Zip code comes from `Code.ZipFile` or `Code.S3Bucket` plus `Code.S3Key`.
 
-> **Important:** Only `PackageType: Image` is supported. Zip-based and S3-based deployments are not implemented.
+A container runtime is required: Docker, Podman, or Kubernetes (see the Kubernetes Pod executor in the Kubernetes guide).
 
-## How it works
+## Invocation flow
 
-When you invoke a Lambda function, Gopherstack:
+1. Gopherstack pulls the image if it is not cached, and starts a container with `AWS_LAMBDA_RUNTIME_API=<LAMBDA_DOCKER_HOST>:<port>`.
+2. The runtime polls `GET /2018-06-01/runtime/invocation/next`.
+3. Gopherstack sends the payload. The runtime posts the result to `/2018-06-01/runtime/invocation/<id>/response` (or `/error`).
+4. The container returns to a warm pool and is reused.
 
-1. Pulls the Docker image (if not already cached locally).
-2. Starts a container from the image, passing environment variables including `AWS_LAMBDA_RUNTIME_API`.
-3. The container's runtime bootstrapper calls `GET /runtime/invocation/next` on the Runtime API.
-4. Gopherstack sends the invocation payload.
-5. The runtime handler calls `POST /runtime/invocation/<id>/response` with the result.
-6. The container is returned to the **warm pool** for reuse.
+The Runtime API listens on a port allocated from `PORT_RANGE_START`-`PORT_RANGE_END`. The container must be able to reach `LAMBDA_DOCKER_HOST` (on Linux with the default Docker bridge, `172.17.0.1`).
 
-### Warm container pool
+Supported endpoints: `/2018-06-01/runtime/invocation/next`, `/2018-06-01/runtime/invocation/<id>/response`, `/2018-06-01/runtime/invocation/<id>/error`, `/2018-06-01/runtime/init/error`, plus the Extensions API (`register`, `event/next`, `init/error`, `exit/error`) and the Telemetry and Logs subscription APIs.
 
-Each function has a pool of pre-warmed containers (size configurable via `--lambda-pool-size`, default `3`). After a successful invocation the container is kept alive and reused for the next invocation. Containers that idle longer than `--lambda-idle-timeout` (default `10m`) are stopped and removed.
+## Warm pool
 
-### Runtime API endpoints
+Each function keeps up to `--lambda-pool-size` warm containers. Containers idle longer than `--lambda-idle-timeout` are stopped and removed.
 
-The Runtime API is served at `http://<LAMBDA_DOCKER_HOST>:<PORT>/_lambda_runtime/`:
+## Settings
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/runtime/invocation/next` | Long-poll for the next invocation |
-| `POST` | `/runtime/invocation/{id}/response` | Report a successful result |
-| `POST` | `/runtime/invocation/{id}/error` | Report a runtime error |
-| `POST` | `/runtime/init/error` | Report an initialisation error |
-
-`LAMBDA_DOCKER_HOST` must be the IP or hostname the container can use to reach Gopherstack. On Linux with the default Docker bridge this is `172.17.0.1`.
-
-## Configuration
-
-| Flag | Env Var | Default | Description |
+| Flag | Env var | Default | Description |
 |------|---------|---------|-------------|
-| `--lambda-docker-host` | `LAMBDA_DOCKER_HOST` | `172.17.0.1` | Host Lambda containers use to reach Gopherstack |
-| `--lambda-pool-size` | `LAMBDA_POOL_SIZE` | `3` | Warm container pool size per function |
+| `--lambda-docker-host` | `LAMBDA_DOCKER_HOST` | `172.17.0.1` | Host containers use to reach Gopherstack |
+| `--lambda-container-runtime` | `CONTAINER_RUNTIME` | `docker` | `docker`, `podman`, `auto` or `kubernetes` |
+| `--lambda-isolation` | `LAMBDA_ISOLATION` | `container` | `container`, `gvisor`, `kata` (`firecracker` is not supported) |
+| `--lambda-pool-size` | `LAMBDA_POOL_SIZE` | `3` | Warm containers per function |
 | `--lambda-idle-timeout` | `LAMBDA_IDLE_TIMEOUT` | `10m` | Idle container lifetime |
-| `--container-runtime` | `CONTAINER_RUNTIME` | `docker` | `docker`, `podman`, or `auto` |
-| `--container-host` | `CONTAINER_HOST` | `` | Override the Docker/Podman socket path |
+| `--lambda-max-runtimes` | `LAMBDA_MAX_RUNTIMES` | `50` | Maximum simultaneous runtimes |
+| `--lambda-keep-containers` | `LAMBDA_KEEP_CONTAINERS` | `false` | Keep containers after the function stops |
+| `--lambda-docker-flags` | `LAMBDA_DOCKER_FLAGS` | empty | Extra docker options for function containers |
+| `--lambda-strict-runtime-validation` | `LAMBDA_STRICT_RUNTIME_VALIDATION` | `false` | Reject deprecated runtimes |
+| `--lambda-disable-hot-reload` | `LAMBDA_DISABLE_HOT_RELOAD` | `false` | Disable hot reload from local directories |
+| `--lambda-hot-reload-interval-ms` | `LAMBDA_HOT_RELOAD_INTERVAL_MS` | `250` | Minimum time between hot-reload change scans |
 
-## Invocation modes
+Account limits, all default `0` (unset): `--lambda-account-concurrent-executions`, `--lambda-account-min-unreserved-concurrency`, `--lambda-account-total-code-size`, `--lambda-code-size-zipped`, `--lambda-code-size-unzipped`, `--lambda-create-function-request-size`, `--lambda-max-environment-bytes`.
 
-### Synchronous (`RequestResponse`)
+`CONTAINER_HOST` overrides the Podman socket path.
 
-The caller waits for the function to complete. The response body is returned directly.
-
-```bash
-aws --endpoint-url http://localhost:8000 lambda invoke \
-    --function-name my-function \
-    --payload '{"key":"value"}' \
-    response.json
-cat response.json
-```
-
-### Asynchronous (`Event`)
-
-The invocation returns immediately with HTTP 202. The function runs in the background.
+## Invoking
 
 ```bash
+# synchronous
 aws --endpoint-url http://localhost:8000 lambda invoke \
-    --function-name my-function \
-    --invocation-type Event \
-    --payload '{"key":"value"}' \
-    /dev/null
+    --function-name my-function --payload '{"key":"value"}' response.json
+
+# asynchronous: returns 202 immediately
+aws --endpoint-url http://localhost:8000 lambda invoke \
+    --function-name my-function --invocation-type Event --payload '{"key":"value"}' /dev/null
 ```
 
-## Event Source Mappings (SQS)
+## Event source mappings
 
-Create an ESM to trigger a function when messages arrive in an SQS queue:
+SQS, Kinesis, DynamoDB Streams and Kafka sources are supported. Gopherstack polls the source and delivers batches.
 
 ```bash
 aws --endpoint-url http://localhost:8000 lambda create-event-source-mapping \
     --function-name my-function \
     --event-source-arn arn:aws:sqs:us-east-1:000000000000:my-queue \
-    --batch-size 10 \
-    --enabled
+    --batch-size 10
 ```
-
-Gopherstack polls the SQS queue and delivers message batches to the function automatically.
 
 ## Function URLs
 
-Create a URL that can invoke the function directly via HTTP:
-
 ```bash
 aws --endpoint-url http://localhost:8000 lambda create-function-url-config \
-    --function-name my-function \
-    --auth-type NONE
+    --function-name my-function --auth-type NONE
 ```
 
-The returned URL points to the Gopherstack endpoint.
+The URL host is AWS-shaped: `<url-id>.lambda-url.<region>.on.aws`. Each URL gets a port from the allocator range. With [embedded DNS](dns.md) the name resolves to Gopherstack.
 
-## Podman support
+## Hot reload
 
-Gopherstack supports Podman as a Docker-compatible runtime.
+A function created with `Code.S3Bucket=hot-reload` and `Code.S3Key` set to a host directory runs that directory and reloads it when files change. Some host paths (`/proc`, `/etc`, `/root`, Docker and Podman state directories, ...) are refused.
+
+## Podman
 
 ```bash
-# Enable the Podman socket
 systemctl --user enable --now podman.socket
-
-# Point Gopherstack at Podman
 export CONTAINER_RUNTIME=podman
-# Optional: set socket path explicitly
-export CONTAINER_HOST=unix://${XDG_RUNTIME_DIR}/podman/podman.sock
-
-# Rootless networking — use host's routable IP
-export LAMBDA_DOCKER_HOST=host.containers.internal
-
+export CONTAINER_HOST=unix://${XDG_RUNTIME_DIR}/podman/podman.sock   # optional
+export LAMBDA_DOCKER_HOST=host.containers.internal                   # rootless networking
 gopherstack
 ```
 
 ## Troubleshooting
 
-**Container can't reach Gopherstack:**
-Set `LAMBDA_DOCKER_HOST` to the IP of the Docker bridge interface (`ip addr show docker0` on Linux).
-
-**Image pull fails:**
-Ensure `docker pull <image>` works from your shell before using Gopherstack.
-
-**Function times out:**
-Increase the function timeout with `--timeout` in `UpdateFunctionConfiguration`. Default is 3 seconds.
-
-**Cold starts are slow:**
-Increase `--lambda-pool-size` to keep more warm containers per function.
+| Problem | Fix |
+|---------|-----|
+| Container cannot reach Gopherstack | Set `LAMBDA_DOCKER_HOST` to the Docker bridge IP (`ip addr show docker0`) |
+| Image pull fails | Check that `docker pull <image>` works from your shell (registry credentials and mirrors are in the Docker guide) |
+| Cold starts are slow | Raise `--lambda-pool-size` |

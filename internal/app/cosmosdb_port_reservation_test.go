@@ -17,7 +17,7 @@ import (
 // port-reservation tests only need one "blocked" case -- CosmosDB's default
 // port (8081, the real Cosmos DB Local Emulator's own published default)
 // sits OUTSIDE that default range entirely, exactly like services/iot's
-// MQTT broker default (1883; see AZURE.md section 4). So this table is
+// MQTT broker default (1883). So this table is
 // deliberately the INVERSE of AzureTable's: the default-port case is
 // wantBlockedFromPool: false (8081 is simply outside 10000-10100, a no-op
 // Reserve call), and a SEPARATE custom-pool-range case

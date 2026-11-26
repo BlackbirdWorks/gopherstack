@@ -426,6 +426,31 @@ tasks:
     cmds:
       - go run ./cmd/gendocs
 
+  site-gen:
+    desc: Generate VitePress documentation site sources under site/
+    cmds:
+      - go run ./cmd/gendocs -site site -version "{{.BUILD_VERSION}}"
+
+  site-install:
+    desc: npm ci in site/
+    run: once
+    cmds:
+      - PATH="/opt/homebrew/bin:$PATH" npm --prefix site ci
+
+  site-dev:
+    desc: Generate docs site and start VitePress dev server
+    cmds:
+      - task: site-gen
+      - task: site-install
+      - PATH="/opt/homebrew/bin:$PATH" npm --prefix site run dev
+
+  site-build:
+    desc: Generate and build the static VitePress documentation site
+    cmds:
+      - task: site-gen
+      - task: site-install
+      - PATH="/opt/homebrew/bin:$PATH" npm --prefix site run build
+
   check-pins:
     desc: Verify PARITY.md sdk_module pins match go.mod
     cmds:

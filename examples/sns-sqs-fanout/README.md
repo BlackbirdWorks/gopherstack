@@ -1,40 +1,30 @@
-# SNS → SQS fan-out demo
+# sns-sqs-fanout
 
-Demonstrates the real fan-out plumbing inside gopherstack: an SNS publish is
-delivered to every SQS queue subscribed to the topic, by the SNS publish
-emitter that `internal/app/cli.go` wires to the SQS backend at startup.
+One SNS publish is delivered to every SQS queue subscribed to the topic.
 
-This is the same wiring AWS uses; the only difference is the storage is
-in-memory.
+## What it shows
 
-## Architecture
+1. `aws sns create-topic` for `orders`.
+2. `aws sqs create-queue` for `billing` and `shipping`.
+3. `aws sns subscribe` for both queues.
+4. `aws sns publish` with one JSON message.
+5. `aws sqs receive-message` on both queues. Each gets the message.
 
-```
-┌──────────────┐      publish        ┌────────────┐     fan-out    ┌──────────┐
-│ aws-cli demo │ ─────────────────► │  gopherstack │ ─────────────► │ billing  │
-└──────────────┘   SNS topic        │   :8000      │   SQS queue   └──────────┘
-                                    │              │                ┌──────────┐
-                                    │              │ ─────────────► │ shipping │
-                                    └────────────┘                  └──────────┘
-```
+## Prerequisites
 
-## What the demo does
+- Docker, AWS CLI v2.
 
-1. `aws sns create-topic --name orders`
-2. `aws sqs create-queue` for `billing` and `shipping`
-3. `aws sns subscribe` both queues to the topic
-4. `aws sns publish` one JSON message
-5. `aws sqs receive-message` from both queues — the message arrives at each
+## Run
 
-## Run it
-
-```sh
-cd examples/sns-sqs-fanout
-docker compose up --build --abort-on-container-exit
-docker compose down --remove-orphans
+```bash
+docker compose up -d --build
+export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_DEFAULT_REGION=us-east-1
+./demo.sh
 ```
 
-Expected (truncated):
+Set `ENDPOINT` to use a server other than `http://localhost:8000`.
+
+## Expected output
 
 ```
 TopicArn: arn:aws:sns:us-east-1:000000000000:orders
@@ -43,4 +33,12 @@ TopicArn: arn:aws:sns:us-east-1:000000000000:orders
 === Receive from shipping ===
 {"Messages": [{"Body": "{\"Type\":\"Notification\", ... }]}
 === SUCCESS: one publish fanned out to both queues ===
+```
+
+The CLI prints the JSON pretty-printed. The script exits non-zero if either queue is empty.
+
+## Clean up
+
+```bash
+docker compose down -v
 ```
