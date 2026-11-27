@@ -429,7 +429,7 @@ jobs:
 
       - name: Upload govulncheck SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           sarif_file: govulncheck.sarif
           category: govulncheck
@@ -1192,7 +1192,7 @@ jobs:
 
       - name: Check Coverage Thresholds
         id: coverage
-        uses: vladopajic/go-test-coverage@249eda999ac7e91238727277beec9b32b28a19b0 # v2
+        uses: vladopajic/go-test-coverage@6890500b00a7e5862e54662c04ea9fa7c799ce1e # v2
         with:
           profile: coverage.out
           config: .testcoverage.yml
