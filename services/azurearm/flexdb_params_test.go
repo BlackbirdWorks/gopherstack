@@ -128,7 +128,7 @@ func TestFlexParametersReachTheEngine(t *testing.T) {
 			props := c.get(t, s, c.static)
 			assert.True(t, isFalse(props["isConfigPendingRestart"]), "a restart applies static parameters")
 			assert.Equal(t, c.statValue, props["value"])
-			assert.Contains(t, eng.log(), "restart")
+			eng.awaitCall(t, "restart")
 		})
 
 		t.Run(c.name+" reset applies the default", func(t *testing.T) {

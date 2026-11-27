@@ -158,6 +158,7 @@ type fakeFlexEngine struct {
 	loaded   map[string]string
 	readOnly map[string]bool
 	params   map[string]map[string]azurearm.FlexParam
+	seen     map[string]chan struct{}
 	// dumpHold, when set, parks every dump until it is closed; dumpEntered then receives the dumped server and
 	// overlap is closed the moment two dumps run at once.
 	dumpHold    chan struct{}
@@ -332,8 +333,45 @@ func (f *fakeFlexEngine) loadedData(id string) string {
 
 func (f *fakeFlexEngine) record(call string) {
 	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	f.calls = append(f.calls, call)
+
+	ch := f.seenLocked(call)
+	select {
+	case <-ch:
+	default:
+		close(ch)
+	}
+}
+
+func (f *fakeFlexEngine) seenLocked(call string) chan struct{} {
+	if f.seen == nil {
+		f.seen = map[string]chan struct{}{}
+	}
+
+	ch, ok := f.seen[call]
+	if !ok {
+		ch = make(chan struct{})
+		f.seen[call] = ch
+	}
+
+	return ch
+}
+
+// awaitCall blocks until the engine has recorded call; async operations run on a goroutine.
+func (f *fakeFlexEngine) awaitCall(t *testing.T, call string) {
+	t.Helper()
+
+	f.mu.Lock()
+	ch := f.seenLocked(call)
 	f.mu.Unlock()
+
+	select {
+	case <-ch:
+	case <-t.Context().Done():
+		t.Fatalf("engine call %q never happened", call)
+	}
 }
 
 func (f *fakeFlexEngine) log() []string {
