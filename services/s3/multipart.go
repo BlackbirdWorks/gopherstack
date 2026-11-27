@@ -405,7 +405,7 @@ func (b *InMemoryBackend) validateAndExtractPart(
 		return nil, StoredObjectPart{}, nil, ErrInvalidPart
 	}
 
-	if *part.ETag != storedPart.ETag {
+	if strings.Trim(aws.ToString(part.ETag), `"`) != strings.Trim(storedPart.ETag, `"`) {
 		return nil, StoredObjectPart{}, nil, ErrInvalidPart
 	}
 
